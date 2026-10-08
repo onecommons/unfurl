@@ -140,6 +140,9 @@ struct Edit {
     base: Option<Ver>,
     /// For a delete, the value it removes (a tombstone's json).
     gone: Option<Ver>,
+    /// The commit of the committed row it was made over
+    /// (`base_commit_id`); the model doesn't track it.
+    base_commit: Option<CommitId>,
 }
 
 /// Today's three-way decision (`conflict::classify_conflict`), over
@@ -153,6 +156,30 @@ fn diverges(ver: Ver, deleted: bool, edit: Edit, theirs: Option<Ver>) -> bool {
         Some(t) => edit.base != Some(t),
         None => !deleted && edit.base.is_some(),
     }
+}
+
+/// `c` and every commit it descends from.
+fn ancestors_of(git: &Git, c: CommitId) -> BTreeSet<CommitId> {
+    let mut out = BTreeSet::from([c]);
+    let mut todo = vec![c];
+    while let Some(x) = todo.pop() {
+        for &p in &git.parents[x] {
+            if out.insert(p) {
+                todo.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// Where an export forks (C.20): the latest commit of `line`, a first-parent
+/// history oldest first, that each of `bases` descends from or is; its
+/// first commit when none is.
+fn export_base(git: &Git, line: &[CommitId], bases: &[CommitId]) -> usize {
+    let below: Vec<BTreeSet<CommitId>> = bases.iter().map(|&b| ancestors_of(git, b)).collect();
+    line.iter()
+        .rposition(|c| below.iter().all(|a| a.contains(c)))
+        .unwrap_or(0)
 }
 
 /// Where a scan lets the file's value win over a pending edit.

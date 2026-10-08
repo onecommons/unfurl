@@ -482,15 +482,33 @@ pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
     resolution: Resolution,
     expected_commit: Option<CommitRef>,
 ) -> Result<WriteOutcome> {
-    let w = sync.worktree_id();
+    let mut tx = pool.begin().await?;
     let at = At {
         file_path,
         path,
         key,
     };
-    let mut tx = pool.begin().await?;
-    let version = DB::next_version(&mut tx, sync.family_id(), 1).await?;
-    let Sides { d, theirs, ours } = conflict_sides(&mut tx, w, at).await?;
+    let outcome = resolve_conflict_in_tx(&mut tx, sync, at, resolution, expected_commit).await?;
+    tx.commit().await?;
+    Ok(outcome)
+}
+
+/// [`resolve_conflict_in_pool`] in the caller's transaction.
+pub(crate) async fn resolve_conflict_in_tx<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    sync: &SyncedRepo,
+    at: At<'_>,
+    resolution: Resolution,
+    expected_commit: Option<CommitRef>,
+) -> Result<WriteOutcome> {
+    let At {
+        file_path,
+        path,
+        key,
+    } = at;
+    let w = sync.worktree_id();
+    let version = DB::next_version(tx, sync.family_id(), 1).await?;
+    let Sides { d, theirs, ours } = conflict_sides(tx, w, at).await?;
     if let Some(exp) = expected_commit.as_ref() {
         enforce_conflict(
             file_path,
@@ -505,20 +523,19 @@ pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
     // `Ours` restates no value, so it cannot be checked against the file
     // now — it records the decision and the next write checks it.
     if resolution == Resolution::Ours {
-        DB::set_conflict_state(&mut tx, theirs.id, ConflictState::Resolved, version).await?;
-        tx.commit().await?;
+        DB::set_conflict_state(tx, theirs.id, ConflictState::Resolved, version).await?;
         return Ok(WriteOutcome {
             id: theirs.key_id,
             version,
         });
     }
-    segments::drop_conflict(&mut tx, d, at).await?;
+    segments::drop_conflict(tx, d, at).await?;
     let key_id = match &resolution {
         // The edit is withdrawn, and the file's value stands: taken in
         // where the committed chain doesn't already hold it.
         Resolution::Theirs => {
-            segments::remove_draft_row(&mut tx, d, at).await?;
-            let committed = DB::visible(&mut tx, w, Scope::Chain, Filter::At(at))
+            segments::remove_draft_row(tx, d, at).await?;
+            let committed = DB::visible(tx, w, Scope::Chain, Filter::At(at))
                 .await?
                 .into_iter()
                 .find(|r| !r.deleted);
@@ -531,7 +548,7 @@ pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
                 };
                 // the file's value continues the record, unless git has it
                 // at another place
-                let elsewhere = DB::visible(&mut tx, w, Scope::Chain, Filter::KeyId(ours.key_id))
+                let elsewhere = DB::visible(tx, w, Scope::Chain, Filter::KeyId(ours.key_id))
                     .await?
                     .iter()
                     .any(|r| !r.deleted && r.at() != at);
@@ -544,10 +561,10 @@ pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
                 // a commit that holds the file
                 let commit = match committed.as_ref().and_then(|r| r.commit_id.clone()) {
                     Some(c) => Some(c),
-                    None => DB::head_commit(&mut tx, w).await?,
+                    None => DB::head_commit(tx, w).await?,
                 };
                 let written = segments::write(
-                    &mut tx,
+                    tx,
                     w,
                     at,
                     value,
@@ -563,7 +580,7 @@ pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
         }
         Resolution::Delete => {
             segments::write(
-                &mut tx,
+                tx,
                 w,
                 at,
                 Value::Deleted,
@@ -576,7 +593,7 @@ pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
         }
         Resolution::Merged(json) => {
             let written = segments::write(
-                &mut tx,
+                tx,
                 w,
                 at,
                 Value::Live(json),
@@ -585,7 +602,7 @@ pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
                 version,
             )
             .await?;
-            let format_owner = DB::file_format(&mut tx, w, file_path).await?;
+            let format_owner = DB::file_format(tx, w, file_path).await?;
             let aliases = compute_aliases(
                 sync,
                 format_owner.as_deref(),
@@ -595,12 +612,11 @@ pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
                 key,
                 json,
             );
-            DB::replace_aliases(&mut tx, written.id, &aliases).await?;
+            DB::replace_aliases(tx, written.id, &aliases).await?;
             written.key_id
         }
         Resolution::Ours => unreachable!("handled above"),
     };
-    tx.commit().await?;
     Ok(WriteOutcome {
         id: key_id,
         version,

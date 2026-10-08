@@ -52,9 +52,10 @@ async fn cloudmap_end_to_end_sqlite() {
     assert_eq!(new_repo.get("name").and_then(|v| v.as_str()), Some("x"));
 
     let oid = sync
-        .commit_repository("test commit")
+        .commit_repository("test commit", Default::default())
         .await
         .expect("commit_repository")
+        .commit
         .expect("commit produced");
 
     let after = sync

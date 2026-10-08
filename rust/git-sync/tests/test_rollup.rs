@@ -81,9 +81,10 @@ async fn rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tmp: &
     let wd = sync.get_working_dir().await.expect("get_working_dir");
 
     let oid = sync
-        .commit_repository("Update cloudmap")
+        .commit_repository("Update cloudmap", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("something was dirty");
 
     let body = head_commit_body(tmp.path());
@@ -236,9 +237,10 @@ async fn keys_needing_quoting_round_trip(sync: &SyncedRepo, tmp: &TempDir) {
     .await
     .expect("batch");
 
-    sync.commit_repository("Update cloudmap")
+    sync.commit_repository("Update cloudmap", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("dirty");
 
     let body = head_commit_body(tmp.path());
@@ -274,9 +276,10 @@ async fn commit_without_txns_still_records_the_counter(sync: &SyncedRepo, tmp: &
     .await
     .expect("upsert");
 
-    sync.commit_repository("just the subject")
+    sync.commit_repository("just the subject", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("something was dirty");
 
     let body = head_commit_body(tmp.path());

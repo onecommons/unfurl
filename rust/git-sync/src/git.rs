@@ -309,25 +309,11 @@ pub fn commit_paths_onto(
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(Error::Io(e)),
         };
-        let segments: Vec<String> = rel.split('/').map(|s| s.to_string()).collect();
-        if segments.iter().any(|s| s.is_empty()) {
-            return Err(Error::Other(format!("invalid path for commit: {rel}")));
-        }
-        updates.push((segments, blob_oid));
+        updates.push((path_segments(rel)?, blob_oid));
     }
 
     let parents: Vec<gix::ObjectId> = parent.into_iter().collect();
-    let head_tree_oid = match parents.first() {
-        Some(cid) => Some(
-            repo.find_commit(*cid)
-                .map_err(git_err)?
-                .tree_id()
-                .map_err(git_err)?
-                .detach(),
-        ),
-        None => None,
-    };
-
+    let head_tree_oid = parents.first().map(|&c| tree_of(repo, c)).transpose()?;
     let new_tree_oid = build_tree_with_updates(repo, head_tree_oid, &updates)?;
 
     // gix updates HEAD only if it still names `parent`
@@ -351,6 +337,173 @@ pub fn commit_paths_onto(
         .map_err(git_err)?;
 
     Ok(id.detach())
+}
+
+/// A commit of `parent`'s tree with `files` overlaid -- each path's new
+/// bytes, or `None` to remove it -- that moves no ref and touches neither
+/// the working tree nor the index.
+pub fn commit_files_onto(
+    repo: &gix::Repository,
+    parent: gix::ObjectId,
+    files: &[(String, Option<Vec<u8>>)],
+    message: &str,
+) -> Result<gix::ObjectId> {
+    let mut updates: Vec<TreeUpdate> = Vec::with_capacity(files.len());
+    for (rel, bytes) in files {
+        let blob = bytes
+            .as_ref()
+            .map(|b| repo.write_blob(b).map(|id| id.detach()))
+            .transpose()
+            .map_err(git_err)?;
+        updates.push((path_segments(rel)?, blob));
+    }
+    let tree = build_tree_with_updates(repo, Some(tree_of(repo, parent)?), &updates)?;
+    let author = repo
+        .author()
+        .ok_or_else(|| Error::Git("no author configured".to_string()))?
+        .map_err(git_err)?;
+    let committer = repo
+        .committer()
+        .ok_or_else(|| Error::Git("no committer configured".to_string()))?
+        .map_err(git_err)?;
+    let commit = gix::objs::Commit {
+        message: message.into(),
+        tree,
+        author: author.into(),
+        committer: committer.into(),
+        encoding: None,
+        parents: std::iter::once(parent).collect(),
+        extra_headers: Vec::new(),
+    };
+    Ok(repo.write_object(&commit).map_err(git_err)?.detach())
+}
+
+/// Create branch `name` at `oid`; [`Error::BranchExists`] if it exists.
+pub fn create_branch(repo: &gix::Repository, name: &str, oid: gix::ObjectId) -> Result<()> {
+    let full = format!("refs/heads/{name}");
+    let exists = || Error::BranchExists {
+        branch: name.to_string(),
+    };
+    if repo
+        .try_find_reference(full.as_str())
+        .map_err(git_err)?
+        .is_some()
+    {
+        return Err(exists());
+    }
+    match repo.reference(
+        full.as_str(),
+        oid,
+        gix::refs::transaction::PreviousValue::MustNotExist,
+        "git-sync: branch",
+    ) {
+        Ok(_) => Ok(()),
+        // created since the check
+        Err(_)
+            if repo
+                .try_find_reference(full.as_str())
+                .map_err(git_err)?
+                .is_some() =>
+        {
+            Err(exists())
+        }
+        Err(e) => Err(git_err(e)),
+    }
+}
+
+/// The commit branch `name` names, if it exists.
+pub fn branch_tip(repo: &gix::Repository, name: &str) -> Result<Option<gix::ObjectId>> {
+    Ok(repo
+        .try_find_reference(format!("refs/heads/{name}").as_str())
+        .map_err(git_err)?
+        .and_then(|r| r.target().try_id().map(|id| id.to_owned())))
+}
+
+/// Move branch `name` from `from` to `to`; an error if it isn't at `from`.
+pub fn move_branch(
+    repo: &gix::Repository,
+    name: &str,
+    from: gix::ObjectId,
+    to: gix::ObjectId,
+) -> Result<()> {
+    use gix::refs::transaction::PreviousValue;
+    repo.reference(
+        format!("refs/heads/{name}").as_str(),
+        to,
+        PreviousValue::MustExistAndMatch(gix::refs::Target::Object(from)),
+        "git-sync: commit",
+    )
+    .map_err(git_err)?;
+    Ok(())
+}
+
+/// Delete branch `name` if it still names `oid`; otherwise leave it.
+pub fn delete_branch_if_at(repo: &gix::Repository, name: &str, oid: gix::ObjectId) -> Result<()> {
+    use gix::refs::transaction::{Change, PreviousValue, RefEdit, RefLog};
+    let full = format!("refs/heads/{name}");
+    let Some(r) = repo.try_find_reference(full.as_str()).map_err(git_err)? else {
+        return Ok(());
+    };
+    if r.target().try_id() != Some(oid.as_ref()) {
+        return Ok(());
+    }
+    repo.edit_reference(RefEdit {
+        change: Change::Delete {
+            expected: PreviousValue::MustExistAndMatch(gix::refs::Target::Object(oid)),
+            log: RefLog::AndReference,
+        },
+        name: r.name().to_owned(),
+        deref: false,
+    })
+    .map_err(git_err)?;
+    Ok(())
+}
+
+/// Where conflicts based on `bases` are exported from (C.20): the latest
+/// commit on `head`'s first-parent line that each of `bases` is or
+/// descends from, else that line's first commit. A base this repository
+/// doesn't have descends from nothing.
+pub fn export_base(
+    repo: &gix::Repository,
+    head: gix::ObjectId,
+    bases: &[String],
+) -> Result<gix::ObjectId> {
+    let mut below: Vec<HashSet<gix::ObjectId>> = Vec::with_capacity(bases.len());
+    for b in bases {
+        below.push(match present(repo, b)? {
+            Some(oid) => reachable(repo, oid)?,
+            None => HashSet::new(),
+        });
+    }
+    let mut at = head;
+    loop {
+        if below.iter().all(|a| a.contains(&at)) {
+            return Ok(at);
+        }
+        match parents(repo, at)?.first() {
+            Some(&p) => at = p,
+            None => return Ok(at),
+        }
+    }
+}
+
+/// `commit`'s tree.
+fn tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::ObjectId> {
+    Ok(repo
+        .find_commit(commit)
+        .map_err(git_err)?
+        .tree_id()
+        .map_err(git_err)?
+        .detach())
+}
+
+/// `rel` as tree path segments; an empty segment is an invalid path.
+fn path_segments(rel: &str) -> Result<Vec<String>> {
+    let segments: Vec<String> = rel.split('/').map(str::to_string).collect();
+    if segments.iter().any(String::is_empty) {
+        return Err(Error::Other(format!("invalid path for commit: {rel}")));
+    }
+    Ok(segments)
 }
 
 /// [`Error::HeadMoved`] unless `HEAD` names `expected`.
@@ -1070,6 +1223,72 @@ mod history_tests {
         );
         assert_eq!(merge_base(&h.repo, &h.merge, &h.orphan).unwrap(), None);
         assert_eq!(merge_base(&h.repo, &h.merge, MISSING).unwrap(), None);
+    }
+
+    #[test]
+    fn export_bases() {
+        let h = history();
+        let oid = |s: &str| gix::ObjectId::from_hex(s.as_bytes()).expect("oid");
+        let base = |bases: &[&String]| {
+            let bases: Vec<String> = bases.iter().map(|b| b.to_string()).collect();
+            export_base(&h.repo, oid(&h.merge), &bases)
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(base(&[]), h.merge, "no bases: HEAD");
+        assert_eq!(base(&[&h.m1]), h.m1);
+        assert_eq!(base(&[&h.m1, &h.root]), h.root, "the oldest");
+        // f1 is off the first-parent line: what it descends from on it
+        assert_eq!(base(&[&h.f1]), h.root);
+        let missing = MISSING.to_string();
+        assert_eq!(base(&[&missing]), h.root, "a base gone: the line's first");
+        assert_eq!(base(&[&h.orphan]), h.root);
+    }
+
+    #[test]
+    fn a_commit_onto_a_parent_moves_nothing() {
+        let h = history();
+        let d = h.repo.work_dir().expect("work dir").to_path_buf();
+        let head = run(&d, &["rev-parse", "HEAD"]);
+        let parent = gix::ObjectId::from_hex(h.merge.as_bytes()).expect("oid");
+        let files = vec![
+            ("a.yaml".to_string(), Some(b"changed".to_vec())),
+            ("b.yaml".to_string(), None),
+            ("new/n.yaml".to_string(), Some(b"new".to_vec())),
+        ];
+        let c = commit_files_onto(&h.repo, parent, &files, "export").expect("commit");
+        let c = c.to_string();
+        assert_eq!(commit_parents(&h.repo, &c).unwrap(), vec![h.merge.clone()]);
+        let at = |path: &str| read_blob_at_commit(&h.repo, &c, path).unwrap();
+        assert_eq!(at("a.yaml").as_deref(), Some(&b"changed"[..]));
+        assert_eq!(at("b.yaml"), None);
+        assert_eq!(at("new/n.yaml").as_deref(), Some(&b"new"[..]));
+        assert_eq!(run(&d, &["rev-parse", "HEAD"]), head, "HEAD didn't move");
+        run(&d, &["diff", "--cached", "--quiet"]);
+        assert!(
+            run(&d, &["branch", "--contains", &c]).is_empty(),
+            "no branch names it"
+        );
+    }
+
+    #[test]
+    fn branches_are_created_once_and_deleted_where_they_point() {
+        let h = history();
+        let oid = |s: &str| gix::ObjectId::from_hex(s.as_bytes()).expect("oid");
+        create_branch(&h.repo, "exported", oid(&h.m1)).expect("create");
+        let again = create_branch(&h.repo, "exported", oid(&h.root));
+        assert!(
+            matches!(&again, Err(Error::BranchExists { branch }) if branch == "exported"),
+            "{again:?}"
+        );
+        let d = h.repo.work_dir().expect("work dir").to_path_buf();
+        let tip = || run(&d, &["rev-parse", "refs/heads/exported"]);
+        assert_eq!(tip(), h.m1, "the failed create left it");
+        delete_branch_if_at(&h.repo, "exported", oid(&h.root)).expect("delete");
+        assert_eq!(tip(), h.m1, "it names another commit: kept");
+        delete_branch_if_at(&h.repo, "exported", oid(&h.m1)).expect("delete");
+        assert!(run(&d, &["branch", "--list", "exported"]).is_empty());
+        delete_branch_if_at(&h.repo, "exported", oid(&h.m1)).expect("gone already");
     }
 
     #[test]

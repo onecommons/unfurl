@@ -1200,6 +1200,212 @@ other worktrees may share, and they assume the open head is exclusive.
 Forks and users' branches join their upstream's family, so they share
 its lock ([§6](#6-behaviour-changes)).
 
+### 4.15 Remotes: pulling, pushing and conflicts
+
+Proposed; none of it is implemented. git-sync doesn't fetch, pull or
+push today. It reacts to whatever it finds at `HEAD` and in the working
+tree, so a pull or push is someone else's job, and the next scan takes
+in its result ([§4.3](#43-scan-moving-forward),
+[§4.8](#48-rebuilding-after-a-rewrite)).
+
+The aim is to pull and push without ever leaving conflict markers in a
+working tree. A divergence between our changes and the remote's is
+handled where it is cheapest:
+- **In the database,** as record conflicts, where both sides and the
+  base are already known ([§4.11](#411-conflicts)).
+- **In git,** when someone would rather resolve it there: the conflicting
+  edits go to a branch of their own, to merge like any other.
+
+Two building blocks come first.
+
+**A. Branches without a checkout.** Today every tracked branch is a
+`SyncedRepo` on a checkout. A branch here is a worktree row with no
+checkout, whose state is its ref's commit.
+- **Advancing it** uses only the committed side of the scan. When the
+  ref's tip descends from `worktree.commit_id`, `head_files` and
+  `advance_head` read the changed blobs from the commits, not from a
+  disk. When it doesn't, it rebuilds ([§4.8](#48-rebuilding-after-a-rewrite)).
+- **It has no draft writes.** Edits to it are made in git, by whoever
+  resolves its conflicts.
+- **It is deleted when its ref is.** A sweep over the family's
+  checkout-less branches deletes each whose ref is gone
+  ([C.19](#c19-delete-a-worktree)), on the main worktree's scan or
+  periodically. Compaction then collects what only it used.
+- **Phase 3's user branches are the starting point,** not the whole
+  of it ([§4.12](#412-layered-reads-user-branches-and-private-overlays)).
+  They're checkout-less worktree rows too, but with an empty head and
+  only a draft, and no ref until they're published, which checks them
+  out ([C.15](#c15-publish-a-user-branch)). A branch here has commits,
+  follows a ref, is committed to without a checkout, and goes when its
+  ref does.
+
+**B. Moving draft rows into another worktree's head.** Nothing in
+phases 1–3 does this: rows only ever move within one worktree. Here a
+worktree's edits go to a branch forked for them: a copy of each into the
+branch's draft, with its `key_id`, `version`, base and content, which the commit fold
+([§4.4](#44-commit), [C.12](#c12-commit-fold-the-draft-into-the-head))
+then carries into the branch's head, as any fold does.
+- **Entries:** none are copied. Re-linking the branch's draft
+  ([C.11](#c11-re-link-a-worktrees-draft)) makes it supersede what the
+  branch shows at each place it holds. The source's entries at other
+  places hide the record where its history moved it from, which the
+  branch's needn't have done.
+- **What the source does:** it resolves each conflict for the file, which
+  withdraws its edit and takes the file's value in.
+
+#### Exporting conflicts to a branch
+
+`export_conflicts(name)` hands a worktree's record conflicts to git
+([C.20](#c20-export-a-worktrees-conflicts-to-a-branch)).
+1. **Pick the base:** the latest commit on `HEAD`'s first-parent line
+   that every conflicted edit's `base_commit_id` descends from or is. With
+   no bases (records both sides created) that's `HEAD`; where no commit of
+   the line qualifies (a base a rewrite dropped), it's the line's first
+   commit. A three-way merge from an older base can add conflicts, never
+   hide one.
+2. **Fork** a checkout-less worktree at the base
+   ([§4.5](#45-creating-a-branch-or-fork), splitting the segment if the
+   base falls inside one, [§4.7](#47-splitting-a-segment)), and move the
+   conflicted edits into its draft. A ref or worktree of that name that
+   already exists is an error; no other name is chosen. Edits that don't
+   conflict stay in the source's draft, to be saved and committed there
+   as usual.
+3. **Render in memory.** For each file the branch's draft has edits in,
+   apply them to the file's blob at the base: `apply_pending_records`
+   with no conflict check, on bytes from git rather than the disk.
+4. **Commit** that onto the base, with a rollup naming the moved
+   batches, so who wrote what survives, and fold it into the branch's
+   head (B). Nothing is checked out.
+
+The source worktree resolves each exported conflict for the file, as
+`resolve_conflict(Theirs)` does, so it's conflict-free for those records
+and its view shows the file's value. On the branch, an edit whose record
+the base has at another key (main moved it since) becomes a new record:
+the branch's tree holds both, and merging back conflicts where they
+meet. Resolving is ordinary git: merge the branch into
+the source branch, fixing any textual conflicts, and the source's next
+scan takes the merge in as content. It holds no pending edits for those
+records any more, so nothing diverges and no `Git-Sync-Resolves-Version`
+trailer is needed. The records keep their ids through the merge by the
+branch's rollup, once the rollup lookup walks merges made outside the
+database (phase 4); until then a record can get a new id there.
+
+Behaviour changes:
+- **The edits leave the source's view.** Tokens clients hold for them
+  stop matching, and `list_changes` no longer lists them as pending. The
+  export reports the branch they went to.
+- **Git can report more than the database did.** It merges by line, so
+  two neighbouring records can conflict textually though neither does as
+  records. That over-reports; it never loses an edit.
+
+**From `commit_repository`.** A commit can export the conflicts it finds,
+as an option: `commit_repository(message, CommitOptions {
+conflicts_to_branch: Some(name) })`, a change to its signature. The
+export runs after the commit's scan and before its save:
+1. **Scan,** as every commit does. This is what finds a hand edit's or an
+   outside commit's divergences.
+2. **Export** the worktree's conflicts, as above, if there are any. The
+   draft then holds only edits that don't conflict.
+3. **Save and commit** as usual. Neither sees the exported edits: the
+   fold's selection has no rows for them, and the rollup doesn't name
+   them.
+
+It returns the new commit, if any, and the branch, if one was made.
+- **A batch can be split between the two commits,** when some of its
+  records conflicted and others didn't. Each commit's rollup names its
+  share of the batch's records, under the batch's author and message. A
+  `txn` row is stamped with one commit, so the export copies the batch's
+  row to the branch's worktree, with the same author, message and
+  version range, and each copy is stamped by its own worktree's commit. A
+  batch whose records all went is moved rather than copied: left behind
+  unstamped, it would be outstanding in the source for good, and named,
+  empty, in every later rollup there.
+- **`HeadMoved` is retried inside `commit_repository`,** after the
+  export: it scans and commits again, without exporting again, and
+  returns the first attempt's `Exported`. Retrying from outside would
+  lose it, since the retry's scan finds nothing left to export. The
+  server's own retry then has nothing to do for this call.
+- **Without the option, nothing changes:** the conflicts stay in the
+  worktree, and the commit carries the file's values as now
+  ([§4.11](#411-conflicts)).
+
+#### Pulling
+
+1. **Fetch.** Nothing local changes.
+2. **If `HEAD` can fast-forward to upstream,** move it and scan. Pending
+   edits that the new commits diverge from become record conflicts, as
+   for any commit made outside git-sync.
+3. **If the histories have diverged,** rebase in the database rather
+   than merge in git:
+   1. **Unfold** the local commits, from the merge base to `HEAD`, into
+      draft rows based at the merge base: the fold in reverse. Each batch
+      keeps its `txn` row, unstamped, so its author and message survive
+      the re-commit. A commit without a rollup is unfolded from its tree
+      diff, with ids found as a scan finds them.
+   2. **Save** any other pending edits first, so the working tree holds
+      nothing the reset would lose.
+   3. **Reset** the branch and working tree to upstream. The next scan
+      rebuilds ([§4.8](#48-rebuilding-after-a-rewrite)), keeping the
+      draft and classifying each edit against upstream's value: one
+      upstream didn't change stays pending; one it changed becomes a
+      record conflict.
+   4. **Commit** what doesn't conflict onto upstream
+      (`commit_repository`).
+   5. **Leave the conflicts** in the database to resolve, or export them
+      (above).
+
+The result is linear history with no merge commits and no conflict
+markers, and only records that truly conflict are held back. History is
+rewritten, which is safe only because the commits rewritten were never
+pushed.
+
+**What isn't a record doesn't survive the unfold.** The reset drops
+anything in the local commits that has no row to go into: files no
+format handles, comments, ordering and layout in a document outside its
+record values, and prose around a literate cloudmap's blocks. So before
+unfolding, check whether any local commit since the merge base changes
+something the unfold can't represent, and either:
+- **divert** (the push fallback below): push local `HEAD` to a new ref and
+  reset, which loses nothing; or
+- **merge the rest** with gix's in-memory three-way tree merge (merge
+  base, local, upstream) for everything but the records, rebase the
+  records in the database as above, and commit the merged tree onto
+  upstream. A text conflict there needs the diversion, or an export.
+
+Diverting is the simpler first version.
+
+#### Pushing
+
+1. **Push** the branch.
+2. **On a non-fast-forward rejection,** pull (above), then push again,
+   up to a few times while upstream keeps moving. Records that conflict
+   are exported to a branch, which is pushed under a new name.
+3. **The fallback is to divert the whole push.** When the rebase can't
+   run, or the retries run out, push local `HEAD` to a new remote ref
+   instead. A new ref can't be rejected as a non-fast-forward. In the
+   database the new branch takes over the local commits: it's a
+   checkout-less fork at local `HEAD`, sharing its segments, and the
+   local branch is reset to upstream and rebuilt. Pending edits stay in
+   its draft, classified against upstream as above.
+
+A rejection for any other reason (permissions, a protected branch, a
+server-side hook, a name already taken) fails the push and changes
+nothing locally.
+
+**What it needs:**
+- **gix 0.89 or later,** with its `merge` feature for the tree merge, and
+  `blocking-network-client` for fetch. Upgrading from 0.66 is due anyway
+  for security advisories (RUSTSEC-2025-0021, RUSTSEC-2025-0140).
+- **Push,** which gix (0.89 too) doesn't do: the `git` command line or
+  git2. Credentials come from wherever the server's existing pushes get
+  theirs. Nor does it rebase, which the unfold makes unnecessary.
+- **Exclusive use of the checkout** for a reset. Pulling and pushing hold
+  the family lock only for their structural steps
+  ([§4.14](#414-concurrency)); the network and gix work happens outside
+  it, as the scan's does. A write that lands meanwhile is caught by
+  `write_seq` or `HeadMoved`, as now, but the reset itself has to be
+  kept from running under a render.
+
 ## 5. Performance
 
 **Reads.**
@@ -1381,6 +1587,18 @@ Still open:
     that the `Git-Sync-Family` trailer's origin changes for later
     commits. Giving families an identity of their own, independent of any
     worktree, would avoid the choice.
+11. **Remotes ([§4.15](#415-remotes-pulling-pushing-and-conflicts)):**
+    - Who triggers a pull: the server on a schedule, before each commit,
+      or a client request?
+    - Exported and diverted branch names: generated, or the caller's?
+    - Should a pull, or a server-made commit, export its conflicts by
+      default, or leave them in the database until someone asks?
+    - How many push retries before diverting?
+    - Unfolding a commit without a rollup finds ids as a scan does, so
+      a record can come back with a new id. Is that acceptable, or does
+      such a commit force the fallback?
+    - Local commits that change more than records: divert them, or
+      merge the rest with gix's tree merge (§4.15, Pulling)?
 
 ## 10. Verification plan
 
@@ -2619,7 +2837,9 @@ INSERT INTO worktree_segment (worktree_id, segment_id, added_version, inherited)
 VALUES (:nw, :h_nw, 0, FALSE);
 
 -- committed files only: a pending deletion or a file only W's draft
--- registered isn't part of the commit
+-- registered isn't part of the commit. (Not what was built: the fork
+-- creates no file rows, and its first scan creates them. C.20 relies on
+-- that, and has C.10 create them.)
 INSERT INTO file (worktree_id, path, format, commit_id, source_oid, committed_oid)
 SELECT :nw, path, format, commit_id, committed_oid, committed_oid
 FROM file
@@ -2928,4 +3148,105 @@ WHERE family_id = :w
 DELETE FROM worktree WHERE id = :w;
 
 -- then C.14, for internal segments no chain holds any more
+```
+
+### C.20 Export a worktree's conflicts to a branch
+
+[§4.15](#415-remotes-pulling-pushing-and-conflicts); `src/export.rs`. W's
+draft is `:d`. In order:
+
+1. **Pick the base** `:base`, outside any transaction: the latest commit
+   on HEAD's first-parent line that each conflicted edit's
+   `base_commit_id` descends from or is, or that line's first commit when
+   there's none (a base a rewrite dropped from history has no ancestor to
+   merge from).
+2. **Render** the edits onto `:base`'s blobs, to fail here, with nothing
+   changed, on a file that can't be rendered there (a literate document
+   the base doesn't have, say). Step 4 renders again, from `:n`'s draft.
+3. **Claim the name:** create the ref `:branch` at `:base`, which must not
+   exist, nor a worktree `(:origin, :branch)`. If the transaction below
+   fails, the ref is deleted again while it still names `:base`.
+4. **Move the edits,** in one transaction holding the family lock
+   (§4.14), below. It also gives `:n` W's file rows, with their blobs at
+   `:base`: a fork has none, and `:n` has no checkout to scan.
+5. **Commit:** render `:n`'s draft onto `:base`'s blobs, with the rollup
+   of `:n`'s batches, as the commit `:commit` whose parent is `:base`, and
+   move the ref to it. When the edits change nothing there, `:commit` is
+   `:base`.
+6. **Fold** `:n`'s draft into its head at `:commit` (C.12), and bring the
+   head up to its tree (C.10). With `:n`'s file rows at the base, only
+   the files the export changed are parsed.
+
+The commit is written after the move because its rollup names ids that
+only the move settles (step 2 below renews some). Between the two, the
+edits are in `:n`'s draft, where nothing else writes. A failure there
+loses nothing: an export of the same `:branch` finds `:n` with an
+uncommitted draft and the ref still at its base, and finishes steps 5
+and 6.
+
+```sql
+-- the edits that go: W's pending edits at a key with an unresolved
+-- conflict row. A 'resolved' conflict is the client's call already, and
+-- stays.
+CREATE TEMP TABLE exported ON COMMIT DROP AS
+SELECT e.id, e.key_id, e.file_path, e.path, e.key, e.version
+FROM record e
+WHERE e.segment_id = :d AND e.conflict IS NULL AND e.commit_id IS NULL
+  AND EXISTS (SELECT 1 FROM record c
+              WHERE c.segment_id = :d AND c.conflict = 'conflict'
+                AND c.file_path = e.file_path
+                AND c.path = e.path AND c.key = e.key);
+
+-- guard: these are the edits the base was picked for. A write replaces a
+-- draft row with a new one, so a set of ids that differs means a write
+-- landed since: roll back, delete the ref, and start again.
+SELECT id FROM exported ORDER BY id;
+
+-- the new worktree :n, forked at :base: C.16 places it, C.17 splits the
+-- segment it falls inside, and C.13 creates :n with head :hn and draft :dn
+
+-- 1. a copy of each goes to :dn as it is: key_id, version, base, settled
+--    and content
+INSERT INTO record (key_id, segment_id, file_path, path, key, commit_id, json,
+                    deleted, version, base_commit_id, base_json, settled)
+SELECT key_id, :dn, file_path, path, key, NULL, json,
+       deleted, version, base_commit_id, base_json, settled
+FROM record WHERE id IN (SELECT id FROM exported);
+
+-- 2. a copy whose record :n's chain shows live at another place is a new
+--    record there, as an edit that can't follow its record is renewed
+--    (§3.5): the base has the record elsewhere, and two places can't share
+--    an id
+
+-- 3. W resolves each exported conflict for the file, as
+--    resolve_conflict(Theirs) does: its edit is withdrawn with its
+--    entries, the file's value is taken in, with the key_id a scan gives
+--    it, and the file's write_seq moves, so a render W made before this
+--    loses
+
+-- 4. batches: copied to :n where some of their edits stay in W's draft,
+--    moved where none do. One left behind with nothing in it would be
+--    outstanding in W for good.
+INSERT INTO txn (worktree_id, first_version, last_version, author, message, created_at)
+SELECT :n, t.first_version, t.last_version, t.author, t.message, t.created_at
+FROM txn t
+WHERE t.worktree_id = :w AND t.commit_id IS NULL
+  AND EXISTS (SELECT 1 FROM exported k
+              WHERE k.version BETWEEN t.first_version AND t.last_version)
+  AND EXISTS (SELECT 1 FROM record r
+              WHERE r.segment_id = :d AND r.conflict IS NULL AND r.commit_id IS NULL
+                AND r.version BETWEEN t.first_version AND t.last_version);
+
+UPDATE txn SET worktree_id = :n
+WHERE worktree_id = :w AND commit_id IS NULL
+  AND EXISTS (SELECT 1 FROM exported k
+              WHERE k.version BETWEEN txn.first_version AND txn.last_version)
+  AND NOT EXISTS (SELECT 1 FROM record r
+                  WHERE r.segment_id = :d AND r.conflict IS NULL AND r.commit_id IS NULL
+                    AND r.version BETWEEN txn.first_version AND txn.last_version);
+
+-- 5. C.11 re-links :dn against :n's chain: it supersedes what :n shows at
+--    each place it holds. W's entries aren't copied: those at other places
+--    hide the record where W's history moved it from, which :n's needn't
+--    have done.
 ```

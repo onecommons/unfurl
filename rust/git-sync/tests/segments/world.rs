@@ -38,6 +38,8 @@ enum Op {
     /// A commit made outside the database moving a record to the other
     /// file, edited too with `.2`, then scanned.
     Move(u8, Key, bool),
+    /// Export a worktree's unresolved conflicts to a new branch (C.20).
+    Export(u8),
     /// A merge made outside the database into a worktree's head of other
     /// worktrees' commits (each a worktree and how far back), checked out
     /// and scanned. `.3` picks each conflicting key's side, and `.4` are
@@ -103,6 +105,22 @@ fn rebase_op() -> impl Strategy<Value = Op> {
         1 => (any::<u8>(), 0u8..4).prop_map(|(w, b)| Op::Fork(w, b)),
         2 => (any::<u8>(), any::<u8>(), any::<u8>(), 0..KEYS, prop::bool::weighted(0.2))
             .prop_map(|(w, u, b, k, d)| Op::Rebase(w, u, b, k, d)),
+    ]
+}
+
+/// [`op`] with exports, kept out of it so the seeds saved under it replay
+/// the same histories. Weighted toward what an export needs: edits, and
+/// hand edits and outside commits that conflict with them, on bases of
+/// different ages.
+fn export_op() -> impl Strategy<Value = Op> {
+    let key = 0..KEYS;
+    prop_oneof![
+        3 => op(),
+        4 => (any::<u8>(), key.clone(), prop::bool::weighted(0.2)).prop_map(|(w, k, d)| Op::Write(w, k, d)),
+        2 => any::<u8>().prop_map(Op::Commit),
+        3 => (any::<u8>(), key.clone(), prop::bool::weighted(0.2)).prop_map(|(w, k, d)| Op::DiskEdit(w, k, d, FileWins::Never)),
+        2 => (any::<u8>(), prop::collection::vec((key, prop::bool::weighted(0.2)), 1..3)).prop_map(|(w, c)| Op::External(w, c)),
+        3 => any::<u8>().prop_map(Op::Export),
     ]
 }
 
@@ -584,7 +602,10 @@ impl World {
 
     fn pick(&self, n: u8, user: bool) -> Option<Wt> {
         let alive: Vec<Wt> = (0..self.model.wts.len())
-            .filter(|&w| self.model.wts[w].alive && self.model.wts[w].user == user)
+            .filter(|&w| {
+                let m = &self.model.wts[w];
+                m.alive && m.user == user && !m.exported
+            })
             .collect();
         (!alive.is_empty()).then(|| alive[n as usize % alive.len()])
     }
@@ -719,6 +740,106 @@ impl World {
     fn named_id(&self, k: Key, c: CommitId) -> Option<Ver> {
         let origin = *self.origins[c].get(&k)?;
         self.git.rollups[origin].as_ref()?.get(&k).copied()
+    }
+
+    /// The model's ids for `f`, just forked from `w` at `w`'s
+    /// `history[pos]`.
+    fn forked_ids(&mut self, w: Wt, pos: usize, f: Wt) -> BTreeMap<Key, Ver> {
+        let len = self.imp.wts[w].history.len();
+        let c = self.imp.wts[w].history[pos];
+        // at the head, the worktree's own ids: another worktree may
+        // have had to give the same commit's records others
+        let ids = if pos == len - 1 {
+            self.model.wts[w].ids.clone()
+        } else {
+            let mut ids = self.ids_at(w, c);
+            // Where no rollup names a record's id at `c`, the split
+            // falls back on the ids it has, which can miss a record
+            // deleted and re-created after `c` outside git-sync.
+            // So does a key whose rollup names an id the worktree
+            // didn't give it at `c`, or another key took first (§4.7).
+            let chain = self.imp.chain_set(f);
+            for (k, id) in ids.iter_mut() {
+                let named = self.named_id(*k, c);
+                let lost = named.is_some_and(|n| {
+                    n != *id
+                        || (0..KEYS).any(|j| j != *k && self.imp.live_id(&chain, j) == Some(n))
+                });
+                if named.is_none() || lost {
+                    if let Some(got) = self.imp.live_id(&chain, *k) {
+                        allowed(6, usize::from(got != *id));
+                        *id = got;
+                    }
+                }
+            }
+            // the worktree forked from shares the split segment
+            self.own_ids.insert((w, c), ids.clone());
+            ids
+        };
+        self.own_ids.insert((f, c), ids.clone());
+        ids
+    }
+
+    /// C.20: `w`'s edits under an unresolved conflict go to a new branch
+    /// forked at their oldest base and committed there; `w` takes in the
+    /// file's values, as resolving each for the file would.
+    fn export(&mut self, n: u8) {
+        let w = self.pick(n, false).unwrap();
+        let Some((f, pos, rows)) = self.imp.export_fork(w, &self.git) else {
+            assert!(
+                self.model.wts[w].conflicts.values().all(|c| c.resolved),
+                "worktree {w} exported nothing, with unresolved conflicts"
+            );
+            return;
+        };
+        let ids = self.forked_ids(w, pos, f);
+        let base = self.imp.wts[w].history[pos];
+        // before the commit, whose fold can purge a tombstone among them
+        let moved: BTreeSet<Key> = rows.iter().map(|r| self.imp.rows[r].key).collect();
+        let made = self.git.commits.len();
+        let disk = self.model.wts[w].disk.clone();
+        let commit = self.imp.export_commit(w, f, &rows, &disk, &mut self.git);
+        let m = &self.model.wts[w];
+        let exported: BTreeMap<Key, ODraft> = m
+            .conflicts
+            .iter()
+            .filter(|(_, c)| !c.resolved)
+            .map(|(&k, _)| (k, m.draft[&k].clone()))
+            .collect();
+        assert_eq!(
+            moved,
+            exported.keys().copied().collect(),
+            "worktree {w}'s exported keys"
+        );
+        let (mut tree, mut ids) = (self.git.commits[base].clone(), ids);
+        let at_base = ids.clone();
+        for (&k, d) in &exported {
+            // a record the base has at another key: the edit is a new one
+            let id = match at_base.iter().any(|(&j, &id)| j != k && id == d.id) {
+                false => d.id,
+                true if d.ver == d.id => fresh_id(d.ver, k),
+                true => d.ver,
+            };
+            if d.deleted {
+                tree.remove(&k);
+                ids.remove(&k);
+            } else {
+                tree.insert(k, d.ver);
+                ids.insert(k, id);
+            }
+        }
+        assert_eq!(self.git.commits[commit], tree, "the exported branch's tree");
+        for &k in exported.keys() {
+            let m = &mut self.model.wts[w];
+            m.conflicts.remove(&k);
+            m.reconcile(file_of(k), &mut self.next_ver, FileWins::Only(k));
+        }
+        let mut branch = OWt::new(tree, ids, false);
+        branch.exported = true;
+        self.model.wts.push(branch);
+        if self.git.commits.len() > made {
+            self.committed(f);
+        }
     }
 
     fn apply_op(&mut self, op: &Op) {
@@ -867,41 +988,12 @@ impl World {
                 let pos = len - 1 - (back as usize).min(len - 1);
                 let c = self.imp.wts[w].history[pos];
                 let f = self.imp.fork(w, pos, &self.git);
-                // at the head, the worktree's own ids: another worktree may
-                // have had to give the same commit's records others
-                let ids = if pos == len - 1 {
-                    self.model.wts[w].ids.clone()
-                } else {
-                    let mut ids = self.ids_at(w, c);
-                    // Where no rollup names a record's id at `c`, the split
-                    // falls back on the ids it has, which can miss a record
-                    // deleted and re-created after `c` outside git-sync.
-                    // So does a key whose rollup names an id the worktree
-                    // didn't give it at `c`, or another key took first (§4.7).
-                    let chain = self.imp.chain_set(f);
-                    for (k, id) in ids.iter_mut() {
-                        let named = self.named_id(*k, c);
-                        let lost = named.is_some_and(|n| {
-                            n != *id
-                                || (0..KEYS)
-                                    .any(|j| j != *k && self.imp.live_id(&chain, j) == Some(n))
-                        });
-                        if named.is_none() || lost {
-                            if let Some(got) = self.imp.live_id(&chain, *k) {
-                                allowed(6, usize::from(got != *id));
-                                *id = got;
-                            }
-                        }
-                    }
-                    // the worktree forked from shares the split segment
-                    self.own_ids.insert((w, c), ids.clone());
-                    ids
-                };
-                self.own_ids.insert((f, c), ids.clone());
+                let ids = self.forked_ids(w, pos, f);
                 self.model
                     .wts
                     .push(OWt::new(self.git.commits[c].clone(), ids, false));
             }
+            Op::Export(n) => self.export(n),
             Op::NewUser => {
                 let pos = self.imp.wts[MAIN].history.len() - 1;
                 self.imp.fork(MAIN, pos, &self.git);
@@ -1246,7 +1338,10 @@ impl World {
             Op::Rebase(n, other, back, k, deleted) => {
                 let w = self.pick(n, false).unwrap();
                 let others: Vec<Wt> = (0..self.model.wts.len())
-                    .filter(|&u| u != w && self.model.wts[u].alive && !self.model.wts[u].user)
+                    .filter(|&u| {
+                        let m = &self.model.wts[u];
+                        u != w && m.alive && !m.user && !m.exported
+                    })
                     .collect();
                 if others.is_empty() {
                     return;
@@ -1256,8 +1351,9 @@ impl World {
                 self.rebuild(w, Some((u, i)), k, deleted);
             }
             Op::Delete(n) => {
+                // an exported branch has no handle to delete it through
                 let candidates: Vec<Wt> = (1..self.model.wts.len())
-                    .filter(|&w| self.model.wts[w].alive)
+                    .filter(|&w| self.model.wts[w].alive && !self.model.wts[w].exported)
                     .collect();
                 if candidates.is_empty() {
                     return;

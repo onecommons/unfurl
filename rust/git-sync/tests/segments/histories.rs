@@ -2068,3 +2068,71 @@ fn rebuild_onto_head_below_an_empty_head_is_a_fast_forward() {
         Op::Rebuild(0, 235, 0, false),
     ]);
 }
+
+/// An export onto a base older than HEAD: the edit was made before an
+/// outside commit moved HEAD on.
+#[test]
+fn an_export_forks_where_its_edit_was_made() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::External(0, vec![(1, false)]),
+        Op::DiskEdit(0, 0, false, FileWins::Never),
+        Op::Export(0),
+    ]);
+}
+
+/// An export whose edit followed its record to another file since its
+/// base: on the branch it's a new record, and the record stays where the
+/// base has it.
+#[test]
+fn an_export_renews_an_edit_whose_record_moved() {
+    run(&[
+        Op::Write(0, 2, false),
+        Op::External(0, vec![(2, false)]),
+        Op::Write(0, 0, true),
+        Op::Commit(0),
+        Op::Write(0, 3, false),
+        Op::Export(0),
+        Op::External(0, vec![(3, true), (0, false)]),
+        Op::Export(0),
+    ]);
+}
+
+/// The file's value an export leaves continues the record the chain has
+/// at its key, not the withdrawn edit's re-create.
+#[test]
+fn an_export_takes_in_the_value_a_scan_would() {
+    run(&[
+        Op::External(0, vec![(2, true)]),
+        Op::Write(0, 2, false),
+        Op::Move(0, 5, false),
+        Op::DiskEdit(0, 2, false, FileWins::Never),
+        Op::Export(0),
+    ]);
+}
+
+/// A user edited over a value an export brings back: the re-created row
+/// stays hidden from them.
+#[test]
+fn an_export_hides_what_a_user_edited_over() {
+    run(&[
+        Op::NewUser,
+        Op::DiskEdit(0, 2, false, FileWins::Never),
+        Op::UserWrite(0, vec![], 2, false),
+        Op::Write(0, 2, false),
+        Op::DiskEdit(0, 0, false, FileWins::Never),
+        Op::Export(0),
+    ]);
+}
+
+/// An exported deletion: the branch's draft tombstone has to hide the row
+/// the base has, which only the re-link of its draft makes it do.
+#[test]
+fn an_export_of_a_deletion_hides_the_base_row() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Write(0, 2, true),
+        Op::DiskEdit(0, 2, false, FileWins::Never),
+        Op::Export(0),
+    ]);
+}

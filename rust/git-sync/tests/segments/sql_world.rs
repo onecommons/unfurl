@@ -13,6 +13,7 @@ fn sql_supports(op: &Op) -> bool {
         // a trailer is a commit's; there's no working-tree form of it
         Op::DiskEdit(_, _, _, wins) => !matches!(wins, FileWins::Diverged),
         Op::Fork(..) | Op::Rebuild(..) | Op::Rebase(..) | Op::Delete(_) => true,
+        Op::Export(_) => true,
         _ => false,
     }
 }
@@ -44,6 +45,8 @@ struct Before {
     w: Wt,
     /// The key a Resolve picks, as the model picks it.
     resolve: Option<Key>,
+    /// How many worktrees the model had: an Export's branch is the next.
+    wts: usize,
 }
 
 impl Before {
@@ -57,7 +60,8 @@ impl Before {
             | Op::Resolve(n, false, ..)
             | Op::Fork(n, _)
             | Op::Rebuild(n, ..)
-            | Op::Rebase(n, ..) => Some(n),
+            | Op::Rebase(n, ..)
+            | Op::Export(n) => Some(n),
             _ => None,
         };
         let w = n.and_then(|n| world.pick(n, false)).unwrap_or(MAIN);
@@ -73,6 +77,7 @@ impl Before {
             next_ver: world.next_ver,
             w,
             resolve,
+            wts: world.model.wts.len(),
         }
     }
 }
@@ -100,6 +105,8 @@ struct SqlWorld {
     rt: tokio::runtime::Runtime,
     /// Each open worktree's handle, all on one database.
     repos: BTreeMap<Wt, SyncedRepo>,
+    /// Each exported branch's worktree id: it has no checkout to open.
+    exported: BTreeMap<Wt, i64>,
     config: DbConfig,
     raw: Raw,
     _db: tempfile::TempDir,
@@ -147,6 +154,7 @@ impl SqlWorld {
         SqlWorld {
             rt,
             repos: BTreeMap::from([(MAIN, main)]),
+            exported: BTreeMap::new(),
             config,
             raw,
             _db: db,
@@ -185,8 +193,9 @@ impl SqlWorld {
             Op::Commit(_) => {
                 let made = self
                     .rt
-                    .block_on(self.repos[&w].commit_repository("commit"))
-                    .unwrap();
+                    .block_on(self.repos[&w].commit_repository("commit", Default::default()))
+                    .unwrap()
+                    .commit;
                 match (made, world.git.commits.len() > before.commits) {
                     (Some(oid), true) => {
                         mirror.adopt(&world.git, w, before.commits, &oid);
@@ -236,6 +245,35 @@ impl SqlWorld {
                 self.rt
                     .block_on(self.repos[&w].resolve_conflict(&file, path, &key, resolution, None))
                     .unwrap();
+            }
+            Op::Export(_) => {
+                let branch = format!("export-{}", before.wts);
+                let got = self
+                    .rt
+                    .block_on(self.repos[&w].export_conflicts(&branch))
+                    .unwrap();
+                if world.model.wts.len() == before.wts {
+                    assert!(got.is_none(), "the implementation exported: {got:?}");
+                    return;
+                }
+                let f = before.wts;
+                let got = got.expect("an export");
+                let history = &world.imp.wts[f].history;
+                let base = match world.git.commits.len() > before.commits {
+                    true => {
+                        mirror.adopt(&world.git, f, before.commits, &got.commit);
+                        self.check_rollup(world, before.commits, &got.commit, mirror);
+                        history[history.len() - 2]
+                    }
+                    false => *history.last().unwrap(),
+                };
+                let parent = format!("{}^", got.commit);
+                let at = match got.commit == mirror.oids[base] {
+                    true => got.commit.clone(),
+                    false => git(&mirror.root, &["rev-parse", &parent], None),
+                };
+                assert_eq!(at, mirror.oids[base], "the export's base");
+                self.exported.insert(f, got.worktree_id);
             }
             Op::Delete(_) => {
                 let gone: Vec<Wt> = self
@@ -308,7 +346,7 @@ impl SqlWorld {
     /// compaction shortens.
     fn chain_len(&self, w: Wt) -> usize {
         let sql = "SELECT count(*) FROM worktree_segment WHERE worktree_id = ?1";
-        let w = self.repos[&w].worktree_id();
+        let w = self.worktree_id(w);
         let n: i64 = match &self.raw {
             Raw::Sqlite(pool) => self
                 .rt
@@ -332,7 +370,7 @@ impl SqlWorld {
                AND NOT EXISTS (SELECT 1 FROM superseded x \
                                JOIN v vx ON vx.segment_id = x.segment_id \
                                WHERE x.record_id = r.id)";
-        let w = self.repos[&w].worktree_id();
+        let w = self.worktree_id(w);
         let rows: Vec<(String, String, String, i64)> = match &self.raw {
             Raw::Sqlite(pool) => self
                 .rt
@@ -352,6 +390,15 @@ impl SqlWorld {
                 (key_of(&file, &key), (version_of(&json), id))
             })
             .collect()
+    }
+
+    /// Worktree `w`'s id in the database: its handle's, or an exported
+    /// branch's.
+    fn worktree_id(&self, w: Wt) -> i64 {
+        match self.repos.get(&w) {
+            Some(repo) => repo.worktree_id(),
+            None => self.exported[&w],
+        }
     }
 
     /// Worktree `w`'s conflicts: key → (the file's value, resolved).
@@ -410,6 +457,19 @@ impl SqlWorld {
             let chain = self.chain(w);
             self.same_ids(&format!("worktree {w}'s committed chain"), step, &chain, &rows(imp.chain_set(w)));
             assert_eq!(self.conflicts(w), imp.conflicts(w), "step {step}: worktree {w}'s conflicts");
+            assert_eq!(
+                self.chain_len(w),
+                imp.wts[w].chain.len(),
+                "step {step}: worktree {w}'s chain length"
+            );
+        }
+        // an exported branch: its chain is its view, and nothing conflicts
+        let exported: Vec<Wt> = self.exported.keys().copied().collect();
+        for w in exported {
+            assert!(imp.conflicts(w).is_empty(), "step {step}: worktree {w}'s conflicts");
+            let chain = self.chain(w);
+            self.same_ids(&format!("worktree {w}'s committed chain"), step, &chain, &rows(imp.chain_set(w)));
+            self.same_ids(&format!("worktree {w}'s view"), step, &chain, &rows(imp.own_view(w)));
             assert_eq!(
                 self.chain_len(w),
                 imp.wts[w].chain.len(),

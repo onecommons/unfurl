@@ -53,7 +53,7 @@ How each operation treats one:
 - **Save** (`write_file`, `save_changes`): writes every other pending
   edit, but leaves a conflicted record's value in the file as it is. The
   conflict is reported in the outcome; it isn't an error.
-- **Commit** (`commit_repository`): scans first, so a hand edit is taken
+- **Commit** (`commit_repository(message, CommitOptions)`): scans first, so a hand edit is taken
   in (and may become a conflict) before anything is written. The commit
   carries what is on disk, so the file's value: the conflict row is
   stamped with the commit, and the pending edit stays pending. When the
@@ -71,6 +71,14 @@ A conflict lasts until `resolve_conflict` settles it:
 - `Resolution::Merged` takes a value supplied with the resolution.
 - `Resolution::Delete` deletes the record; the next save removes it
   from the file.
+
+To resolve them in git instead, `export_conflicts(branch)` moves the
+edits under unresolved conflicts to a new branch, with no checkout,
+forked where they were made and committed there; the worktree resolves
+each for the file. Merging that branch back conflicts in git where the
+records did. `commit_repository` does the same with
+`CommitOptions::conflicts_to_branch`, exporting what its scan finds
+before it commits.
 
 Two ways to let the file win without resolving each record:
 

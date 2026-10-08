@@ -83,6 +83,11 @@ fn phase1_op() -> impl Strategy<Value = Op> {
     op().prop_filter("phase 1", sql_supports)
 }
 
+/// Exports, and only what the SQL side runs around them.
+fn sql_export_op() -> impl Strategy<Value = Op> {
+    export_op().prop_filter("the SQL side runs it", sql_supports)
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(20))]
 
@@ -107,6 +112,12 @@ proptest! {
     #[test]
     #[ignore]
     fn publishing_agrees_with_the_implementation(ops in prop::collection::vec(publish_op(), 1..16)) {
+        run(&ops);
+    }
+
+    #[test]
+    #[ignore]
+    fn exports_agree_with_the_implementation(ops in prop::collection::vec(sql_export_op(), 1..40)) {
         run(&ops);
     }
 }
@@ -134,6 +145,11 @@ proptest! {
 
     #[test]
     fn publishing_regressions(ops in prop::collection::vec(publish_op(), 1..16)) {
+        run(&ops);
+    }
+
+    #[test]
+    fn exports_regressions(ops in prop::collection::vec(sql_export_op(), 1..40)) {
         run(&ops);
     }
 }

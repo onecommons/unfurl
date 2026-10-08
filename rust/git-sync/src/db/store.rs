@@ -411,6 +411,19 @@ pub(crate) trait Store: sqlx::Database + Sized {
         commit: &str,
     ) -> impl Future<Output = Result<()>> + Send;
 
+    /// The worktree's outstanding `txn` rows, oldest range first.
+    fn outstanding_txns(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+    ) -> impl Future<Output = Result<Vec<crate::model::Txn>>> + Send;
+
+    /// `txn` row `id` belongs to `worktree_id` now.
+    fn move_txn(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        id: i64,
+        worktree_id: i64,
+    ) -> impl Future<Output = Result<()>> + Send;
+
     fn delete_file(
         tx: &mut sqlx::Transaction<'_, Self>,
         worktree_id: i64,
@@ -1576,6 +1589,30 @@ macro_rules! store_impl {
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(commit)
+                    .execute(&mut **tx)
+                    .await?;
+                Ok(())
+            }
+
+            async fn outstanding_txns(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                worktree_id: i64,
+            ) -> Result<Vec<crate::model::Txn>> {
+                let sql = sql!(tx, "SELECT id, worktree_id, first_version, last_version, author, message, \
+                         created_at, commit_id FROM txn WHERE worktree_id = ?1 AND commit_id IS NULL \
+                     ORDER BY first_version, id",);
+                Ok(sqlx::query_as(&sql).bind(worktree_id).fetch_all(&mut **tx).await?)
+            }
+
+            async fn move_txn(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                id: i64,
+                worktree_id: i64,
+            ) -> Result<()> {
+                let sql = sql!(tx, "UPDATE txn SET worktree_id = ?2 WHERE id = ?1");
+                sqlx::query(&sql)
+                    .bind(id)
+                    .bind(worktree_id)
                     .execute(&mut **tx)
                     .await?;
                 Ok(())

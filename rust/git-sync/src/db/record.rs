@@ -16,7 +16,7 @@ use crate::model::{
 
 impl RecordRow {
     /// The row as the API reports it: the record's `key_id` is its id.
-    fn into_record(self, worktree_id: i64) -> Record {
+    pub(crate) fn into_record(self, worktree_id: i64) -> Record {
         Record {
             id: self.key_id,
             worktree_id,

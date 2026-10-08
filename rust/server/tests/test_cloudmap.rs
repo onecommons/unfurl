@@ -895,9 +895,10 @@ async fn post_with_oid_token_succeeds_when_matches() {
         .expect("upsert");
     synced.save_changes().await.expect("save");
     let oid = synced
-        .commit_repository("test")
+        .commit_repository("test", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("returned");
     let rec = synced
         .get_record("cloudmap.yaml", "/repositories", key)
@@ -1575,9 +1576,10 @@ async fn commit_repository_commits_a_newly_created_cloudmap() {
     assert_eq!(status, StatusCode::OK, "response: {echo:?}");
 
     let oid = synced
-        .commit_repository("add a new cloudmap")
+        .commit_repository("add a new cloudmap", Default::default())
         .await
         .expect("commit_repository")
+        .commit
         .expect("something was dirty, so a commit was made");
 
     // The file is in the commit's tree even though it was never tracked:
@@ -2772,9 +2774,10 @@ async fn a_rewritten_head_resets_a_stale_since_version() {
         .await
         .expect("write");
     synced
-        .commit_repository("dropped")
+        .commit_repository("dropped", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("a commit");
 
     let (status, body) = get_json(router(make_state(cm.clone())), "/cloudmap").await;
@@ -3296,9 +3299,10 @@ async fn get_conflicts_reports_the_working_trees_side() {
     // the record itself stays in flight, so `result` is unchanged.
     let oid = cm
         .synced()
-        .commit_repository("carry the hand edit")
+        .commit_repository("carry the hand edit", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("the working tree differs from HEAD");
     let (_, body) = get_json(
         router(make_state(cm.clone())),

@@ -206,6 +206,46 @@ pub struct LayeredRecord { pub record: Record, pub layer: i64, pub copies: i64 }
 `Layers` shares the handle's `Db` and repository. It's a value, not a
 connection: a stack is named per request, as the server will name it.
 
+### Remotes (phase 5, proposed)
+
+[§4.15](branch-segments.md#415-remotes-pulling-pushing-and-conflicts) of
+the design; nothing here is decided.
+
+```rust
+impl SyncedRepo {
+    /// Move this worktree's conflicted edits to a new branch at their
+    /// oldest base, committed without a checkout. `None` when there are
+    /// no conflicts.
+    pub async fn export_conflicts(&self, branch: &str) -> Result<Option<Exported>>;
+    /// Changed signature: exports the conflicts its scan finds first when
+    /// `conflicts_to_branch` is set. `CommitOptions::default()` commits as
+    /// today.
+    pub async fn commit_repository(&self, message: &str, options: CommitOptions)
+        -> Result<Committed>;
+    /// Fetch, then fast-forward, or rebase the local commits onto upstream
+    /// in the database.
+    pub async fn pull(&self, remote: &str) -> Result<Pulled>;
+    /// Push, pulling and retrying on a non-fast-forward rejection, and
+    /// diverting to a new remote ref when that fails.
+    pub async fn push(&self, remote: &str, options: PushOptions) -> Result<Pushed>;
+    /// The family's branches without a checkout, each following a ref.
+    pub async fn ref_branches(&self) -> Result<Vec<Worktree>>;
+}
+pub struct CommitOptions { pub conflicts_to_branch: Option<String> }
+/// What one call committed: to the current branch, and to the exported
+/// branch, either of which can be absent.
+pub struct Committed { pub commit: Option<String>, pub exported: Option<Exported> }
+/// The branch the conflicted edits went to, its commit, and the records
+/// moved there.
+pub struct Exported { pub branch: String, pub commit: String, pub records: Vec<TxnRecord> }
+pub struct Pulled { pub fast_forward: bool, pub conflicts: Vec<RecordConflict> }
+pub enum Pushed { Pushed { commit: String }, Diverted { branch: String } }
+```
+
+A checkout-less branch is a `worktree` row like any other: it gets no
+`SyncedRepo` of its own, and the handle of the checkout it was made from
+advances and sweeps it.
+
 ### A branch switch under an open handle
 
 Today it silently writes branch B's content into A's worktree. With
@@ -334,6 +374,30 @@ phase's behaviour changes applied.
 4. **Merges.** The id lookup through merges made outside the
    database; entries for a version a merge brings back, with the base
    read from git. Operation: Merge.
+
+5. **Remotes** (proposed, [§4.15](branch-segments.md#415-remotes-pulling-pushing-and-conflicts)),
+   in this order, each usable on its own:
+   1. **Export:** a checkout-less branch forked at the edits' base, the
+      cross-worktree move and the fold without a checkout,
+      `export_conflicts`, and `commit_repository`'s new `CommitOptions`,
+      with a batch's `txn` row split across the two commits.
+   2. **Advancing and sweeping checkout-less branches,** deferred until
+      after export: taking in commits made to an exported branch's ref,
+      and deleting its worktree when the ref goes. Until then an
+      exported branch's view stays at its export commit, which only a
+      read across worktrees sees, and its worktree outlives its ref.
+   3. **Pull:** fetch and fast-forward, then the unfold and the rebase in
+      the database.
+   4. **Push:** push support (the `git` CLI or git2; gix can't push),
+      the retry, and diverting to a new ref.
+
+   Appendix C adds the cross-worktree fold and the unfold. Operations:
+   Export, Pull, Push, Divert.
+
+   It depends only on phase 2. Phase 3's publish could use step 1's fold
+   without a checkout, and shares step 2's checkout-less rows. Phase 4 is
+   what keeps a record's id when an exported branch is merged back in
+   git.
 
 The server's HTTP surface for user branches follows phase 3, separately.
 
@@ -470,6 +534,152 @@ Open:
   the row the scan kept then once the head has changed it since.
 - **The rollup lookup through merges made outside the database**, which
   is phase 4's.
+
+### 7.3 Phase 5, step 1: export (plan)
+
+Built: `src/export.rs`, with `Op::Export` in the harness on both sides.
+How it differs from this plan:
+
+- **Two transactions, not one.** The move (fork, copies, W's
+  resolutions, batches, re-link) is one; the fold is another, through a
+  handle on the branch (`SyncedRepo::sibling`, sharing this one's
+  database, formats and repository) rather than a `Target` struct. The
+  commit is written between them, from the branch's draft, because its
+  rollup names ids only the move settles.
+- **The ref is claimed at the base** before the move, and moved to the
+  commit after it; the guard compares the edits against those the base
+  was picked for, not those rendered.
+- **Rendered twice:** once before anything changes, so a file that can't
+  be rendered at the base fails cleanly, and again from the branch's
+  draft for the commit.
+- **Resumable:** a failure after the move leaves the edits in the
+  branch's draft, and exporting to the same branch finishes it. An error
+  from `commit_repository` after its export leaves them on the branch
+  its options name; calling it again finishes an unfinished export.
+- **The branch gets the source's file rows** at the base, so its commit
+  parses only the files the export changed.
+- **No entries are copied:** re-linking the branch's draft derives them.
+- **The harness changed C.20 three ways:** the base rule (the latest
+  commit on HEAD's first-parent line every base descends from), a new
+  record where the base has the edit's record at another place, and W's
+  side being `resolve_conflict(Theirs)`'s code.
+
+The rest of this section is the plan as written. The SQL is [C.20](branch-segments.md#c20-export-a-worktrees-conflicts-to-a-branch);
+the decisions are §3's and [§4.15](branch-segments.md#415-remotes-pulling-pushing-and-conflicts)'s.
+Advancing and sweeping checkout-less branches are deferred (step 2).
+
+**Order of work.** Each item is reviewable on its own, and the suites
+stay green after each.
+
+1. **Harness first.** `Op::Export(w)` in `tests/segments`:
+   - **Model** (`imp.rs`, `world.rs`): a new worktree forked at the
+     oldest base of W's unresolved conflicts, whose head holds the base's
+     tree with W's conflicted edits applied; W's draft and conflict rows
+     at those keys go. The real-git side (`GitMirror`) makes the commit,
+     so `check_rollup` checks its rollup.
+   - **SQL side** (`sql_world.rs`): calls `export_conflicts` on W's
+     handle. The new worktree has no handle, so its view is read across
+     worktrees (C.7). `sql_supports` gains `Export`.
+   - Seeded histories for the edge cases below, then random ones.
+2. **Git without a checkout** (`git.rs`):
+   - `commit_files_onto(repo, parent, files: &[(String, Option<Vec<u8>>)],
+     message) -> ObjectId`: `build_tree_with_updates` over blobs written
+     from bytes, committed with no ref updated. `commit_paths_onto`
+     becomes a wrapper that reads the paths from disk.
+   - `create_ref(repo, name, oid)` with `PreviousValue::MustNotExist`,
+     and `delete_ref_if(repo, name, oid)` for the rollback.
+   - `export_base(repo, head, &[oid])`: the latest commit on `head`'s
+     first-parent line that each oid descends from or is, else the
+     line's first commit.
+3. **Rendering from git's bytes** (`sync.rs`): split `render_file`'s
+   apply and emit (from `apply_pending_records` through `render`) into a
+   function of `(file_path, source: Option<&str>, pending, format,
+   bases, conflict_rows, check)` returning the bytes. `render_file`
+   keeps its reads and its races; the export calls it with the base's
+   blob as the source, only the conflicted edits as pending, no conflict
+   rows, so none is skipped, and `check: None`. An edit made on a later
+   base than the one chosen has a `base_json` that isn't the chosen
+   blob's, and a check would read that as a divergence: onto the base,
+   every edit applies unconditionally.
+4. **Folding without a handle** (`scan.rs`): `commit_in_pool`,
+   `advance_head` and the file-row updates take a small `Target { w,
+   family }` (plus the formats) instead of `&SyncedRepo`. The commit path
+   passes its own; the export passes the new worktree's.
+5. **Forking inside a transaction** (`fork.rs`): `fork_into` takes the
+   caller's transaction, so the fork, the move and the fold commit
+   together, and a failure leaves no worktree behind.
+6. **The move** (`db/store.rs`): C.20's statements 1-6 as `Store`
+   methods, written once in SQLite syntax as the others are, plus
+   `conflicted_edits(tx, d)` for the guard and the render.
+7. **The rollup** (`sync.rs`): the part of `commit_scanned` that builds
+   the rollup from the outstanding batches and their records becomes a
+   function of a worktree, a record set and a watermark, so the export
+   builds the branch commit's message the same way. A batch whose
+   records all moved is moved (C.20 step 6), so it drops out of W's next
+   rollup.
+8. **`export_conflicts(branch) -> Result<Option<Exported>>`:**
+   1. Read W's unresolved conflicts and their edits in one snapshot. None:
+      `Ok(None)`.
+   2. Pick the base (C.20: the latest commit on `HEAD`'s first-parent
+      line every edit's base descends from or is), render each file,
+      build the rollup, write the commit, and create the ref. An existing
+      ref is `Error::BranchExists`.
+   3. In one transaction: lock the family, fork, check the guard, C.20,
+      C.11, C.12 and C.10 for the new worktree.
+   4. When the guard fails, roll back, delete the ref, and render again,
+      up to `WRITE_ATTEMPTS` times, then `Error::FileChanged`. Any other
+      failure deletes the ref and returns the error.
+9. **`commit_repository(message, CommitOptions) -> Result<Committed>`:**
+   the export runs between the scan and `commit_scanned`, when
+   `conflicts_to_branch` is set. The 37 call sites change mechanically;
+   the server passes `CommitOptions::default()`. `HeadMoved` is retried
+   inside `commit_repository`, once, after the export: scan and
+   `commit_scanned` again without exporting, and return the first
+   attempt's `Exported` with the retry's commit. A retry from outside
+   would lose it, since its scan finds nothing left to export. The
+   server's `retry_if_head_moved` stays for the other writes.
+10. **Docs:** the README's conflicts section gets the option.
+
+**Tests** (`crud_test!`, both backends), each with a mutation that
+undoes what it guards:
+- W's conflicted edits move; W has no conflicts and shows the file's
+  values; its other pending edits are committed on W as usual.
+- A standalone export leaves W showing the file's value at once, with no
+  scan or commit after it, for a dirty file (step 4's resolution) and
+  a clean one (the chain's row).
+- `HeadMoved` after a successful export: `commit_repository` retries,
+  commits, and still returns the `Exported`.
+- The branch commit holds the base's file with the edits applied, and
+  its rollup names the moved batches.
+- `git merge` of the branch into W conflicts textually exactly where the
+  records did; after resolving it, W's scan takes the merge in with no
+  record conflicts.
+- A batch split between the two commits appears in both rollups; one
+  wholly exported appears only in the branch's.
+- Bases on different lines use their merge base; edits with no base use
+  `HEAD`; a deletion against a modification exports as a tombstone.
+- A write that replaces an exported edit between the render and the
+  transaction makes the export render again (a hook as
+  `render_inputs_racing`), and W's render from before the export loses.
+- `BranchExists` leaves the database and the refs unchanged.
+- No conflicts: `None`, and no ref.
+
+**Gates:** the CRAP check on what changed (aim CC 25 or less), CI's
+clippy (`--all-features --all-targets -D warnings`), the crate's suites
+and the harness on both backends, and the server's `test_cloudmap`.
+
+**Risks:**
+- **C.20 step 2** drops entries on rows above the base and relies on
+  C.11 to derive the branch's. The harness is the check.
+- **`fork_into` in the caller's transaction** changes when its lock is
+  taken; the scan and the commit take the family lock in the same order.
+- **A branch with no file rows until C.10.** The fold (C.12) runs before
+  the head update creates them, so it must not need them. C.13 in the
+  design copies them, but the fork as built doesn't, and C.20 follows
+  what was built.
+- **C.20 step 4 is `resolve_conflict(Theirs)`'s code,** run per key in
+  the export's transaction, so W's side is exactly a resolution's; the
+  harness checks it against the model's.
 
 ## 8. For review
 

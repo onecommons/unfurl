@@ -65,6 +65,7 @@ mod crud;
 pub mod db;
 mod document;
 pub mod error;
+pub mod export;
 mod fork;
 pub mod format;
 pub mod formats;
@@ -88,11 +89,12 @@ pub use format::{
 pub use formats::cloudmap::CloudMapFormat;
 #[doc(inline)]
 pub use model::{
-    canonical_facet_key, canonical_json_text, Applied, BatchOp, BatchOutcome, CommitRollup,
-    ConflictState, Cursor, FacetColumnRow, FacetPath, FacetRows, FacetSpec, Failed, File,
-    FileFailure, JsonQuery, QueryOp, Record, RecordConflict, RecordConflictKind, RecordQuery,
-    Resolution, RollupTxn, ScanOptions, SyncOutcome, Txn, TxnMeta, TxnRecord, ValidationFailure,
-    WorkingDir, Worktree, WorktreeFilter, WriteFileOutcome, WriteOutcome,
+    canonical_facet_key, canonical_json_text, Applied, BatchOp, BatchOutcome, CommitOptions,
+    CommitRollup, Committed, ConflictState, Cursor, Exported, FacetColumnRow, FacetPath, FacetRows,
+    FacetSpec, Failed, File, FileFailure, JsonQuery, QueryOp, Record, RecordConflict,
+    RecordConflictKind, RecordQuery, Resolution, RollupTxn, ScanOptions, SyncOutcome, Txn, TxnMeta,
+    TxnRecord, ValidationFailure, WorkingDir, Worktree, WorktreeFilter, WriteFileOutcome,
+    WriteOutcome,
 };
 #[doc(inline)]
 pub use rollup::parse_commit_rollup;

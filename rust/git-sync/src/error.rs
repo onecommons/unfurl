@@ -182,6 +182,13 @@ pub enum Error {
         /// Working-tree-relative path of the file.
         file_path: String,
     },
+    /// A branch can't be created under `branch`: the ref, or a worktree of
+    /// that branch, already exists.
+    #[error("branch {branch} already exists")]
+    BranchExists {
+        /// The branch name, without `refs/heads/`.
+        branch: String,
+    },
     /// Catch-all for failure cases that don't fit the variants above.
     #[error("{0}")]
     Other(String),

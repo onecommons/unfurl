@@ -243,17 +243,33 @@ async fn fork_into<DB: Store>(
     let mut tx = pool.begin().await?;
     // before any read: SQLite can't take the write lock after one
     DB::lock_family(&mut tx, family).await?;
-    let base = match place(&mut tx, &mut history, family, head).await? {
+    let id = fork_in(&mut tx, &mut history, family, origin, branch, head).await?;
+    if id.is_some() {
+        tx.commit().await?;
+    }
+    Ok(id)
+}
+
+/// [`fork_into`] in the caller's transaction, which holds the family lock.
+pub(crate) async fn fork_in<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    history: &mut History<'_>,
+    family: i64,
+    origin: &str,
+    branch: &str,
+    head: &str,
+) -> Result<Option<i64>> {
+    let base = match place(tx, history, family, head).await? {
         None => return Ok(None),
         Some(Placement::At(seg)) => seg,
         Some(Placement::Inside { s, h, c }) => {
-            split(&mut tx, &mut history, family, s, &c, &h).await?;
+            split(tx, history, family, s, &c, &h).await?;
             s
         }
     };
-    let id = DB::fork_at(&mut tx, family, base, origin, branch, head).await?;
-    tx.commit().await?;
-    Ok(Some(id))
+    Ok(Some(
+        DB::fork_at(tx, family, base, origin, branch, head).await?,
+    ))
 }
 
 /// §4.6: where `head` falls in the family, else where its latest

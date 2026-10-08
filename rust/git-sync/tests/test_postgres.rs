@@ -40,9 +40,10 @@ async fn cloudmap_end_to_end_postgres() {
     .expect("upsert");
     sync.save_changes().await.expect("save");
     let oid = sync
-        .commit_repository("test commit")
+        .commit_repository("test commit", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("returned");
 
     let after = sync

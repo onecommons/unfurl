@@ -700,6 +700,41 @@ pub struct TxnMeta {
     pub message: Option<String>,
 }
 
+/// Options for [`crate::SyncedRepo::commit_repository`].
+#[derive(Debug, Clone, Default)]
+pub struct CommitOptions {
+    /// Export the conflicts the commit's scan finds to this branch
+    /// ([`crate::SyncedRepo::export_conflicts`]) instead of leaving them
+    /// pending.
+    pub conflicts_to_branch: Option<String>,
+}
+
+/// What one [`crate::SyncedRepo::commit_repository`] call committed.
+#[derive(Debug, Clone)]
+pub struct Committed {
+    /// The new commit on this worktree's branch, or `None` when there was
+    /// nothing new to commit.
+    pub commit: Option<String>,
+    /// The branch the conflicts went to, when they were exported.
+    pub exported: Option<Exported>,
+}
+
+/// What [`crate::SyncedRepo::export_conflicts`] made: the branch the
+/// conflicted edits went to, its worktree in the database, its commit, and
+/// the records moved there.
+#[derive(Debug, Clone)]
+pub struct Exported {
+    /// The branch name, without `refs/heads/`.
+    pub branch: String,
+    /// The branch's worktree, which has no checkout.
+    pub worktree_id: i64,
+    /// The branch's commit: the export base with the edits applied, or the
+    /// base itself when they change nothing there.
+    pub commit: String,
+    /// The records moved, as the commit's rollup names them.
+    pub records: Vec<TxnRecord>,
+}
+
 /// One row of the `txn` table — the audit trail of a batch write.
 ///
 /// Written by [`crate::SyncedRepo::apply_batch`] when given a

@@ -151,7 +151,7 @@ async fn a_diverged_singleton_is_reported(sync: &SyncedRepo, tmp: &TempDir) {
     // Commit, so the pending edit below has a base to diverge from --
     // without one the divergence classifies as AddAdd and never
     // consults the base document.
-    sync.commit_repository("add metadata")
+    sync.commit_repository("add metadata", Default::default())
         .await
         .expect("commit");
 
@@ -214,7 +214,7 @@ async fn an_unchanged_singleton_under_a_pending_edit_is_not_a_conflict(
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("scan");
-    sync.commit_repository("add metadata")
+    sync.commit_repository("add metadata", Default::default())
         .await
         .expect("commit");
 

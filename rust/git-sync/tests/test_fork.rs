@@ -34,9 +34,10 @@ async fn write_and_commit(sync: &SyncedRepo, key: &str) -> String {
     )
     .await
     .expect("write");
-    sync.commit_repository(key)
+    sync.commit_repository(key, Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("a commit")
 }
 
@@ -180,9 +181,10 @@ async fn a_rebuild_keeps_pending_edits(sync: &SyncedRepo, tmp: &tempfile::TempDi
     .await
     .expect("update");
     let dropped = sync
-        .commit_repository("later")
+        .commit_repository("later", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("a commit");
     for (key, name) in [(DASHBOARD, "ours"), ("one", "ours")] {
         sync.update_record(

@@ -45,9 +45,10 @@ async fn delete_file_removes_it_from_disk_and_git(sync: &SyncedRepo, tmp: &TempD
     );
 
     let oid = sync
-        .commit_repository("drop the cloudmap")
+        .commit_repository("drop the cloudmap", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("a removal is a change");
     let repo = unfurl_git_sync::git::open_repo(tmp.path()).expect("open");
     assert!(
@@ -178,9 +179,10 @@ async fn a_deleted_file_is_taken_in_and_committed(sync: &SyncedRepo, tmp: &TempD
     );
 
     let oid = sync
-        .commit_repository("drop it")
+        .commit_repository("drop it", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("the working tree lost a file git still has");
     let repo = unfurl_git_sync::git::open_repo(tmp.path()).expect("open");
     assert!(
@@ -222,9 +224,10 @@ async fn a_deletion_already_in_git_makes_no_commit(sync: &SyncedRepo, tmp: &Temp
     // git already records the removal, so there is nothing to commit --
     // but the row still has to go.
     assert_eq!(
-        sync.commit_repository("nothing to do")
+        sync.commit_repository("nothing to do", Default::default())
             .await
-            .expect("commit"),
+            .expect("commit")
+            .commit,
         None
     );
     assert_eq!(head_commit(sync).await, head, "HEAD did not move");

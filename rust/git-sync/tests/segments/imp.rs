@@ -417,7 +417,9 @@ impl Segments {
             .rows_in(d)
             .into_iter()
             .find(|&y| self.rows[&y].id == record && self.rows[&y].key != key && edit);
-        let other_base = other.and_then(|y| self.rows[&y].edit).map(|e| e.base);
+        let other_base = other
+            .and_then(|y| self.rows[&y].edit)
+            .map(|e| (e.base, e.base_commit));
         // a re-create, with no base: the view shows the record live nowhere,
         // copies merged by key_id, a draft's live row included, the writer's
         // own too
@@ -445,6 +447,7 @@ impl Segments {
         let prior = self.row_in(d, key);
         // the record's committed version in `via`, at whatever key, under
         // whatever uncommitted edit of it
+        // and its commit
         let committed = || {
             let chain: BTreeSet<SegId> = via
                 .iter()
@@ -455,16 +458,22 @@ impl Segments {
                 .into_iter()
                 .map(|r| &self.rows[&r])
                 .find(|r| r.id == record && !r.deleted)
-                .map(|r| r.ver)
+                .map_or((None, None), |r| (Some(r.ver), r.commit))
         };
-        let meta = edit.then(|| Edit {
-            base: match (live_anywhere, prior, other_base) {
-                (false, _, _) => None,
-                (true, Some(p), _) => self.rows[&p].edit.and_then(|e| e.base),
+        let meta = edit.then(|| {
+            let (base, base_commit) = match (live_anywhere, prior, other_base) {
+                (false, _, _) => (None, None),
+                (true, Some(p), _) => self.rows[&p]
+                    .edit
+                    .map_or((None, None), |e| (e.base, e.base_commit)),
                 (true, None, Some(b)) => b,
                 (true, None, None) => committed(),
-            },
-            gone: if deleted { self.live(&own, key) } else { None },
+            };
+            Edit {
+                base,
+                gone: if deleted { self.live(&own, key) } else { None },
+                base_commit,
+            }
         });
         let mut seen: BTreeSet<RowId> = self.visible_merged(via, Some(key)).into_iter().collect();
         seen.extend(self.visible(&own, Some(key)));
@@ -1214,6 +1223,91 @@ impl Segments {
             Some(disk) => self.reconcile(w, file_of(key), disk, FileWins::Only(key)),
             None => self.remove_draft_row(w, key),
         }
+    }
+
+    /// C.20, first half: fork a new worktree at the oldest base of `w`'s
+    /// edits under an unresolved conflict. Returns it, the base's position
+    /// in `w`'s history, and the edits; `None` when nothing conflicts.
+    fn export_fork(&mut self, w: Wt, git: &Git) -> Option<(Wt, usize, Vec<RowId>)> {
+        let d = self.wts[w].draft;
+        let exported: Vec<RowId> = self
+            .rows_in(d)
+            .into_iter()
+            .filter(|x| {
+                let r = &self.rows[x];
+                r.edit.is_some()
+                    && self
+                        .conflict_row(d, r.key)
+                        .is_some_and(|c| self.rows[&c].conflict == Some(false))
+            })
+            .collect();
+        if exported.is_empty() {
+            return None;
+        }
+        let history = self.wts[w].history.clone();
+        let bases: Vec<CommitId> = exported
+            .iter()
+            .filter_map(|x| self.rows[x].edit.and_then(|e| e.base_commit))
+            .collect();
+        let pos = export_base(git, &history, &bases);
+        let n = self.fork(w, pos, git);
+        Some((n, pos, exported))
+    }
+
+    /// C.20, second half: move `exported` from `w`'s draft to `n`'s, `w`
+    /// taking in its working tree `disk` there, and commit them onto `n`'s
+    /// base (its head, when they change nothing there), which it returns.
+    fn export_commit(
+        &mut self,
+        w: Wt,
+        n: Wt,
+        exported: &[RowId],
+        disk: &BTreeMap<Key, Ver>,
+        git: &mut Git,
+    ) -> CommitId {
+        let d = self.wts[w].draft;
+        let dn = self.wts[n].draft;
+        let base = *self.wts[n].history.last().unwrap();
+        let n_chain = self.chain_set(n);
+        for &x in exported {
+            let (k, record) = (self.rows[&x].key, self.rows[&x].id);
+            // 1-3. it goes to `n`'s draft as it is, with its entries at its
+            // key where `n`'s chain holds the row; those elsewhere hide the
+            // record where `w`'s history moved it from, which `n`'s needn't
+            // have. Where `n`'s chain shows its record at another key, it's a
+            // new record there.
+            let mut row = self.rows[&x].clone();
+            row.seg = dn;
+            let copy = self.next_row;
+            self.next_row += 1;
+            self.rows.insert(copy, row);
+            let at_key: Vec<(RowId, BTreeSet<Ver>)> = self
+                .tags
+                .iter()
+                .filter(|&(&(r, s), _)| s == d && self.rows[&r].key == k)
+                .map(|(&(r, _), t)| (r, t.clone()))
+                .collect();
+            for (r, tags) in at_key {
+                if n_chain.contains(&self.rows[&r].seg) {
+                    for t in tags {
+                        self.entry(r, dn, t);
+                    }
+                }
+            }
+            if (0..KEYS).any(|j| j != k && self.live_id(&n_chain, j) == Some(record)) {
+                self.renew_id(copy);
+            }
+            // 4-5. `w` resolves the conflict for the file, which withdraws
+            // the edit there with its entries
+            self.resolve_theirs(w, k, Some(disk));
+        }
+        // 7. both drafts hide what their chains show at their keys, and the
+        // edits are committed onto the base
+        self.relink_draft(w);
+        self.relink_draft(n);
+        let at_base = git.commits[base].clone();
+        self.commit(n, &at_base, git);
+        *self.wts[n].history.last().unwrap()
     }
 
     fn resolve_ours(&mut self, w: Wt, key: Key) {

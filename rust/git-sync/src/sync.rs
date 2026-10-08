@@ -40,8 +40,8 @@ use crate::error::{Error, Result};
 use crate::format::{FormatRegistry, GENERIC_LITERATE_FORMAT};
 use crate::git;
 use crate::model::{
-    BatchOp, BatchOutcome, CommitRollup, Record, RecordQuery, Resolution, RollupTxn, ScanOptions,
-    SyncOutcome, Txn, TxnMeta, WriteFileOutcome, WriteOutcome,
+    BatchOp, BatchOutcome, CommitOptions, CommitRollup, Committed, Record, RecordQuery, Resolution,
+    RollupTxn, ScanOptions, SyncOutcome, Txn, TxnMeta, WriteFileOutcome, WriteOutcome,
 };
 use crate::rollup::{build_commit_message, resolves_version_from_message};
 use crate::scan::{DiskFile, HeadFile, ParsedDoc, ScannedFile};
@@ -94,7 +94,8 @@ pub struct SyncedRepo {
 struct SyncedRepoInner {
     db: Db,
     repo_path: PathBuf,
-    formats: FormatRegistry,
+    /// Shared with [`SyncedRepo::sibling`]'s handles.
+    formats: Arc<FormatRegistry>,
     worktree_id: i64,
     /// Root of this worktree's version family — see
     /// [`db::worktree::family_id`]. Resolved once at open because every
@@ -201,11 +202,11 @@ fn log_validation(rel_path: &str, format: &str, validation: &crate::Validation) 
 }
 
 /// What a scan's committed side found at HEAD.
-struct HeadSide {
+pub(crate) struct HeadSide {
     /// Every blob in HEAD's tree, by path.
     blobs: std::collections::HashMap<String, gix::ObjectId>,
     /// The files whose blob isn't the one the committed segments hold.
-    files: Vec<HeadFile>,
+    pub(crate) files: Vec<HeadFile>,
     /// How many of HEAD's files were parsed to find them.
     parsed: usize,
 }
@@ -344,7 +345,7 @@ impl SyncedRepo {
             inner: Arc::new(SyncedRepoInner {
                 db,
                 repo_path,
-                formats,
+                formats: Arc::new(formats),
                 worktree_id,
                 family_id,
                 unrecognized: Default::default(),
@@ -374,6 +375,24 @@ impl SyncedRepo {
 
     pub(crate) fn formats(&self) -> &FormatRegistry {
         &self.inner.formats
+    }
+
+    /// A handle on `worktree_id`, a worktree of this one's family with no
+    /// checkout: this handle's database, formats and repository. Only for
+    /// what reads git and the database, never a working tree, which would
+    /// be this handle's.
+    pub(crate) fn sibling(&self, worktree_id: i64) -> SyncedRepo {
+        SyncedRepo {
+            inner: Arc::new(SyncedRepoInner {
+                db: self.inner.db.clone(),
+                repo_path: self.inner.repo_path.clone(),
+                formats: Arc::clone(&self.inner.formats),
+                worktree_id,
+                family_id: self.inner.family_id,
+                unrecognized: Default::default(),
+                walked_head: Default::default(),
+            }),
+        }
     }
 
     /// Returns a [`crate::model::WorkingDir`] snapshot of this handle.
@@ -845,7 +864,7 @@ impl SyncedRepo {
     /// HEAD's blobs, and the files whose blob isn't the one the
     /// committed segments hold, parsed from `head` -- except a file known
     /// to be in no format at that blob, unless `force`.
-    fn head_files(
+    pub(crate) fn head_files(
         &self,
         repo: &gix::Repository,
         head: Option<&str>,
@@ -1828,22 +1847,8 @@ impl SyncedRepo {
                 },
             }));
         }
-        // Markdown is rendered against the document's own blocks rather
-        // than from `root`, so it needs the source and the list of
-        // records actually applied -- neither of which a
-        // value-to-bytes function can take.
-        let render = |source: Option<&str>, root: &mut serde_json::Value| match source
-            .filter(|_| syntax == Syntax::Markdown)
-        {
-            Some(src) => unfurl_merge::markdown::render(
-                file_path,
-                src,
-                root,
-                &applied,
-                format.map(|f| f.path_prefixes()).unwrap_or_default(),
-            )
-            .map_err(Error::from),
-            None => syntax.render_document(source, root, format, &touched, file_path),
+        let render = |source: Option<&str>, root: &mut serde_json::Value| {
+            render_bytes(file_path, syntax, source, root, format, &applied, &touched)
         };
         let bytes = render(source.as_deref(), &mut root)?;
         let bytes = self.unless_head_has(file_path, syntax, bytes, render)?;
@@ -1858,6 +1863,58 @@ impl SyncedRepo {
             ops,
             conflicts,
         }))
+    }
+
+    /// `pending`, edits of `file_path`, applied to `source`, its bytes at
+    /// an export's base (`None`: it isn't there): every one, none checked
+    /// against a base or held back by a conflict. `None` when they change
+    /// nothing in it.
+    pub(crate) fn render_onto(
+        &self,
+        file_path: &str,
+        source: Option<&[u8]>,
+        pending: Vec<Record>,
+    ) -> Result<Option<Vec<u8>>> {
+        let syntax = Syntax::for_extension(&extract_ext(file_path))
+            .ok_or_else(|| Error::Other(format!("{file_path}: unsupported file extension")))?;
+        let format = pending
+            .iter()
+            .find_map(|rec| self.formats().for_path(&rec.path));
+        let text = source
+            .map(|b| {
+                std::str::from_utf8(b)
+                    .map_err(|e| Error::Other(format!("{file_path}: not UTF-8: {e}")))
+            })
+            .transpose()?;
+        if syntax == Syntax::Markdown && text.is_none() {
+            return Err(Error::Other(format!(
+                "{file_path}: cannot create a literate markdown document; \
+                 add it with `literate-yaml` front matter first"
+            )));
+        }
+        let mut root = match text {
+            Some(t) => syntax.into_value(file_path, t.as_bytes())?,
+            None => new_root(format),
+        };
+        let no_rows = std::collections::HashMap::new();
+        let Applying {
+            touched, applied, ..
+        } = apply_pending_records(
+            &mut root,
+            file_path,
+            pending,
+            format,
+            &std::collections::HashMap::new(),
+            &no_rows,
+            None,
+        );
+        if touched.is_empty() {
+            return Ok(None);
+        }
+        render_bytes(
+            file_path, syntax, text, &mut root, format, &applied, &touched,
+        )
+        .map(Some)
     }
 
     /// `bytes`, or HEAD's copy of `file_path` where `render`ing HEAD's own
@@ -2120,6 +2177,15 @@ impl SyncedRepo {
     /// [`Self::update_from_working_dir`] itself beforehand and read
     /// [`SyncOutcome::conflicts`], or ask [`Self::list_conflicts`].
     ///
+    /// With [`CommitOptions::conflicts_to_branch`], the conflicts the scan
+    /// finds go to that branch instead ([`Self::export_conflicts`]) before
+    /// anything is saved, and the commit carries the file's values for
+    /// them. [`Error::HeadMoved`] is then retried once here, without
+    /// exporting again, so the export isn't lost to a caller's retry. An
+    /// error after the export leaves the edits on the branch the options
+    /// name; calling this again with them finishes an export that stopped
+    /// before its commit.
+    ///
     /// When outstanding `txn` audit rows exist (batches applied with a
     /// [`TxnMeta`] since the last commit), a "Rollup of N git-sync
     /// transactions" section listing them is appended to `message` —
@@ -2127,7 +2193,7 @@ impl SyncedRepo {
     /// individual authors and messages survive. Those rows are stamped
     /// with the new oid alongside the records.
     ///
-    /// Returns the new commit oid as a hex string, or `None` when no
+    /// [`Committed::commit`] is the new commit oid as a hex string, or `None` when no
     /// commit was made — either nothing was in flight, or what was in
     /// flight turned out to need no commit: a record whose value the
     /// file already held, or one left unwritten because it is in
@@ -2142,12 +2208,40 @@ impl SyncedRepo {
     /// Surfaces [`crate::Error::Git`] if gix can't construct the
     /// commit, [`crate::Error::Io`] for filesystem trouble during
     /// `save_changes`, and any underlying database error.
-    pub async fn commit_repository(&self, message: &str) -> Result<Option<String>> {
+    pub async fn commit_repository(
+        &self,
+        message: &str,
+        options: CommitOptions,
+    ) -> Result<Committed> {
+        self.commit_repository_racing(message, options, async || Ok(()))
+            .await
+    }
+
+    /// [`Self::commit_repository`], running `after_export` between the
+    /// export and the commit: where `HEAD` could move.
+    pub(crate) async fn commit_repository_racing(
+        &self,
+        message: &str,
+        options: CommitOptions,
+        mut after_export: impl AsyncFnMut() -> Result<()>,
+    ) -> Result<Committed> {
         // Take any outside edits in before saving: the writes below
         // then render over a current picture, and the fold can't
         // stamp a stale row with a commit that doesn't carry its json.
         let (_, head) = self.scan(ScanOptions::default()).await?;
-        self.commit_scanned(message, head).await
+        let exported = match &options.conflicts_to_branch {
+            Some(branch) => self.export_conflicts(branch).await?,
+            None => None,
+        };
+        after_export().await?;
+        let commit = match self.commit_scanned(message, head).await {
+            Err(Error::HeadMoved { .. }) if exported.is_some() => {
+                let (_, head) = self.scan(ScanOptions::default()).await?;
+                self.commit_scanned(message, head).await?
+            }
+            made => made?,
+        };
+        Ok(Committed { commit, exported })
     }
 
     /// The rest of [`Self::commit_repository`], after a scan that took in
@@ -2180,58 +2274,9 @@ impl SyncedRepo {
             return Err(first.error);
         }
 
-        // Read the audit rows before the fold stamps them: this
-        // commit is the one that carries their writes. Each batch's
-        // records are resolved here too — also before the fold,
-        // which purges the tombstones a delete leaves behind.
         let files: BTreeSet<String> = dirty.iter().cloned().collect();
-        let txns = db::commit::list_outstanding(self.db(), self.worktree_id()).await?;
-        let worktree = db::worktree::get(self.db(), self.worktree_id()).await?;
-        let mut records =
-            db::record::committed_records(self.db(), self.worktree_id(), &files, watermark).await?;
-        let mut entries = Vec::with_capacity(txns.len());
-        for txn in txns {
-            let (batch, rest) = records
-                .into_iter()
-                .partition(|r| (txn.first_version..=txn.last_version).contains(&r.version));
-            records = rest;
-            entries.push(RollupTxn {
-                first_version: txn.first_version,
-                last_version: txn.last_version,
-                branch: worktree.branch.clone(),
-                created_at: txn.created_at,
-                meta: txn.meta,
-                records: batch,
-            });
-        }
-        // The family root's origin identifies the version sequence these
-        // ranges came from; skip the lookup when this worktree is its own
-        // family, which is the usual case.
-        let family = if self.family_id() == self.worktree_id() {
-            worktree.origin.clone()
-        } else {
-            db::worktree::get(self.db(), self.family_id()).await?.origin
-        };
-        let rollup = CommitRollup {
-            origin: Some(worktree.origin.clone()),
-            family: Some(family),
-            database: Some(db::commit::database_id(self.db()).await?),
-            next_version: db::worktree::next_version(self.db(), self.worktree_id()).await?,
-            txns: entries,
-            records,
-        };
+        let (rollup, named) = self.rollup_for(&files, watermark).await?;
         let message = build_commit_message(message, &rollup);
-        // the commit's head rows take the ids its rollup names
-        let named: std::collections::BTreeMap<crate::db::tables::Place, i64> = rollup
-            .txns
-            .iter()
-            .flat_map(|t| &t.records)
-            .chain(&rollup.records)
-            .filter_map(|r| {
-                let place = crate::db::tables::Place::new(r.file_path.as_deref()?, &r.path, &r.key);
-                Some((place, r.key_id?))
-            })
-            .collect();
 
         // Only files whose bytes differ from HEAD go into a commit.
         // Being dirty in this crate's sense — an in-flight row — does
@@ -2299,6 +2344,70 @@ impl SyncedRepo {
         on_pool!(self.db(), pool => crate::scan::commit_in_pool(self, pool, &carried).await)?;
 
         Ok((!to_stage.is_empty()).then_some(oid_str))
+    }
+
+    /// The rollup of a commit carrying `files`' rows written below
+    /// `watermark`, and the ids it names by place, which the commit's head
+    /// rows take.
+    pub(crate) async fn rollup_for(
+        &self,
+        files: &BTreeSet<String>,
+        watermark: i64,
+    ) -> Result<(
+        CommitRollup,
+        std::collections::BTreeMap<crate::db::tables::Place, i64>,
+    )> {
+        // Read the audit rows before the fold stamps them: this
+        // commit is the one that carries their writes. Each batch's
+        // records are resolved here too — also before the fold,
+        // which purges the tombstones a delete leaves behind.
+        let txns = db::commit::list_outstanding(self.db(), self.worktree_id()).await?;
+        let worktree = db::worktree::get(self.db(), self.worktree_id()).await?;
+        let mut records =
+            db::record::committed_records(self.db(), self.worktree_id(), files, watermark).await?;
+        let mut entries = Vec::with_capacity(txns.len());
+        for txn in txns {
+            let (batch, rest) = records
+                .into_iter()
+                .partition(|r| (txn.first_version..=txn.last_version).contains(&r.version));
+            records = rest;
+            entries.push(RollupTxn {
+                first_version: txn.first_version,
+                last_version: txn.last_version,
+                branch: worktree.branch.clone(),
+                created_at: txn.created_at,
+                meta: txn.meta,
+                records: batch,
+            });
+        }
+        // The family root's origin identifies the version sequence these
+        // ranges came from; skip the lookup when this worktree is its own
+        // family, which is the usual case.
+        let family = if self.family_id() == self.worktree_id() {
+            worktree.origin.clone()
+        } else {
+            db::worktree::get(self.db(), self.family_id()).await?.origin
+        };
+        let rollup = CommitRollup {
+            origin: Some(worktree.origin.clone()),
+            family: Some(family),
+            database: Some(db::commit::database_id(self.db()).await?),
+            next_version: db::worktree::next_version(self.db(), self.worktree_id()).await?,
+            txns: entries,
+            records,
+        };
+        let named: std::collections::BTreeMap<crate::db::tables::Place, i64> = rollup
+            .txns
+            .iter()
+            .flat_map(|t| &t.records)
+            .chain(&rollup.records)
+            .filter_map(|r| {
+                let place = crate::db::tables::Place::new(r.file_path.as_deref()?, &r.path, &r.key);
+                Some((place, r.key_id?))
+            })
+            .collect();
+
+        Ok((rollup, named))
     }
 
     /// Whether `rel`'s bytes on disk differ from what HEAD records for
@@ -2385,9 +2494,35 @@ pub(crate) fn parse_and_detect<'f>(
     }))
 }
 
+/// `root` rendered as `file_path`'s bytes. Markdown is rendered against
+/// the document's own blocks rather than from `root`, so it needs the
+/// `source` and the records actually `applied` -- neither of which a
+/// value-to-bytes function can take.
+fn render_bytes(
+    file_path: &str,
+    syntax: Syntax,
+    source: Option<&str>,
+    root: &mut serde_json::Value,
+    format: Option<&dyn crate::DataFormat>,
+    applied: &[unfurl_merge::markdown::Applied],
+    touched: &[String],
+) -> Result<Vec<u8>> {
+    match source.filter(|_| syntax == Syntax::Markdown) {
+        Some(src) => unfurl_merge::markdown::render(
+            file_path,
+            src,
+            root,
+            applied,
+            format.map(|f| f.path_prefixes()).unwrap_or_default(),
+        )
+        .map_err(Error::from),
+        None => syntax.render_document(source, root, format, touched, file_path),
+    }
+}
+
 /// How many times [`SyncedRepo::write_file`] renders a file that another
 /// writer keeps writing first, before giving up.
-const WRITE_ATTEMPTS: usize = 3;
+pub(crate) const WRITE_ATTEMPTS: usize = 3;
 
 /// What [`SyncedRepo::render_file`] made of a file.
 enum Render {
@@ -2988,6 +3123,149 @@ mod race_tests {
         .await;
     }
 
+    /// The dashboard's pending edit `ours` against `theirs` in the file.
+    async fn conflicted(sync: &SyncedRepo, dir: &Path) {
+        sync.update_record(
+            Some(FILE),
+            "/repositories",
+            DASHBOARD,
+            json!({"name": "ours"}),
+            None,
+            false,
+        )
+        .await
+        .expect("update");
+        hand_edit(dir, "name: dashboard", "name: theirs");
+        sync.update_from_working_dir(ScanOptions::default())
+            .await
+            .expect("scan");
+        assert_eq!(sync.list_conflicts(None).await.expect("conflicts").len(), 1);
+    }
+
+    /// The dashboard's name in `FILE` at `commit`.
+    fn name_at(sync: &SyncedRepo, commit: &str) -> serde_json::Value {
+        let bytes = git::read_blob_at_commit(&sync.repo().expect("repo"), commit, FILE)
+            .expect("read")
+            .expect("there");
+        let doc: serde_json::Value = serde_saphyr::from_slice(&bytes).expect("yaml");
+        doc["repositories"][DASHBOARD]["name"].clone()
+    }
+
+    /// A write to a conflicted edit after the export read it: the export
+    /// moves nothing, and tries again with the new edit.
+    #[tokio::test]
+    async fn an_export_a_write_raced_tries_again() {
+        each_backend(async |sync, dir| {
+            conflicted(sync, dir).await;
+            let mut tries = 0;
+            let exported = sync
+                .export_racing(
+                    "exported",
+                    async || {
+                        tries += 1;
+                        if tries == 1 {
+                            let ours = json!({"name": "ours-again"});
+                            sync.update_record(
+                                Some(FILE),
+                                "/repositories",
+                                DASHBOARD,
+                                ours,
+                                None,
+                                false,
+                            )
+                            .await?;
+                        }
+                        Ok(())
+                    },
+                    async || Ok(()),
+                )
+                .await
+                .expect("export")
+                .expect("exported");
+            assert_eq!(tries, 2);
+            assert_eq!(name_at(sync, &exported.commit), "ours-again");
+            assert!(sync
+                .list_conflicts(None)
+                .await
+                .expect("conflicts")
+                .is_empty());
+        })
+        .await;
+    }
+
+    /// An export that fails after its edits moved loses nothing, and
+    /// calling it again finishes it.
+    #[tokio::test]
+    async fn a_failed_export_is_finished_by_the_next() {
+        each_backend(async |sync, dir| {
+            conflicted(sync, dir).await;
+            let base = git::worktree_meta(&sync.repo().expect("repo"))
+                .expect("meta")
+                .head_oid
+                .expect("head");
+            let err = sync
+                .export_racing(
+                    "exported",
+                    async || Ok(()),
+                    async || Err(Error::Other("stopped".into())),
+                )
+                .await
+                .expect_err("stopped after the move");
+            assert!(matches!(&err, Error::Other(m) if m == "stopped"), "{err:?}");
+            assert!(sync
+                .list_conflicts(None)
+                .await
+                .expect("conflicts")
+                .is_empty());
+            let tip = git::branch_tip(&sync.repo().expect("repo"), "exported").expect("tip");
+            assert_eq!(tip, Some(base), "the ref stays at the base");
+
+            let exported = sync
+                .export_conflicts("exported")
+                .await
+                .expect("finish")
+                .expect("finished");
+            assert_ne!(exported.commit, base.to_string());
+            assert_eq!(name_at(sync, &exported.commit), "ours");
+            let again = sync.export_conflicts("exported").await;
+            assert!(
+                matches!(again, Err(Error::BranchExists { .. })),
+                "{again:?}"
+            );
+        })
+        .await;
+    }
+
+    /// `HEAD` moving between an export and its commit: the commit is
+    /// retried, and the export reported.
+    #[tokio::test]
+    async fn a_commit_after_an_export_retries_a_head_move() {
+        each_backend(async |sync, dir| {
+            conflicted(sync, dir).await;
+            let options = CommitOptions {
+                conflicts_to_branch: Some("exported".into()),
+            };
+            let mut moved = false;
+            let committed = sync
+                .commit_repository_racing("commit", options, async || {
+                    if !moved {
+                        moved = true;
+                        std::fs::write(dir.join("other.txt"), "outside\n").expect("write");
+                        git::commit_paths(&sync.repo()?, &["other.txt".into()], "outside")?;
+                    }
+                    Ok(())
+                })
+                .await
+                .expect("commit");
+            assert!(moved);
+            let exported = committed.exported.expect("exported");
+            assert_eq!(name_at(sync, &exported.commit), "ours");
+            let commit = committed.commit.expect("committed");
+            assert_eq!(name_at(sync, &commit), "theirs");
+        })
+        .await;
+    }
+
     /// Make a render lose without touching the file, as a writer of
     /// something else it depends on -- a resolution, a deletion -- does.
     async fn change_what_renders_read(sync: &SyncedRepo) -> Result<()> {
@@ -3130,9 +3408,10 @@ mod race_tests {
             assert_eq!(repo.head_id().expect("head").detach(), outside);
 
             let oid = sync
-                .commit_repository("retry")
+                .commit_repository("retry", Default::default())
                 .await
                 .expect("retry")
+                .commit
                 .expect("a commit");
             let commit = repo
                 .find_commit(gix::ObjectId::from_hex(oid.as_bytes()).expect("oid"))

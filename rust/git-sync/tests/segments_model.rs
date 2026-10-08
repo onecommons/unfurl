@@ -57,6 +57,11 @@ proptest! {
     fn publishing_agrees_with_the_model(ops in prop::collection::vec(publish_op(), 1..16)) {
         run(&ops);
     }
+
+    #[test]
+    fn exports_agree_with_the_model(ops in prop::collection::vec(export_op(), 1..40)) {
+        run(&ops);
+    }
 }
 
 include!("segments/histories.rs");

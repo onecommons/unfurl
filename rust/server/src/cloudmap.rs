@@ -234,7 +234,9 @@ impl CloudMapState {
     /// Driven by `commit: true` on `POST /cloudmap`; without it the handler
     /// leaves records staged and the commit is somebody else's job.
     pub async fn commit(&self, message: &str) -> Result<Option<String>, unfurl_git_sync::Error> {
-        retry_if_head_moved(|| self.inner.commit_repository(message)).await
+        retry_if_head_moved(|| self.inner.commit_repository(message, Default::default()))
+            .await
+            .map(|c| c.commit)
     }
 
     /// Decide whether a request's `auth_project` and `branch` may be served

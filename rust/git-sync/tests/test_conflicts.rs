@@ -316,7 +316,7 @@ async fn save_reports_each_file(sync: &SyncedRepo, tmp: &TempDir) {
     // And a commit refuses while anything is unwritten, rather than
     // capturing a half-applied state.
     let err = sync
-        .commit_repository("should not commit")
+        .commit_repository("should not commit", Default::default())
         .await
         .expect_err("a partial save must not be committed");
     assert!(matches!(err, Error::Yaml { .. }), "{err:?}");
@@ -510,9 +510,10 @@ async fn base_tracks_the_latest_commit(sync: &SyncedRepo, tmp: &TempDir) {
     .await
     .expect("update");
     let oid = sync
-        .commit_repository("first edit")
+        .commit_repository("first edit", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("something to commit");
 
     sync.update_record(
@@ -590,9 +591,10 @@ async fn commit_carries_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
         .expect("take in");
 
     let oid = sync
-        .commit_repository("hand edit")
+        .commit_repository("hand edit", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("the dirty file must be staged");
     let rec = sync
         .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
@@ -602,7 +604,11 @@ async fn commit_carries_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
     assert_eq!(rec.commit_id.as_deref(), Some(oid.as_str()));
     assert_eq!(head_commit(sync).await, oid, "the commit reached the repo");
     assert!(
-        sync.commit_repository("again").await.expect("ok").is_none(),
+        sync.commit_repository("again", Default::default())
+            .await
+            .expect("ok")
+            .commit
+            .is_none(),
         "nothing left to commit"
     );
 }
@@ -887,9 +893,10 @@ async fn commit_takes_outside_edits_in_first(sync: &SyncedRepo, tmp: &TempDir) {
     hand_edit_dashboard(tmp, "by-hand");
 
     let oid = sync
-        .commit_repository("merge it all")
+        .commit_repository("merge it all", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("committed");
 
     // The committed file holds both sides, and the database agrees
@@ -1042,9 +1049,10 @@ async fn a_standing_conflict_survives_a_save(sync: &SyncedRepo, tmp: &TempDir) {
 async fn a_commit_carries_the_file_not_the_record(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
     let oid = sync
-        .commit_repository("carry the hand edit")
+        .commit_repository("carry the hand edit", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("the hand edit is not in git yet");
 
     // What the commit holds is the file's value, so that is what gets
@@ -1072,7 +1080,10 @@ async fn a_commit_carries_the_file_not_the_record(sync: &SyncedRepo, tmp: &TempD
     // And there is nothing left to commit. Without this, a standing
     // conflict would append an empty commit on every call, forever.
     assert_eq!(
-        sync.commit_repository("again").await.expect("commit"),
+        sync.commit_repository("again", Default::default())
+            .await
+            .expect("commit")
+            .commit,
         None,
         "nothing changed on disk"
     );
@@ -1112,7 +1123,11 @@ async fn an_outside_commit_conflicts_like_a_hand_edit(sync: &SyncedRepo, tmp: &T
     );
     let upstream = head_commit(sync).await;
 
-    let committed = sync.commit_repository("ours").await.expect("commit");
+    let committed = sync
+        .commit_repository("ours", Default::default())
+        .await
+        .expect("commit")
+        .commit;
     assert_eq!(committed, None, "the file already matches HEAD");
     assert_eq!(head_commit(sync).await, upstream, "HEAD did not move");
     assert_eq!(dashboard_on_disk(tmp)["name"], "upstream");
@@ -1152,9 +1167,10 @@ async fn a_pending_delete_under_a_conflict_survives_a_commit(sync: &SyncedRepo, 
     assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
     assert_eq!(scan.conflicts[0].kind, RecordConflictKind::DeleteModify);
 
-    sync.commit_repository("carry the hand edit")
+    sync.commit_repository("carry the hand edit", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("the hand edit is not in git yet");
 
     // The commit did not apply the delete -- the record is still in the

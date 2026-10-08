@@ -166,9 +166,10 @@ async fn save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) {
     // commit_repository → records, file row, and worktree row should
     // all advance to the new HEAD oid.
     let oid = sync
-        .commit_repository("save_changes round-trip")
+        .commit_repository("save_changes round-trip", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("commit returned");
 
     // Sanity: HEAD really does point at the new oid in the gix repo.
@@ -379,9 +380,10 @@ async fn commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
     .await
     .expect("update v2");
     let oid_b = sync
-        .commit_repository("v2")
+        .commit_repository("v2", Default::default())
         .await
         .expect("commit v2")
+        .commit
         .expect("commit returned");
     assert_ne!(oid_a, oid_b);
 
@@ -438,9 +440,10 @@ async fn commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
     // After save_changes + commit_repository the conflict token rolls forward.
     sync.save_changes().await.expect("save");
     let oid_c = sync
-        .commit_repository("v3")
+        .commit_repository("v3", Default::default())
         .await
         .expect("commit v3")
+        .commit
         .expect("returned");
     let r = sync
         .get_record_by_id(id.id)
@@ -555,9 +558,10 @@ async fn create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
     let written = sync.save_changes().await.expect("save_changes").written;
     assert_eq!(written.len(), 1);
     let oid = sync
-        .commit_repository("resurrect")
+        .commit_repository("resurrect", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("returned");
 
     let on_disk = std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read");
@@ -1110,9 +1114,10 @@ async fn pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp: &Te
     // is preserved.
     sync.save_changes().await.expect("save");
     let oid = sync
-        .commit_repository("v")
+        .commit_repository("v", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("returned");
     let after = sync
         .get_record("cloudmap.yaml", path, key)
@@ -1198,9 +1203,10 @@ async fn list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
     // After commit, the listing is empty again (tombstones are purged,
     // updates roll forward).
     sync.save_changes().await.expect("save");
-    sync.commit_repository("v")
+    sync.commit_repository("v", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("returned");
     assert!(
         sync.list_changes(None, false)
@@ -3093,9 +3099,10 @@ async fn a_family_shares_one_version_sequence() {
         .expect("write")
         .version;
     upstream
-        .commit_repository("Update cloudmap")
+        .commit_repository("Update cloudmap", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("dirty");
 
     let tmp2 = clone_as_fork(tmp.path());
@@ -3228,9 +3235,10 @@ async fn a_fork_records_its_family_in_the_rollup() {
         .await
         .expect("write");
     upstream
-        .commit_repository("Update cloudmap")
+        .commit_repository("Update cloudmap", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("dirty");
 
     let tmp2 = clone_as_fork(tmp.path());
@@ -3248,9 +3256,10 @@ async fn a_fork_records_its_family_in_the_rollup() {
     )
     .await
     .expect("batch");
-    fork.commit_repository("Update cloudmap")
+    fork.commit_repository("Update cloudmap", Default::default())
         .await
         .expect("commit")
+        .commit
         .expect("dirty");
 
     let body = head_commit_body(tmp2.path());

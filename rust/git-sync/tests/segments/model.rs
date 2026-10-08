@@ -51,6 +51,9 @@ struct OWt {
     /// its fork or last publish: its own view shows those tombstones.
     absent: BTreeMap<Key, BTreeSet<Ver>>,
     user: bool,
+    /// A branch C.20 exported conflicts to: no working tree, and nothing
+    /// acts on it.
+    exported: bool,
     alive: bool,
 }
 
@@ -64,6 +67,7 @@ impl OWt {
             conflicts: BTreeMap::new(),
             absent: BTreeMap::new(),
             user,
+            exported: false,
             alive: true,
         }
     }
@@ -193,7 +197,11 @@ impl OWt {
                 ver,
                 deleted,
                 based_on,
-                origin: Origin::Edit(Edit { base, gone }),
+                origin: Origin::Edit(Edit {
+                    base,
+                    gone,
+                    base_commit: None,
+                }),
                 continues: BTreeSet::new(),
                 id,
                 seen_at: BTreeSet::new(),

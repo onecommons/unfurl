@@ -135,7 +135,7 @@ impl GitMirror {
         }
         for w in 0..world.model.wts.len() {
             let m = &world.model.wts[w];
-            if m.user {
+            if m.user || m.exported {
                 continue;
             }
             if !m.alive {
