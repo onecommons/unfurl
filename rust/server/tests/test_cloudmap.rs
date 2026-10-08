@@ -1665,7 +1665,7 @@ async fn read_reports_the_head_for_latest_commit() {
         app,
         serde_json::json!({
             "latest_commit": head,
-            "repositories": { ALT_KEY: { "git": ALT_KEY, "path": "only/in-alt", "name": "renamed" } },
+            "repositories": { ALT_KEY: { "path": "only/in-alt", "name": "renamed" } },
         }),
     )
     .await;

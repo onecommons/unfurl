@@ -75,6 +75,18 @@ logger = logging.getLogger("unfurl")
 
 API_VERSION = "unfurl/v1.0.0"
 
+JsonValue = Union[
+    None, bool, int, float, str, List["JsonValue"], Dict[str, "JsonValue"]
+]
+"""A value that can be serialized as JSON."""
+
+
+@cache
+def load_cloudmap_schema() -> Dict[str, Any]:
+    """Return the canonical cloudmap JSON schema."""
+    with open(os.path.join(_basepath, "cloudmap", "cloudmap-schema.json")) as f:
+        return json.load(f)
+
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 # a URI template expression (RFC 6570), e.g. "{?tag,digest}" or "{+base}".

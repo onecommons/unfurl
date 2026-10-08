@@ -13,9 +13,9 @@ components: # entities: !!
   organization@onecommons.org:
     type: # the kind of thing this is
       Cooperative:
-    tags: # and a sequence, which merges by replacement
+    org.example.tags: # and a sequence, which merges by replacement
       - co-op
-    description: a co-operative
+    org.example.description: a co-operative
 ```
 
 Its name and notes live further down, beside the paragraph that explains
@@ -27,8 +27,8 @@ components:
     dependencies: # a new one belongs here, beside foo
       foo:
       bar:
-    name: onecommons.org
-    notes: |
+    org.example.name: onecommons.org
+    org.example.notes: |
       first line
       # text, not a comment
       last line
@@ -56,7 +56,7 @@ markup — a fence only closes on a line indented three spaces or less.
 ~~~yaml
 components:
   documented@onecommons.org:
-    notes: |
+    org.example.notes: |
       Example usage:
 
       ```

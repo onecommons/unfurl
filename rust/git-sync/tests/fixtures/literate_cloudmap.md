@@ -13,7 +13,7 @@ components: # entities: !!
   organization@onecommons.org:
     type: # the kind of thing this is
       RealWorldEntity:
-    tags: # and a sequence, which merges by replacement
+    org.example.tags: # and a sequence, which merges by replacement
       - co-op
 ```
 
@@ -25,8 +25,8 @@ components:
   organization@onecommons.org:
     dependencies: # a new one belongs here, beside foo
       foo:
-    name: onecommons
-    notes: |
+    org.example.name: onecommons
+    org.example.notes: |
       first line
       # text, not a comment
       last line
@@ -58,7 +58,7 @@ markup — a fence only closes on a line indented three spaces or less.
 ~~~yaml
 components:
   documented@onecommons.org:
-    notes: |
+    org.example.notes: |
       Example usage:
 
       ```

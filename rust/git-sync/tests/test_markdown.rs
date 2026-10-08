@@ -71,7 +71,10 @@ async fn literate_markdown_is_indexed(sync: &SyncedRepo, tmp: &TempDir) {
 
     let org = org_record(sync).await;
     assert!(org["type"].get("RealWorldEntity").is_some(), "{org:?}");
-    assert_eq!(org["name"], "onecommons", "the second fence merged in");
+    assert_eq!(
+        org["org.example.name"], "onecommons",
+        "the second fence merged in"
+    );
 
     let all = sync
         .find_records(&RecordQuery {
@@ -95,7 +98,7 @@ async fn literate_markdown_is_indexed(sync: &SyncedRepo, tmp: &TempDir) {
         .await
         .expect("get")
         .expect("present")
-        .json["notes"]
+        .json["org.example.notes"]
         .as_str()
         .expect("string")
         .to_string();
@@ -136,7 +139,7 @@ async fn literate_markdown_updates_in_place(sync: &SyncedRepo, tmp: &TempDir) {
     for kept in [
         "# The organization",
         "components: # entities: !!",
-        "    name: onecommons",
+        "    org.example.name: onecommons",
         "      # text, not a comment",
         "      # still not a comment",
         "# literate-yaml: ignore",
@@ -181,7 +184,10 @@ async fn a_save_back_to_head_keeps_uncommitted_prose(sync: &SyncedRepo, tmp: &Te
     let head = org_record(sync).await;
     let text = literate_on_disk(tmp);
     let edited = text
-        .replace("    name: onecommons", "    name: renamed")
+        .replace(
+            "    org.example.name: onecommons",
+            "    org.example.name: renamed",
+        )
         .replace(
             "Prose explaining what this document is for.",
             "Prose explaining what this document is for. An uncommitted note.",
@@ -201,7 +207,10 @@ async fn a_save_back_to_head_keeps_uncommitted_prose(sync: &SyncedRepo, tmp: &Te
     sync.save_changes().await.expect("save");
     let after = literate_on_disk(tmp);
     assert!(after.contains("An uncommitted note."), "{after}");
-    assert!(after.contains("    name: onecommons"), "{after}");
+    assert!(
+        after.contains("    org.example.name: onecommons"),
+        "{after}"
+    );
 }
 
 /// A *record* no block holds has nowhere to be placed, so it lands in a
@@ -282,7 +291,7 @@ async fn literate_markdown_save_is_idempotent(sync: &SyncedRepo, tmp: &TempDir) 
         .expect("scan");
 
     let mut next = org_record(sync).await;
-    next["name"] = serde_json::json!("renamed");
+    next["org.example.name"] = serde_json::json!("renamed");
     sync.upsert_record(Some("cloudmap.md"), "/components", ORG, next, None, false)
         .await
         .expect("write");
@@ -298,7 +307,7 @@ async fn literate_markdown_save_is_idempotent(sync: &SyncedRepo, tmp: &TempDir) 
         "the document already says what the database says: {stats:?}"
     );
     assert!(stats.conflicts.is_empty(), "{stats:?}");
-    assert_eq!(org_record(sync).await["name"], "renamed");
+    assert_eq!(org_record(sync).await["org.example.name"], "renamed");
 }
 
 /// A markdown file with no `literate-yaml` front matter is not one of
@@ -321,7 +330,7 @@ async fn a_plain_markdown_file_is_never_indexed(sync: &SyncedRepo, tmp: &TempDir
         .expect("get")
         .is_none());
     // ...and the literate file beside it was still indexed.
-    assert_eq!(org_record(sync).await["name"], "onecommons");
+    assert_eq!(org_record(sync).await["org.example.name"], "onecommons");
 }
 
 /// There is no prose to invent and no front matter to guess, so a write
@@ -382,9 +391,9 @@ async fn a_saved_document_matches_the_fixture(sync: &SyncedRepo, tmp: &TempDir) 
     // one thing the document has no home for, so it appends.
     let mut next = org_record(sync).await;
     next["type"] = serde_json::json!({"Cooperative": null});
-    next["name"] = serde_json::json!("onecommons.org");
+    next["org.example.name"] = serde_json::json!("onecommons.org");
     next["dependencies"] = serde_json::json!({"foo": null, "bar": null});
-    next["description"] = serde_json::json!("a co-operative");
+    next["org.example.description"] = serde_json::json!("a co-operative");
     sync.upsert_record(Some("cloudmap.md"), "/components", ORG, next, None, false)
         .await
         .expect("write");
@@ -411,7 +420,7 @@ async fn a_saved_document_matches_the_fixture(sync: &SyncedRepo, tmp: &TempDir) 
     }
     // A key the record gained lands beside the sibling it belongs
     // with, not in a fence at the end of the document -- and the
-    // comment on the map holding them survives, because `name`
+    // comment on the map holding them survives, because `org.example.name`
     // changing beside it is now swapped in place rather than costing
     // the whole record body a re-emit.
     assert!(
@@ -463,7 +472,7 @@ async fn a_markdown_file_that_is_not_text_is_skipped(sync: &SyncedRepo, tmp: &Te
         .await
         .expect("one unreadable markdown file must not fail the scan");
     // ...and the literate file beside it was still indexed.
-    assert_eq!(org_record(sync).await["name"], "onecommons");
+    assert_eq!(org_record(sync).await["org.example.name"], "onecommons");
 }
 
 /// `literate-yaml: generic` classifies the document by its content
@@ -495,7 +504,6 @@ Prose between the fences, belonging to no record.
 ```yaml
 repositories:
   git.example.com/acme/widget:
-    git: https://git.example.com/acme/widget.git
     name: widget
     path: acme/widget
 ```
@@ -526,7 +534,6 @@ literate-yaml: generic
 ```yaml
 repositories:
   git.example.com/acme/widget:
-    git: https://git.example.com/acme/widget.git
     name: widget
     path: acme/widget
 ```

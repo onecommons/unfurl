@@ -94,8 +94,11 @@ fn main() {
     // Malformed JSON, on the other hand, is a real error worth
     // surfacing — the schema exists but is broken, so don't silently
     // mask it behind a possibly-stale snapshot.
+    let mut schema_json: serde_json::Value =
+        serde_json::from_str(&schema_text).expect("parse cloudmap-schema.json as json");
+    open_record_definitions(&mut schema_json);
     let schema: schemars::schema::RootSchema =
-        serde_json::from_str(&schema_text).expect("parse cloudmap-schema.json as draft-07 schema");
+        serde_json::from_value(schema_json).expect("parse cloudmap-schema.json as draft-07 schema");
 
     let settings = typify::TypeSpaceSettings::default();
     let mut type_space = typify::TypeSpace::new(&settings);
@@ -155,10 +158,12 @@ fn write_if_changed(path: &Path, contents: &str, label: &str) {
 /// records) or directly (a section that is one record), and the field
 /// list is the referenced definition's properties, with `allOf` branches
 /// expanded in the order they appear.
-/// That ordering is load-bearing — `artifact` and `component` position
-/// the shared `relationships` block by placing its `$ref` branch between
-/// their own, so the generated order matches what the Python
+/// That ordering is load-bearing: it must match what the Python
 /// dataclasses in `unfurl/tosca_plugins/cloudmap_defs.py` emit.
+///
+/// Also renders `EXTENSION_PATTERNS`: for each section whose definition
+/// closes its properties with `additionalProperties: false`, the
+/// `patternProperties` pattern an undeclared property name must match.
 fn field_order_source(schema_text: &str) -> String {
     let root: serde_json::Value =
         serde_json::from_str(schema_text).expect("parse cloudmap-schema.json as json");
@@ -169,6 +174,7 @@ fn field_order_source(schema_text: &str) -> String {
         .expect("cloudmap-schema.json has definitions");
 
     let mut entries = String::new();
+    let mut patterns = String::new();
     let sections = root
         .get("properties")
         .and_then(|v| v.as_object())
@@ -195,6 +201,9 @@ fn field_order_source(schema_text: &str) -> String {
             .collect::<Vec<_>>()
             .join(", ");
         entries.push_str(&format!("    ({section:?}, &[{fields}]),\n"));
+        if let Some(pattern) = extension_pattern(definition) {
+            patterns.push_str(&format!("    ({section:?}, {pattern:?}),\n"));
+        }
     }
 
     format!(
@@ -202,11 +211,53 @@ fn field_order_source(schema_text: &str) -> String {
          // Do not edit by hand — change the JSON Schema and rebuild.\n\
          //\n\
          // Consumed by `CloudMapFormat::field_order`, which orders the fields of\n\
-         // a record that has no counterpart on disk to copy an order from.\n\
+         // a record that has no counterpart on disk to copy an order from, and\n\
+         // by `validate_record`, which checks the names of undeclared fields.\n\
          \n\
          /// Record field order per top-level section, as declared in the schema.\n\
-         pub const FIELD_ORDER: &[(&str, &[&str])] = &[\n{entries}];\n"
+         pub const FIELD_ORDER: &[(&str, &[&str])] = &[\n{entries}];\n\
+         \n\
+         /// Per section of closed records, the pattern a property name not in\n\
+         /// `FIELD_ORDER` must match.\n\
+         pub const EXTENSION_PATTERNS: &[(&str, &str)] = &[\n{patterns}];\n"
     )
+}
+
+/// The single `patternProperties` pattern of a definition that disallows
+/// other additional properties, or `None` if it allows any.
+fn extension_pattern(definition: &serde_json::Value) -> Option<String> {
+    if definition.get("additionalProperties") != Some(&serde_json::Value::Bool(false)) {
+        return None;
+    }
+    let patterns = definition.get("patternProperties")?.as_object()?;
+    assert_eq!(
+        patterns.len(),
+        1,
+        "a closed record definition has exactly one patternProperties pattern"
+    );
+    patterns.keys().next().cloned()
+}
+
+/// Rewrites every definition with an [`extension_pattern`] to allow any
+/// additional property. typify ignores `patternProperties`, so it would
+/// otherwise emit `deny_unknown_fields` and reject the extensions;
+/// `validate_record` enforces the pattern instead.
+fn open_record_definitions(schema: &mut serde_json::Value) {
+    let Some(defs) = schema
+        .get_mut("definitions")
+        .and_then(|v| v.as_object_mut())
+    else {
+        return;
+    };
+    for definition in defs.values_mut() {
+        if extension_pattern(definition).is_none() {
+            continue;
+        }
+        if let Some(obj) = definition.as_object_mut() {
+            obj.remove("patternProperties");
+            obj.insert("additionalProperties".into(), serde_json::Value::Bool(true));
+        }
+    }
 }
 
 /// Property names of a schema node in declaration order, expanding

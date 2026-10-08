@@ -9,7 +9,7 @@ subclasses.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, asdict, field, InitVar
+from dataclasses import dataclass, asdict, field, fields, is_dataclass, InitVar
 from functools import total_ordering
 import os
 import os.path
@@ -20,6 +20,7 @@ from operator import attrgetter
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     Tuple,
     Iterable,
@@ -28,12 +29,23 @@ from typing import (
     NamedTuple,
     Optional,
     Sequence,
+    Set,
     Type,
     TypeVar,
     Union,
     cast,
 )
-from typing_extensions import Literal, Protocol, Required, TypedDict, Unpack, Self
+from typing_extensions import (
+    Concatenate,
+    dataclass_transform,
+    Literal,
+    ParamSpec,
+    Protocol,
+    Required,
+    Self,
+    TypedDict,
+    Unpack,
+)
 from urllib.parse import (
     ParseResult,
     quote,
@@ -665,6 +677,10 @@ TypedUrls = Dict[Tuple[str, str], Optional[TypeRefs]]
 
 
 class CloudMapRecord:
+    extensions: Dict[str, Any]
+    """Properties the schema doesn't declare, whose names start with an authority
+    (e.g. ``org.example.notes``)."""
+
     @property
     def key(self) -> str:
         """The unique key for this record."""
@@ -672,6 +688,74 @@ class CloudMapRecord:
 
     def asdict(self) -> Dict[str, Any]:
         return {}
+
+    def own_extensions(self) -> Dict[str, Any]:
+        """:py:attr:`extensions` without those a version inherited unchanged."""
+        parent: Optional[CloudMapRecord] = getattr(self, "_parent", None)
+        if parent is None:
+            return dict(self.extensions)
+        return {
+            name: value
+            for name, value in self.extensions.items()
+            if name not in parent.extensions or parent.extensions[name] != value
+        }
+
+
+# The cloudmap schema's `patternProperties` on each record definition.
+EXTENSION_PROPERTY_PATTERN = re.compile(
+    r"^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*){2,}$"
+)
+
+_R = TypeVar("_R", bound=CloudMapRecord)
+_P = ParamSpec("_P")
+
+
+@dataclass_transform()
+def extensible_dataclass(cls: Type[_R]) -> Type[_R]:
+    """``@dataclass``, plus extension properties (named per
+    :py:data:`EXTENSION_PROPERTY_PATTERN`) taken as keyword arguments, kept in
+    :py:attr:`CloudMapRecord.extensions` and compared by ``==``."""
+    cls = dataclass(cls)
+    assert is_dataclass(cls), cls
+    # `_parent` is an InitVar, which `fields()` leaves out
+    declared = {f.name for f in fields(cls)} | {"_parent"}
+    setattr(cls, "__init__", _with_extensions(cls.__init__, cls.__name__, declared))
+    setattr(cls, "__eq__", _with_extension_equality(cls.__eq__))
+    return cls
+
+
+def _with_extensions(
+    init: Callable[Concatenate[_R, _P], None],
+    class_name: str,
+    declared: Set[str],
+) -> Callable[Concatenate[_R, _P], None]:
+    def __init__(self: _R, *args: _P.args, **kwargs: _P.kwargs) -> None:
+        extensions: Dict[str, Any] = {}
+        for name in [name for name in kwargs if name not in declared]:
+            if not EXTENSION_PROPERTY_PATTERN.fullmatch(name):
+                raise TypeError(
+                    f"{class_name} has no property {name!r}; an undeclared property "
+                    f'needs an authority prefix, e.g. "org.example.{name}"'
+                )
+            extensions[name] = kwargs.pop(name)
+        # set first: `__post_init__` builds the versions, which inherit them
+        self.extensions = extensions
+        init(self, *args, **kwargs)
+
+    return __init__
+
+
+def _with_extension_equality(
+    eq: Callable[[_R, object], bool],
+) -> Callable[[_R, object], bool]:
+    def __eq__(self: _R, other: object) -> bool:
+        # the dataclass's `__eq__` returns NotImplemented for another class
+        result = eq(self, other)
+        if result is True and isinstance(other, CloudMapRecord):
+            return self.extensions == other.extensions
+        return result
+
+    return __eq__
 
 
 class VersionedRecord(CloudMapRecord):
@@ -694,6 +778,7 @@ class VersionedRecord(CloudMapRecord):
                 # Inherit type from parent if not specified in version
                 if "type" not in version_dict:
                     version_dict = dict(version_dict, type=self.type)
+                version_dict = {**self.extensions, **version_dict}
                 new_versions[version_key] = cls(
                     url=join_resource_url(self.url, version_key),
                     _parent=self,
@@ -703,7 +788,7 @@ class VersionedRecord(CloudMapRecord):
         return new_versions
 
 
-@dataclass
+@extensible_dataclass
 class Instantiation(VersionedRecord):
     """
     Build and deployment information for artifacts and services.
@@ -776,6 +861,7 @@ class Instantiation(VersionedRecord):
                 not self._parent or v != getattr(self._parent, k)  # type: ignore
             ):
                 result[k] = v
+        result.update(self.own_extensions())
         return result
 
 
@@ -888,7 +974,7 @@ def build_oci_purl(ref: ContainerImageParts) -> str:
     return purl
 
 
-@dataclass
+@extensible_dataclass
 class Artifact(VersionedRecord):
     url: str
     type: TypeRefs = field(default_factory=TypeRefs)
@@ -986,20 +1072,18 @@ class Artifact(VersionedRecord):
             elif k == "release_schedule" and v:
                 v = [filter_dict(item) for item in v]
             elif k == "versions" and v:
-                # Convert nested Artifact instances to dicts
-                v = {
-                    url: (rel.asdict() if isinstance(rel, Artifact) else rel)
-                    for url, rel in v.items()
-                }
+                # `v` is dataclasses.asdict's conversion; serialize the records
+                v = {url: rel.asdict() for url, rel in self.versions.items()}
             # exclude empty values and values inherited from parent
             if v and (
                 not self._parent or v != getattr(self._parent, k)  # type: ignore
             ):
                 result[k] = v
+        result.update(self.own_extensions())
         return result
 
 
-@dataclass
+@extensible_dataclass
 class Component(VersionedRecord):
     """
     A component that describes relationships (references, instantiates,
@@ -1065,15 +1149,14 @@ class Component(VersionedRecord):
             elif k == "instantiated_by":
                 v = TypeRefs.urls_asdict(v)
             elif k == "versions" and v:
-                v = {
-                    url: (c.asdict() if isinstance(c, Component) else c)
-                    for url, c in v.items()
-                }
+                # `v` is dataclasses.asdict's conversion; serialize the records
+                v = {url: c.asdict() for url, c in self.versions.items()}
             # exclude empty values and values inherited from parent
             if v and (
                 not self._parent or v != getattr(self._parent, k)  # type: ignore
             ):
                 result[k] = v
+        result.update(self.own_extensions())
         return result
 
 
@@ -1169,7 +1252,7 @@ class RepositoryMetadata(CommonMetadata):
         pass
 
 
-@dataclass
+@extensible_dataclass
 class Repository(CloudMapRecord):
     url: str
     """URL of the repository using the git:// URL scheme"""
@@ -1256,6 +1339,7 @@ class Repository(CloudMapRecord):
                 v = TypeRefs.urls_asdict(v)
             if v:
                 result[k] = v
+        result.update(self.own_extensions())
         return result
 
     def git_url(self, preference=()) -> str:
@@ -1391,7 +1475,7 @@ class ServicePolicies:
         return {k: v for k, v in asdict(self).items() if v}
 
 
-@dataclass
+@extensible_dataclass
 class Service(VersionedRecord):
     """A service instance."""
 
@@ -1462,21 +1546,19 @@ class Service(VersionedRecord):
             elif k == "release_schedule" and v:
                 v = [filter_dict(item) for item in v]
             elif k == "versions" and v:
-                # Convert nested Service instances to dicts
-                v = {
-                    url: (svc.asdict() if isinstance(svc, Service) else svc)
-                    for url, svc in v.items()
-                }
+                # `v` is dataclasses.asdict's conversion; serialize the records
+                v = {url: svc.asdict() for url, svc in self.versions.items()}
 
             # exclude empty values and values inherited from parent
             if v and (
                 not self._parent or v != getattr(self._parent, k)  # type: ignore
             ):
                 result[k] = v
+        result.update(self.own_extensions())
         return result
 
 
-@dataclass
+@extensible_dataclass
 class CloudType(CloudMapRecord):
     """A type definition for artifacts, services, software, or capabilities."""
 
@@ -1517,6 +1599,7 @@ class CloudType(CloudMapRecord):
                 v = filter_metadata(v)
             if v:  # exclude empty values
                 result[k] = v
+        result.update(self.own_extensions())
         return result
 
 

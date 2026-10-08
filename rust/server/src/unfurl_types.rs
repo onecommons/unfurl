@@ -530,6 +530,9 @@ pub struct CloudmapRepository {
     pub default_branch: Option<String>,
     /// URL of the repository that this repository was forked from.
     pub fork_of: Option<String>,
+    /// Deprecated: replaced by the record's key (url). URL of the repository, used instead of the key when the cloudmap is loaded.
+    #[deprecated]
+    pub git: Option<String>,
     /// Initial commit of the default branch.
     pub initial_revision: Option<String>,
     /// Internal identifier from the repository host (e.g., GitHub repository ID).
@@ -542,6 +545,9 @@ pub struct CloudmapRepository {
     pub moved_to: Option<String>,
     /// Repository name.
     pub name: Option<String>,
+    /// Deprecated: replaced by contains. Map of repository file paths to either an inline artifact definition (see inlineArtifact) or a {type, artifact} entry, migrated to contains (and artifacts and types) when the cloudmap is loaded.
+    #[deprecated]
+    pub notable: Option<std::collections::HashMap<String, serde_json::Value>>,
     /// Project path relative to base location of git repositories on the host.
     pub path: Option<String>,
     /// True if the repository is not publicly accessible.

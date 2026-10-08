@@ -305,132 +305,152 @@
       "type": "object",
       "title": "Artifact",
       "$$target": "#/definitions/artifact",
-      "allOf": [
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "$ref": "#/definitions/typeRef",
-              "description": "Type identifier from types/artifacts with optional version constraints."
-            }
-          }
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/typeRef",
+          "description": "Type identifier from types/artifacts with optional version constraints."
         },
-        {
-          "$ref": "#/definitions/relationships"
+        "contains": {
+          "$ref": "#/definitions/typedURLs",
+          "description": "Map of URLs of interesting artifacts that this record embeds or incorporates."
         },
-        {
-          "type": "object",
-          "properties": {
-            "digest": {
-              "type": "string",
-              "description": "Cryptographic digest of the artifact."
+        "references": {
+          "$ref": "#/definitions/typedURLs",
+          "description": "(Build-time or run-time) Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated."
+        },
+        "instantiates": {
+          "$ref": "#/definitions/typedURLs",
+          "description": "Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints."
+        },
+        "dependencies": {
+          "$ref": "#/definitions/typedURLs",
+          "description": "Build-time or run-time, dependencies the user may provide or configure. if url, it could be service use needs an account on or a default. Software, services, or environment context that the instantiation may depend on. Keys are labels or URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."
+        },
+        "instantiated_by": {
+          "$ref": "#/definitions/typedURLs",
+          "description": "URLs referencing instantiations that created or validated this record."
+        },
+        "digest": {
+          "type": "string",
+          "description": "Cryptographic digest of the artifact."
+        },
+        "immutable": {
+          "type": "boolean",
+          "description": "Indicates whether the artifact identifier refers to an artifact that will not change."
+        },
+        "status": {
+          "$ref": "#/definitions/lifecycle_status"
+        },
+        "release_schedule": {
+          "$ref": "#/definitions/release_schedule"
+        },
+        "metadata": {
+          "description": "Human-readable metadata about the artifact.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/metadata"
             },
-            "immutable": {
-              "type": "boolean",
-              "description": "Indicates whether the artifact identifier refers to an artifact that will not change."
-            },
-            "status": {
-              "$ref": "#/definitions/lifecycle_status"
-            },
-            "release_schedule": {
-              "$ref": "#/definitions/release_schedule"
-            },
-            "metadata": {
-              "description": "Human-readable metadata about the artifact.",
-              "allOf": [
-                {
-                  "$ref": "#/definitions/metadata"
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "platforms": {
-                      "type": "array",
-                      "description": "List of platforms this artifact supports.",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "architecture": {
-                            "type": "string",
-                            "description": "CPU architecture (e.g., amd64, arm64)."
-                          },
-                          "os": {
-                            "type": "string",
-                            "description": "Operating system (e.g., linux, windows)."
-                          }
-                        }
+            {
+              "type": "object",
+              "properties": {
+                "platforms": {
+                  "type": "array",
+                  "description": "List of platforms this artifact supports.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "architecture": {
+                        "type": "string",
+                        "description": "CPU architecture (e.g., amd64, arm64)."
+                      },
+                      "os": {
+                        "type": "string",
+                        "description": "Operating system (e.g., linux, windows)."
                       }
                     }
                   }
                 }
-              ]
-            },
-            "tags": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "List of available tags for this artifact (e.g., container image tags)."
-            },
-            "versions": {
-              "type": "object",
-              "description": "Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.",
-              "propertyNames": {
-                "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
-                "pattern": "^[^\\s]*$"
-              },
-              "additionalProperties": {
-                "$ref": "#/definitions/artifact"
               }
             }
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
           },
-          "additionalProperties": true
+          "description": "List of available tags for this artifact (e.g., container image tags)."
+        },
+        "versions": {
+          "type": "object",
+          "description": "Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.",
+          "propertyNames": {
+            "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
+            "pattern": "^[^\\s]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/artifact"
+          }
         }
-      ]
+      },
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$": {}
+      },
+      "additionalProperties": false
     },
     "component": {
       "type": "object",
       "title": "Component",
       "$$target": "#/definitions/component",
-      "allOf": [
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "$ref": "#/definitions/typeRef",
-              "description": "Type identifier from types/components with optional version constraints."
-            }
-          }
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/typeRef",
+          "description": "Type identifier from types/components with optional version constraints."
         },
-        {
-          "$ref": "#/definitions/relationships"
+        "contains": {
+          "$ref": "#/definitions/typedURLs",
+          "description": "Map of URLs of interesting artifacts that this record embeds or incorporates."
         },
-        {
+        "references": {
+          "$ref": "#/definitions/typedURLs",
+          "description": "(Build-time or run-time) Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated."
+        },
+        "instantiates": {
+          "$ref": "#/definitions/typedURLs",
+          "description": "Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints."
+        },
+        "dependencies": {
+          "$ref": "#/definitions/typedURLs",
+          "description": "Build-time or run-time, dependencies the user may provide or configure. if url, it could be service use needs an account on or a default. Software, services, or environment context that the instantiation may depend on. Keys are labels or URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."
+        },
+        "instantiated_by": {
+          "$ref": "#/definitions/typedURLs",
+          "description": "URLs referencing instantiations that created or validated this record."
+        },
+        "metadata": {
+          "description": "Human-readable metadata about the service.",
+          "$ref": "#/definitions/metadata"
+        },
+        "status": {
+          "$ref": "#/definitions/lifecycle_status",
+          "description": "Lifecycle status of the component."
+        },
+        "versions": {
           "type": "object",
-          "properties": {
-            "metadata": {
-              "description": "Human-readable metadata about the service.",
-              "$ref": "#/definitions/metadata"
-            },
-            "status": {
-              "$ref": "#/definitions/lifecycle_status",
-              "description": "Lifecycle status of the component."
-            },
-            "versions": {
-              "type": "object",
-              "description": "Components that are variants of this component (for example, different versions or configurations). Each component inherits the metadata of this one unless overridden in its declaration.",
-              "propertyNames": {
-                "description": "URL of the component variant.",
-                "pattern": "^[^\\s]*$"
-              },
-              "additionalProperties": {
-                "$ref": "#/definitions/component"
-              }
-            }
+          "description": "Components that are variants of this component (for example, different versions or configurations). Each component inherits the metadata of this one unless overridden in its declaration.",
+          "propertyNames": {
+            "description": "URL of the component variant.",
+            "pattern": "^[^\\s]*$"
           },
-          "additionalProperties": true
+          "additionalProperties": {
+            "$ref": "#/definitions/component"
+          }
         }
-      ]
+      },
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$": {}
+      },
+      "additionalProperties": false
     },
     "service": {
       "type": "object",
@@ -499,7 +519,10 @@
           }
         }
       },
-      "additionalProperties": true
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$": {}
+      },
+      "additionalProperties": false
     },
     "instantiation": {
       "type": "object",
@@ -561,7 +584,10 @@
           }
         }
       },
-      "additionalProperties": true
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$": {}
+      },
+      "additionalProperties": false
     },
     "inlineArtifact": {
       "type": "object",
@@ -766,9 +792,25 @@
         "contains": {
           "$ref": "#/definitions/typedURLs",
           "description": "Map of files or directories (as relative URLs) in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map, with optional type constraints."
+        },
+        "git": {
+          "type": "string",
+          "deprecated": true,
+          "description": "Deprecated: replaced by the record's key (url). URL of the repository, used instead of the key when the cloudmap is loaded."
+        },
+        "notable": {
+          "type": "object",
+          "deprecated": true,
+          "description": "Deprecated: replaced by contains. Map of repository file paths to either an inline artifact definition (see inlineArtifact) or a {type, artifact} entry, migrated to contains (and artifacts and types) when the cloudmap is loaded.",
+          "additionalProperties": {
+            "type": "object"
+          }
         }
       },
-      "additionalProperties": true
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$": {}
+      },
+      "additionalProperties": false
     },
     "type": {
       "$$target": "#/definitions/type",
@@ -824,7 +866,10 @@
           "description": "JSON Schema describing the properties of instances of this type."
         }
       },
-      "additionalProperties": true
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$": {}
+      },
+      "additionalProperties": false
     }
   },
   "type": "object",

@@ -23,6 +23,7 @@
 //!   producing empty follow-edges.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::LazyLock;
 
 use url::Url;
 
@@ -97,8 +98,13 @@ impl CloudMapFormat {
 /// rejects is exactly a record the graph walk would silently contribute
 /// no edges for. Only the first fault in a record is reported: serde
 /// returns one error and stops, and the path inside it is what names the
-/// offending field.
+/// offending field. A record that fits its type is then checked by
+/// [`check_property_names`].
 fn validate_record(section: &str, json: &serde_json::Value) -> Option<ValidationError> {
+    check_record_type(section, json).or_else(|| check_property_names(section, json))
+}
+
+fn check_record_type(section: &str, json: &serde_json::Value) -> Option<ValidationError> {
     fn check<T: serde::de::DeserializeOwned>(json: &serde_json::Value) -> Option<ValidationError> {
         // `serde_path_to_error` because serde reports a `Value` failure as
         // "line 0 column 0"; the path is the only thing naming the field.
@@ -128,6 +134,54 @@ fn validate_record(section: &str, json: &serde_json::Value) -> Option<Validation
         // over a gap here would be the one outcome nobody wants.
         _ => None,
     }
+}
+
+/// The compiled [`EXTENSION_PATTERNS`](crate::formats::cloudmap_field_order::EXTENSION_PATTERNS).
+static EXTENSION_PATTERNS: LazyLock<Vec<(&str, regress::Regex)>> = LazyLock::new(|| {
+    crate::formats::cloudmap_field_order::EXTENSION_PATTERNS
+        .iter()
+        .map(|(section, pattern)| {
+            let regex = regress::Regex::new(pattern)
+                .unwrap_or_else(|e| panic!("{section} pattern {pattern:?}: {e}"));
+            (*section, regex)
+        })
+        .collect()
+});
+
+/// Names the first property of a record of `section`, or of one of its
+/// `versions`, that the schema neither declares nor allows by its
+/// extension pattern. The generated types accept any property, so this is
+/// what enforces the schema's `additionalProperties: false`.
+fn check_property_names(section: &str, json: &serde_json::Value) -> Option<ValidationError> {
+    let (_, pattern) = EXTENSION_PATTERNS.iter().find(|(s, _)| *s == section)?;
+    let fields = CloudMapFormat.field_order(section);
+    let mut pending = vec![(String::new(), json)];
+    while let Some((at, record)) = pending.pop() {
+        let Some(obj) = record.as_object() else {
+            continue;
+        };
+        for (name, value) in obj {
+            if !fields.contains(&name.as_str()) && pattern.find(name).is_none() {
+                return Some(
+                    format!(
+                        "{at}{name:?}: undeclared property needs an authority prefix, \
+                         e.g. \"org.example.{name}\""
+                    )
+                    .into(),
+                );
+            }
+            if name == "versions" {
+                if let Some(versions) = value.as_object() {
+                    pending.extend(
+                        versions
+                            .iter()
+                            .map(|(key, version)| (format!("{at}versions.{key}: "), version)),
+                    );
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Checks a section key against the pattern its schema declares for it.
@@ -1148,7 +1202,9 @@ mod tests {
     /// declaration order is what `CloudMapDB.save()` writes. The Python
     /// half of this pin is `test_dataclass_field_order_matches_schema`
     /// in `tests/test_cloudmap.py`; between them the schema, the
-    /// dataclasses and this table can't drift apart.
+    /// dataclasses and this table can't drift apart. Deprecated properties
+    /// (the repository's `git` and `notable`) come last and have no
+    /// dataclass field.
     #[test]
     fn field_order_matches_the_python_dataclasses() {
         assert_eq!(
@@ -1171,11 +1227,10 @@ mod tests {
                 "branches",
                 "tags",
                 "contains",
+                "git",
+                "notable",
             ]
         );
-        // `artifact` composes the shared `relationships` block between
-        // its own fields, so the $ref branch sits in the middle of its
-        // `allOf` -- that's what puts `contains` after `type` here.
         assert_eq!(
             CloudMapFormat.field_order("artifacts"),
             [
@@ -1461,5 +1516,105 @@ mod tests {
         assert_eq!(esc, "git:~1~1example.com~1x.git");
         let back = CloudMapFormat::unescape_pointer_segment(&esc);
         assert_eq!(back, raw);
+    }
+
+    /// One minimal valid record for each section of records.
+    fn minimal_records() -> [(&'static str, &'static str, serde_json::Value); 6] {
+        [
+            (
+                "repositories",
+                "git://example.com/org/repo.git",
+                json!({"path": "org/repo"}),
+            ),
+            (
+                "artifacts",
+                "pkg:npm/example",
+                json!({"digest": "sha256:0"}),
+            ),
+            (
+                "components",
+                "label@example.com",
+                json!({"status": "production"}),
+            ),
+            (
+                "services",
+                "https://svc.example.com",
+                json!({"access": "public"}),
+            ),
+            (
+                "instantiations",
+                "https://ci.example.com/run/1",
+                json!({"revision": "abc"}),
+            ),
+            ("types", "Thing@example.com", json!({"name": "Thing"})),
+        ]
+    }
+
+    fn validate_one(section: &str, key: &str, record: serde_json::Value) -> Validation {
+        let mut doc = CloudMapFormat.new_document();
+        doc[section] = json!({ key: record });
+        CloudMapFormat.validate_document(&doc)
+    }
+
+    #[test]
+    fn custom_properties_with_an_authority_are_accepted() {
+        for (section, key, mut record) in minimal_records() {
+            record["org.foo.custom-property"] = json!({"any": ["value"]});
+            let v = validate_one(section, key, record);
+            assert!(v.fatal.is_empty(), "{section}: {:?}", v.fatal);
+            assert!(v.errors.is_empty(), "{section}: {:?}", v.errors);
+        }
+    }
+
+    #[test]
+    fn custom_properties_without_an_authority_are_rejected() {
+        for (section, key, record) in minimal_records() {
+            for unqualified in ["custom-property", "foo.custom-property"] {
+                let mut record = record.clone();
+                record[unqualified] = json!(1);
+                let v = validate_one(section, key, record);
+                assert!(
+                    v.errors
+                        .contains_key(&(section.to_string(), Some(key.to_string()))),
+                    "{section} accepted {unqualified:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn property_names_are_checked_in_versions() {
+        let version = |name: &str| json!({"versions": {"v1": {"digest": "d", name: 1}}});
+        let ok = validate_one("artifacts", "pkg:npm/example", version("org.foo.bar"));
+        assert!(ok.errors.is_empty(), "{:?}", ok.errors);
+        let bad = validate_one("artifacts", "pkg:npm/example", version("bogus"));
+        let err = bad
+            .errors
+            .get(&("artifacts".to_string(), Some("pkg:npm/example".to_string())))
+            .expect("rejected");
+        assert!(err.to_string().contains("versions.v1"), "{err}");
+    }
+
+    #[test]
+    fn follow_reads_a_record_with_custom_properties() {
+        let record = Record {
+            id: 1,
+            worktree_id: 1,
+            file_path: "cloudmap.yaml".into(),
+            path: "/artifacts".into(),
+            key: "pkg:npm/example".into(),
+            commit_id: None,
+            json: json!({
+                "contains": {"https://example.com/inner": null},
+                "org.foo.custom-property": 1,
+            }),
+            deleted: false,
+            version: 1,
+            conflict: None,
+        };
+        assert_eq!(
+            CloudMapFormat.follow(&record),
+            ["https://example.com/inner"]
+        );
     }
 }

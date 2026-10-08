@@ -1803,6 +1803,46 @@ environments:
         )
 
 
+
+def test_safe_mode_analyzer_constructs_records(tmp_path):
+    """Sandboxed analyzer code builds records directly, extensions included."""
+    from unfurl.tosca_plugins.cloudmap_defs import Artifact, Service
+    from unfurl.util import load_class_from_file
+
+    (tmp_path / "records.py").write_text(
+        """
+from unfurl.tosca_plugins.cloudmap_defs import URLAnalyzer, Artifact, Service
+
+class RecordBuilder(URLAnalyzer):
+    @staticmethod
+    def build():
+        plain = Service(url="https://svc.example.com")
+        extended = Artifact(
+            url="pkg:npm/example", **{"org.example.notes": {"a": [1, None]}}
+        )
+        return plain, extended, extended.extensions
+
+    @staticmethod
+    def build_unprefixed():
+        return Artifact(url="pkg:npm/example", **{"notes": 1})
+"""
+    )
+    cls = load_class_from_file(
+        "records.py#RecordBuilder", str(tmp_path), "Analyzer class", safe_mode=True
+    )
+    assert cls is not None
+    # RestrictedPython puts its guards in the module's globals
+    assert "_getattr_" in cls.build.__globals__
+
+    plain, extended, seen = cls.build()
+    assert isinstance(plain, Service) and plain.extensions == {}
+    assert isinstance(extended, Artifact)
+    assert extended.extensions == {"org.example.notes": {"a": [1, None]}}
+    assert seen == extended.extensions
+    assert extended != Artifact(url="pkg:npm/example")
+    with pytest.raises(TypeError, match="authority prefix"):
+        cls.build_unprefixed()
+
 @skip_github_integration
 def test_analyze_url(tmp_path):
     """Test CloudMap.analyze_url() correctly identifies and creates Repository, Artifact, and Service records."""

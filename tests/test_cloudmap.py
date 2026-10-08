@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Iterator
 import traceback
 from click.testing import CliRunner
 import pytest
@@ -172,13 +173,17 @@ def test_is_label():
 
 
 def _schema_properties(node: dict, defs: dict) -> list:
-    """Property names of a schema node in declaration order, expanding ``allOf``.
+    """Property names of a schema node in declaration order, expanding ``allOf``
+    and skipping deprecated properties.
 
     A ``$ref`` branch contributes the referenced definition's properties at the
-    position the branch appears in, which is how ``artifact`` and ``component``
-    place the shared ``relationships`` block between their own fields.
+    position the branch appears in.
     """
-    names = list(node.get("properties", {}))
+    names = [
+        name
+        for name, prop in node.get("properties", {}).items()
+        if not prop.get("deprecated")
+    ]
     for branch in node.get("allOf", []):
         if "$ref" in branch and "properties" not in branch:
             branch = defs[branch["$ref"].rsplit("/", 1)[-1]]
@@ -288,7 +293,7 @@ def test_dataclass_field_order_matches_schema():
         (CommonMetadata, defs["metadata"]),
         (Discovery, defs["discovery"]),
         # metadata subclasses, defined inline where they're used
-        (ArtifactMetadata, defs["artifact"]["allOf"][2]["properties"]["metadata"]),
+        (ArtifactMetadata, defs["artifact"]["properties"]["metadata"]),
         (RepositoryMetadata, defs["repository"]["properties"]["metadata"]),
     ]
     for dataclass, node in pairs:
@@ -1627,8 +1632,7 @@ def test_cloudmap_schema_with_artifacts_and_services():
     cloudmap_yaml = f"""apiVersion: {API_VERSION}
 kind: CloudMap
 repositories:
-  github.com/onecommons/unfurl:
-    git: github.com/onecommons/unfurl.git
+  git://github.com/onecommons/unfurl.git:
     path: onecommons/unfurl
     name: unfurl
     protocols:
@@ -3657,6 +3661,15 @@ class TestAppliedOwnership:
         record = self._analyze(context, self.REPO, title="reanalyzed")
         assert record.metadata.title == "edited"
 
+    def test_an_extension_survives_reanalysis(self):
+        context = self._context()
+        record = self._analyze(context, self.REPO, title="analyzed")
+        record.extensions["org.example.notes"] = {"by": "hand"}
+        context.add_record(record)
+        record = self._analyze(context, self.REPO, title="reanalyzed")
+        assert record.metadata.title == "reanalyzed"
+        assert record.extensions == {"org.example.notes": {"by": "hand"}}
+
     def test_a_manual_change_to_a_nested_key_is_kept(self):
         context = self._context()
         record = self._analyze_type(context, version="1.0", status="present")
@@ -3834,3 +3847,239 @@ def test_schema_files_are_checked_once(monkeypatch, tmp_path):
     for _ in range(2):
         assert find_schema_errors({}, schema) is None
     assert len(checked) == 3
+
+
+_MINIMAL_RECORDS = {
+    "repositories": ("git://example.com/org/repo.git", {"path": "org/repo"}),
+    "artifacts": ("pkg:npm/example", {"digest": "sha256:0"}),
+    "components": ("label@example.com", {"status": "production"}),
+    "services": ("https://svc.example.com", {"access": "public"}),
+    "instantiations": ("https://ci.example.com/run/1", {"revision": "abc"}),
+    "types": ("Thing@example.com", {"name": "Thing"}),
+}
+
+
+@pytest.mark.parametrize("section", sorted(_MINIMAL_RECORDS))
+def test_custom_record_properties_need_an_authority(section: str) -> None:
+    from pydantic import ValidationError
+    from unfurl.server.schemas import PostCloudmapRequest
+
+    key, record = _MINIMAL_RECORDS[section]
+
+    def post(extra: dict) -> PostCloudmapRequest:
+        return PostCloudmapRequest(**{section: {key: dict(record, **extra)}})
+
+    post({"org.foo.custom-property": 1})
+    if section not in ("repositories", "types"):
+        post({"versions": {"v1": {"org.foo.custom-property": 1}}})
+    for unqualified in ("custom-property", "foo.custom-property", "1org.foo.bar"):
+        with pytest.raises(ValidationError, match="does not match any of the regexes"):
+            post({unqualified: 1})
+
+
+_EXTENSIONS = {"org.foo.custom-property": "x", "org.foo.nested": {"a": [1, {"b": None}]}}
+# a version's own values, so they're saved rather than inherited
+_VERSION_EXTENSIONS = {"org.foo.custom-property": "y", "org.foo.nested": {"a": [2]}}
+
+_EXTENDED_CLOUDMAP = f"""
+apiVersion: {API_VERSION}
+kind: CloudMap
+repositories:
+  git://example.com/org/repo.git:
+    path: org/repo
+    org.foo.custom-property: x
+    org.foo.nested: {{a: [1, {{b: null}}]}}
+artifacts:
+  pkg:npm/example:
+    digest: sha256:0
+    org.foo.custom-property: x
+    org.foo.nested: {{a: [1, {{b: null}}]}}
+    versions:
+      "@1.0":
+        digest: sha256:1
+        org.foo.custom-property: y
+        org.foo.nested: {{a: [2]}}
+components:
+  label@example.com:
+    status: production
+    org.foo.custom-property: x
+    org.foo.nested: {{a: [1, {{b: null}}]}}
+    versions:
+      v1:
+        status: beta
+        org.foo.custom-property: y
+        org.foo.nested: {{a: [2]}}
+services:
+  https://svc.example.com:
+    access: public
+    org.foo.custom-property: x
+    org.foo.nested: {{a: [1, {{b: null}}]}}
+    versions:
+      v1:
+        access: private
+        org.foo.custom-property: y
+        org.foo.nested: {{a: [2]}}
+instantiations:
+  https://ci.example.com/run/1:
+    revision: abc
+    org.foo.custom-property: x
+    org.foo.nested: {{a: [1, {{b: null}}]}}
+    versions:
+      "2":
+        revision: def
+        org.foo.custom-property: y
+        org.foo.nested: {{a: [2]}}
+types:
+  Thing@example.com:
+    name: Thing@example.com
+    kind: component
+    org.foo.custom-property: x
+    org.foo.nested: {{a: [1, {{b: null}}]}}
+"""
+
+
+def _version_records(section: dict) -> Iterator[dict]:
+    for record in section.values():
+        yield from (record.get("versions") or {}).values()
+
+
+def test_record_extensions_round_trip(tmp_path: Path) -> None:
+    from ruamel.yaml import YAML
+
+    cloudmap_path = tmp_path / "cloudmap.yaml"
+    cloudmap_path.write_text(_EXTENDED_CLOUDMAP)
+    db = CloudMapDB(str(cloudmap_path))
+    assert db.artifacts["pkg:npm/example"].extensions == _EXTENSIONS
+    db.save()
+
+    saved = YAML(typ="safe").load(cloudmap_path.read_text())
+    sections = [
+        "repositories",
+        "artifacts",
+        "components",
+        "services",
+        "instantiations",
+        "types",
+    ]
+    for section in sections:
+        for record in saved[section].values():
+            assert {k: record.get(k) for k in _EXTENSIONS} == _EXTENSIONS, section
+        for version in _version_records(saved[section]):
+            assert {k: version.get(k) for k in _EXTENSIONS} == _VERSION_EXTENSIONS
+    assert len(list(_version_records(saved["artifacts"]))) == 1
+    reloaded = CloudMapDB(str(cloudmap_path))
+    assert reloaded.types["Thing@example.com"].extensions == _EXTENSIONS
+    assert reloaded.services["https://svc.example.com"].versions[
+        "v1"
+    ].extensions == (_VERSION_EXTENSIONS)
+
+
+def test_versions_inherit_extensions(tmp_path: Path) -> None:
+    from ruamel.yaml import YAML
+
+    cloudmap_path = tmp_path / "cloudmap.yaml"
+    cloudmap_path.write_text(
+        f"""
+apiVersion: {API_VERSION}
+kind: CloudMap
+artifacts:
+  pkg:npm/example:
+    org.foo.owner: team-a
+    org.foo.tier: 1
+    versions:
+      "@1.0":
+        digest: sha256:1
+      "@2.0":
+        org.foo.tier: 2
+"""
+    )
+    artifact = CloudMapDB(str(cloudmap_path)).artifacts["pkg:npm/example"]
+    inherited = artifact.versions["@1.0"]
+    overridden = artifact.versions["@2.0"]
+    assert inherited.extensions == {"org.foo.owner": "team-a", "org.foo.tier": 1}
+    assert overridden.extensions == {"org.foo.owner": "team-a", "org.foo.tier": 2}
+
+    db = CloudMapDB(str(cloudmap_path))
+    db.save()
+    saved = YAML(typ="safe").load(cloudmap_path.read_text())
+    versions = saved["artifacts"]["pkg:npm/example"]["versions"]
+    assert versions["@1.0"] == {"digest": "sha256:1"}
+    assert versions["@2.0"] == {"org.foo.tier": 2}
+
+
+def test_record_extensions_need_an_authority(tmp_path: Path) -> None:
+    from unfurl.util import UnfurlSchemaError
+
+    cloudmap_path = tmp_path / "cloudmap.yaml"
+    cloudmap_path.write_text(
+        _EXTENDED_CLOUDMAP.replace("org.foo.custom-property", "custom-property", 1)
+    )
+    with pytest.raises(UnfurlSchemaError, match="custom-property"):
+        CloudMapDB(str(cloudmap_path))
+    with pytest.raises(TypeError, match='"org.example.custom-property"'):
+        Artifact(url="pkg:npm/example", **{"custom-property": 1})
+
+
+def test_extension_pattern_matches_the_schema() -> None:
+    from unfurl.tosca_plugins.cloudmap_defs import EXTENSION_PROPERTY_PATTERN
+    from unfurl.util import load_cloudmap_schema
+
+    patterns = {
+        name: list(definition["patternProperties"])
+        for name, definition in load_cloudmap_schema()["definitions"].items()
+        if "patternProperties" in definition
+    }
+    assert set(patterns) == {
+        "repository",
+        "artifact",
+        "component",
+        "service",
+        "instantiation",
+        "type",
+    }
+    for name, pattern in patterns.items():
+        assert pattern == [EXTENSION_PROPERTY_PATTERN.pattern], name
+
+
+def test_record_equality_compares_extensions() -> None:
+    def artifact(**extensions: object) -> Artifact:
+        return Artifact(url="pkg:npm/example", **extensions)
+
+    assert artifact() == artifact()
+    assert artifact(**{"org.foo.a": 1}) == artifact(**{"org.foo.a": 1})
+    assert artifact(**{"org.foo.a": 1}) != artifact(**{"org.foo.a": 2})
+    assert artifact(**{"org.foo.a": 1}) != artifact()
+    assert artifact() != Artifact(url="pkg:npm/other")
+
+
+def test_legacy_repository_keys_are_migrated(tmp_path: Path) -> None:
+    from ruamel.yaml import YAML
+
+    cloudmap_path = tmp_path / "cloudmap.yaml"
+    cloudmap_path.write_text(
+        f"""
+apiVersion: {API_VERSION}
+kind: CloudMap
+repositories:
+  github.com/org/repo:
+    git: github.com/org/repo.git
+    path: org/repo
+    notable:
+      Dockerfile:
+        artifact_type: artifact.Dockerfile
+        name: app
+      ensemble-template.yaml:
+        type:
+          unfurl.nodes.Blueprint:
+"""
+    )
+    db = CloudMapDB(str(cloudmap_path))
+    repo_url = "git://github.com/org/repo.git"
+    repo = db.repositories[repo_url]
+    assert set(key for _, key in repo.contains) == {"Dockerfile", "ensemble-template.yaml"}
+    assert repo.artifact_url("Dockerfile") in db.artifacts
+    db.save()
+    saved = YAML(typ="safe").load(cloudmap_path.read_text())
+    record = saved["repositories"][repo_url]
+    assert "git" not in record and "notable" not in record
+    assert set(record["contains"]) == {"Dockerfile", "ensemble-template.yaml"}

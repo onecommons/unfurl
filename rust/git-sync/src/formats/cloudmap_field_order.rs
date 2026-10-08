@@ -2,7 +2,8 @@
 // Do not edit by hand — change the JSON Schema and rebuild.
 //
 // Consumed by `CloudMapFormat::field_order`, which orders the fields of
-// a record that has no counterpart on disk to copy an order from.
+// a record that has no counterpart on disk to copy an order from, and
+// by `validate_record`, which checks the names of undeclared fields.
 
 /// Record field order per top-level section, as declared in the schema.
 pub const FIELD_ORDER: &[(&str, &[&str])] = &[
@@ -47,6 +48,8 @@ pub const FIELD_ORDER: &[(&str, &[&str])] = &[
             "branches",
             "tags",
             "contains",
+            "git",
+            "notable",
         ],
     ),
     (
@@ -124,5 +127,34 @@ pub const FIELD_ORDER: &[(&str, &[&str])] = &[
             "metadata",
             "properties",
         ],
+    ),
+];
+
+/// Per section of closed records, the pattern a property name not in
+/// `FIELD_ORDER` must match.
+pub const EXTENSION_PATTERNS: &[(&str, &str)] = &[
+    (
+        "repositories",
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$",
+    ),
+    (
+        "artifacts",
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$",
+    ),
+    (
+        "components",
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$",
+    ),
+    (
+        "services",
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$",
+    ),
+    (
+        "instantiations",
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$",
+    ),
+    (
+        "types",
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$",
     ),
 ];

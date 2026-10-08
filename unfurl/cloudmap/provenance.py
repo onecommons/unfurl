@@ -336,6 +336,7 @@ def _transplant(record: "CloudMapRecord", data: Dict[str, Any]) -> None:
     rebuilt = type(record)(**data)
     for f in record_fields:
         setattr(record, f.name, getattr(rebuilt, f.name))
+    record.extensions = rebuilt.extensions
 
 
 def _source_matches_key(source: str, record: "CloudMapRecord") -> bool:

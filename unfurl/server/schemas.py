@@ -7,9 +7,6 @@ These are used with @app.input() and @app.output() decorators to provide
 request validation and OpenAPI spec generation.
 """
 
-import json
-import os
-from functools import lru_cache
 from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal, TypedDict
 
@@ -31,7 +28,7 @@ from ..graphql import (
     ResourceTemplate as ResourceTemplateType,
     ResourceType as ResourceTypeType,
 )
-from ..util import find_schema_errors
+from ..util import JsonValue, find_schema_errors, load_cloudmap_schema
 
 
 # ---------------------------------------------------------------------------
@@ -663,15 +660,6 @@ class FacetsResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=1)
-def _load_cloudmap_schema() -> Dict[str, Any]:
-    """Return the canonical cloudmap JSON schema as a dict."""
-    here = os.path.dirname(os.path.abspath(__file__))
-    schema_path = os.path.join(here, "..", "cloudmap", "cloudmap-schema.json")
-    with open(schema_path, "r") as f:
-        return json.load(f)
-
-
 _CLOUDMAP_REQUEST_ENVELOPE_KEYS = frozenset([
     "branch",
     "latest_commit",
@@ -729,7 +717,7 @@ class CloudMapDocument(BaseModel):
         # commonly omit them — supply defaults so they don't have to.
         payload.setdefault("apiVersion", "unfurl/v1.0.0")
         payload.setdefault("kind", "CloudMap")
-        schema = _load_cloudmap_schema()
+        schema = load_cloudmap_schema()
         err = find_schema_errors(payload, schema)
         if err is not None:
             message, _details = err
@@ -834,7 +822,7 @@ class PostCloudmapRequest(BaseModel):
             return self
         payload.setdefault("apiVersion", "unfurl/v1.0.0")
         payload.setdefault("kind", "CloudMap")
-        schema = _load_cloudmap_schema()
+        schema = load_cloudmap_schema()
         err = find_schema_errors(payload, schema)
         if err is not None:
             message, _details = err
@@ -973,6 +961,17 @@ class CloudMapResult(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+def _open_for_openapi(definition: Dict[str, JsonValue]) -> Dict[str, JsonValue]:
+    """Return ``definition`` with ``patternProperties`` replaced by
+    ``additionalProperties: true``, as OpenAPI 3.0 has no ``patternProperties``.
+    Request bodies are still validated against the canonical schema."""
+    if "patternProperties" not in definition:
+        return definition
+    opened = {k: v for k, v in definition.items() if k != "patternProperties"}
+    opened["additionalProperties"] = True
+    return opened
+
+
 def _rewrite_refs_to_components(node: Any, prefix: str = "cloudmap_") -> Any:
     """Return a deep copy of ``node`` with ``#/definitions/<X>``
     rewritten to ``#/components/schemas/{prefix}<X>``."""
@@ -1072,10 +1071,12 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
     has_post = "PostCloudmapRequest" in schemas
     if not (has_doc or has_result or has_post):
         return spec
-    canonical = _load_cloudmap_schema()
+    canonical = load_cloudmap_schema()
     defs = canonical.get("definitions", {})
     for name, definition in defs.items():
-        schemas["cloudmap_" + name] = _rewrite_refs_to_components(definition)
+        schemas["cloudmap_" + name] = _rewrite_refs_to_components(
+            _open_for_openapi(definition)
+        )
     canonical_props = _rewrite_refs_to_components(canonical.get("properties", {}))
     # ``CloudMapResult`` $refs ``CloudMapDocument`` so the latter has to
     # exist whenever the result does, even if no request body references
