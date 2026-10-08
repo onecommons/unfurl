@@ -578,7 +578,21 @@ impl SyncedRepo {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Classified::Vanished,
             Err(_) => return Classified::Skip,
         };
-        let blob = git::blob_oid_for_bytes(pass.repo, &bytes);
+        let blob = match git::blob_oid_for_bytes(pass.repo, &bytes) {
+            Ok(blob) => blob,
+            Err(error) => {
+                tracing::warn!(
+                    file = tf.rel_path.as_str(),
+                    error = error.to_string().as_str(),
+                    "file could not be hashed"
+                );
+                stats.unparsed.push(crate::model::FileFailure {
+                    file_path: tf.rel_path.clone(),
+                    error,
+                });
+                return Classified::Skip;
+            }
+        };
         // Clean: what HEAD has, so nothing for a commit to carry.
         let clean = pass.head_blobs.get(&tf.rel_path) == Some(&blob);
         let disk_blob = blob.to_string();
@@ -1982,7 +1996,7 @@ impl SyncedRepo {
         // take the merge in
         let oid = match stale {
             true => None,
-            false => Some(git::blob_oid_for_bytes(&self.repo()?, &bytes).to_string()),
+            false => Some(git::blob_oid_for_bytes(&self.repo()?, &bytes)?.to_string()),
         };
         let write = RenderWrite {
             file_path,
@@ -2092,7 +2106,7 @@ impl SyncedRepo {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
             Err(e) => return Err(Error::Io(e)),
         };
-        Ok(git::blob_oid_for_bytes(&self.repo()?, &bytes).to_string() != expected)
+        Ok(git::blob_oid_for_bytes(&self.repo()?, &bytes)? != expected)
     }
 
     /// The file's side of every record this worktree is in conflict
@@ -3642,7 +3656,7 @@ mod scan_bench {
         println!("read only: {:?}", start.elapsed());
         let start = std::time::Instant::now();
         for bytes in &all {
-            git::blob_oid_for_bytes(&repo, bytes);
+            git::blob_oid_for_bytes(&repo, bytes).expect("hash");
         }
         println!("hash only: {:?}", start.elapsed());
         let first = std::time::Instant::now();

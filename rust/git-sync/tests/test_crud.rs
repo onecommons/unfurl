@@ -3485,14 +3485,14 @@ async fn hashing_a_blob_matches_git_and_writes_nothing() {
     let expected = String::from_utf8_lossy(&expected.stdout).trim().to_string();
 
     let repo = unfurl_git_sync::git::open_repo(tmp.path()).expect("open");
-    let got = unfurl_git_sync::git::blob_oid_for_bytes(&repo, novel.as_bytes());
+    let got = unfurl_git_sync::git::blob_oid_for_bytes(&repo, novel.as_bytes()).expect("hash");
     assert_eq!(got.to_string(), expected, "must agree with git's own hash");
 
     // Hashing is pure: the object must not have been stored. `git add`
     // above does store it, so check against a *second* content that was
     // never staged.
     let unstaged = b"kind: NotACloudMap\nunique: never-staged-either\n";
-    let oid = unfurl_git_sync::git::blob_oid_for_bytes(&repo, unstaged);
+    let oid = unfurl_git_sync::git::blob_oid_for_bytes(&repo, unstaged).expect("hash");
     let out = std::process::Command::new("git")
         .args(["cat-file", "-e", &oid.to_string()])
         .current_dir(tmp.path())
@@ -3511,7 +3511,8 @@ async fn hashing_a_blob_matches_git_and_writes_nothing() {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("sync");
-    let dirty_oid = unfurl_git_sync::git::blob_oid_for_bytes(&repo, dirty.as_bytes());
+    let dirty_oid =
+        unfurl_git_sync::git::blob_oid_for_bytes(&repo, dirty.as_bytes()).expect("hash");
     let out = std::process::Command::new("git")
         .args(["cat-file", "-e", &dirty_oid.to_string()])
         .current_dir(tmp.path())

@@ -34,7 +34,7 @@ sqlx = { version = "0.8", default-features = false, features = [
     "chrono",
     "sqlite",
 ] }
-gix = { version = "0.66", default-features = false, features = ["max-performance-safe", "index", "blob-diff", "revision"] }
+gix = { version = "0.89", default-features = false, features = ["max-performance-safe", "index", "blob-diff", "revision", "sha1"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde-saphyr = "1.1.0"

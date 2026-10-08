@@ -191,11 +191,11 @@ pub fn worktree_meta(repo: &gix::Repository) -> Result<WorktreeMeta> {
         .remote_names()
         .iter()
         .find_map(|name| {
-            let remote = repo.find_remote(name.as_ref()).ok()?;
+            let remote = repo.find_remote(name.as_ref() as &gix::bstr::BStr).ok()?;
             let url = remote.url(gix::remote::Direction::Fetch)?;
             Some(url.to_bstring().to_string())
         })
-        .or_else(|| repo.work_dir().map(|p| p.to_string_lossy().to_string()))
+        .or_else(|| repo.workdir().map(|p| p.to_string_lossy().to_string()))
         .map(|raw| normalize_git_url_hard(&raw))
         .unwrap_or_default();
 
@@ -224,7 +224,7 @@ pub struct WorktreeMeta {
 /// absolute on-disk location and the OID recorded in the index.
 pub fn tracked_files(repo: &gix::Repository) -> Result<Vec<TrackedFile>> {
     let work_dir = repo
-        .work_dir()
+        .workdir()
         .ok_or_else(|| Error::Git("repository has no working tree".to_string()))?
         .to_path_buf();
     let index = repo.index_or_load_from_head().map_err(git_err)?;
@@ -265,8 +265,10 @@ pub struct TrackedFile {
 /// A pure hash, unlike `Repository::write_blob`, which stores a loose
 /// object as a side effect. Answering "has this file changed?" should
 /// not leave unreferenced objects behind.
-pub fn blob_oid_for_bytes(repo: &gix::Repository, bytes: &[u8]) -> gix::ObjectId {
-    gix::objs::compute_hash(repo.object_hash(), gix::object::Kind::Blob, bytes)
+///
+/// Fails on bytes crafted to collide under SHA-1.
+pub fn blob_oid_for_bytes(repo: &gix::Repository, bytes: &[u8]) -> Result<gix::ObjectId> {
+    gix::objs::compute_hash(repo.object_hash(), gix::object::Kind::Blob, bytes).map_err(git_err)
 }
 
 /// Stage `paths` (relative to the work dir) and create a commit on HEAD
@@ -291,7 +293,7 @@ pub fn commit_paths_onto(
 ) -> Result<gix::ObjectId> {
     head_is_at(repo, parent)?;
     let work_dir = repo
-        .work_dir()
+        .workdir()
         .ok_or_else(|| Error::Git("repository has no working tree".to_string()))?
         .to_path_buf();
 
@@ -647,6 +649,7 @@ pub fn last_commits_for_paths(
 ) -> Result<HashMap<String, String>> {
     use gix::object::tree::diff::{Action, Change};
     use gix::prelude::ObjectIdExt;
+    use std::ops::ControlFlow;
 
     // Unborn / empty repo: nothing to attribute.
     let Some(head) = head.filter(|_| !paths.is_empty()) else {
@@ -681,15 +684,14 @@ pub fn last_commits_for_paths(
         // The visitor records every changed path that the caller asked
         // about and removes it from the pending set. We never abort
         // mid-commit; a single commit may resolve multiple paths.
-        let mut visit =
-            |change: Change<'_, '_, '_>| -> std::result::Result<Action, std::convert::Infallible> {
-                if let Ok(path_str) = change.location.to_str() {
-                    if pending.remove(path_str as &str) {
-                        result.insert(path_str.to_string(), oid_str.clone());
-                    }
+        let mut visit = |change: Change<'_, '_, '_>| -> gix::Result<Action> {
+            if let Ok(path_str) = change.location().to_str() {
+                if pending.remove(path_str as &str) {
+                    result.insert(path_str.to_string(), oid_str.clone());
                 }
-                Ok(Action::Continue)
-            };
+            }
+            Ok(ControlFlow::Continue(()))
+        };
 
         let empty;
         let source: &gix::Tree<'_> = match first_parent_tree {
@@ -700,11 +702,13 @@ pub fn last_commits_for_paths(
             }
         };
         let mut platform = source.changes().map_err(git_err)?;
-        // Without `track_path`, `change.location` is always empty.
-        platform.track_path();
-        // Rename detection isn't useful for "last commit that touched
-        // this path" attribution and just costs blob reads.
-        platform.track_rewrites(None);
+        platform.options(|o| {
+            // Without `track_path`, `change.location()` is always empty.
+            o.track_path();
+            // Rename detection isn't useful for "last commit that touched
+            // this path" attribution and just costs blob reads.
+            o.track_rewrites(None);
+        });
         platform
             .for_each_to_obtain_tree(&tree, &mut visit)
             .map_err(git_err)?;
@@ -720,7 +724,8 @@ pub fn last_commits_for_paths(
 /// Every blob in `commit`'s tree: path → OID. Empty when `commit` isn't a
 /// resolvable commit.
 pub fn tree_blobs(repo: &gix::Repository, commit: &str) -> Result<HashMap<String, gix::ObjectId>> {
-    use gix::object::tree::diff::{change::Event, Action, Change};
+    use gix::object::tree::diff::{Action, Change};
+    use std::ops::ControlFlow;
 
     let Ok(oid) = gix::ObjectId::from_hex(commit.as_bytes()) else {
         return Ok(HashMap::new());
@@ -730,21 +735,26 @@ pub fn tree_blobs(repo: &gix::Repository, commit: &str) -> Result<HashMap<String
     };
     let tree = commit.tree().map_err(git_err)?;
     let mut out = HashMap::new();
-    let mut visit =
-        |change: Change<'_, '_, '_>| -> std::result::Result<Action, std::convert::Infallible> {
-            if let (Event::Addition { entry_mode, id }, Ok(path)) =
-                (&change.event, change.location.to_str())
-            {
-                if entry_mode.is_blob() {
-                    out.insert(path.to_string(), id.detach());
-                }
+    let mut visit = |change: Change<'_, '_, '_>| -> gix::Result<Action> {
+        if let Change::Addition {
+            location,
+            entry_mode,
+            id,
+            ..
+        } = change
+        {
+            if let (true, Ok(path)) = (entry_mode.is_blob(), location.to_str()) {
+                out.insert(path.to_string(), id.detach());
             }
-            Ok(Action::Continue)
-        };
+        }
+        Ok(ControlFlow::Continue(()))
+    };
     let empty = repo.empty_tree();
     let mut platform = empty.changes().map_err(git_err)?;
-    platform.track_path();
-    platform.track_rewrites(None);
+    platform.options(|o| {
+        o.track_path();
+        o.track_rewrites(None);
+    });
     platform
         .for_each_to_obtain_tree(&tree, &mut visit)
         .map_err(git_err)?;
@@ -921,7 +931,8 @@ pub fn merge_base(repo: &gix::Repository, a: &str, b: &str) -> Result<Option<Str
 
 /// The paths of files that differ between commits `from` and `to`.
 pub fn changed_paths(repo: &gix::Repository, from: &str, to: &str) -> Result<Vec<String>> {
-    use gix::object::tree::diff::{change::Event, Action, Change};
+    use gix::object::tree::diff::{Action, Change};
+    use std::ops::ControlFlow;
     let tree = |commit: &str| -> Result<gix::Tree<'_>> {
         let oid = gix::ObjectId::from_hex(commit.as_bytes()).map_err(git_err)?;
         repo.find_commit(oid)
@@ -931,27 +942,28 @@ pub fn changed_paths(repo: &gix::Repository, from: &str, to: &str) -> Result<Vec
     };
     let (old, new) = (tree(from)?, tree(to)?);
     let mut paths = BTreeSet::new();
-    let mut visit =
-        |change: Change<'_, '_, '_>| -> std::result::Result<Action, std::convert::Infallible> {
-            let file = match change.event {
-                Event::Addition { entry_mode, .. } | Event::Deletion { entry_mode, .. } => {
-                    !entry_mode.is_tree()
-                }
-                Event::Modification {
-                    previous_entry_mode,
-                    entry_mode,
-                    ..
-                } => !entry_mode.is_tree() || !previous_entry_mode.is_tree(),
-                Event::Rewrite { .. } => true,
-            };
-            if file {
-                paths.insert(change.location.to_string());
+    let mut visit = |change: Change<'_, '_, '_>| -> gix::Result<Action> {
+        let file = match change {
+            Change::Addition { entry_mode, .. } | Change::Deletion { entry_mode, .. } => {
+                !entry_mode.is_tree()
             }
-            Ok(Action::Continue)
+            Change::Modification {
+                previous_entry_mode,
+                entry_mode,
+                ..
+            } => !entry_mode.is_tree() || !previous_entry_mode.is_tree(),
+            Change::Rewrite { .. } => true,
         };
+        if file {
+            paths.insert(change.location().to_string());
+        }
+        Ok(ControlFlow::Continue(()))
+    };
     let mut platform = old.changes().map_err(git_err)?;
-    platform.track_path();
-    platform.track_rewrites(None);
+    platform.options(|o| {
+        o.track_path();
+        o.track_rewrites(None);
+    });
     platform
         .for_each_to_obtain_tree(&new, &mut visit)
         .map_err(git_err)?;
@@ -1248,7 +1260,7 @@ mod history_tests {
     #[test]
     fn a_commit_onto_a_parent_moves_nothing() {
         let h = history();
-        let d = h.repo.work_dir().expect("work dir").to_path_buf();
+        let d = h.repo.workdir().expect("work dir").to_path_buf();
         let head = run(&d, &["rev-parse", "HEAD"]);
         let parent = gix::ObjectId::from_hex(h.merge.as_bytes()).expect("oid");
         let files = vec![
@@ -1281,7 +1293,7 @@ mod history_tests {
             matches!(&again, Err(Error::BranchExists { branch }) if branch == "exported"),
             "{again:?}"
         );
-        let d = h.repo.work_dir().expect("work dir").to_path_buf();
+        let d = h.repo.workdir().expect("work dir").to_path_buf();
         let tip = || run(&d, &["rev-parse", "refs/heads/exported"]);
         assert_eq!(tip(), h.m1, "the failed create left it");
         delete_branch_if_at(&h.repo, "exported", oid(&h.root)).expect("delete");
