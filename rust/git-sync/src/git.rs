@@ -474,7 +474,7 @@ fn build_tree_with_updates(
 }
 
 /// Resolve the most recent commit oid that touched each path in
-/// `paths`, walking ancestors of HEAD in reverse-chronological order.
+/// `paths`, walking ancestors of `head` in reverse-chronological order.
 ///
 /// Implements the lazy-batch algorithm: a single backwards walk maintains
 /// a `path → commit_oid` map. Each commit is diffed against its first
@@ -489,19 +489,17 @@ fn build_tree_with_updates(
 /// requested paths — far cheaper than resolving each path independently.
 pub fn last_commits_for_paths(
     repo: &gix::Repository,
+    head: Option<gix::ObjectId>,
     paths: &[String],
 ) -> Result<HashMap<String, String>> {
     use gix::object::tree::diff::{Action, Change};
+    use gix::prelude::ObjectIdExt;
 
-    if paths.is_empty() {
+    // Unborn / empty repo: nothing to attribute.
+    let Some(head) = head.filter(|_| !paths.is_empty()) else {
         return Ok(HashMap::new());
-    }
-
-    let head = match repo.head_id() {
-        Ok(id) => id,
-        // Unborn / empty repo: nothing to attribute.
-        Err(_) => return Ok(HashMap::new()),
     };
+    let head = head.attach(repo);
 
     let mut pending: HashSet<String> = paths.iter().cloned().collect();
     let mut result: HashMap<String, String> = HashMap::new();

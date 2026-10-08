@@ -100,6 +100,13 @@ struct SyncedRepoInner {
     /// [`db::worktree::family_id`]. Resolved once at open because every
     /// write draws from it.
     family_id: i64,
+    /// Files found in no format, so a scan doesn't parse them again until
+    /// they change. In memory only: the formats are fixed at open, and a
+    /// new process parses each once.
+    unrecognized: std::sync::Mutex<Unrecognized>,
+    /// The HEAD the last scan walked history at. While HEAD stays there, a
+    /// clean file's last commit is the one on record.
+    walked_head: std::sync::Mutex<Option<gix::ObjectId>>,
 }
 
 /// How many findings of one grade are logged individually before the rest
@@ -199,6 +206,71 @@ struct HeadSide {
     blobs: std::collections::HashMap<String, gix::ObjectId>,
     /// The files whose blob isn't the one the committed segments hold.
     files: Vec<HeadFile>,
+    /// How many of HEAD's files were parsed to find them.
+    parsed: usize,
+}
+
+/// The blob each file was found in no format at, by path: the working
+/// tree's copy and HEAD's, which differ while the file is dirty.
+#[derive(Default)]
+struct Unrecognized {
+    disk: std::collections::HashMap<String, gix::ObjectId>,
+    head: std::collections::HashMap<String, gix::ObjectId>,
+}
+
+impl Unrecognized {
+    fn contains(&self, path: &str, blob: gix::ObjectId) -> bool {
+        self.disk.get(path) == Some(&blob) || self.head.get(path) == Some(&blob)
+    }
+}
+
+/// What a scan's first pass reads each tracked file against.
+struct FirstPass<'a> {
+    repo: &'a gix::Repository,
+    options: &'a ScanOptions,
+    /// HEAD is where the last scan walked history.
+    head_unmoved: bool,
+    head_blobs: &'a std::collections::HashMap<String, gix::ObjectId>,
+    /// The files HEAD changed since the committed segments took them in.
+    head_changed: &'a BTreeSet<String>,
+    known_files: &'a std::collections::HashMap<String, crate::model::File>,
+}
+
+/// What a scan's first pass makes of one tracked file.
+enum Classified<'a> {
+    /// Not a document, unreadable, or in no format.
+    Skip,
+    /// Still in the index, gone from the working tree.
+    Vanished,
+    Candidate(Candidate<'a>),
+}
+
+/// What a scan's first pass learned about one tracked file.
+struct Candidate<'a> {
+    tf: &'a git::TrackedFile,
+    clean: bool,
+    disk_blob: String,
+    /// The parsed document, present when the bytes differ from
+    /// what the database last took in, or HEAD changed the file.
+    parsed_doc: Option<ParsedDoc<'a>>,
+    db_commit: Option<String>,
+    /// Its last commit may have moved, so history is walked for it.
+    needs_history: bool,
+}
+
+impl Candidate<'_> {
+    /// The last commit to touch the file: from the walk, or for a file not
+    /// walked, the one on record.
+    fn last_commit<'a>(
+        &'a self,
+        last_commits: &'a std::collections::HashMap<String, String>,
+    ) -> Option<&'a str> {
+        match last_commits.get(&self.tf.rel_path) {
+            Some(commit) => Some(commit),
+            None if !self.needs_history => self.db_commit.as_deref(),
+            None => None,
+        }
+    }
 }
 
 impl SyncedRepo {
@@ -275,6 +347,8 @@ impl SyncedRepo {
                 formats,
                 worktree_id,
                 family_id,
+                unrecognized: Default::default(),
+                walked_head: Default::default(),
             }),
         })
     }
@@ -399,6 +473,7 @@ impl SyncedRepo {
         // scan took in, and a rebuild recorded, even if it moves meanwhile.
         let meta = git::worktree_meta(&self.repo()?)?;
         let stats = self.scan_files(&options, &meta).await?;
+        *self.walked_head() = meta.head_oid;
         if let Some(oid) = meta.head_oid {
             db::worktree::update_commit(self.db(), self.worktree_id(), Some(&oid.to_string()))
                 .await?;
@@ -438,7 +513,9 @@ impl SyncedRepo {
         if recorded == n || git::is_ancestor(&repo, recorded, n)? {
             return Ok(());
         }
-        let files = self.head_files(&repo, Some(n), &Default::default())?.files;
+        let files = self
+            .head_files(&repo, Some(n), &Default::default(), false)?
+            .files;
         crate::fork::rebuild(
             self.db(),
             repo,
@@ -449,6 +526,96 @@ impl SyncedRepo {
             &files,
         )
         .await
+    }
+
+    /// What a scan's first pass makes of one tracked file: nothing, a
+    /// file gone from the working tree, or a candidate -- parsed when its
+    /// bytes or HEAD's copy changed since the last take-in.
+    fn classify<'a>(
+        &'a self,
+        pass: &FirstPass<'_>,
+        tf: &'a git::TrackedFile,
+        stats: &mut SyncOutcome,
+    ) -> Classified<'a> {
+        let Some(syntax) = Syntax::for_extension(&extract_ext(&tf.rel_path)) else {
+            return Classified::Skip;
+        };
+        // Most markdown in a repository is prose. Settle that from
+        // the first line rather than reading and hashing every
+        // README to find out.
+        if syntax == Syntax::Markdown
+            && matches!(
+                unfurl_merge::markdown::find_literate_directive(&tf.abs_path),
+                Ok(None)
+            )
+        {
+            return Classified::Skip;
+        }
+        let bytes = match std::fs::read(&tf.abs_path) {
+            Ok(b) => b,
+            // Still in the index, gone from the working tree: a
+            // plain `rm`. Every other read failure leaves the file
+            // alone rather than reading as a deletion.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Classified::Vanished,
+            Err(_) => return Classified::Skip,
+        };
+        let blob = git::blob_oid_for_bytes(pass.repo, &bytes);
+        // Clean: what HEAD has, so nothing for a commit to carry.
+        let clean = pass.head_blobs.get(&tf.rel_path) == Some(&blob);
+        let disk_blob = blob.to_string();
+
+        let db_file = pass.known_files.get(&tf.rel_path);
+        if db_file.is_none()
+            && !pass.options.force
+            && self.unrecognized().contains(&tf.rel_path, blob)
+        {
+            return Classified::Skip;
+        }
+        let db_commit = db_file.and_then(|f| f.commit_id.clone());
+        let head_changed = pass.head_changed.contains(&tf.rel_path);
+        let parsed_doc = if !pass.options.force
+            && !head_changed
+            && db_file.is_some_and(|f| f.source_oid.as_deref() == Some(disk_blob.as_str()))
+        {
+            None
+        } else {
+            match self.parse_and_detect(&tf.rel_path, syntax, &bytes, stats) {
+                Ok(Some(doc)) => {
+                    self.unrecognized().disk.remove(&tf.rel_path);
+                    Some(doc)
+                }
+                Ok(None) => {
+                    self.unrecognized().disk.insert(tf.rel_path.clone(), blob);
+                    return Classified::Skip;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        file = tf.rel_path.as_str(),
+                        syntax = ?syntax,
+                        error = error.to_string().as_str(),
+                        "file could not be parsed"
+                    );
+                    stats.unparsed.push(crate::model::FileFailure {
+                        file_path: tf.rel_path.clone(),
+                        error,
+                    });
+                    return Classified::Skip;
+                }
+            }
+        };
+        // A walk at the same HEAD finds a clean file's last commit where
+        // the last one did, so only the rest need one.
+        let needs_history = parsed_doc.is_some()
+            || head_changed
+            || !(pass.head_unmoved && clean && db_commit.is_some());
+        Classified::Candidate(Candidate {
+            tf,
+            clean,
+            disk_blob,
+            parsed_doc,
+            db_commit,
+            needs_history,
+        })
     }
 
     /// Take HEAD, as `meta` read it, and the working tree into the
@@ -483,97 +650,56 @@ impl SyncedRepo {
         let HeadSide {
             blobs: head_blobs,
             files: head_files,
-        } = self.head_files(&repo, head.as_deref(), &known_files)?;
+            parsed: head_parsed,
+        } = self.head_files(&repo, head.as_deref(), &known_files, options.force)?;
+        stats.files_parsed += head_parsed;
         let head_changed: BTreeSet<String> =
             head_files.iter().map(|f| f.rel_path.clone()).collect();
-
-        /// What pass 1 learned about one tracked file.
-        struct Candidate<'a> {
-            tf: &'a git::TrackedFile,
-            clean: bool,
-            disk_blob: String,
-            /// The parsed document, present when the bytes differ from
-            /// what the database last took in, or HEAD changed the file.
-            parsed_doc: Option<ParsedDoc<'a>>,
-            db_commit: Option<String>,
-        }
 
         let mut candidates: Vec<Candidate<'_>> = Vec::new();
         let mut walk_paths: Vec<String> = Vec::new();
         let mut indexed: std::collections::HashSet<&str> =
             std::collections::HashSet::with_capacity(tracked.len());
         let mut vanished: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-        for tf in &tracked {
-            stats.files_seen += 1;
-            indexed.insert(tf.rel_path.as_str());
-
-            let Some(syntax) = Syntax::for_extension(&extract_ext(&tf.rel_path)) else {
-                continue;
+        // `pass` borrows the repository, which isn't `Sync`, so it's
+        // scoped to end before the next await
+        {
+            let pass = FirstPass {
+                repo: &repo,
+                options,
+                head_unmoved: meta.head_oid.is_some() && *self.walked_head() == meta.head_oid,
+                head_blobs: &head_blobs,
+                head_changed: &head_changed,
+                known_files: &known_files,
             };
-            // Most markdown in a repository is prose. Settle that from
-            // the first line rather than reading and hashing every
-            // README to find out.
-            if syntax == Syntax::Markdown
-                && matches!(
-                    unfurl_merge::markdown::find_literate_directive(&tf.abs_path),
-                    Ok(None)
-                )
-            {
-                continue;
-            }
-            let bytes = match std::fs::read(&tf.abs_path) {
-                Ok(b) => b,
-                // Still in the index, gone from the working tree: a
-                // plain `rm`. Every other read failure leaves the file
-                // alone rather than reading as a deletion.
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    vanished.insert(tf.rel_path.clone());
-                    continue;
-                }
-                Err(_) => continue,
-            };
-            let disk_blob = git::blob_oid_for_bytes(&repo, &bytes);
-            // Clean: what HEAD has, so nothing for a commit to carry.
-            let clean = head_blobs.get(&tf.rel_path) == Some(&disk_blob);
-            let disk_blob = disk_blob.to_string();
 
-            let db_file = known_files.get(&tf.rel_path);
-            let db_commit = db_file.and_then(|f| f.commit_id.clone());
-            let parsed_doc = if !options.force
-                && !head_changed.contains(&tf.rel_path)
-                && db_file.is_some_and(|f| f.source_oid.as_deref() == Some(disk_blob.as_str()))
-            {
-                None
-            } else {
-                match self.parse_and_detect(&tf.rel_path, syntax, &bytes, &mut stats) {
-                    Ok(Some(doc)) => Some(doc),
-                    Ok(None) => continue,
-                    Err(error) => {
-                        tracing::warn!(
-                            file = tf.rel_path.as_str(),
-                            syntax = ?syntax,
-                            error = error.to_string().as_str(),
-                            "file could not be parsed"
-                        );
-                        stats.unparsed.push(crate::model::FileFailure {
-                            file_path: tf.rel_path.clone(),
-                            error,
-                        });
-                        continue;
+            for tf in &tracked {
+                stats.files_seen += 1;
+                indexed.insert(tf.rel_path.as_str());
+                match self.classify(&pass, tf, &mut stats) {
+                    Classified::Skip => {}
+                    Classified::Vanished => {
+                        vanished.insert(tf.rel_path.clone());
+                    }
+                    Classified::Candidate(c) => {
+                        if c.needs_history {
+                            walk_paths.push(tf.rel_path.clone());
+                        }
+                        candidates.push(c);
                     }
                 }
-            };
-            walk_paths.push(tf.rel_path.clone());
-            candidates.push(Candidate {
-                tf,
-                clean,
-                disk_blob,
-                parsed_doc,
-                db_commit,
-            });
+            }
         }
 
+        {
+            let mut unrecognized = self.unrecognized();
+            unrecognized
+                .disk
+                .retain(|path, _| indexed.contains(path.as_str()));
+            unrecognized
+                .head
+                .retain(|path, _| head_blobs.contains_key(path));
+        }
         // Files the database knows and the working tree no longer has,
         // either because the index dropped them or because the file
         // itself is gone. Their records are taken in as deleted.
@@ -614,13 +740,13 @@ impl SyncedRepo {
 
         // Second pass: resolve the commit that last touched every
         // candidate path via a single backwards walk from HEAD.
-        let last_commits = git::last_commits_for_paths(&repo, &walk_paths)?;
+        let last_commits = git::last_commits_for_paths(&repo, meta.head_oid, &walk_paths)?;
         let mut resolves: std::collections::HashMap<String, Option<i64>> =
             std::collections::HashMap::new();
         let mut docs: Vec<(Candidate<'_>, ParsedDoc<'_>, Option<i64>)> = Vec::new();
-        for c in candidates {
-            let record_commit_id: Option<&str> =
-                last_commits.get(&c.tf.rel_path).map(String::as_str);
+        for mut c in candidates {
+            let mut parsed_doc = c.parsed_doc.take();
+            let record_commit_id = c.last_commit(&last_commits);
             let file_commit_id: Option<&str> = if c.clean { record_commit_id } else { None };
             let resolves_version = record_commit_id.and_then(|commit| {
                 *resolves.entry(commit.to_string()).or_insert_with(|| {
@@ -629,7 +755,6 @@ impl SyncedRepo {
                         .and_then(resolves_version_from_message)
                 })
             });
-            let mut parsed_doc = c.parsed_doc;
             if parsed_doc.is_none() && resolves_version.is_some() {
                 // "Keep the file as it is and drop the database's edit"
                 // is a resolution that changes no bytes, so the
@@ -657,19 +782,12 @@ impl SyncedRepo {
                 continue;
             };
             stats.files_updated += 1;
-            docs.push((
-                Candidate {
-                    parsed_doc: None,
-                    ..c
-                },
-                doc,
-                resolves_version,
-            ));
+            docs.push((c, doc, resolves_version));
         }
 
         let mut disk_files: Vec<DiskFile<'_>> = Vec::new();
         for (c, doc, resolves_version) in &docs {
-            let record_commit_id = last_commits.get(&c.tf.rel_path).map(String::as_str);
+            let record_commit_id = c.last_commit(&last_commits);
             disk_files.push(DiskFile {
                 file: ScannedFile {
                     rel_path: &c.tf.rel_path,
@@ -725,18 +843,21 @@ impl SyncedRepo {
     }
 
     /// HEAD's blobs, and the files whose blob isn't the one the
-    /// committed segments hold, parsed from `head`.
+    /// committed segments hold, parsed from `head` -- except a file known
+    /// to be in no format at that blob, unless `force`.
     fn head_files(
         &self,
         repo: &gix::Repository,
         head: Option<&str>,
         known_files: &std::collections::HashMap<String, crate::model::File>,
+        force: bool,
     ) -> Result<HeadSide> {
         let head_blobs: std::collections::HashMap<String, gix::ObjectId> = match head {
             Some(h) => git::tree_blobs(repo, h)?,
             None => Default::default(),
         };
         let mut head_files: Vec<HeadFile> = Vec::new();
+        let mut parsed = 0;
         let head_paths: BTreeSet<&String> = head_blobs
             .keys()
             .chain(
@@ -750,9 +871,14 @@ impl SyncedRepo {
             let Some(syntax) = Syntax::for_extension(&extract_ext(path)) else {
                 continue;
             };
-            let now = head_blobs.get(path).map(|o| o.to_string());
+            let blob = head_blobs.get(path).copied();
+            let now = blob.map(|o| o.to_string());
             let known = known_files.get(path);
             if now == known.and_then(|f| f.committed_oid.clone()) {
+                continue;
+            }
+            let skip = |blob| known.is_none() && !force && self.unrecognized().contains(path, blob);
+            if blob.is_some_and(skip) {
                 continue;
             }
             let bytes = match &now {
@@ -763,13 +889,16 @@ impl SyncedRepo {
             // commit that no format claims or that doesn't parse holds no
             // records the committed segments can take.
             let mut ignored = SyncOutcome::default();
-            let doc = match &bytes {
-                Some(bytes) => self
-                    .parse_and_detect(path, syntax, bytes, &mut ignored)
-                    .ok()
-                    .flatten(),
-                None => None,
-            };
+            let detected = bytes
+                .as_ref()
+                .map(|bytes| self.parse_and_detect(path, syntax, bytes, &mut ignored));
+            parsed += ignored.files_parsed;
+            // only a document no format claims; one that doesn't parse is
+            // the working tree's to report
+            if let (Some(Ok(None)), None, Some(blob)) = (&detected, known, blob) {
+                self.unrecognized().head.insert(path.clone(), blob);
+            }
+            let doc = detected.and_then(|d| d.ok().flatten());
             let format = match (&doc, known) {
                 (Some(doc), _) => doc.format.name().to_string(),
                 (None, Some(f)) => f.format.clone(),
@@ -780,6 +909,7 @@ impl SyncedRepo {
         Ok(HeadSide {
             blobs: head_blobs,
             files: head_files,
+            parsed,
         })
     }
 
@@ -813,7 +943,22 @@ impl SyncedRepo {
         bytes: &[u8],
         stats: &mut SyncOutcome,
     ) -> Result<Option<ParsedDoc<'_>>> {
+        stats.files_parsed += 1;
         parse_and_detect(self.formats(), rel_path, syntax, bytes, stats)
+    }
+
+    fn unrecognized(&self) -> std::sync::MutexGuard<'_, Unrecognized> {
+        self.inner
+            .unrecognized
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn walked_head(&self) -> std::sync::MutexGuard<'_, Option<gix::ObjectId>> {
+        self.inner
+            .walked_head
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Search records by optional `file_path` / `path` / `key` filters.
@@ -2131,7 +2276,7 @@ impl SyncedRepo {
                 .into_iter()
                 .map(|f| (f.path.clone(), f))
                 .collect();
-        let head_side = self.head_files(&repo, Some(&oid_str), &known_files)?;
+        let head_side = self.head_files(&repo, Some(&oid_str), &known_files, false)?;
         let carried = crate::scan::Carried {
             commit: &oid_str,
             files: &files,
@@ -2882,5 +3027,239 @@ mod race_tests {
             assert!(String::from_utf8_lossy(&committed).contains("name: a"));
         })
         .await;
+    }
+}
+
+#[cfg(test)]
+mod scan_cache_tests {
+    //! What a scan skips because nothing changed: files known to be in no
+    //! format, and history for files whose last commit can't have moved.
+    use super::*;
+    use crate::{DbConfig, FormatRegistry};
+
+    const DEPLOY: &str = "deploy.yaml";
+    const MANIFEST: &str = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm\n";
+
+    /// A repository with the cloudmap fixture, `deploy.yaml` (in no format)
+    /// and `extra`, scanned once.
+    async fn scanned(extra: &[(&str, &str)]) -> (SyncedRepo, tempfile::TempDir, SyncOutcome) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let fixture = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/expected_cloudmap.yaml"),
+        )
+        .expect("fixture");
+        let mut files = vec![
+            ("cloudmap.yaml".to_string(), fixture),
+            (DEPLOY.to_string(), MANIFEST.as_bytes().to_vec()),
+        ];
+        files.extend(
+            extra
+                .iter()
+                .map(|(p, t)| (p.to_string(), t.as_bytes().to_vec())),
+        );
+        git::init_with_files(tmp.path(), &files, "initial").expect("init");
+        let db = DbConfig::Sqlite {
+            url: "sqlite::memory:".into(),
+        };
+        let sync = SyncedRepo::open(tmp.path(), db, FormatRegistry::with_builtins())
+            .await
+            .expect("open");
+        let first = scan(&sync, false).await;
+        (sync, tmp, first)
+    }
+
+    async fn scan(sync: &SyncedRepo, force: bool) -> SyncOutcome {
+        let options = ScanOptions {
+            force,
+            ..Default::default()
+        };
+        sync.update_from_working_dir(options).await.expect("scan")
+    }
+
+    async fn commit_of(sync: &SyncedRepo, path: &str) -> Option<String> {
+        let row = sync.get_file(path).await.expect("get").expect("row");
+        row.commit_id
+    }
+
+    #[tokio::test]
+    async fn a_document_in_no_format_is_parsed_once() {
+        let (sync, _tmp, first) = scanned(&[]).await;
+        assert!(first.files_parsed >= 2, "{first:?}");
+        assert_eq!(scan(&sync, false).await.files_parsed, 0);
+        assert!(sync.get_file(DEPLOY).await.expect("get").is_none());
+    }
+
+    #[tokio::test]
+    async fn an_edited_document_in_no_format_is_parsed_again() {
+        let (sync, tmp, _) = scanned(&[]).await;
+        std::fs::write(tmp.path().join(DEPLOY), format!("{MANIFEST}data: {{}}\n")).expect("edit");
+        assert_eq!(scan(&sync, false).await.files_parsed, 1);
+        assert_eq!(scan(&sync, false).await.files_parsed, 0);
+    }
+
+    #[tokio::test]
+    async fn a_document_that_becomes_a_cloudmap_is_taken_in() {
+        let (sync, tmp, _) = scanned(&[]).await;
+        let cloudmap = "apiVersion: unfurl/v1.0.0\nkind: CloudMap\n\
+                        repositories:\n  git://example.com/r.git:\n    name: r\n";
+        std::fs::write(tmp.path().join(DEPLOY), cloudmap).expect("edit");
+        scan(&sync, false).await;
+        let record = sync
+            .get_record(DEPLOY, "/repositories", "git://example.com/r.git")
+            .await
+            .expect("get");
+        assert!(record.is_some(), "the new cloudmap wasn't taken in");
+    }
+
+    #[tokio::test]
+    async fn a_forced_scan_parses_every_document() {
+        let (sync, _tmp, first) = scanned(&[]).await;
+        assert_eq!(scan(&sync, true).await.files_parsed, first.files_parsed);
+    }
+
+    #[tokio::test]
+    async fn a_document_that_doesnt_parse_is_reported_every_scan() {
+        let (sync, _tmp, first) = scanned(&[("broken.json", "{ not json")]).await;
+        let broken = |outcome: &SyncOutcome| {
+            outcome
+                .unparsed
+                .iter()
+                .any(|f| f.file_path == "broken.json")
+        };
+        assert!(broken(&first), "{first:?}");
+        assert!(broken(&scan(&sync, false).await));
+    }
+
+    /// Commits that change a file and change it back leave it clean, with
+    /// the blob the database holds, but with a later last commit.
+    #[tokio::test]
+    async fn a_file_changed_and_changed_back_moves_to_the_later_commit() {
+        let (sync, tmp, _) = scanned(&[]).await;
+        let repo = sync.repo().expect("repo");
+        let path = tmp.path().join("cloudmap.yaml");
+        let text = std::fs::read_to_string(&path).expect("read");
+        std::fs::write(&path, text.replace("name: dashboard", "name: renamed")).expect("edit");
+        git::commit_paths(&repo, &["cloudmap.yaml".into()], "change").expect("commit");
+        std::fs::write(&path, &text).expect("restore");
+        let back = git::commit_paths(&repo, &["cloudmap.yaml".into()], "back").expect("commit");
+        scan(&sync, false).await;
+        assert_eq!(
+            commit_of(&sync, "cloudmap.yaml").await,
+            Some(back.to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_files_commit_moves_only_with_commits_that_touch_it() {
+        let (sync, tmp, _) = scanned(&[]).await;
+        let repo = sync.repo().expect("repo");
+        let initial = commit_of(&sync, "cloudmap.yaml").await;
+        assert!(initial.is_some());
+        for i in 0..3 {
+            std::fs::write(tmp.path().join("other.txt"), format!("{i}\n")).expect("write");
+            git::commit_paths(&repo, &["other.txt".into()], "other").expect("commit");
+            scan(&sync, false).await;
+            assert_eq!(commit_of(&sync, "cloudmap.yaml").await, initial);
+        }
+
+        let path = tmp.path().join("cloudmap.yaml");
+        let text = std::fs::read_to_string(&path).expect("read");
+        std::fs::write(&path, text.replace("name: dashboard", "name: renamed")).expect("edit");
+        let touched = git::commit_paths(&repo, &["cloudmap.yaml".into()], "touch").expect("commit");
+        scan(&sync, false).await;
+        assert_eq!(
+            commit_of(&sync, "cloudmap.yaml").await,
+            Some(touched.to_string())
+        );
+    }
+}
+
+#[cfg(test)]
+mod scan_bench {
+    //! How long a scan of an unchanged repository takes. Run by hand:
+    //!
+    //! ```text
+    //! cargo test --no-default-features --lib scan_bench -- --ignored --nocapture
+    //! ```
+    use super::*;
+    use crate::{DbConfig, FormatRegistry};
+
+    fn size(var: &str, default: usize) -> usize {
+        std::env::var(var)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default)
+    }
+
+    /// A Kubernetes-like manifest of about 30 KB: valid YAML no format
+    /// claims.
+    fn manifest(n: usize) -> Vec<u8> {
+        let mut text =
+            format!("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cm-{n}\ndata:\n");
+        for i in 0..600 {
+            text.push_str(&format!(
+                "  key-{i}: value {n} {i} lorem ipsum dolor sit amet\n"
+            ));
+        }
+        text.into_bytes()
+    }
+
+    #[tokio::test]
+    #[ignore = "a timing, not a test"]
+    async fn scan_of_an_unchanged_repository() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let dir = tmp.path().join("repo");
+        let fixture = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/expected_cloudmap.yaml"),
+        )
+        .expect("fixture");
+        let mut files = vec![("cloudmap.yaml".to_string(), fixture)];
+        files.extend(
+            (0..size("BENCH_UNRELATED", 400)).map(|n| (format!("k8s/cm-{n}.yaml"), manifest(n))),
+        );
+        git::init_with_files(&dir, &files, "initial").expect("init");
+        let repo = git::open_repo(&dir).expect("repo");
+        for i in 0..size("BENCH_COMMITS", 300) {
+            std::fs::write(dir.join("other.txt"), format!("{i}\n")).expect("write");
+            git::commit_paths(&repo, &["other.txt".into()], "later").expect("commit");
+        }
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            tmp.path().join("db.sqlite").display()
+        );
+        let sync = SyncedRepo::open(
+            &dir,
+            DbConfig::Sqlite { url },
+            FormatRegistry::with_builtins(),
+        )
+        .await
+        .expect("open");
+        let paths: Vec<_> = (0..size("BENCH_UNRELATED", 400))
+            .map(|n| dir.join(format!("k8s/cm-{n}.yaml")))
+            .collect();
+        let start = std::time::Instant::now();
+        let all: Vec<Vec<u8>> = paths
+            .iter()
+            .map(|p| std::fs::read(p).expect("read"))
+            .collect();
+        println!("read only: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        for bytes in &all {
+            git::blob_oid_for_bytes(&repo, bytes);
+        }
+        println!("hash only: {:?}", start.elapsed());
+        let first = std::time::Instant::now();
+        sync.update_from_working_dir(ScanOptions::default())
+            .await
+            .expect("first scan");
+        println!("first scan: {:?}", first.elapsed());
+        for n in 1..=3 {
+            let start = std::time::Instant::now();
+            let outcome = sync
+                .update_from_working_dir(ScanOptions::default())
+                .await
+                .expect("scan");
+            println!("unchanged scan {n}: {:?} ({outcome:?})", start.elapsed());
+        }
     }
 }

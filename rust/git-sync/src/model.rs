@@ -917,6 +917,9 @@ pub struct SyncOutcome {
     /// take-in, so there was nothing to re-extract. A skipped file is
     /// not re-classified against the format registry.
     pub files_unchanged: usize,
+    /// Documents parsed in this pass, HEAD's copies included. A document
+    /// found in no format isn't parsed again until it changes.
+    pub files_parsed: usize,
     /// Total records inserted or refreshed in this pass. A record in a
     /// changed file whose value and commit attribution both already
     /// match the database is not rewritten and not counted — its
