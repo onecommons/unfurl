@@ -1525,7 +1525,10 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
 /// generated type uses `#[serde(flatten)] additional_properties` for
 /// forward-compat with new envelope keys); the handler explicitly
 /// inspects that bag and rejects truly unknown keys before applying.
-/// Record fields not in the schema are still silently dropped.
+/// A record property the schema doesn't declare must have an authority
+/// prefix (e.g. `org.example.notes`), as git-sync's
+/// `validate_record` checks: otherwise the request fails with **422**
+/// and nothing in it is written.
 ///
 /// Errors fail fast: the first record whose OCC token mismatches
 /// returns 409 and the remainder are skipped. Previously-applied
@@ -1858,6 +1861,10 @@ impl From<WriteError> for ApiError {
                         .collect::<Vec<_>>(),
                 }),
             },
+            WriteError::Unprocessable(msg) => Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                body: json!({"code": "VALIDATION_ERROR", "message": msg}),
+            },
             WriteError::Internal(msg) => {
                 tracing::error!("post_cloudmap error: {}", msg);
                 Self {
@@ -1871,6 +1878,9 @@ impl From<WriteError> for ApiError {
 
 enum WriteError {
     BadRequest(String),
+    /// A record fails git-sync's `validate_record` -- 422, as APIFlask
+    /// answers on the python side.
+    Unprocessable(String),
     Conflict {
         /// First conflicting record's section (back-compat with the
         /// pre-batch response shape).
@@ -1980,9 +1990,14 @@ async fn apply_writes(
     }
 
     let outcome = synced
-        .apply_batch(ops, atomic, Some(meta))
+        .apply_batch_checked(ops, atomic, Some(meta))
         .await
-        .map_err(|e| WriteError::Internal(format!("apply_batch: {e}")))?;
+        .map_err(|e| match e {
+            invalid @ unfurl_git_sync::Error::Invalid { .. } => {
+                WriteError::Unprocessable(invalid.to_string())
+            }
+            other => WriteError::Internal(format!("apply_batch: {other}")),
+        })?;
 
     let applied: Vec<unfurl_types::PatchResponseAppliedRecord> = outcome
         .applied

@@ -151,6 +151,20 @@ pub enum Error {
         /// Row's current `commit_id` (or `None` if pending / absent).
         actual: Option<String>,
     },
+    /// A record written by [`crate::SyncedRepo::apply_batch_checked`]
+    /// fails its format's [`crate::DataFormat::validate_record`]. The
+    /// batch was rolled back, so nothing in it was written.
+    #[error("invalid record {file_path}#{path}/{key}: {message}")]
+    Invalid {
+        /// Working-tree-relative path of the file.
+        file_path: String,
+        /// Parent JSON-pointer the record sits under.
+        path: String,
+        /// The record's key.
+        key: String,
+        /// What the format found wrong with it.
+        message: String,
+    },
     /// Catch-all for failure cases that don't fit the variants above.
     #[error("{0}")]
     Other(String),

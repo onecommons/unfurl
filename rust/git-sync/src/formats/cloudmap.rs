@@ -244,6 +244,10 @@ impl DataFormat for CloudMapFormat {
         }
     }
 
+    fn validate_record(&self, path: &str, json: &serde_json::Value) -> Option<ValidationError> {
+        validate_record(path.trim_start_matches('/'), json)
+    }
+
     fn validate_document(&self, json: &serde_json::Value) -> Validation {
         let mut v = Validation::default();
         let Some(obj) = json.as_object() else {

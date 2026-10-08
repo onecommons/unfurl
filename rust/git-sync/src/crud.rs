@@ -98,6 +98,8 @@ struct Request<'a> {
     expected: Option<&'a CommitRef>,
     /// Drop the key's conflict row too.
     resolve: bool,
+    /// Check the value with [`crate::DataFormat::validate_record`].
+    validate: bool,
 }
 
 /// One write in the caller's transaction, at an already drawn `version`.
@@ -113,6 +115,7 @@ async fn write_in_tx<DB: Store>(
         json,
         expected,
         resolve,
+        validate,
     } = request;
     let w = sync.worktree_id();
     let WriteTarget {
@@ -191,9 +194,13 @@ async fn write_in_tx<DB: Store>(
     };
     let written = match json {
         Some(mut json) => {
-            if let Some(format) = sync.formats().for_path(path) {
-                format.prepare_write(path, live.as_ref().map(|r| &r.json), &mut json);
-            }
+            prepare_record(
+                sync,
+                target,
+                live.as_ref().map(|r| &r.json),
+                &mut json,
+                validate,
+            )?;
             let written = segments::write(
                 tx,
                 w,
@@ -229,6 +236,30 @@ async fn write_in_tx<DB: Store>(
     })
 }
 
+/// [`crate::DataFormat::prepare_write`] on `json`, then, if `validate`,
+/// [`crate::DataFormat::validate_record`].
+fn prepare_record(
+    sync: &SyncedRepo,
+    target: At<'_>,
+    previous: Option<&serde_json::Value>,
+    json: &mut serde_json::Value,
+    validate: bool,
+) -> Result<()> {
+    let Some(format) = sync.formats().for_path(target.path) else {
+        return Ok(());
+    };
+    format.prepare_write(target.path, previous, json);
+    match validate.then(|| format.validate_record(target.path, json)) {
+        Some(Some(err)) => Err(Error::Invalid {
+            file_path: target.file_path.to_string(),
+            path: target.path.to_string(),
+            key: target.key.to_string(),
+            message: err.to_string(),
+        }),
+        _ => Ok(()),
+    }
+}
+
 /// One write in its own transaction.
 async fn write_one<DB: Store>(
     sync: &SyncedRepo,
@@ -256,6 +287,7 @@ pub(crate) async fn crud_create_in_pool<DB: Store>(
         json: Some(json),
         expected: expected_commit.as_ref(),
         resolve,
+        validate: false,
     };
     write_one(sync, pool, request).await
 }
@@ -274,6 +306,7 @@ pub(crate) async fn crud_update_in_pool<DB: Store>(
         json: Some(json),
         expected: expected_commit.as_ref(),
         resolve,
+        validate: false,
     };
     write_one(sync, pool, request).await
 }
@@ -292,6 +325,7 @@ pub(crate) async fn crud_upsert_in_pool<DB: Store>(
         json: Some(json),
         expected: expected_commit.as_ref(),
         resolve,
+        validate: false,
     };
     write_one(sync, pool, request).await
 }
@@ -309,6 +343,7 @@ pub(crate) async fn crud_delete_in_pool<DB: Store>(
         json: None,
         expected: expected_commit.as_ref(),
         resolve,
+        validate: false,
     };
     write_one(sync, pool, request).await
 }
@@ -322,6 +357,7 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
     pool: &sqlx::Pool<DB>,
     ops: Vec<BatchOp>,
     atomic: bool,
+    validate: bool,
     meta: Option<TxnMeta>,
 ) -> Result<BatchOutcome> {
     let mut outcome = BatchOutcome::default();
@@ -361,6 +397,7 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
                         json: Some(json.clone()),
                         expected: expected.as_ref(),
                         resolve: *resolve,
+                        validate,
                     },
                     version,
                 )
@@ -386,6 +423,7 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
                         json: None,
                         expected: expected.as_ref(),
                         resolve: *resolve,
+                        validate,
                     },
                     version,
                 )

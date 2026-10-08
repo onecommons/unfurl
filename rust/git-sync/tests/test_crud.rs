@@ -1483,6 +1483,62 @@ async fn apply_batch_atomic_success(sync: &SyncedRepo, _tmp: &TempDir) {
     }
 }
 
+async fn apply_batch_checked_validates_records(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
+    let op = |key: &str, json: serde_json::Value| BatchOp::Upsert {
+        file_path: Some("cloudmap.yaml".into()),
+        path: "/repositories".into(),
+        key: key.into(),
+        json,
+        expected: None,
+        resolve: false,
+    };
+    // An unprefixed custom property fails the whole batch, atomic or not:
+    // the valid record ahead of it is rolled back too.
+    for atomic in [true, false] {
+        let err = sync
+            .apply_batch_checked(
+                vec![
+                    op("checked-ok", serde_json::json!({"name": "ok"})),
+                    op(
+                        "checked-bad",
+                        serde_json::json!({"name": "bad", "notes": "x"}),
+                    ),
+                ],
+                atomic,
+                None,
+            )
+            .await
+            .expect_err("an unprefixed property is invalid");
+        assert!(
+            matches!(&err, Error::Invalid { key, .. } if key == "checked-bad"),
+            "{err:?}"
+        );
+        for key in ["checked-ok", "checked-bad"] {
+            let found = sync
+                .get_record("cloudmap.yaml", "/repositories", key)
+                .await
+                .expect("get");
+            assert!(found.is_none(), "atomic={atomic}: {key} was written");
+        }
+    }
+
+    let prefixed = serde_json::json!({"name": "ok", "org.example.notes": "x"});
+    let outcome = sync
+        .apply_batch_checked(vec![op("checked-ok", prefixed)], true, None)
+        .await
+        .expect("an authority-prefixed property is valid");
+    assert_eq!(outcome.applied.len(), 1);
+
+    // apply_batch doesn't check
+    let unchecked = serde_json::json!({"name": "u", "notes": "x"});
+    sync.apply_batch(vec![op("unchecked", unchecked)], true, None)
+        .await
+        .expect("apply_batch");
+}
+
 async fn apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
@@ -2467,6 +2523,7 @@ crud_test!(crud_with_none_file_path_resolves_existing);
 crud_test!(crud_with_none_file_path_uses_default_for_new);
 crud_test!(crud_none_file_path_no_default_returns_not_found);
 crud_test!(apply_batch_atomic_success);
+crud_test!(apply_batch_checked_validates_records);
 crud_test!(apply_batch_atomic_conflict_rolls_back);
 crud_test!(apply_batch_non_atomic_partial);
 crud_test!(find_records_paging);

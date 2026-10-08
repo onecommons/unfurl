@@ -943,6 +943,48 @@ async fn post_schema_violation_returns_422() {
 }
 
 #[tokio::test]
+async fn post_unprefixed_custom_property_returns_422() {
+    // A record property the schema doesn't declare needs an authority
+    // prefix. git-sync's `validate_record` checks it, and an invalid record
+    // fails the whole request: the valid one beside it isn't written either.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "repositories": {
+            "fresh-key": { "name": "fresh" },
+            "custom-key": { "name": "custom", "notes": "x" },
+        }
+    });
+    let (status, body) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+    assert_eq!(body["code"], "VALIDATION_ERROR", "{body:?}");
+    let message = body["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("custom-key") && message.contains("notes"),
+        "{body:?}"
+    );
+    for key in ["fresh-key", "custom-key"] {
+        let app = router(make_state(cm.clone()));
+        let (s, _) = get_json(app, &format!("/cloudmap?kind=repositories&key={key}")).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{key} was written");
+    }
+
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "repositories": { "custom-key": { "name": "custom", "org.example.notes": "x" } }
+    });
+    let (status, body) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    let app = router(make_state(cm));
+    let (s, body) = get_json(app, "/cloudmap?kind=repositories&key=custom-key").await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(
+        body["result"]["repositories"]["custom-key"]["org.example.notes"], "x",
+        "{body:?}"
+    );
+}
+
+#[tokio::test]
 async fn post_default_atomic_rolls_back_partial_batch() {
     // Default mode (atomic flag absent → true): a single conflict in
     // the batch must roll back every other write.

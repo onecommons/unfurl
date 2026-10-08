@@ -1415,7 +1415,22 @@ impl SyncedRepo {
         atomic: bool,
         meta: Option<TxnMeta>,
     ) -> Result<BatchOutcome> {
-        on_pool!(self.db(), pool => apply_batch_inner(self, pool, ops, atomic, meta).await)
+        on_pool!(self.db(), pool => apply_batch_inner(self, pool, ops, atomic, false, meta).await)
+    }
+
+    /// [`Self::apply_batch`], with each written record checked by its
+    /// format's [`crate::DataFormat::validate_record`] before it's stored.
+    ///
+    /// An invalid record fails the whole batch with [`Error::Invalid`] and
+    /// rolls it back, atomic or not: it's a fault in the request, not in
+    /// one record's race with another writer.
+    pub async fn apply_batch_checked(
+        &self,
+        ops: Vec<BatchOp>,
+        atomic: bool,
+        meta: Option<TxnMeta>,
+    ) -> Result<BatchOutcome> {
+        on_pool!(self.db(), pool => apply_batch_inner(self, pool, ops, atomic, true, meta).await)
     }
 
     /// Every `txn` audit row of this worktree, oldest version range

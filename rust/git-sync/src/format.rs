@@ -151,6 +151,16 @@ pub trait DataFormat: Send + Sync {
     ) {
     }
 
+    /// Checks one record under `path` against the format's schema, after
+    /// [`Self::prepare_write`].
+    ///
+    /// Called only for writes made with
+    /// [`crate::SyncedRepo::apply_batch_checked`]. The default accepts
+    /// everything.
+    fn validate_record(&self, _path: &str, _json: &serde_json::Value) -> Option<ValidationError> {
+        None
+    }
+
     /// Returns `true` if `name` — the `literate-yaml` front-matter value
     /// of a markdown document — names this format.
     ///
