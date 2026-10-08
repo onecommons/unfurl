@@ -6,7 +6,8 @@ mod common;
 
 use common::*;
 use unfurl_git_sync::{
-    DbConfig, Error, FormatRegistry, RecordQuery, ScanOptions, SyncedRepo, WorktreeFilter,
+    DbConfig, Error, FormatRegistry, RecordConflictKind, RecordQuery, ScanOptions, SyncedRepo,
+    WorktreeFilter,
 };
 
 /// Every record `sync` shows: key → (name, id).
@@ -159,6 +160,75 @@ async fn a_reset_head_rebuilds_and_resets_cursors() {
         "nothing changed since the re-read"
     );
 }
+
+/// A pending edit survives a rebuild. One to a record the rewrite left
+/// alone stays pending; one to a record the rewrite changed conflicts with
+/// the value the new HEAD has.
+async fn a_rebuild_keeps_pending_edits(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let base = write_and_commit(sync, "one").await;
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "one",
+        serde_json::json!({ "name": "one-later" }),
+        None,
+        false,
+    )
+    .await
+    .expect("update");
+    let dropped = sync
+        .commit_repository("later")
+        .await
+        .expect("commit")
+        .expect("a commit");
+    for (key, name) in [(DASHBOARD, "ours"), ("one", "ours")] {
+        sync.update_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            key,
+            serde_json::json!({ "name": name }),
+            None,
+            false,
+        )
+        .await
+        .expect("pending edit");
+    }
+
+    let cursor = sync.watermark(None).await.expect("watermark");
+
+    git(tmp.path(), &["reset", "-q", "--hard", &base]);
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan after the reset");
+    // the reset version moved: the scan rebuilt rather than took the
+    // reset in as a hand edit
+    let err = sync
+        .list_changes(Some(cursor), false)
+        .await
+        .expect_err("a cursor from before the rebuild");
+    assert!(matches!(err, Error::Reset { .. }), "{err:?}");
+    assert_eq!(scan.conflicts.len(), 1, "{:?}", scan.conflicts);
+    let conflict = &scan.conflicts[0];
+    assert_eq!(conflict.key, "one");
+    assert_eq!(conflict.kind, RecordConflictKind::ModifyModify);
+    assert_eq!(conflict.base_commit_id.as_deref(), Some(dropped.as_str()));
+    assert_eq!(conflict.theirs.as_ref().expect("theirs")["name"], "one");
+
+    for key in [DASHBOARD, "one"] {
+        let record = sync
+            .get_record("cloudmap.yaml", "/repositories", key)
+            .await
+            .expect("get")
+            .expect("present");
+        assert_eq!(record.json["name"], "ours", "{key}");
+        assert!(record.commit_id.is_none(), "{key} is still pending");
+    }
+}
+crud_test!(a_rebuild_keeps_pending_edits);
 
 /// `git reset --mixed` keeps the working tree: the scan after the
 /// rebuild takes the undone commit's records back in, as edits.

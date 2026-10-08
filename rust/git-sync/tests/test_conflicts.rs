@@ -1079,6 +1079,57 @@ async fn a_commit_carries_the_file_not_the_record(sync: &SyncedRepo, tmp: &TempD
     assert_eq!(head_commit(sync).await, oid, "HEAD did not move");
 }
 
+/// A commit made outside git-sync that changes a record with a pending
+/// edit diverges like a hand edit: the scan before the commit keeps the
+/// commit's value as a conflict, and with the file already matching HEAD
+/// there is nothing new to commit.
+async fn an_outside_commit_conflicts_like_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "ours"}),
+        None,
+        false,
+    )
+    .await
+    .expect("update");
+    rename_name(tmp, "dashboard", "upstream");
+    git(
+        tmp.path(),
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "commit",
+            "-qam",
+            "upstream",
+        ],
+    );
+    let upstream = head_commit(sync).await;
+
+    let committed = sync.commit_repository("ours").await.expect("commit");
+    assert_eq!(committed, None, "the file already matches HEAD");
+    assert_eq!(head_commit(sync).await, upstream, "HEAD did not move");
+    assert_eq!(dashboard_on_disk(tmp)["name"], "upstream");
+
+    let theirs = only_conflict(sync).await;
+    assert_eq!(theirs.json["name"], "upstream");
+    assert_eq!(theirs.conflict, Some(ConflictState::Conflict));
+    assert_eq!(theirs.commit_id.as_deref(), Some(upstream.as_str()));
+    let ours = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(ours.json["name"], "ours");
+    assert!(ours.commit_id.is_none(), "still pending: {ours:?}");
+}
+
 async fn a_pending_delete_under_a_conflict_survives_a_commit(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
@@ -1453,6 +1504,7 @@ async fn a_forced_scan_hands_every_record_to_the_file(sync: &SyncedRepo, tmp: &T
 crud_test!(a_conflict_materializes_both_sides);
 crud_test!(a_standing_conflict_survives_a_save);
 crud_test!(a_commit_carries_the_file_not_the_record);
+crud_test!(an_outside_commit_conflicts_like_a_hand_edit);
 crud_test!(a_pending_delete_under_a_conflict_survives_a_commit);
 crud_test!(resolve_ours_applies_on_the_next_write);
 crud_test!(resolve_ours_reopens_when_the_file_moves_again);

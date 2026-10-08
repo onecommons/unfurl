@@ -3189,11 +3189,9 @@ mod scan_cache_tests {
     }
 
     async fn scan(sync: &SyncedRepo, force: bool) -> SyncOutcome {
-        let options = ScanOptions {
-            force,
-            ..Default::default()
-        };
-        sync.update_from_working_dir(options).await.expect("scan")
+        sync.update_from_working_dir(ScanOptions { force })
+            .await
+            .expect("scan")
     }
 
     async fn commit_of(sync: &SyncedRepo, path: &str) -> Option<String> {
