@@ -140,7 +140,7 @@ pub(crate) async fn list_dirty_files(db: &Db, worktree_id: i64) -> Result<Vec<St
 pub(crate) struct RenderInputs {
     /// The file row, if there is one.
     pub(crate) file: Option<crate::model::File>,
-    /// Its `write_seq`: what the write checks it wasn't overtaken past.
+    /// Its `write_seq`: what the write checks hasn't moved since.
     pub(crate) write_seq: Option<i64>,
     /// A deleted file still has a live record in it. Always `false` for a
     /// file that isn't deleted, where nothing asks.

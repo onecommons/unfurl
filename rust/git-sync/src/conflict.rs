@@ -178,7 +178,7 @@ pub(crate) struct ConflictOp {
     pub(crate) kind: ConflictOpKind,
 }
 
-/// What [`apply_conflict_ops_in_pool`] does to the row.
+/// What [`apply_conflict_ops_in_tx`] does to the row.
 pub(crate) enum ConflictOpKind {
     /// Record (or refresh) the file's side of a divergence.
     Open {
@@ -393,22 +393,8 @@ pub(crate) async fn conflict_rows<DB: Store>(
         .collect())
 }
 
-/// Persist [`ConflictOp`]s in one transaction, drawing a version for
-/// each row that actually moves (see [`refresh_conflict_row`]).
-pub(crate) async fn apply_conflict_ops_in_pool<DB: Store>(
-    sync: &SyncedRepo,
-    pool: &sqlx::Pool<DB>,
-    file_path: &str,
-    commit_id: Option<&str>,
-    ops: &[ConflictOp],
-) -> Result<()> {
-    let mut tx = pool.begin().await?;
-    apply_conflict_ops_in_tx(&mut tx, sync, file_path, commit_id, ops).await?;
-    tx.commit().await?;
-    Ok(())
-}
-
-/// [`apply_conflict_ops_in_pool`] in the caller's transaction.
+/// Persist [`ConflictOp`]s in the caller's transaction, drawing a version
+/// for each row that actually moves (see [`refresh_conflict_row`]).
 pub(crate) async fn apply_conflict_ops_in_tx<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,

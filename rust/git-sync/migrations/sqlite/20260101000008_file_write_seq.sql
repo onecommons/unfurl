@@ -1,6 +1,8 @@
--- Bumped by everything that changes what a render of the file decides --
--- a write or removal, a scan taking the file in, a deletion, a conflict's
--- resolution -- so a write can tell whether another writer overtook its
--- render. A record write doesn't bump it: the record stays pending until
--- a later write puts it on disk.
+-- A counter on each file, incremented whenever the file's state changes
+-- in a way that affects what writing it would produce: the file is written
+-- or removed, a scan takes it in, it is deleted, or one of its conflicts is
+-- resolved. A write reads the counter before rendering and commits only if
+-- it is unchanged; otherwise another writer changed the file meanwhile, and
+-- it renders again. Writing a record doesn't increment it: the record stays
+-- pending until the next write of the file.
 ALTER TABLE file ADD COLUMN write_seq INTEGER NOT NULL DEFAULT 0;

@@ -27,8 +27,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::conflict::{
-    apply_conflict_ops_in_pool, apply_conflict_ops_in_tx, apply_pending_records,
-    resolve_conflict_in_pool, Applying, ConflictCheck, ConflictOp,
+    apply_conflict_ops_in_tx, apply_pending_records, resolve_conflict_in_pool, Applying,
+    ConflictCheck, ConflictOp,
 };
 use crate::crud::{
     apply_batch_inner, crud_create_in_pool, crud_delete_in_pool, crud_update_in_pool,
@@ -1689,7 +1689,7 @@ impl SyncedRepo {
     }
 
     /// [`Self::write_file`], running `before_persist` between each render
-    /// and its write: where another writer would overtake it.
+    /// and its write: where another writer would change what it read.
     async fn write_file_racing(
         &self,
         file_path: &str,
@@ -1704,6 +1704,9 @@ impl SyncedRepo {
             let persisted = match render {
                 Render::Write(rendered) => self.persist_render(file_path, rendered).await?,
                 Render::Remove(removal) => self.persist_removal(file_path, removal).await?,
+                Render::Record(bookkeeping) => {
+                    self.persist_bookkeeping(file_path, bookkeeping).await?
+                }
                 Render::Done(outcome) => Some(outcome),
             };
             if let Some(outcome) = persisted {
@@ -1749,8 +1752,13 @@ impl SyncedRepo {
         let retract = deleted;
 
         if pending.is_empty() {
-            self.retract_deletion(file_path, retract).await?;
-            return Ok(Render::Done(WriteFileOutcome::default()));
+            return Ok(Render::record(Bookkeeping {
+                write_seq,
+                retract,
+                commit_id: None,
+                ops: Vec::new(),
+                outcome: WriteFileOutcome::default(),
+            }));
         }
 
         let format = pending
@@ -1808,13 +1816,16 @@ impl SyncedRepo {
         if touched.is_empty() {
             // Conflict bookkeeping lands even when nothing is written: the
             // divergences it records are why there is nothing to write.
-            self.apply_conflict_ops(file_path, commit_id.as_deref(), &ops)
-                .await?;
-            self.retract_deletion(file_path, retract).await?;
-            return Ok(Render::Done(WriteFileOutcome {
-                written: None,
-                deleted: false,
-                conflicts,
+            return Ok(Render::record(Bookkeeping {
+                write_seq,
+                retract,
+                commit_id,
+                ops,
+                outcome: WriteFileOutcome {
+                    written: None,
+                    deleted: false,
+                    conflicts,
+                },
             }));
         }
         // Markdown is rendered against the document's own blocks rather
@@ -1980,13 +1991,33 @@ impl SyncedRepo {
         }))
     }
 
-    /// Clear a deletion that no longer holds, when nothing is written with
-    /// it; a write retracts it in the same transaction instead.
-    async fn retract_deletion(&self, file_path: &str, retract: bool) -> Result<()> {
-        if retract {
-            db::file::set_deleted(self.db(), self.worktree_id(), file_path, false).await?;
-        }
-        Ok(())
+    /// Record `bookkeeping`, unless another writer has since changed what
+    /// its render decides: then `None`, and nothing is recorded.
+    async fn persist_bookkeeping(
+        &self,
+        file_path: &str,
+        bookkeeping: Bookkeeping,
+    ) -> Result<Option<WriteFileOutcome>> {
+        let Bookkeeping {
+            write_seq,
+            retract,
+            commit_id,
+            ops,
+            outcome,
+        } = bookkeeping;
+        let write = RenderWrite {
+            file_path,
+            expected: write_seq,
+            format: None,
+            source_oid: None,
+            retract,
+            commit_id: commit_id.as_deref(),
+            ops: &ops,
+        };
+        let nothing = || Ok(());
+        let won =
+            on_pool!(self.db(), pool => commit_render_in_pool(self, pool, &write, nothing).await)?;
+        Ok(won.then_some(outcome))
     }
 
     /// Whether `abs` no longer hashes to the `source_oid` recorded on
@@ -2005,26 +2036,6 @@ impl SyncedRepo {
             Err(e) => return Err(Error::Io(e)),
         };
         Ok(git::blob_oid_for_bytes(&self.repo()?, &bytes).to_string() != expected)
-    }
-
-    /// Persist the conflict bookkeeping one [`Self::write_file`] worked
-    /// out, in a single transaction.
-    ///
-    /// Separate from the render because the render is a pure function
-    /// over the document: it decides *what* the divergences are, this
-    /// writes them down. Only the conflict rows are touched — a write
-    /// never rewrites a record, which is the whole point of skipping a
-    /// conflicted one.
-    async fn apply_conflict_ops(
-        &self,
-        file_path: &str,
-        commit_id: Option<&str>,
-        ops: &[ConflictOp],
-    ) -> Result<()> {
-        if ops.is_empty() {
-            return Ok(());
-        }
-        on_pool!(self.db(), pool => apply_conflict_ops_in_pool(self, pool, file_path, commit_id, ops).await)
     }
 
     /// The file's side of every record this worktree is in conflict
@@ -2380,12 +2391,35 @@ const WRITE_ATTEMPTS: usize = 3;
 
 /// What [`SyncedRepo::render_file`] made of a file.
 enum Render {
-    /// Nothing for the disk.
+    /// Nothing to record.
     Done(WriteFileOutcome),
+    /// Nothing for the disk, but conflicts to record or a deletion to
+    /// retract.
+    Record(Bookkeeping),
     /// Bytes to write.
     Write(Rendered),
     /// A deleted file with nothing left in it, to take off the disk.
     Remove(Removal),
+}
+
+impl Render {
+    /// `bookkeeping` to record, or `Done` when it holds nothing.
+    fn record(bookkeeping: Bookkeeping) -> Self {
+        match bookkeeping.retract || !bookkeeping.ops.is_empty() {
+            true => Render::Record(bookkeeping),
+            false => Render::Done(bookkeeping.outcome),
+        }
+    }
+}
+
+/// What a render with nothing to write records, and the `write_seq` it was
+/// decided at.
+struct Bookkeeping {
+    write_seq: Option<i64>,
+    retract: bool,
+    commit_id: Option<String>,
+    ops: Vec<ConflictOp>,
+    outcome: WriteFileOutcome,
 }
 
 /// A removal waiting to be made, and the `write_seq` it was decided at.
@@ -2484,7 +2518,7 @@ async fn commit_render_in_pool<DB: crate::db::store::Store>(
 
 #[cfg(test)]
 mod race_tests {
-    //! Writers overtaking each other: one renders, scans or commits, another
+    //! Writers racing each other: one renders, scans or commits, another
     //! writes, then the first finishes. Each test runs on SQLite --
     //! file-backed, so in WAL mode with several connections, as deployed --
     //! and, with `UNFURL_TEST_PG_URL` set and the `postgres` feature, on
@@ -2579,6 +2613,16 @@ mod race_tests {
             Render::Write(rendered) => rendered,
             Render::Done(outcome) => panic!("nothing to write: {outcome:?}"),
             Render::Remove(_) => panic!("a removal, not a write"),
+            Render::Record(_) => panic!("bookkeeping, not a write"),
+        }
+    }
+
+    async fn render_bookkeeping(sync: &SyncedRepo, file_path: &str) -> Bookkeeping {
+        match sync.render_file(file_path).await.expect("render") {
+            Render::Record(bookkeeping) => bookkeeping,
+            Render::Done(outcome) => panic!("nothing to record: {outcome:?}"),
+            Render::Write(_) => panic!("a write, not bookkeeping"),
+            Render::Remove(_) => panic!("a removal, not bookkeeping"),
         }
     }
 
@@ -2587,6 +2631,7 @@ mod race_tests {
             Render::Remove(removal) => removal,
             Render::Done(outcome) => panic!("nothing to remove: {outcome:?}"),
             Render::Write(_) => panic!("a write, not a removal"),
+            Render::Record(_) => panic!("bookkeeping, not a removal"),
         }
     }
 
@@ -2596,10 +2641,11 @@ mod race_tests {
             .expect("file row")
     }
 
-    /// Persisting `rendered` writes nothing: another writer overtook it.
-    async fn overtaken(sync: &SyncedRepo, rendered: Rendered) {
+    /// Persisting `rendered` writes nothing: another writer changed what it
+    /// read.
+    async fn assert_lost(sync: &SyncedRepo, rendered: Rendered) {
         let written = sync.persist_render(FILE, rendered).await.expect("persist");
-        assert!(written.is_none(), "the overtaken render was written");
+        assert!(written.is_none(), "the out-of-date render was written");
     }
 
     async fn dashboard_name(sync: &SyncedRepo) -> serde_json::Value {
@@ -2620,7 +2666,7 @@ mod race_tests {
             upsert(sync, "b").await;
             sync.write_file(FILE).await.expect("the other writer");
 
-            overtaken(sync, first).await;
+            assert_lost(sync, first).await;
             let text = on_disk(dir);
             assert!(
                 text.contains("name: a") && text.contains("name: b"),
@@ -2635,8 +2681,7 @@ mod race_tests {
     }
 
     /// A write over a hand edit keeps `source_oid` naming the bytes before
-    /// it, so `write_seq` is what tells a second such writer it was
-    /// overtaken. The hand edit is still taken in by the next scan.
+    /// it, so `write_seq` is what tells a second such writer it lost. The hand edit is still taken in by the next scan.
     #[tokio::test]
     async fn a_render_loses_to_a_write_since_over_a_hand_edit() {
         each_backend(async |sync, dir| {
@@ -2647,7 +2692,7 @@ mod race_tests {
             upsert(sync, "b").await;
             sync.write_file(FILE).await.expect("the other writer");
 
-            overtaken(sync, first).await;
+            assert_lost(sync, first).await;
             let text = on_disk(dir);
             assert!(text.contains("dashboard-by-hand"), "{text}");
             assert!(
@@ -2676,7 +2721,7 @@ mod race_tests {
                 .await
                 .expect("scan");
 
-            overtaken(sync, first).await;
+            assert_lost(sync, first).await;
             assert!(on_disk(dir).contains("dashboard-by-hand"));
             sync.write_file(FILE).await.expect("write");
             let text = on_disk(dir);
@@ -2715,11 +2760,11 @@ mod race_tests {
                 .await
                 .expect("resolve");
 
-            overtaken(sync, first).await;
+            assert_lost(sync, first).await;
             let conflicts = sync.list_conflicts(None).await.expect("conflicts");
             assert!(
                 conflicts.is_empty(),
-                "reopened by the overtaken render: {conflicts:?}"
+                "reopened by the out-of-date render: {conflicts:?}"
             );
             assert_eq!(dashboard_name(sync).await, "theirs");
             sync.write_file(FILE).await.expect("write");
@@ -2735,6 +2780,81 @@ mod race_tests {
         .await;
     }
 
+    /// A render with nothing to write but a conflict to open doesn't
+    /// reopen it after a scan took the conflict in and it was resolved.
+    #[tokio::test]
+    async fn conflict_bookkeeping_loses_to_a_resolution_since() {
+        each_backend(async |sync, dir| {
+            sync.update_record(
+                Some(FILE),
+                "/repositories",
+                DASHBOARD,
+                json!({"name": "ours"}),
+                None,
+                false,
+            )
+            .await
+            .expect("update");
+            // a hand edit not yet taken in: the render finds the divergence
+            hand_edit(dir, "name: dashboard", "name: theirs");
+            let first = render_bookkeeping(sync, FILE).await;
+            assert!(!first.ops.is_empty());
+            sync.update_from_working_dir(ScanOptions::default())
+                .await
+                .expect("scan");
+            sync.resolve_conflict(FILE, "/repositories", DASHBOARD, Resolution::Theirs, None)
+                .await
+                .expect("resolve");
+
+            let recorded = sync
+                .persist_bookkeeping(FILE, first)
+                .await
+                .expect("persist");
+            assert!(recorded.is_none(), "the out-of-date render was recorded");
+            let conflicts = sync.list_conflicts(None).await.expect("conflicts");
+            assert!(
+                conflicts.is_empty(),
+                "reopened by the out-of-date render: {conflicts:?}"
+            );
+        })
+        .await;
+    }
+
+    /// A retraction decided before the file was deleted again doesn't undo
+    /// the newer deletion.
+    #[tokio::test]
+    async fn a_retraction_loses_to_a_deletion_since() {
+        each_backend(async |sync, dir| {
+            let one = "one.yaml";
+            let doc = "apiVersion: unfurl/v1.0.0\nkind: CloudMap\n\
+                       repositories:\n  git://example.com/r.git:\n    name: r\n";
+            std::fs::write(dir.join(one), doc).expect("write");
+            let repo = sync.repo().expect("repo");
+            git::commit_paths(&repo, &[one.into()], "add").expect("commit");
+            sync.update_from_working_dir(ScanOptions::default())
+                .await
+                .expect("scan");
+            sync.delete_file(one, None).await.expect("delete");
+            // an edit to the deleted record contests the deletion
+            std::fs::write(dir.join(one), doc.replace("name: r", "name: edited")).expect("edit");
+            sync.update_from_working_dir(ScanOptions::default())
+                .await
+                .expect("scan");
+            let first = render_bookkeeping(sync, one).await;
+            assert!(first.retract);
+            sync.delete_file(one, None).await.expect("delete again");
+
+            let recorded = sync.persist_bookkeeping(one, first).await.expect("persist");
+            assert!(
+                recorded.is_none(),
+                "the out-of-date retraction was recorded"
+            );
+            let row = file_row(sync, one).await.expect("row");
+            assert!(row.deleted, "the newer deletion was undone");
+        })
+        .await;
+    }
+
     /// A render from before the file was deleted doesn't bring it back.
     #[tokio::test]
     async fn a_render_loses_to_a_deletion_since() {
@@ -2743,7 +2863,7 @@ mod race_tests {
             let first = render(sync).await;
             sync.delete_file(FILE, None).await.expect("delete");
 
-            overtaken(sync, first).await;
+            assert_lost(sync, first).await;
             let outcome = sync.write_file(FILE).await.expect("write");
             assert!(outcome.deleted, "{outcome:?}");
             assert!(!dir.join(FILE).exists());
@@ -2762,7 +2882,7 @@ mod race_tests {
             sync.write_file(FILE).await.expect("the other writer");
 
             let removed = sync.persist_removal(FILE, first).await.expect("persist");
-            assert!(removed.is_none(), "the overtaken removal was made");
+            assert!(removed.is_none(), "the out-of-date removal was made");
             assert!(on_disk(dir).contains("name: a"));
             assert!(!file_row(sync, FILE).await.expect("row").deleted);
         })
@@ -2771,7 +2891,7 @@ mod race_tests {
 
     /// A deletion with a record written back is retracted by the write
     /// that puts the record on disk, in one render: the retraction doesn't
-    /// overtake its own write.
+    /// make its own write lose.
     #[tokio::test]
     async fn a_retraction_is_one_write() {
         each_backend(async |sync, dir| {
@@ -2795,7 +2915,7 @@ mod race_tests {
 
     /// A file a record was created in has no row until it is first
     /// written, and that write registers it: a second render of it, from
-    /// before, is overtaken rather than unchecked.
+    /// before, loses rather than going unchecked.
     #[tokio::test]
     async fn a_render_of_a_new_file_loses_to_its_first_write() {
         each_backend(async |sync, dir| {
@@ -2812,7 +2932,7 @@ mod race_tests {
             assert!(row.source_oid.is_some(), "{row:?}");
 
             let written = sync.persist_render(NEW, first).await.expect("persist");
-            assert!(written.is_none(), "the overtaken render was written");
+            assert!(written.is_none(), "the out-of-date render was written");
             let text = std::fs::read_to_string(dir.join(NEW)).expect("read");
             assert!(text.contains("name: a"), "{text}");
         })
@@ -2868,9 +2988,9 @@ mod race_tests {
         .await;
     }
 
-    /// Overtake a render without touching the file, as a writer of
+    /// Make a render lose without touching the file, as a writer of
     /// something else it depends on -- a resolution, a deletion -- does.
-    async fn overtake(sync: &SyncedRepo) -> Result<()> {
+    async fn change_what_renders_read(sync: &SyncedRepo) -> Result<()> {
         let w = sync.worktree_id();
         on_pool!(sync.db(), pool => {
             let mut tx = pool.begin().await?;
@@ -2880,9 +3000,9 @@ mod race_tests {
         })
     }
 
-    /// Overtaken once, `write_file` renders again and writes that.
+    /// Having lost once, `write_file` renders again and writes that.
     #[tokio::test]
-    async fn an_overtaken_write_renders_again() {
+    async fn a_write_that_lost_renders_again() {
         each_backend(async |sync, dir| {
             upsert(sync, "a").await;
             let mut renders = 0;
@@ -2890,7 +3010,7 @@ mod race_tests {
                 .write_file_racing(FILE, async || {
                     renders += 1;
                     match renders {
-                        1 => overtake(sync).await,
+                        1 => change_what_renders_read(sync).await,
                         _ => Ok(()),
                     }
                 })
@@ -2903,18 +3023,18 @@ mod race_tests {
         .await;
     }
 
-    /// Overtaken every time, `write_file` gives up with
+    /// Losing every time, `write_file` gives up with
     /// [`Error::FileChanged`] and writes nothing; the edit stays pending
     /// for the next write.
     #[tokio::test]
-    async fn a_write_overtaken_every_time_gives_up() {
+    async fn a_write_that_always_loses_gives_up() {
         each_backend(async |sync, dir| {
             upsert(sync, "a").await;
             let mut renders = 0;
             let err = sync
                 .write_file_racing(FILE, async || {
                     renders += 1;
-                    overtake(sync).await
+                    change_what_renders_read(sync).await
                 })
                 .await
                 .expect_err("never wins");
