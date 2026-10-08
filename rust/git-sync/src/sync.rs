@@ -27,8 +27,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::conflict::{
-    apply_conflict_ops_in_pool, apply_pending_records, resolve_conflict_in_pool, Applying,
-    ConflictCheck, ConflictOp,
+    apply_conflict_ops_in_pool, apply_conflict_ops_in_tx, apply_pending_records,
+    resolve_conflict_in_pool, Applying, ConflictCheck, ConflictOp,
 };
 use crate::crud::{
     apply_batch_inner, crud_create_in_pool, crud_delete_in_pool, crud_update_in_pool,
@@ -1540,31 +1540,72 @@ impl SyncedRepo {
     /// [`crate::Error::Yaml`] / [`crate::Error::Json`] on parse / emit
     /// failure; [`crate::Error::Io`] for filesystem failures.
     pub async fn write_file(&self, file_path: &str) -> Result<WriteFileOutcome> {
-        let file_row = db::file::get(self.db(), self.worktree_id(), file_path).await?;
-        let abs_path = self.inner.repo_path.join(file_path);
-        // Divergences already on record: the file's side of these stands
-        // whether or not the file has moved since, so they are loaded
-        // unconditionally.
-        let conflict_rows: std::collections::HashMap<(String, String), Record> =
-            db::record::list_conflicts(self.db(), self.worktree_id(), Some(file_path))
-                .await?
-                .into_iter()
-                .map(|r| ((r.path.clone(), r.key.clone()), r))
-                .collect();
+        self.write_file_racing(file_path, async || Ok(())).await
+    }
 
-        // Checked before the pending-is-empty exit below, because a
-        // deletion whose tombstones have already been purged leaves
-        // nothing pending and would otherwise never reach the disk.
-        if let Some(outcome) = self
-            .remove_deleted_file(file_path, &abs_path, file_row.as_ref(), &conflict_rows)
-            .await?
-        {
-            return Ok(outcome);
+    /// [`Self::write_file`], running `before_persist` between each render
+    /// and its write: where another writer would overtake it.
+    async fn write_file_racing(
+        &self,
+        file_path: &str,
+        mut before_persist: impl AsyncFnMut() -> Result<()>,
+    ) -> Result<WriteFileOutcome> {
+        for _ in 0..WRITE_ATTEMPTS {
+            let render = match self.render_file(file_path).await? {
+                Render::Done(outcome) => return Ok(outcome),
+                render => render,
+            };
+            before_persist().await?;
+            let persisted = match render {
+                Render::Write(rendered) => self.persist_render(file_path, rendered).await?,
+                Render::Remove(removal) => self.persist_removal(file_path, removal).await?,
+                Render::Done(outcome) => Some(outcome),
+            };
+            if let Some(outcome) = persisted {
+                return Ok(outcome);
+            }
         }
+        Err(Error::FileChanged {
+            file_path: file_path.to_string(),
+        })
+    }
 
-        let pending = db::record::load_pending(self.db(), self.worktree_id(), file_path).await?;
+    /// [`Self::write_file`] up to the rename: what it would write, or what
+    /// it did when there was nothing to.
+    async fn render_file(&self, file_path: &str) -> Result<Render> {
+        // Read before the disk is, so a write landing in between is caught
+        // by `write_seq` rather than paired with the newer bytes.
+        let db::record::RenderInputs {
+            file: file_row,
+            write_seq,
+            live,
+            // Divergences already on record: the file's side of these
+            // stands whether or not the file has moved since.
+            conflicts: conflict_rows,
+            pending,
+            bases,
+            base_values,
+        } = db::record::render_inputs(self.db(), self.worktree_id(), file_path).await?;
+        let abs_path = self.inner.repo_path.join(file_path);
+
+        // A deleted file comes off the disk when nothing is left in it, and
+        // the deletion is retracted when something is: a record written
+        // back, or one contested. Decided before the pending-is-empty exit
+        // below, because a deletion whose tombstones have already been
+        // purged leaves nothing pending and would otherwise never reach
+        // the disk.
+        let deleted = file_row.as_ref().is_some_and(|f| f.deleted);
+        if deleted && !live && conflict_rows.is_empty() {
+            return Ok(Render::Remove(Removal {
+                abs_path,
+                write_seq,
+            }));
+        }
+        let retract = deleted;
+
         if pending.is_empty() {
-            return Ok(WriteFileOutcome::default());
+            self.retract_deletion(file_path, retract).await?;
+            return Ok(Render::Done(WriteFileOutcome::default()));
         }
 
         let format = pending
@@ -1573,23 +1614,12 @@ impl SyncedRepo {
 
         let syntax = Syntax::for_extension(&extract_ext(file_path))
             .ok_or_else(|| Error::Other(format!("{file_path}: unsupported file extension")))?;
-        let bases = db::record::pending_bases(self.db(), self.worktree_id(), file_path).await?;
 
         // A stale source means the disk holds an edit this database
         // never took in — the apply below must check each pending
         // record against its base for collisions with that edit.
         let stale = self.source_stale(file_row.as_ref(), &abs_path)?;
-        let check = match stale {
-            true => Some(ConflictCheck {
-                base_values: db::record::pending_base_values(
-                    self.db(),
-                    self.worktree_id(),
-                    file_path,
-                )
-                .await?,
-            }),
-            false => None,
-        };
+        let check = stale.then_some(ConflictCheck { base_values });
 
         // One read answers both questions the write has about the file:
         // the bytes a splice keeps, and whether there is a document here
@@ -1629,20 +1659,18 @@ impl SyncedRepo {
             &conflict_rows,
             check.as_ref(),
         );
-        // Conflict bookkeeping lands even when nothing is written: the
-        // divergences it records are why there is nothing to write.
-        self.apply_conflict_ops(
-            file_path,
-            file_row.and_then(|f| f.commit_id).as_deref(),
-            &ops,
-        )
-        .await?;
+        let commit_id = file_row.as_ref().and_then(|f| f.commit_id.clone());
         if touched.is_empty() {
-            return Ok(WriteFileOutcome {
+            // Conflict bookkeeping lands even when nothing is written: the
+            // divergences it records are why there is nothing to write.
+            self.apply_conflict_ops(file_path, commit_id.as_deref(), &ops)
+                .await?;
+            self.retract_deletion(file_path, retract).await?;
+            return Ok(Render::Done(WriteFileOutcome {
                 written: None,
                 deleted: false,
                 conflicts,
-            });
+            }));
         }
         // Markdown is rendered against the document's own blocks rather
         // than from `root`, so it needs the source and the list of
@@ -1663,13 +1691,17 @@ impl SyncedRepo {
         };
         let bytes = render(source.as_deref(), &mut root)?;
         let bytes = self.unless_head_has(file_path, syntax, bytes, render)?;
-        self.persist_render(file_path, &abs_path, &bytes, stale)
-            .await?;
-        Ok(WriteFileOutcome {
-            written: Some(abs_path),
-            deleted: false,
+        Ok(Render::Write(Rendered {
+            abs_path,
+            bytes,
+            stale,
+            write_seq,
+            format: format.map(|f| f.name().to_string()),
+            retract,
+            commit_id,
+            ops,
             conflicts,
-        })
+        }))
     }
 
     /// `bytes`, or HEAD's copy of `file_path` where `render`ing HEAD's own
@@ -1706,78 +1738,110 @@ impl SyncedRepo {
         Ok(if same { committed } else { bytes })
     }
 
-    /// Take a file the database has deleted off the disk, or retract the
-    /// deletion when something is still in it.
+    /// Write `rendered` to `file_path`, unless another writer has since
+    /// changed what its render decides: then `None`, and nothing is
+    /// written.
     ///
-    /// `Some` means the file is gone and [`Self::write_file`] is done;
-    /// `None` means there was no deletion to act on, or one that no
-    /// longer holds because a record was written back or is contested —
-    /// a file with content plainly exists.
-    async fn remove_deleted_file(
+    /// `source_oid` is stamped only when the database still describes what
+    /// the file held. A stale write deliberately leaves it naming the old
+    /// bytes: the render just merged over an edit this database never took
+    /// in, so the next scan has to see the mismatch and take the merged
+    /// file in. Stamping the rendered oid would hide the hand edit from
+    /// every future scan.
+    async fn persist_render(
         &self,
         file_path: &str,
-        abs: &Path,
-        file_row: Option<&crate::model::File>,
-        conflict_rows: &std::collections::HashMap<(String, String), Record>,
+        rendered: Rendered,
     ) -> Result<Option<WriteFileOutcome>> {
-        if !file_row.is_some_and(|f| f.deleted) {
-            return Ok(None);
-        }
-        let live = db::record::find(
-            self.db(),
-            self.worktree_id(),
-            &RecordQuery {
-                file_path: Some(file_path.to_string()),
-                limit: Some(1),
-                ..Default::default()
-            },
-        )
-        .await?;
-        if !live.is_empty() || !conflict_rows.is_empty() {
-            db::file::set_deleted(self.db(), self.worktree_id(), file_path, false).await?;
-            return Ok(None);
-        }
-        // `remove_file` on an absent file is the already-done case, not
-        // a failure.
-        let removed = match std::fs::remove_file(abs) {
-            Ok(()) => true,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-            Err(e) => return Err(Error::Io(e)),
+        let Rendered {
+            abs_path,
+            bytes,
+            stale,
+            write_seq,
+            format,
+            retract,
+            commit_id,
+            ops,
+            conflicts,
+        } = rendered;
+        let tmp = stage_write(&abs_path, &bytes)?;
+        // a stale file keeps naming the old bytes, for the next scan to
+        // take the merge in
+        let oid = match stale {
+            true => None,
+            false => Some(git::blob_oid_for_bytes(&self.repo()?, &bytes).to_string()),
         };
-        Ok(Some(WriteFileOutcome {
-            written: removed.then(|| abs.to_path_buf()),
+        let write = RenderWrite {
+            file_path,
+            expected: write_seq,
+            format: format.as_deref(),
+            source_oid: oid.as_deref(),
+            retract,
+            commit_id: commit_id.as_deref(),
+            ops: &ops,
+        };
+        let persist = || {
+            tmp.persist(&abs_path)
+                .map(|_| ())
+                .map_err(|e| Error::Io(e.error))
+        };
+        let won =
+            on_pool!(self.db(), pool => commit_render_in_pool(self, pool, &write, persist).await)?;
+        Ok(won.then_some(WriteFileOutcome {
+            written: Some(abs_path),
+            deleted: false,
+            conflicts,
+        }))
+    }
+
+    /// Take `file_path` off the disk, unless another writer has since
+    /// changed what its render decides -- written a record back, say: then
+    /// `None`, and nothing is removed.
+    async fn persist_removal(
+        &self,
+        file_path: &str,
+        removal: Removal,
+    ) -> Result<Option<WriteFileOutcome>> {
+        let Removal {
+            abs_path,
+            write_seq,
+        } = removal;
+        let mut removed = false;
+        // `remove_file` on an absent file is the already-done case, not a
+        // failure.
+        let unlink = || match std::fs::remove_file(&abs_path) {
+            Ok(()) => {
+                removed = true;
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(Error::Io(e)),
+        };
+        let write = RenderWrite {
+            file_path,
+            expected: write_seq,
+            format: None,
+            source_oid: None,
+            retract: false,
+            commit_id: None,
+            ops: &[],
+        };
+        let won =
+            on_pool!(self.db(), pool => commit_render_in_pool(self, pool, &write, unlink).await)?;
+        Ok(won.then(|| WriteFileOutcome {
+            written: removed.then(|| abs_path.clone()),
             deleted: true,
             conflicts: Vec::new(),
         }))
     }
 
-    /// Put the rendered bytes on disk, stamping `source_oid` only when
-    /// the database still describes what the file held.
-    ///
-    /// A stale write deliberately leaves `source_oid` naming the old
-    /// bytes: the render just merged over an edit this database never
-    /// took in, so the next scan has to see the mismatch and take the
-    /// merged file in. Stamping the rendered oid would hide the hand
-    /// edit from every future scan.
-    async fn persist_render(
-        &self,
-        file_path: &str,
-        abs: &Path,
-        bytes: &[u8],
-        stale: bool,
-    ) -> Result<()> {
-        let tmp = stage_write(abs, bytes)?;
-        if stale {
-            return tmp.persist(abs).map(|_| ()).map_err(|e| Error::Io(e.error));
+    /// Clear a deletion that no longer holds, when nothing is written with
+    /// it; a write retracts it in the same transaction instead.
+    async fn retract_deletion(&self, file_path: &str, retract: bool) -> Result<()> {
+        if retract {
+            db::file::set_deleted(self.db(), self.worktree_id(), file_path, false).await?;
         }
-        // Write and flush outside the transaction; only the rename goes
-        // inside it, so the two records of "the file now holds these
-        // bytes" -- the file itself and `source_oid` -- commit together.
-        let oid = git::blob_oid_for_bytes(&self.repo()?, bytes).to_string();
-        db::file::commit_write(self.db(), self.worktree_id(), file_path, &oid, || {
-            tmp.persist(abs).map(|_| ()).map_err(|e| Error::Io(e.error))
-        })
-        .await
+        Ok(())
     }
 
     /// Whether `abs` no longer hashes to the `source_oid` recorded on
@@ -2165,22 +2229,614 @@ pub(crate) fn parse_and_detect<'f>(
     }))
 }
 
+/// How many times [`SyncedRepo::write_file`] renders a file that another
+/// writer keeps writing first, before giving up.
+const WRITE_ATTEMPTS: usize = 3;
+
+/// What [`SyncedRepo::render_file`] made of a file.
+enum Render {
+    /// Nothing for the disk.
+    Done(WriteFileOutcome),
+    /// Bytes to write.
+    Write(Rendered),
+    /// A deleted file with nothing left in it, to take off the disk.
+    Remove(Removal),
+}
+
+/// A removal waiting to be made, and the `write_seq` it was decided at.
+struct Removal {
+    abs_path: PathBuf,
+    write_seq: Option<i64>,
+}
+
+/// A render waiting to be written, and what it was rendered over.
+struct Rendered {
+    abs_path: PathBuf,
+    bytes: Vec<u8>,
+    stale: bool,
+    /// The file row's `write_seq` the render read; `None` when there was
+    /// no row.
+    write_seq: Option<i64>,
+    /// The name of the format the file's records belong to, to register
+    /// the file as when there was no row.
+    format: Option<String>,
+    /// The file was deleted but something is still in it: the write
+    /// clears the deletion.
+    retract: bool,
+    commit_id: Option<String>,
+    ops: Vec<ConflictOp>,
+    conflicts: Vec<crate::model::RecordConflict>,
+}
+
+/// What [`commit_render_in_pool`] records.
+struct RenderWrite<'a> {
+    file_path: &'a str,
+    /// `write_seq` as the render found it; `None` when there was no row.
+    expected: Option<i64>,
+    /// What to register the file as when there was no row.
+    format: Option<&'a str>,
+    /// The new `source_oid`, or `None` to keep it.
+    source_oid: Option<&'a str>,
+    /// Clear the file's deletion.
+    retract: bool,
+    commit_id: Option<&'a str>,
+    ops: &'a [ConflictOp],
+}
+
+/// Record a render, its conflict bookkeeping, and `persist`, the rename
+/// that puts it on disk (or the unlink that takes it off), in one
+/// transaction -- unless the file row's `write_seq` has moved since the
+/// render read it: then `false`, and none of it is done.
+///
+/// A render that found no row registers the file and claims from 0: a
+/// racing render that registered it first has already moved it past 0. A
+/// file whose records no format claims can't be registered (its format
+/// column has nothing to hold), so its write isn't checked; a record
+/// write refuses such a section in the first place.
+///
+/// `persist` should be the rename only. The bytes are written and flushed
+/// beforehand, so the transaction spans a constant-time operation rather
+/// than an I/O proportional to the document -- which matters because
+/// holding it open is holding a row lock, and on SQLite that is the
+/// single writer.
+///
+/// One window survives and cannot be closed: a crash between the rename
+/// and the commit leaves the file ahead of the database. That direction
+/// is the recoverable one -- the bytes already contain the pending
+/// records, so re-syncing takes them back in.
+async fn commit_render_in_pool<DB: crate::db::store::Store>(
+    sync: &SyncedRepo,
+    pool: &sqlx::Pool<DB>,
+    write: &RenderWrite<'_>,
+    persist: impl FnOnce() -> Result<()>,
+) -> Result<bool> {
+    let mut tx = pool.begin().await?;
+    let w = sync.worktree_id();
+    let expected = match (write.expected, write.format) {
+        (Some(seq), _) => Some(seq),
+        (None, Some(format)) => {
+            DB::ensure_file(&mut tx, w, write.file_path, format).await?;
+            Some(0)
+        }
+        (None, None) => None,
+    };
+    if let Some(expected) = expected {
+        if !DB::claim_write(&mut tx, w, write.file_path, expected, write.source_oid).await? {
+            return Ok(false);
+        }
+    }
+    if write.retract {
+        DB::set_file_deleted(&mut tx, w, write.file_path, false).await?;
+    }
+    if !write.ops.is_empty() {
+        apply_conflict_ops_in_tx(&mut tx, sync, write.file_path, write.commit_id, write.ops)
+            .await?;
+    }
+    persist()?;
+    tx.commit().await?;
+    Ok(true)
+}
+
 #[cfg(test)]
-mod head_race_tests {
+mod race_tests {
+    //! Writers overtaking each other: one renders, scans or commits, another
+    //! writes, then the first finishes. Each test runs on SQLite --
+    //! file-backed, so in WAL mode with several connections, as deployed --
+    //! and, with `UNFURL_TEST_PG_URL` set and the `postgres` feature, on
+    //! Postgres.
+    //!
+    //! The snapshot tests only tell a snapshot from separate reads on
+    //! Postgres: SQLite in WAL mode reads one snapshot whether asked or not,
+    //! so there they pass either way.
     use super::*;
+    use crate::db::store::Store;
+    use crate::model::Resolution;
     use crate::{DbConfig, FormatRegistry};
+    use serde_json::json;
 
-    const CLOUDMAP: &str = "apiVersion: unfurl/v1.0.0\nkind: CloudMap\nrepositories: {}\n";
+    const FILE: &str = "cloudmap.yaml";
+    const DASHBOARD: &str = "git://unfurl.cloud/feb20a/dashboard.git";
 
-    async fn open(dir: &Path) -> SyncedRepo {
-        let files = [("cloudmap.yaml".to_string(), CLOUDMAP.as_bytes().to_vec())];
-        git::init_with_files(dir, &files, "initial").expect("init");
-        let db = DbConfig::Sqlite {
-            url: "sqlite::memory:".into(),
-        };
-        SyncedRepo::open(dir, db, FormatRegistry::with_builtins())
+    /// Run `test` on a scanned repository holding the cloudmap fixture,
+    /// once per backend.
+    async fn each_backend(test: impl AsyncFn(&SyncedRepo, &Path)) {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            tmp.path().join("db.sqlite").display()
+        );
+        run(DbConfig::Sqlite { url }, &test).await;
+        #[cfg(feature = "postgres")]
+        if let Ok(base) = std::env::var("UNFURL_TEST_PG_URL") {
+            let schema = format!("unfurl_test_{}", uuid::Uuid::new_v4().simple());
+            let admin = sqlx::PgPool::connect(&base).await.expect("connect");
+            sqlx::query(&format!("CREATE SCHEMA \"{schema}\""))
+                .execute(&admin)
+                .await
+                .expect("create schema");
+            let sep = if base.contains('?') { '&' } else { '?' };
+            let url = format!("{base}{sep}options=-c%20search_path%3D{schema}");
+            run(DbConfig::Postgres { url }, &test).await;
+            sqlx::query(&format!("DROP SCHEMA \"{schema}\" CASCADE"))
+                .execute(&admin)
+                .await
+                .expect("drop schema");
+        }
+    }
+
+    async fn run(db: DbConfig, test: &impl AsyncFn(&SyncedRepo, &Path)) {
+        let repo = tempfile::tempdir().expect("tempdir");
+        let fixture = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/expected_cloudmap.yaml"),
+        )
+        .expect("fixture");
+        git::init_with_files(repo.path(), &[(FILE.to_string(), fixture)], "initial").expect("init");
+        let sync = SyncedRepo::open(repo.path(), db, FormatRegistry::with_builtins())
             .await
-            .expect("open")
+            .expect("open");
+        sync.update_from_working_dir(ScanOptions::default())
+            .await
+            .expect("scan");
+        test(&sync, repo.path()).await;
+    }
+
+    async fn upsert(sync: &SyncedRepo, key: &str) {
+        sync.upsert_record(
+            Some(FILE),
+            "/repositories",
+            key,
+            json!({"name": key}),
+            None,
+            false,
+        )
+        .await
+        .expect("upsert");
+    }
+
+    /// Change the file as a person or another tool would.
+    fn hand_edit(dir: &Path, from: &str, to: &str) {
+        let path = dir.join(FILE);
+        let text = std::fs::read_to_string(&path).expect("read");
+        assert!(text.contains(from), "{from:?} isn't in the file");
+        std::fs::write(&path, text.replace(from, to)).expect("write");
+    }
+
+    fn on_disk(dir: &Path) -> String {
+        std::fs::read_to_string(dir.join(FILE)).expect("read")
+    }
+
+    async fn render(sync: &SyncedRepo) -> Rendered {
+        render_of(sync, FILE).await
+    }
+
+    async fn render_of(sync: &SyncedRepo, file_path: &str) -> Rendered {
+        match sync.render_file(file_path).await.expect("render") {
+            Render::Write(rendered) => rendered,
+            Render::Done(outcome) => panic!("nothing to write: {outcome:?}"),
+            Render::Remove(_) => panic!("a removal, not a write"),
+        }
+    }
+
+    async fn render_removal(sync: &SyncedRepo) -> Removal {
+        match sync.render_file(FILE).await.expect("render") {
+            Render::Remove(removal) => removal,
+            Render::Done(outcome) => panic!("nothing to remove: {outcome:?}"),
+            Render::Write(_) => panic!("a write, not a removal"),
+        }
+    }
+
+    async fn file_row(sync: &SyncedRepo, file_path: &str) -> Option<crate::model::File> {
+        db::file::get(sync.db(), sync.worktree_id(), file_path)
+            .await
+            .expect("file row")
+    }
+
+    /// Persisting `rendered` writes nothing: another writer overtook it.
+    async fn overtaken(sync: &SyncedRepo, rendered: Rendered) {
+        let written = sync.persist_render(FILE, rendered).await.expect("persist");
+        assert!(written.is_none(), "the overtaken render was written");
+    }
+
+    async fn dashboard_name(sync: &SyncedRepo) -> serde_json::Value {
+        let record = sync
+            .get_record(FILE, "/repositories", DASHBOARD)
+            .await
+            .expect("get");
+        record.expect("dashboard").json["name"].clone()
+    }
+
+    /// The other writer's render, written first, isn't written over.
+    #[tokio::test]
+    async fn a_render_loses_to_a_write_since() {
+        each_backend(async |sync, dir| {
+            upsert(sync, "a").await;
+            let first = render(sync).await;
+            assert!(!first.stale);
+            upsert(sync, "b").await;
+            sync.write_file(FILE).await.expect("the other writer");
+
+            overtaken(sync, first).await;
+            let text = on_disk(dir);
+            assert!(
+                text.contains("name: a") && text.contains("name: b"),
+                "{text}"
+            );
+            // the other writer wrote every pending edit, so a retry renders
+            // again and finds nothing left to write
+            let again = sync.write_file(FILE).await.expect("write");
+            assert!(again.written.is_none(), "{again:?}");
+        })
+        .await;
+    }
+
+    /// A write over a hand edit keeps `source_oid` naming the bytes before
+    /// it, so `write_seq` is what tells a second such writer it was
+    /// overtaken. The hand edit is still taken in by the next scan.
+    #[tokio::test]
+    async fn a_render_loses_to_a_write_since_over_a_hand_edit() {
+        each_backend(async |sync, dir| {
+            hand_edit(dir, "name: dashboard", "name: dashboard-by-hand");
+            upsert(sync, "a").await;
+            let first = render(sync).await;
+            assert!(first.stale, "the hand edit makes the file stale");
+            upsert(sync, "b").await;
+            sync.write_file(FILE).await.expect("the other writer");
+
+            overtaken(sync, first).await;
+            let text = on_disk(dir);
+            assert!(text.contains("dashboard-by-hand"), "{text}");
+            assert!(
+                text.contains("name: a") && text.contains("name: b"),
+                "{text}"
+            );
+
+            assert_eq!(dashboard_name(sync).await, "dashboard");
+            sync.update_from_working_dir(ScanOptions::default())
+                .await
+                .expect("scan");
+            assert_eq!(dashboard_name(sync).await, "dashboard-by-hand");
+        })
+        .await;
+    }
+
+    /// A scan taking in a hand edit changes what a render decides, so a
+    /// render from before it isn't written over the hand edit.
+    #[tokio::test]
+    async fn a_render_loses_to_a_scan_since() {
+        each_backend(async |sync, dir| {
+            upsert(sync, "a").await;
+            let first = render(sync).await;
+            hand_edit(dir, "name: dashboard", "name: dashboard-by-hand");
+            sync.update_from_working_dir(ScanOptions::default())
+                .await
+                .expect("scan");
+
+            overtaken(sync, first).await;
+            assert!(on_disk(dir).contains("dashboard-by-hand"));
+            sync.write_file(FILE).await.expect("write");
+            let text = on_disk(dir);
+            assert!(
+                text.contains("dashboard-by-hand") && text.contains("name: a"),
+                "{text}"
+            );
+        })
+        .await;
+    }
+
+    /// A render that read a conflict before it was resolved doesn't write
+    /// it back.
+    #[tokio::test]
+    async fn a_render_loses_to_a_resolution_since() {
+        each_backend(async |sync, dir| {
+            sync.update_record(
+                Some(FILE),
+                "/repositories",
+                DASHBOARD,
+                json!({"name": "ours"}),
+                None,
+                false,
+            )
+            .await
+            .expect("update");
+            hand_edit(dir, "name: dashboard", "name: theirs");
+            let scan = sync
+                .update_from_working_dir(ScanOptions::default())
+                .await
+                .expect("scan");
+            assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
+            upsert(sync, "s").await;
+            let first = render(sync).await;
+            sync.resolve_conflict(FILE, "/repositories", DASHBOARD, Resolution::Theirs, None)
+                .await
+                .expect("resolve");
+
+            overtaken(sync, first).await;
+            let conflicts = sync.list_conflicts(None).await.expect("conflicts");
+            assert!(
+                conflicts.is_empty(),
+                "reopened by the overtaken render: {conflicts:?}"
+            );
+            assert_eq!(dashboard_name(sync).await, "theirs");
+            sync.write_file(FILE).await.expect("write");
+            let conflicts = sync.list_conflicts(None).await.expect("conflicts");
+            assert!(conflicts.is_empty(), "{conflicts:?}");
+            assert_eq!(dashboard_name(sync).await, "theirs");
+            let text = on_disk(dir);
+            assert!(
+                text.contains("name: theirs") && text.contains("name: s"),
+                "{text}"
+            );
+        })
+        .await;
+    }
+
+    /// A render from before the file was deleted doesn't bring it back.
+    #[tokio::test]
+    async fn a_render_loses_to_a_deletion_since() {
+        each_backend(async |sync, dir| {
+            upsert(sync, "a").await;
+            let first = render(sync).await;
+            sync.delete_file(FILE, None).await.expect("delete");
+
+            overtaken(sync, first).await;
+            let outcome = sync.write_file(FILE).await.expect("write");
+            assert!(outcome.deleted, "{outcome:?}");
+            assert!(!dir.join(FILE).exists());
+        })
+        .await;
+    }
+
+    /// A removal decided before a record was written back into the file
+    /// doesn't delete the file that write put there.
+    #[tokio::test]
+    async fn a_removal_loses_to_a_write_back_since() {
+        each_backend(async |sync, dir| {
+            sync.delete_file(FILE, None).await.expect("delete");
+            let first = render_removal(sync).await;
+            upsert(sync, "a").await;
+            sync.write_file(FILE).await.expect("the other writer");
+
+            let removed = sync.persist_removal(FILE, first).await.expect("persist");
+            assert!(removed.is_none(), "the overtaken removal was made");
+            assert!(on_disk(dir).contains("name: a"));
+            assert!(!file_row(sync, FILE).await.expect("row").deleted);
+        })
+        .await;
+    }
+
+    /// A deletion with a record written back is retracted by the write
+    /// that puts the record on disk, in one render: the retraction doesn't
+    /// overtake its own write.
+    #[tokio::test]
+    async fn a_retraction_is_one_write() {
+        each_backend(async |sync, dir| {
+            sync.delete_file(FILE, None).await.expect("delete");
+            upsert(sync, "a").await;
+            let mut renders = 0;
+            let outcome = sync
+                .write_file_racing(FILE, async || {
+                    renders += 1;
+                    Ok(())
+                })
+                .await
+                .expect("write");
+            assert_eq!(renders, 1);
+            assert!(outcome.written.is_some() && !outcome.deleted, "{outcome:?}");
+            assert!(on_disk(dir).contains("name: a"));
+            assert!(!file_row(sync, FILE).await.expect("row").deleted);
+        })
+        .await;
+    }
+
+    /// A file a record was created in has no row until it is first
+    /// written, and that write registers it: a second render of it, from
+    /// before, is overtaken rather than unchecked.
+    #[tokio::test]
+    async fn a_render_of_a_new_file_loses_to_its_first_write() {
+        each_backend(async |sync, dir| {
+            const NEW: &str = "new.yaml";
+            let json = json!({"name": "a"});
+            sync.create_record(Some(NEW), "/repositories", "a", json, None, false)
+                .await
+                .expect("create");
+            assert!(file_row(sync, NEW).await.is_none(), "no row before a write");
+            let first = render_of(sync, NEW).await;
+            assert_eq!(first.write_seq, None);
+            sync.write_file(NEW).await.expect("the other writer");
+            let row = file_row(sync, NEW).await.expect("registered by the write");
+            assert!(row.source_oid.is_some(), "{row:?}");
+
+            let written = sync.persist_render(NEW, first).await.expect("persist");
+            assert!(written.is_none(), "the overtaken render was written");
+            let text = std::fs::read_to_string(dir.join(NEW)).expect("read");
+            assert!(text.contains("name: a"), "{text}");
+        })
+        .await;
+    }
+
+    /// `claim_write` claims only from the `write_seq` it's given, and keeps
+    /// `source_oid` when given none: a stale write's.
+    #[tokio::test]
+    async fn claim_write_checks_write_seq_and_can_keep_source_oid() {
+        each_backend(async |sync, _dir| {
+            let w = sync.worktree_id();
+            let before = file_row(sync, FILE).await.expect("row");
+            let seq = async || {
+                let inputs = db::record::render_inputs(sync.db(), w, FILE).await;
+                inputs.expect("inputs").write_seq
+            };
+            let at = seq().await.expect("seq");
+            on_pool!(sync.db(), pool => {
+                let mut tx = pool.begin().await.expect("begin");
+                let stale = Store::claim_write(&mut tx, w, FILE, at + 1, Some("x")).await;
+                assert!(!stale.expect("claim"), "claimed from a write_seq it isn't at");
+                let kept = Store::claim_write(&mut tx, w, FILE, at, None).await;
+                assert!(kept.expect("claim"));
+                tx.commit().await.expect("commit");
+            });
+            let after = file_row(sync, FILE).await.expect("row");
+            assert_eq!(after.source_oid, before.source_oid);
+            assert_eq!(seq().await, Some(at + 1));
+        })
+        .await;
+    }
+
+    /// Whether anything is left in a deleted file is read in the render's
+    /// snapshot with the rest.
+    #[tokio::test]
+    async fn a_render_reads_whats_left_of_a_deletion_in_its_snapshot() {
+        each_backend(async |sync, _dir| {
+            let w = sync.worktree_id();
+            sync.delete_file(FILE, None).await.expect("delete");
+            let inputs = db::record::render_inputs_racing(sync.db(), w, FILE, async || {
+                upsert(sync, "a").await;
+                Ok(())
+            })
+            .await
+            .expect("inputs");
+            assert!(!inputs.live, "the snapshot saw a record written back later");
+            let after = db::record::render_inputs(sync.db(), w, FILE)
+                .await
+                .expect("inputs");
+            assert!(after.live, "the write-back did land");
+        })
+        .await;
+    }
+
+    /// Overtake a render without touching the file, as a writer of
+    /// something else it depends on -- a resolution, a deletion -- does.
+    async fn overtake(sync: &SyncedRepo) -> Result<()> {
+        let w = sync.worktree_id();
+        on_pool!(sync.db(), pool => {
+            let mut tx = pool.begin().await?;
+            Store::bump_write_seq(&mut tx, w, FILE).await?;
+            tx.commit().await?;
+            Ok(())
+        })
+    }
+
+    /// Overtaken once, `write_file` renders again and writes that.
+    #[tokio::test]
+    async fn an_overtaken_write_renders_again() {
+        each_backend(async |sync, dir| {
+            upsert(sync, "a").await;
+            let mut renders = 0;
+            let outcome = sync
+                .write_file_racing(FILE, async || {
+                    renders += 1;
+                    match renders {
+                        1 => overtake(sync).await,
+                        _ => Ok(()),
+                    }
+                })
+                .await
+                .expect("the second render wins");
+            assert_eq!(renders, 2);
+            assert!(outcome.written.is_some(), "{outcome:?}");
+            assert!(on_disk(dir).contains("name: a"));
+        })
+        .await;
+    }
+
+    /// Overtaken every time, `write_file` gives up with
+    /// [`Error::FileChanged`] and writes nothing; the edit stays pending
+    /// for the next write.
+    #[tokio::test]
+    async fn a_write_overtaken_every_time_gives_up() {
+        each_backend(async |sync, dir| {
+            upsert(sync, "a").await;
+            let mut renders = 0;
+            let err = sync
+                .write_file_racing(FILE, async || {
+                    renders += 1;
+                    overtake(sync).await
+                })
+                .await
+                .expect_err("never wins");
+            assert!(
+                matches!(&err, Error::FileChanged { file_path } if file_path == FILE),
+                "{err:?}"
+            );
+            assert_eq!(renders, WRITE_ATTEMPTS);
+            assert!(!on_disk(dir).contains("name: a"));
+
+            sync.write_file(FILE).await.expect("write");
+            assert!(on_disk(dir).contains("name: a"));
+        })
+        .await;
+    }
+
+    /// A render's reads see one moment: a write committed after its
+    /// snapshot began isn't in it.
+    #[tokio::test]
+    async fn a_snapshot_does_not_see_a_later_write() {
+        each_backend(async |sync, _dir| {
+            let w = sync.worktree_id();
+            on_pool!(sync.db(), pool => {
+                let mut tx = pool.begin().await.expect("begin");
+                Store::begin_snapshot(&mut tx).await.expect("snapshot");
+                let before = Store::write_seq(&mut tx, w, FILE).await.expect("read");
+                assert!(before.is_some());
+                let mut other = pool.begin().await.expect("begin");
+                Store::bump_write_seq(&mut other, w, FILE).await.expect("bump");
+                other.commit().await.expect("commit");
+                let after = Store::write_seq(&mut tx, w, FILE).await.expect("read");
+                assert_eq!(before, after, "the snapshot saw a later write");
+            })
+        })
+        .await;
+    }
+
+    /// A render reads the database from one snapshot: a write committed
+    /// partway through its reads -- here, after the first -- is in none of
+    /// them.
+    #[tokio::test]
+    async fn a_render_reads_one_snapshot() {
+        each_backend(async |sync, _dir| {
+            let w = sync.worktree_id();
+            upsert(sync, "a").await;
+            let before = db::record::render_inputs(sync.db(), w, FILE)
+                .await
+                .expect("inputs");
+            let inputs = db::record::render_inputs_racing(sync.db(), w, FILE, async || {
+                upsert(sync, "b").await;
+                sync.write_file(FILE).await.map(|_| ())
+            })
+            .await
+            .expect("inputs");
+            assert_eq!(inputs.write_seq, before.write_seq);
+            let keys: Vec<&str> = inputs.pending.iter().map(|r| r.key.as_str()).collect();
+            assert_eq!(keys, ["a"]);
+            let source_oid =
+                |i: &db::record::RenderInputs| i.file.as_ref().map(|f| f.source_oid.clone());
+            assert_eq!(source_oid(&inputs), source_oid(&before));
+
+            let after = db::record::render_inputs(sync.db(), w, FILE)
+                .await
+                .expect("inputs");
+            assert_ne!(after.write_seq, before.write_seq, "the write did land");
+        })
+        .await;
     }
 
     /// An outside commit landing between a commit's scan and the commit
@@ -2188,56 +2844,43 @@ mod head_race_tests {
     /// retry commits the same edit onto it.
     #[tokio::test]
     async fn a_commit_fails_when_head_moves_after_its_scan() {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let sync = open(tmp.path()).await;
-        sync.update_from_working_dir(ScanOptions::default())
-            .await
-            .expect("scan");
-        let key = "git://example.com/a.git";
-        sync.upsert_record(
-            Some("cloudmap.yaml"),
-            "/repositories",
-            key,
-            serde_json::json!({"name": "a"}),
-            None,
-            false,
-        )
-        .await
-        .expect("upsert");
+        each_backend(async |sync, dir| {
+            upsert(sync, "a").await;
+            let (_, scanned) = sync.scan(ScanOptions::default()).await.expect("scan");
+            std::fs::write(dir.join("other.txt"), "outside\n").expect("write");
+            let repo = sync.repo().expect("repo");
+            let outside =
+                git::commit_paths(&repo, &["other.txt".into()], "out").expect("outside commit");
 
-        let (_, scanned) = sync.scan(ScanOptions::default()).await.expect("scan");
-        std::fs::write(tmp.path().join("other.txt"), "outside\n").expect("write");
-        let outside = git::commit_paths(&sync.repo().expect("repo"), &["other.txt".into()], "out")
-            .expect("outside commit");
+            let err = sync
+                .commit_scanned("msg", scanned)
+                .await
+                .expect_err("HEAD moved after the scan");
+            assert!(
+                matches!(&err, Error::HeadMoved { expected, found }
+                    if *expected == scanned.map(|o| o.to_string())
+                        && *found == Some(outside.to_string())),
+                "{err:?}"
+            );
+            assert_eq!(repo.head_id().expect("head").detach(), outside);
 
-        let err = sync
-            .commit_scanned("msg", scanned)
-            .await
-            .expect_err("HEAD moved after the scan");
-        assert!(
-            matches!(&err, Error::HeadMoved { expected, found }
-                if *expected == scanned.map(|o| o.to_string())
-                    && *found == Some(outside.to_string())),
-            "{err:?}"
-        );
-        let repo = sync.repo().expect("repo");
-        assert_eq!(repo.head_id().expect("head").detach(), outside);
-
-        let oid = sync
-            .commit_repository("retry")
-            .await
-            .expect("retry")
-            .expect("a commit");
-        let commit = repo
-            .find_commit(gix::ObjectId::from_hex(oid.as_bytes()).expect("oid"))
-            .expect("commit");
-        assert_eq!(
-            commit.parent_ids().next().map(|p| p.detach()),
-            Some(outside)
-        );
-        let committed = git::read_blob_at_commit(&repo, &oid, "cloudmap.yaml")
-            .expect("read")
-            .expect("cloudmap.yaml in the commit");
-        assert!(String::from_utf8_lossy(&committed).contains(key));
+            let oid = sync
+                .commit_repository("retry")
+                .await
+                .expect("retry")
+                .expect("a commit");
+            let commit = repo
+                .find_commit(gix::ObjectId::from_hex(oid.as_bytes()).expect("oid"))
+                .expect("commit");
+            assert_eq!(
+                commit.parent_ids().next().map(|p| p.detach()),
+                Some(outside)
+            );
+            let committed = git::read_blob_at_commit(&repo, &oid, FILE)
+                .expect("read")
+                .expect("in the commit");
+            assert!(String::from_utf8_lossy(&committed).contains("name: a"));
+        })
+        .await;
     }
 }

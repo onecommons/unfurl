@@ -403,7 +403,20 @@ pub(crate) async fn apply_conflict_ops_in_pool<DB: Store>(
     ops: &[ConflictOp],
 ) -> Result<()> {
     let mut tx = pool.begin().await?;
-    let existing = conflict_rows(&mut tx, sync, file_path).await?;
+    apply_conflict_ops_in_tx(&mut tx, sync, file_path, commit_id, ops).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// [`apply_conflict_ops_in_pool`] in the caller's transaction.
+pub(crate) async fn apply_conflict_ops_in_tx<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    sync: &SyncedRepo,
+    file_path: &str,
+    commit_id: Option<&str>,
+    ops: &[ConflictOp],
+) -> Result<()> {
+    let existing = conflict_rows(tx, sync, file_path).await?;
     for op in ops {
         let place = (op.path.clone(), op.key.clone());
         let at = At {
@@ -414,7 +427,7 @@ pub(crate) async fn apply_conflict_ops_in_pool<DB: Store>(
         match &op.kind {
             ConflictOpKind::Open { json, deleted } => {
                 refresh_conflict_row(
-                    &mut tx,
+                    tx,
                     sync,
                     at,
                     TheirSide {
@@ -427,12 +440,46 @@ pub(crate) async fn apply_conflict_ops_in_pool<DB: Store>(
                 .await?;
             }
             ConflictOpKind::Clear => {
-                drop_conflict_row(&mut tx, sync, at, existing.get(&place)).await?;
+                drop_conflict_row(tx, sync, at, existing.get(&place)).await?;
             }
         }
     }
-    tx.commit().await?;
     Ok(())
+}
+
+/// The two sides of a conflict, and the draft segment holding them.
+struct Sides {
+    d: i64,
+    /// The file's, in its conflict row.
+    theirs: RecordRow,
+    /// The draft's edit, tombstones included: an in-flight delete is a side
+    /// of the argument like any other.
+    ours: RecordRow,
+}
+
+/// The two sides of the conflict at `at`, with the file's `write_seq`
+/// bumped: a render that read the conflict as it stood must not write over
+/// its resolution.
+async fn conflict_sides<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    w: i64,
+    at: At<'_>,
+) -> Result<Sides> {
+    let not_found = || Error::NotFound {
+        file_path: at.file_path.to_string(),
+        path: at.path.to_string(),
+    };
+    let d = DB::segs(tx, w).await?.draft;
+    let theirs = segments::conflict_row(tx, d, at)
+        .await?
+        .ok_or_else(not_found)?;
+    let ours = DB::rows_in(tx, d, Some(at.file_path), false)
+        .await?
+        .into_iter()
+        .find(|r| r.at() == at && r.is_edit())
+        .ok_or_else(not_found)?;
+    DB::bump_write_seq(tx, w, at.file_path).await?;
+    Ok(Sides { d, theirs, ours })
 }
 
 /// Body of [`SyncedRepo::resolve_conflict`], generic over the pool.
@@ -449,10 +496,6 @@ pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
     resolution: Resolution,
     expected_commit: Option<CommitRef>,
 ) -> Result<WriteOutcome> {
-    let not_found = || Error::NotFound {
-        file_path: file_path.to_string(),
-        path: path.to_string(),
-    };
     let w = sync.worktree_id();
     let at = At {
         file_path,
@@ -461,17 +504,7 @@ pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
     };
     let mut tx = pool.begin().await?;
     let version = DB::next_version(&mut tx, sync.family_id(), 1).await?;
-    let d = DB::segs(&mut tx, w).await?.draft;
-    let theirs = segments::conflict_row(&mut tx, d, at)
-        .await?
-        .ok_or_else(not_found)?;
-    // The draft's edit, tombstones included: an in-flight delete is a
-    // side of the argument like any other.
-    let ours = DB::rows_in(&mut tx, d, Some(file_path), false)
-        .await?
-        .into_iter()
-        .find(|r| r.at() == at && r.is_edit())
-        .ok_or_else(not_found)?;
+    let Sides { d, theirs, ours } = conflict_sides(&mut tx, w, at).await?;
     if let Some(exp) = expected_commit.as_ref() {
         enforce_conflict(
             file_path,

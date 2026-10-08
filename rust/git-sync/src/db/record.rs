@@ -135,62 +135,93 @@ pub(crate) async fn list_dirty_files(db: &Db, worktree_id: i64) -> Result<Vec<St
     }).await)
 }
 
-/// The pending edits of `file_path` -- the draft's rows a client wrote,
-/// tombstones included -- in the order they were written. Used by
-/// `write_file` to apply only the diff against the on-disk document.
-pub(crate) async fn load_pending(
+/// What a render of a file reads from the database: all of it from one
+/// snapshot, so its parts describe the same moment.
+pub(crate) struct RenderInputs {
+    /// The file row, if there is one.
+    pub(crate) file: Option<crate::model::File>,
+    /// Its `write_seq`: what the write checks it wasn't overtaken past.
+    pub(crate) write_seq: Option<i64>,
+    /// A deleted file still has a live record in it. Always `false` for a
+    /// file that isn't deleted, where nothing asks.
+    pub(crate) live: bool,
+    /// The file's side of each record in conflict, by `(path, key)`.
+    pub(crate) conflicts: std::collections::HashMap<(String, String), Record>,
+    /// The pending edits -- the draft's rows a client wrote, tombstones
+    /// included -- in the order they were written.
+    pub(crate) pending: Vec<Record>,
+    /// Each pending edit's base commit, by `(path, key)`.
+    pub(crate) bases: std::collections::HashMap<(String, String), Option<String>>,
+    /// Each pending edit's base content, by `(path, key)`: what a stale
+    /// file is checked against.
+    pub(crate) base_values: std::collections::HashMap<(String, String), Option<serde_json::Value>>,
+}
+
+/// Everything a render of `file_path` reads from the database, in one
+/// read-only snapshot.
+pub(crate) async fn render_inputs(
     db: &Db,
     worktree_id: i64,
     file_path: &str,
-) -> Result<Vec<Record>> {
+) -> Result<RenderInputs> {
+    render_inputs_with(db, worktree_id, file_path, async || Ok(())).await
+}
+
+/// [`render_inputs`], running `mid` once the snapshot has begun and before
+/// the rest is read: where another writer would commit.
+#[cfg(test)]
+pub(crate) async fn render_inputs_racing(
+    db: &Db,
+    worktree_id: i64,
+    file_path: &str,
+    mid: impl AsyncFnMut() -> Result<()>,
+) -> Result<RenderInputs> {
+    render_inputs_with(db, worktree_id, file_path, mid).await
+}
+
+async fn render_inputs_with(
+    db: &Db,
+    worktree_id: i64,
+    file_path: &str,
+    mut mid: impl AsyncFnMut() -> Result<()>,
+) -> Result<RenderInputs> {
     on_pool!(db, pool => read(pool, async |tx| {
+        Store::begin_snapshot(tx).await?;
+        let file = Store::files(tx, worktree_id, Some(file_path)).await?.pop();
+        mid().await?;
+        let write_seq = Store::write_seq(tx, worktree_id, file_path).await?;
         let d = Store::segs(tx, worktree_id).await?.draft;
-        let mut rows: Vec<RecordRow> = Store::rows_in(tx, d, Some(file_path), false)
+        let conflicts = Store::rows_in(tx, d, Some(file_path), true)
+            .await?
+            .into_iter()
+            .map(|r| ((r.path.clone(), r.key.clone()), r.into_record(worktree_id)))
+            .collect();
+        let live = match &file {
+            Some(f) if f.deleted => Store::visible(tx, worktree_id, Scope::Own, Filter::File(file_path))
+                .await?
+                .iter()
+                .any(|r| !r.deleted),
+            _ => false,
+        };
+        let mut edits: Vec<RecordRow> = Store::rows_in(tx, d, Some(file_path), false)
             .await?
             .into_iter()
             .filter(RecordRow::is_edit)
             .collect();
-        rows.sort_by_key(|r| r.id);
-        Ok(rows.into_iter().map(|r| r.into_record(worktree_id)).collect())
-    }).await)
-}
-
-/// `(path, key) → base content` for the file's pending edits: what the
-/// save checks a stale file against.
-pub(crate) async fn pending_base_values(
-    db: &Db,
-    worktree_id: i64,
-    file_path: &str,
-) -> Result<std::collections::HashMap<(String, String), Option<serde_json::Value>>> {
-    on_pool!(db, pool => read(pool, async |tx| {
-        let d = Store::segs(tx, worktree_id).await?.draft;
-        Ok(Store::rows_in(tx, d, Some(file_path), false)
-            .await?
-            .into_iter()
-            .filter(RecordRow::is_edit)
-            .map(|r| ((r.path, r.key), r.base_json))
-            .collect())
-    }).await)
-}
-
-/// `(path, key) → base_commit_id` for the file's pending edits.
-///
-/// The write path's conflict detection needs the bases, which the
-/// public [`Record`] deliberately doesn't carry — this fetches them
-/// without widening that shape.
-pub(crate) async fn pending_bases(
-    db: &Db,
-    worktree_id: i64,
-    file_path: &str,
-) -> Result<std::collections::HashMap<(String, String), Option<String>>> {
-    on_pool!(db, pool => read(pool, async |tx| {
-        let d = Store::segs(tx, worktree_id).await?.draft;
-        Ok(Store::rows_in(tx, d, Some(file_path), false)
-            .await?
-            .into_iter()
-            .filter(RecordRow::is_edit)
-            .map(|r| ((r.path, r.key), r.base_commit_id))
-            .collect())
+        edits.sort_by_key(|r| r.id);
+        let at = |r: &RecordRow| (r.path.clone(), r.key.clone());
+        let bases = edits.iter().map(|r| (at(r), r.base_commit_id.clone())).collect();
+        let base_values = edits.iter().map(|r| (at(r), r.base_json.clone())).collect();
+        let pending = edits.into_iter().map(|r| r.into_record(worktree_id)).collect();
+        Ok(RenderInputs {
+            file,
+            write_seq,
+            live,
+            conflicts,
+            pending,
+            bases,
+            base_values,
+        })
     }).await)
 }
 

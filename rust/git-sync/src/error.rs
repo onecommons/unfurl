@@ -175,6 +175,13 @@ pub enum Error {
         /// Where `HEAD` is now.
         found: Option<String>,
     },
+    /// [`crate::SyncedRepo::write_file`] lost the race to write `file_path`
+    /// to another writer every time it rendered it.
+    #[error("{file_path} kept changing while it was being written")]
+    FileChanged {
+        /// Working-tree-relative path of the file.
+        file_path: String,
+    },
     /// Catch-all for failure cases that don't fit the variants above.
     #[error("{0}")]
     Other(String),

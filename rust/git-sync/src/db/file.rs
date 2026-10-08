@@ -28,41 +28,6 @@ pub(crate) async fn list(db: &Db, worktree_id: i64) -> Result<Vec<File>> {
     on_pool!(db, pool => files(pool, worktree_id, None).await)
 }
 
-/// Record that a file on disk now holds `oid`, together with `persist`,
-/// the write that puts it there.
-///
-/// The two describe the same fact, so commit atomically: `persist`
-/// failing drops the transaction, leaving both untouched.
-///
-/// `persist` should be the rename only. The bytes are written and flushed
-/// beforehand, so the transaction spans a constant-time operation rather
-/// than an I/O proportional to the document — which matters because
-/// holding it open is holding a row lock, and on SQLite that is the
-/// single writer.
-///
-/// One window survives and cannot be closed: a crash between the rename
-/// and the commit leaves the file ahead of the database. That direction
-/// is the recoverable one — the bytes already contain the pending
-/// records, so re-syncing takes them back in.
-pub(crate) async fn commit_write<F>(
-    db: &Db,
-    worktree_id: i64,
-    file_path: &str,
-    oid: &str,
-    persist: F,
-) -> Result<()>
-where
-    F: FnOnce() -> Result<()>,
-{
-    on_pool!(db, pool => {
-        let mut tx = pool.begin().await?;
-        Store::set_source_oid(&mut tx, worktree_id, file_path, oid).await?;
-        persist()?;
-        tx.commit().await?;
-        Ok(())
-    })
-}
-
 /// Mark, or clear, the database's intent to remove `file_path` from the
 /// worktree. See [`crate::model::File::deleted`].
 pub(crate) async fn set_deleted(

@@ -205,13 +205,39 @@ pub(crate) trait Store: sqlx::Database + Sized {
         path: Option<&str>,
     ) -> impl Future<Output = Result<Vec<crate::model::File>>> + Send;
 
-    /// The blob the working tree's copy of a file now holds.
-    fn set_source_oid(
+    /// Make the transaction one read-only snapshot. Postgres reads each
+    /// statement afresh otherwise; SQLite in WAL mode already reads one.
+    fn begin_snapshot(
+        tx: &mut sqlx::Transaction<'_, Self>,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// A file row's `write_seq`: bumped by everything that changes what a
+    /// render of the file decides -- a write or removal, a scan taking the
+    /// file in, a deletion, a conflict's resolution. A record write doesn't
+    /// bump it: a render that misses a new record is only incomplete, as
+    /// the record stays pending until a later write puts it on disk.
+    fn write_seq(
         tx: &mut sqlx::Transaction<'_, Self>,
         worktree_id: i64,
         path: &str,
-        oid: &str,
+    ) -> impl Future<Output = Result<Option<i64>>> + Send;
+
+    /// Bump a file row's `write_seq`.
+    fn bump_write_seq(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+        path: &str,
     ) -> impl Future<Output = Result<()>> + Send;
+
+    /// Bump a file row's `write_seq` if it is still `expected`, setting
+    /// `source_oid` too unless it is `None`; whether it was.
+    fn claim_write(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+        path: &str,
+        expected: i64,
+        source_oid: Option<&str>,
+    ) -> impl Future<Output = Result<bool>> + Send;
 
     /// Create the worktree `(origin, branch)`: its own family, with an
     /// empty head, which is its whole chain, and an empty draft.
@@ -774,7 +800,8 @@ macro_rules! store_impl {
                        commit_id = CASE WHEN ?7 THEN excluded.commit_id ELSE file.commit_id END, \
                        source_oid = CASE WHEN ?7 THEN excluded.source_oid ELSE file.source_oid END, \
                        committed_oid = CASE WHEN ?8 THEN excluded.committed_oid \
-                                            ELSE file.committed_oid END",);
+                                            ELSE file.committed_oid END, \
+                       write_seq = file.write_seq + 1",);
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(file.path)
@@ -821,20 +848,66 @@ macro_rules! store_impl {
                     .collect())
             }
 
-            async fn set_source_oid(
+            async fn begin_snapshot(tx: &mut sqlx::Transaction<'_, Self>) -> Result<()> {
+                if Self::POSTGRES {
+                    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+                        .execute(&mut **tx)
+                        .await?;
+                }
+                Ok(())
+            }
+
+            async fn write_seq(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 worktree_id: i64,
                 path: &str,
-                oid: &str,
+            ) -> Result<Option<i64>> {
+                let sql = sql!(tx, "SELECT write_seq FROM file WHERE worktree_id = ?1 AND path = ?2");
+                Ok(sqlx::query_scalar(&sql)
+                    .bind(worktree_id)
+                    .bind(path)
+                    .fetch_optional(&mut **tx)
+                    .await?)
+            }
+
+            async fn bump_write_seq(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                worktree_id: i64,
+                path: &str,
             ) -> Result<()> {
-                let sql = sql!(tx, "UPDATE file SET source_oid = ?3 WHERE worktree_id = ?1 AND path = ?2",);
+                let sql = sql!(
+                    tx,
+                    "UPDATE file SET write_seq = write_seq + 1 WHERE worktree_id = ?1 AND path = ?2",
+                );
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(path)
-                    .bind(oid)
                     .execute(&mut **tx)
                     .await?;
                 Ok(())
+            }
+
+            async fn claim_write(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                worktree_id: i64,
+                path: &str,
+                expected: i64,
+                source_oid: Option<&str>,
+            ) -> Result<bool> {
+                let sql = sql!(
+                    tx,
+                    "UPDATE file SET write_seq = write_seq + 1, \
+                     source_oid = COALESCE(CAST(?4 AS TEXT), source_oid) \
+                     WHERE worktree_id = ?1 AND path = ?2 AND write_seq = ?3",
+                );
+                let done = sqlx::query(&sql)
+                    .bind(worktree_id)
+                    .bind(path)
+                    .bind(expected)
+                    .bind(source_oid)
+                    .execute(&mut **tx)
+                    .await?;
+                Ok(done.rows_affected() == 1)
             }
 
             async fn create_worktree(
@@ -1597,7 +1670,8 @@ macro_rules! store_impl {
                 deleted: bool,
             ) -> Result<()> {
                 let sql =
-                    sql!(tx, "UPDATE file SET deleted = ?3 WHERE worktree_id = ?1 AND path = ?2");
+                    sql!(tx, "UPDATE file SET deleted = ?3, write_seq = write_seq + 1 \
+                              WHERE worktree_id = ?1 AND path = ?2");
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(file_path)
