@@ -165,6 +165,16 @@ pub enum Error {
         /// What the format found wrong with it.
         message: String,
     },
+    /// `HEAD` moved after the scan a commit was based on, so nothing was
+    /// committed; [`crate::SyncedRepo::commit_repository`] can be retried,
+    /// and scans again first.
+    #[error("HEAD moved from {expected:?} to {found:?} before the commit was made")]
+    HeadMoved {
+        /// The commit the scan took in, or `None` for an unborn branch.
+        expected: Option<String>,
+        /// Where `HEAD` is now.
+        found: Option<String>,
+    },
     /// Catch-all for failure cases that don't fit the variants above.
     #[error("{0}")]
     Other(String),

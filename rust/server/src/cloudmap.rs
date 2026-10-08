@@ -234,7 +234,7 @@ impl CloudMapState {
     /// Driven by `commit: true` on `POST /cloudmap`; without it the handler
     /// leaves records staged and the commit is somebody else's job.
     pub async fn commit(&self, message: &str) -> Result<Option<String>, unfurl_git_sync::Error> {
-        self.inner.commit_repository(message).await
+        retry_if_head_moved(|| self.inner.commit_repository(message)).await
     }
 
     /// Decide whether a request's `auth_project` and `branch` may be served
@@ -2247,9 +2247,70 @@ fn classify_failure(err: &unfurl_git_sync::Error) -> (Option<String>, Option<Str
     }
 }
 
+/// Run `commit` once more if it lost a race with an outside commit:
+/// [`unfurl_git_sync::Error::HeadMoved`] means nothing was committed, and
+/// `commit_repository` scans first, so the retry takes that commit in.
+async fn retry_if_head_moved<T, F, Fut>(mut commit: F) -> Result<T, unfurl_git_sync::Error>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, unfurl_git_sync::Error>>,
+{
+    match commit().await {
+        Err(unfurl_git_sync::Error::HeadMoved { .. }) => commit().await,
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{branch_matches, delete_pointer, merge_deletes, merge_json, origin_matches};
+    use super::{
+        branch_matches, delete_pointer, merge_deletes, merge_json, origin_matches,
+        retry_if_head_moved,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use unfurl_git_sync::Error;
+
+    fn head_moved() -> Error {
+        Error::HeadMoved {
+            expected: Some("a".into()),
+            found: Some("b".into()),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_commit_that_lost_a_race_is_retried_once() {
+        let calls = AtomicUsize::new(0);
+        let result = retry_if_head_moved(|| async {
+            match calls.fetch_add(1, Ordering::SeqCst) {
+                0 => Err(head_moved()),
+                _ => Ok("oid"),
+            }
+        })
+        .await;
+        assert_eq!(result.expect("the retry commits"), "oid");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+        let calls = AtomicUsize::new(0);
+        let result: Result<(), Error> = retry_if_head_moved(|| async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(head_moved())
+        })
+        .await;
+        assert!(matches!(result, Err(Error::HeadMoved { .. })));
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "only one retry");
+    }
+
+    #[tokio::test]
+    async fn other_commit_errors_are_not_retried() {
+        let calls = AtomicUsize::new(0);
+        let result: Result<(), Error> = retry_if_head_moved(|| async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(Error::Git("boom".into()))
+        })
+        .await;
+        assert!(matches!(result, Err(Error::Git(_))));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
     use serde_json::json;
 
     #[test]

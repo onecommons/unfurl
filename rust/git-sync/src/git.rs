@@ -276,6 +276,20 @@ pub fn commit_paths(
     paths: &[String],
     message: &str,
 ) -> Result<gix::ObjectId> {
+    let head = repo.head_id().ok().map(|id| id.detach());
+    commit_paths_onto(repo, paths, message, head)
+}
+
+/// [`commit_paths`] onto `parent` (`None` for an unborn branch), failing
+/// with [`Error::HeadMoved`] unless `HEAD` is still there when the commit
+/// is made.
+pub fn commit_paths_onto(
+    repo: &gix::Repository,
+    paths: &[String],
+    message: &str,
+    parent: Option<gix::ObjectId>,
+) -> Result<gix::ObjectId> {
+    head_is_at(repo, parent)?;
     let work_dir = repo
         .work_dir()
         .ok_or_else(|| Error::Git("repository has no working tree".to_string()))?
@@ -302,11 +316,7 @@ pub fn commit_paths(
         updates.push((segments, blob_oid));
     }
 
-    // Determine parent commit + base tree.
-    let parents: Vec<gix::ObjectId> = match repo.head_id().ok() {
-        Some(id) => vec![id.detach()],
-        None => Vec::new(),
-    };
+    let parents: Vec<gix::ObjectId> = parent.into_iter().collect();
     let head_tree_oid = match parents.first() {
         Some(cid) => Some(
             repo.find_commit(*cid)
@@ -320,9 +330,14 @@ pub fn commit_paths(
 
     let new_tree_oid = build_tree_with_updates(repo, head_tree_oid, &updates)?;
 
-    let id = repo
-        .commit("HEAD", message, new_tree_oid, parents)
-        .map_err(git_err)?;
+    // gix updates HEAD only if it still names `parent`
+    let id = match repo.commit("HEAD", message, new_tree_oid, parents) {
+        Ok(id) => id,
+        Err(err) => {
+            head_is_at(repo, parent)?;
+            return Err(git_err(err));
+        }
+    };
 
     // Refresh the index to match the tree we just committed. Building the tree
     // directly (above) never touches the index, so without this it still holds
@@ -336,6 +351,18 @@ pub fn commit_paths(
         .map_err(git_err)?;
 
     Ok(id.detach())
+}
+
+/// [`Error::HeadMoved`] unless `HEAD` names `expected`.
+fn head_is_at(repo: &gix::Repository, expected: Option<gix::ObjectId>) -> Result<()> {
+    let found = repo.head_id().ok().map(|id| id.detach());
+    if found == expected {
+        return Ok(());
+    }
+    Err(Error::HeadMoved {
+        expected: expected.map(|id| id.to_string()),
+        found: found.map(|id| id.to_string()),
+    })
 }
 
 /// One overlay onto a tree: the path split into segments, and the blob

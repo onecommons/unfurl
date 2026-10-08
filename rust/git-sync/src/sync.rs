@@ -389,6 +389,12 @@ impl SyncedRepo {
     /// tracked file fails to parse, or any underlying git / database
     /// error.
     pub async fn update_from_working_dir(&self, options: ScanOptions) -> Result<SyncOutcome> {
+        Ok(self.scan(options).await?.0)
+    }
+
+    /// [`Self::update_from_working_dir`], also returning the `HEAD` it took
+    /// in.
+    async fn scan(&self, options: ScanOptions) -> Result<(SyncOutcome, Option<gix::ObjectId>)> {
         // HEAD is read once, so the commit stamped below is the one the
         // scan took in, and a rebuild recorded, even if it moves meanwhile.
         let meta = git::worktree_meta(&self.repo()?)?;
@@ -402,7 +408,7 @@ impl SyncedRepo {
         // run. No-op when an operator has already pinned a value.
         db::worktree::auto_pick_default_file(self.db(), self.worktree_id()).await?;
 
-        Ok(stats)
+        Ok((stats, meta.head_oid))
     }
 
     /// Refuse a checkout on another branch than the handle's, and rebuild
@@ -1920,7 +1926,18 @@ impl SyncedRepo {
         // Take any outside edits in before saving: the writes below
         // then render over a current picture, and the fold can't
         // stamp a stale row with a commit that doesn't carry its json.
-        self.update_from_working_dir(ScanOptions::default()).await?;
+        let (_, head) = self.scan(ScanOptions::default()).await?;
+        self.commit_scanned(message, head).await
+    }
+
+    /// The rest of [`Self::commit_repository`], after a scan that took in
+    /// `scanned_head`. The commit is made onto it, so [`Error::HeadMoved`]
+    /// if `HEAD` has moved since.
+    async fn commit_scanned(
+        &self,
+        message: &str,
+        scanned_head: Option<gix::ObjectId>,
+    ) -> Result<Option<String>> {
         // Snapshot the dirty file list *before* save_changes (which sets
         // no commit_id changes) so we know what to stage even when bytes
         // didn't actually change on disk.
@@ -2004,7 +2021,7 @@ impl SyncedRepo {
         // those anyway would mint an empty commit on every call, and a
         // standing conflict would do it forever.
         let repo = self.repo()?;
-        let head = git::worktree_meta(&repo)?.head_oid.map(|o| o.to_string());
+        let head = scanned_head.map(|o| o.to_string());
         let to_stage: Vec<String> = dirty
             .iter()
             .filter(|rel| self.differs_from_head(&repo, head.as_deref(), rel))
@@ -2029,7 +2046,9 @@ impl SyncedRepo {
             .collect();
 
         let oid_str = match (to_stage.is_empty(), head.as_deref()) {
-            (false, _) => git::commit_paths(&repo, &to_stage, &message)?.to_string(),
+            (false, _) => {
+                git::commit_paths_onto(&repo, &to_stage, &message, scanned_head)?.to_string()
+            }
             // Nothing to record, but rows are still in flight: their
             // content is what HEAD already holds, so attribute them to
             // the commit that does carry it rather than manufacture an
@@ -2144,4 +2163,81 @@ pub(crate) fn parse_and_detect<'f>(
         value,
         validation,
     }))
+}
+
+#[cfg(test)]
+mod head_race_tests {
+    use super::*;
+    use crate::{DbConfig, FormatRegistry};
+
+    const CLOUDMAP: &str = "apiVersion: unfurl/v1.0.0\nkind: CloudMap\nrepositories: {}\n";
+
+    async fn open(dir: &Path) -> SyncedRepo {
+        let files = [("cloudmap.yaml".to_string(), CLOUDMAP.as_bytes().to_vec())];
+        git::init_with_files(dir, &files, "initial").expect("init");
+        let db = DbConfig::Sqlite {
+            url: "sqlite::memory:".into(),
+        };
+        SyncedRepo::open(dir, db, FormatRegistry::with_builtins())
+            .await
+            .expect("open")
+    }
+
+    /// An outside commit landing between a commit's scan and the commit
+    /// itself fails the commit rather than being built on unseen, and a
+    /// retry commits the same edit onto it.
+    #[tokio::test]
+    async fn a_commit_fails_when_head_moves_after_its_scan() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let sync = open(tmp.path()).await;
+        sync.update_from_working_dir(ScanOptions::default())
+            .await
+            .expect("scan");
+        let key = "git://example.com/a.git";
+        sync.upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            key,
+            serde_json::json!({"name": "a"}),
+            None,
+            false,
+        )
+        .await
+        .expect("upsert");
+
+        let (_, scanned) = sync.scan(ScanOptions::default()).await.expect("scan");
+        std::fs::write(tmp.path().join("other.txt"), "outside\n").expect("write");
+        let outside = git::commit_paths(&sync.repo().expect("repo"), &["other.txt".into()], "out")
+            .expect("outside commit");
+
+        let err = sync
+            .commit_scanned("msg", scanned)
+            .await
+            .expect_err("HEAD moved after the scan");
+        assert!(
+            matches!(&err, Error::HeadMoved { expected, found }
+                if *expected == scanned.map(|o| o.to_string())
+                    && *found == Some(outside.to_string())),
+            "{err:?}"
+        );
+        let repo = sync.repo().expect("repo");
+        assert_eq!(repo.head_id().expect("head").detach(), outside);
+
+        let oid = sync
+            .commit_repository("retry")
+            .await
+            .expect("retry")
+            .expect("a commit");
+        let commit = repo
+            .find_commit(gix::ObjectId::from_hex(oid.as_bytes()).expect("oid"))
+            .expect("commit");
+        assert_eq!(
+            commit.parent_ids().next().map(|p| p.detach()),
+            Some(outside)
+        );
+        let committed = git::read_blob_at_commit(&repo, &oid, "cloudmap.yaml")
+            .expect("read")
+            .expect("cloudmap.yaml in the commit");
+        assert!(String::from_utf8_lossy(&committed).contains(key));
+    }
 }
