@@ -1248,3 +1248,31 @@ pub struct BatchOutcome {
     /// nothing was applied.
     pub last_version: Option<i64>,
 }
+
+/// A `credential_grant` row: a user's credential for a repository, kept
+/// for work done after the request that brought it. The caller encrypts
+/// `token` and computes `token_digest`; git-sync never sees the credential.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct Grant {
+    /// Random, chosen by the caller.
+    pub id: String,
+    pub username: String,
+    /// The repository, normalized by
+    /// [`crate::git::normalize_git_url_hard`] when stored, and so as read
+    /// back.
+    pub origin: String,
+    /// Empty until a grant's scopes are needed.
+    pub scopes: String,
+    /// The encrypted credential.
+    pub token: Vec<u8>,
+    /// Which key `token` is encrypted with.
+    pub key_id: String,
+    /// A digest of the credential keyed by the caller (so a dump of the
+    /// table can't be checked against guesses), by which the same
+    /// credential brought again finds its grant.
+    pub token_digest: String,
+    /// Seconds since the Unix epoch.
+    pub created_at: i64,
+    pub last_used_at: i64,
+    pub expires_at: i64,
+}

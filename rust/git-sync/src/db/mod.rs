@@ -203,6 +203,7 @@ const fn put_range(out: &mut [u8], n: usize, b: &[u8], from: usize, to: usize) -
 mod bench;
 pub mod commit;
 pub mod file;
+pub mod grant;
 pub mod record;
 pub(crate) mod store;
 pub(crate) mod tables;
