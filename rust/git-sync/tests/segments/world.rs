@@ -40,9 +40,9 @@ enum Op {
     Move(u8, Key, bool),
     /// Export a worktree's unresolved conflicts to a new branch (C.20).
     Export(u8),
-    /// An export that fails after one of its steps and is finished by the
-    /// next: the same as one that didn't fail. `.0 / 3` picks the
-    /// worktree and `.0 % 3` the step.
+    /// An export that fails after one of its steps, `.0 % 3`, from the
+    /// worktree `.0 / 3` picks: its branch holds the edits uncommitted
+    /// until the next export from that worktree finishes it.
     FailedExport(u8),
     /// A merge made outside the database into a worktree's head of other
     /// worktrees' commits (each a worktree and how far back), checked out
@@ -128,6 +128,14 @@ fn export_op() -> impl Strategy<Value = Op> {
     ]
 }
 
+/// Exports, some failing partway and finished by a later one.
+fn failed_export_op() -> impl Strategy<Value = Op> {
+    prop_oneof![
+        4 => export_op(),
+        2 => any::<u8>().prop_map(Op::FailedExport),
+    ]
+}
+
 /// Weighted toward publishing after moves, rewrites and main's changes,
 /// where short histories find the most.
 fn publish_op() -> impl Strategy<Value = Op> {
@@ -162,6 +170,24 @@ struct World {
     /// there: the one that set its value, as the harness made it, not the
     /// implementation's walk.
     origins: Vec<BTreeMap<Key, CommitId>>,
+    /// Each worktree's unfinished export, by worktree.
+    stuck: BTreeMap<Wt, Unfinished>,
+}
+
+/// An export that failed after a step: its edits in the branch's draft,
+/// or folded into a commit its ref isn't at yet.
+enum Unfinished {
+    Moved(Stuck),
+    Folded,
+}
+
+/// An export stopped after its move: branch `f`, forked at `base`, holds
+/// the edits in its draft, and committed holds `tree` with `ids`.
+struct Stuck {
+    f: Wt,
+    base: CommitId,
+    tree: BTreeMap<Key, Ver>,
+    ids: BTreeMap<Key, Ver>,
 }
 
 impl World {
@@ -188,6 +214,7 @@ impl World {
             commit_ids: vec![ids],
             own_ids: BTreeMap::new(),
             origins: Vec::new(),
+            stuck: BTreeMap::new(),
         }
     }
 
@@ -786,23 +813,50 @@ impl World {
 
     /// C.20: `w`'s edits under an unresolved conflict go to a new branch
     /// forked at their oldest base and committed there; `w` takes in the
-    /// file's values, as resolving each for the file would.
-    fn export(&mut self, n: u8) {
+    /// file's values, as resolving each for the file would. With `stop`,
+    /// it fails after that step: the move (0) or writing the commit (1),
+    /// leaving the edits in the branch's draft, or the fold (2), leaving
+    /// only its ref to move; the last two only where it makes a commit.
+    /// The next export from `w` finishes it, and does nothing else.
+    fn export(&mut self, n: u8, stop: Option<u8>) {
         let w = self.pick(n, false).unwrap();
+        match self.stuck.remove(&w) {
+            Some(Unfinished::Moved(stuck)) => return self.finish_export(stuck),
+            Some(Unfinished::Folded) => return,
+            None => {}
+        }
+        let Some(stuck) = self.move_export(w) else {
+            return;
+        };
+        let commits = stuck.tree != self.git.commits[stuck.base];
+        match (stop, commits) {
+            (Some(0), _) | (Some(1), true) => {
+                self.stuck.insert(w, Unfinished::Moved(stuck));
+            }
+            (Some(2), true) => {
+                self.finish_export(stuck);
+                self.stuck.insert(w, Unfinished::Folded);
+            }
+            _ => self.finish_export(stuck),
+        }
+    }
+
+    /// The export's move: a branch at the edits' base whose draft holds
+    /// them, and `w` resolving each for the file.
+    fn move_export(&mut self, w: Wt) -> Option<Stuck> {
         let Some((f, pos, rows)) = self.imp.export_fork(w, &self.git) else {
             assert!(
                 self.model.wts[w].conflicts.values().all(|c| c.resolved),
                 "worktree {w} exported nothing, with unresolved conflicts"
             );
-            return;
+            return None;
         };
-        let ids = self.forked_ids(w, pos, f);
+        assert_eq!(f, self.model.wts.len(), "the branch's index");
+        let at_base = self.forked_ids(w, pos, f);
         let base = self.imp.wts[w].history[pos];
-        // before the commit, whose fold can purge a tombstone among them
         let moved: BTreeSet<Key> = rows.iter().map(|r| self.imp.rows[r].key).collect();
-        let made = self.git.commits.len();
         let disk = self.model.wts[w].disk.clone();
-        let commit = self.imp.export_commit(w, f, &rows, &disk, &mut self.git);
+        self.imp.export_move(w, f, &rows, &disk);
         let m = &self.model.wts[w];
         let exported: BTreeMap<Key, ODraft> = m
             .conflicts
@@ -815,8 +869,8 @@ impl World {
             exported.keys().copied().collect(),
             "worktree {w}'s exported keys"
         );
-        let (mut tree, mut ids) = (self.git.commits[base].clone(), ids);
-        let at_base = ids.clone();
+        let (mut tree, mut ids) = (self.git.commits[base].clone(), at_base.clone());
+        let mut draft = BTreeMap::new();
         for (&k, d) in &exported {
             // a record the base has at another key: the edit is a new one
             let id = match at_base.iter().any(|(&j, &id)| j != k && id == d.id) {
@@ -831,16 +885,34 @@ impl World {
                 tree.insert(k, d.ver);
                 ids.insert(k, id);
             }
+            let edit = ODraft {
+                id,
+                based_on: BTreeSet::new(),
+                ..d.clone()
+            };
+            draft.insert(k, edit);
         }
-        assert_eq!(self.git.commits[commit], tree, "the exported branch's tree");
         for &k in exported.keys() {
             let m = &mut self.model.wts[w];
             m.conflicts.remove(&k);
             m.reconcile(file_of(k), &mut self.next_ver, FileWins::Only(k));
         }
-        let mut branch = OWt::new(tree, ids, false);
+        let mut branch = OWt::new(self.git.commits[base].clone(), at_base, false);
+        branch.draft = draft;
         branch.exported = true;
         self.model.wts.push(branch);
+        Some(Stuck { f, base, tree, ids })
+    }
+
+    /// The export's commit onto its base, and its fold.
+    fn finish_export(&mut self, stuck: Stuck) {
+        let Stuck { f, tree, ids, .. } = stuck;
+        let made = self.git.commits.len();
+        let commit = self.imp.export_commit(f, &mut self.git);
+        assert_eq!(self.git.commits[commit], tree, "the exported branch's tree");
+        let mut branch = OWt::new(tree, ids, false);
+        branch.exported = true;
+        self.model.wts[f] = branch;
         if self.git.commits.len() > made {
             self.committed(f);
         }
@@ -997,8 +1069,8 @@ impl World {
                     .wts
                     .push(OWt::new(self.git.commits[c].clone(), ids, false));
             }
-            Op::Export(n) => self.export(n),
-            Op::FailedExport(n) => self.export(n / 3),
+            Op::Export(n) => self.export(n, None),
+            Op::FailedExport(n) => self.export(n / 3, Some(n % 3)),
             Op::NewUser => {
                 let pos = self.imp.wts[MAIN].history.len() - 1;
                 self.imp.fork(MAIN, pos, &self.git);

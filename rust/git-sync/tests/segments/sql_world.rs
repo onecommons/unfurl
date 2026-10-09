@@ -108,6 +108,9 @@ struct SqlWorld {
     repos: BTreeMap<Wt, SyncedRepo>,
     /// Each exported branch's worktree id: it has no checkout to open.
     exported: BTreeMap<Wt, i64>,
+    /// Each worktree's unfinished export: the branch's index and name,
+    /// and whether only its ref is left to move.
+    stuck: BTreeMap<Wt, (Wt, String, bool)>,
     config: DbConfig,
     raw: Raw,
     _db: tempfile::TempDir,
@@ -156,6 +159,7 @@ impl SqlWorld {
             rt,
             repos: BTreeMap::from([(MAIN, main)]),
             exported: BTreeMap::new(),
+            stuck: BTreeMap::new(),
             config,
             raw,
             _db: db,
@@ -247,40 +251,7 @@ impl SqlWorld {
                     .block_on(self.repos[&w].resolve_conflict(&file, path, &key, resolution, None))
                     .unwrap();
             }
-            Op::Export(_) | Op::FailedExport(_) => {
-                let branch = format!("export-{}", before.wts);
-                let failed = match *op {
-                    Op::FailedExport(n) => self.fail_export(w, &branch, n % 3),
-                    _ => None,
-                };
-                let got = failed.unwrap_or_else(|| {
-                    self.rt
-                        .block_on(self.repos[&w].export_conflicts(&branch))
-                        .unwrap()
-                });
-                if world.model.wts.len() == before.wts {
-                    assert!(got.is_none(), "the implementation exported: {got:?}");
-                    return;
-                }
-                let f = before.wts;
-                let got = got.expect("an export");
-                let history = &world.imp.wts[f].history;
-                let base = match world.git.commits.len() > before.commits {
-                    true => {
-                        mirror.adopt(&world.git, f, before.commits, &got.commit);
-                        self.check_rollup(world, before.commits, &got.commit, mirror);
-                        history[history.len() - 2]
-                    }
-                    false => *history.last().unwrap(),
-                };
-                let parent = format!("{}^", got.commit);
-                let at = match got.commit == mirror.oids[base] {
-                    true => got.commit.clone(),
-                    false => git(&mirror.root, &["rev-parse", &parent], None),
-                };
-                assert_eq!(at, mirror.oids[base], "the export's base");
-                self.exported.insert(f, got.worktree_id);
-            }
+            Op::Export(_) | Op::FailedExport(_) => self.export(op, world, mirror, before),
             Op::Delete(_) => {
                 let gone: Vec<Wt> = self
                     .repos
@@ -295,6 +266,93 @@ impl SqlWorld {
             }
             _ => unreachable!("unsupported ops aren't run"),
         }
+    }
+
+    /// An export from `before.w`: a new one, one failing after a step,
+    /// or the one finishing its export that failed.
+    fn export(&mut self, op: &Op, world: &World, mirror: &mut GitMirror, before: &Before) {
+        let w = before.w;
+        if let Some((f, branch, folded)) = self.stuck.remove(&w) {
+            let got = self
+                .rt
+                .block_on(self.repos[&w].export_conflicts(&branch))
+                .unwrap()
+                .expect("the export finished");
+            match folded {
+                // only the ref was left: the commit is the model's already
+                true => {
+                    assert_eq!(world.git.commits.len(), before.commits, "a commit");
+                    let tip = git(&mirror.root, &["rev-parse", &branch], None);
+                    assert_eq!(tip, got.commit, "the export's ref");
+                }
+                false => self.took_export(world, mirror, before, f, &got.commit),
+            }
+            return;
+        }
+        let (f, branch) = (before.wts, format!("export-{}", before.wts));
+        let got = match *op {
+            Op::FailedExport(n) => match self.fail_export(w, &branch, n % 3) {
+                Some(done) => done,
+                None => return self.stopped_export(world, mirror, before, branch),
+            },
+            _ => self
+                .rt
+                .block_on(self.repos[&w].export_conflicts(&branch))
+                .unwrap(),
+        };
+        assert!(
+            !world.stuck.contains_key(&w),
+            "the model's export stopped where the implementation's finished: {got:?}"
+        );
+        if world.model.wts.len() == before.wts {
+            assert!(got.is_none(), "the implementation exported: {got:?}");
+            return;
+        }
+        let got = got.expect("an export");
+        self.took_export(world, mirror, before, f, &got.commit);
+        assert_eq!(self.exported.insert(f, got.worktree_id), None);
+    }
+
+    /// An export from `before.w` to `branch` that stopped: its edits in the
+    /// branch's draft, or folded into a commit the ref isn't at.
+    fn stopped_export(&mut self, world: &World, mirror: &mut GitMirror, before: &Before, branch: String) {
+        let (w, f) = (before.w, before.wts);
+        let folded = match world.stuck.get(&w) {
+            Some(Unfinished::Moved(_)) => false,
+            Some(Unfinished::Folded) => true,
+            None => panic!("the implementation's export stopped where the model's finished"),
+        };
+        let filter = WorktreeFilter {
+            origin: None,
+            branch: Some(branch.clone()),
+        };
+        let rows = self.rt.block_on(self.repos[&w].worktrees(&filter)).unwrap();
+        if folded {
+            let commit = rows[0].commit_id.clone().expect("the commit folded");
+            self.took_export(world, mirror, before, f, &commit);
+        }
+        self.exported.insert(f, rows[0].id);
+        self.stuck.insert(w, (f, branch, folded));
+    }
+
+    /// Export branch `f`'s commit, made in this step if the model made
+    /// one: it's the model's, on the base the model forked at.
+    fn took_export(&mut self, world: &World, mirror: &mut GitMirror, before: &Before, f: Wt, commit: &str) {
+        let history = &world.imp.wts[f].history;
+        let base = match world.git.commits.len() > before.commits {
+            true => {
+                mirror.adopt(&world.git, f, before.commits, commit);
+                self.check_rollup(world, before.commits, commit, mirror);
+                history[history.len() - 2]
+            }
+            false => *history.last().unwrap(),
+        };
+        let parent = format!("{commit}^");
+        let at = match commit == mirror.oids[base] {
+            true => commit.to_string(),
+            false => git(&mirror.root, &["rev-parse", &parent], None),
+        };
+        assert_eq!(at, mirror.oids[base], "the export's base");
     }
 
     /// Export `w`'s conflicts to `branch`, failing after step `step` of 3:
@@ -483,13 +541,22 @@ impl SqlWorld {
                 "step {step}: worktree {w}'s chain length"
             );
         }
-        // an exported branch: its chain is its view, and nothing conflicts
+        // an exported branch: its chain is its view, unless its export
+        // stopped with the edits in its draft, and nothing conflicts
         let exported: Vec<Wt> = self.exported.keys().copied().collect();
+        let stuck: BTreeSet<Wt> = self
+            .stuck
+            .values()
+            .filter(|&&(_, _, folded)| !folded)
+            .map(|&(f, _, _)| f)
+            .collect();
         for w in exported {
             assert!(imp.conflicts(w).is_empty(), "step {step}: worktree {w}'s conflicts");
             let chain = self.chain(w);
             self.same_ids(&format!("worktree {w}'s committed chain"), step, &chain, &rows(imp.chain_set(w)));
-            self.same_ids(&format!("worktree {w}'s view"), step, &chain, &rows(imp.own_view(w)));
+            if !stuck.contains(&w) {
+                self.same_ids(&format!("worktree {w}'s view"), step, &chain, &rows(imp.own_view(w)));
+            }
             assert_eq!(
                 self.chain_len(w),
                 imp.wts[w].chain.len(),

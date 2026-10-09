@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use proptest::prelude::*;
 use unfurl_git_sync::{
     ConflictState, DataFormat, DbConfig, Exported, FormatRegistry, Record, RecordQuery, Resolution,
-    ScanOptions, SyncedRepo,
+    ScanOptions, SyncedRepo, WorktreeFilter,
 };
 
 include!("segments/common.rs");
@@ -88,12 +88,9 @@ fn sql_export_op() -> impl Strategy<Value = Op> {
     export_op().prop_filter("the SQL side runs it", sql_supports)
 }
 
-/// Exports, some failing partway and finished by the next.
+/// Exports, some failing partway, and only what the SQL side runs.
 fn sql_failed_export_op() -> impl Strategy<Value = Op> {
-    prop_oneof![
-        4 => sql_export_op(),
-        2 => any::<u8>().prop_map(Op::FailedExport),
-    ]
+    failed_export_op().prop_filter("the SQL side runs it", sql_supports)
 }
 
 proptest! {

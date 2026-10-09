@@ -1255,19 +1255,10 @@ impl Segments {
     }
 
     /// C.20, second half: move `exported` from `w`'s draft to `n`'s, `w`
-    /// taking in its working tree `disk` there, and commit them onto `n`'s
-    /// base (its head, when they change nothing there), which it returns.
-    fn export_commit(
-        &mut self,
-        w: Wt,
-        n: Wt,
-        exported: &[RowId],
-        disk: &BTreeMap<Key, Ver>,
-        git: &mut Git,
-    ) -> CommitId {
+    /// taking in its working tree `disk` there.
+    fn export_move(&mut self, w: Wt, n: Wt, exported: &[RowId], disk: &BTreeMap<Key, Ver>) {
         let d = self.wts[w].draft;
         let dn = self.wts[n].draft;
-        let base = *self.wts[n].history.last().unwrap();
         let n_chain = self.chain_set(n);
         for &x in exported {
             let (k, record) = (self.rows[&x].key, self.rows[&x].id);
@@ -1301,10 +1292,15 @@ impl Segments {
             // the edit there with its entries
             self.resolve_theirs(w, k, Some(disk));
         }
-        // 7. both drafts hide what their chains show at their keys, and the
-        // edits are committed onto the base
+        // 7. both drafts hide what their chains show at their keys
         self.relink_draft(w);
         self.relink_draft(n);
+    }
+
+    /// C.20, last: commit `n`'s draft onto its base, returning its head
+    /// (the base, when the edits change nothing there).
+    fn export_commit(&mut self, n: Wt, git: &mut Git) -> CommitId {
+        let base = *self.wts[n].history.last().unwrap();
         let at_base = git.commits[base].clone();
         self.commit(n, &at_base, git);
         *self.wts[n].history.last().unwrap()
