@@ -53,6 +53,66 @@
         "title": "BatchPatchBody",
         "type": "object"
       },
+      "ClearProjectResponse": {
+        "description": "What /clear_project_file_cache cleared.",
+        "properties": {
+          "cleared": {
+            "description": "How many of the project's cache keys were cleared",
+            "title": "Cleared",
+            "type": "integer"
+          },
+          "found": {
+            "description": "Whether the project had any clones here",
+            "title": "Found",
+            "type": "boolean"
+          },
+          "kept": {
+            "description": "The clones kept for holding work their remote lacks; `force` removes them too",
+            "items": {
+              "$ref": "#/components/schemas/ClearProjectResponse.KeptClone"
+            },
+            "title": "Kept",
+            "type": "array"
+          },
+          "removed": {
+            "description": "The clones removed, relative to the clone root",
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cleared",
+          "found",
+          "removed",
+          "kept"
+        ],
+        "title": "ClearProjectResponse",
+        "type": "object"
+      },
+      "ClearProjectResponse.KeptClone": {
+        "description": "A clone /clear_project_file_cache kept, and why.",
+        "properties": {
+          "path": {
+            "description": "The clone's directory, relative to the clone root",
+            "title": "Path",
+            "type": "string"
+          },
+          "reason": {
+            "description": "The work its remote lacks: uncommitted changes, or commits not pushed",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "reason"
+        ],
+        "title": "KeptClone",
+        "type": "object"
+      },
       "CloudMapAnalyzeRequest": {
         "description": "Request body for ``POST /cloudmap/analyze``; mirrors ``unfurl cloudmap --add``.",
         "properties": {
@@ -3372,13 +3432,26 @@
               "description": "Project ID for authorization and cache key scoping",
               "title": "Auth Project"
             }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Remove the project's clones even where they hold work their remote lacks",
+              "title": "Force",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ClearProjectResponse"
+                }
               }
             },
             "description": "Successful response"

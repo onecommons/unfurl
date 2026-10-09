@@ -78,6 +78,8 @@ from ..graphql import (
 )
 from .schemas import (
     ClearProjectQuery,
+    ClearProjectResponse,
+    KeptClone,
     EmptyCacheQuery,
     ErrorResponse,
     ExportQuery,
@@ -932,12 +934,22 @@ class CacheEntry:
                             f"pull failed for {repo_key}, clearing keys for project",
                             exc_info=True,
                         )
-                        _clear_project(self.project_id)
-                        if not local_mode():
+                        if local_mode():
                             # we don't delete the repo in local developer mode
-                            repo = None
-                        else:
+                            _clear_project(self.project_id)
                             action = "detached"
+                        elif _unpushed_work(repo.working_dir):
+                            # a clone made again wouldn't have it: serve
+                            # this one as it is, and pull again later
+                            logger.warning(
+                                "pull failed for %s, which has work its remote lacks: "
+                                "serving it as it is",
+                                repo_key,
+                            )
+                            action = "diverged"
+                        else:
+                            _clear_project(self.project_id, repo.working_dir)
+                            repo = None
                 else:
                     action = "detached"
             if not repo:
@@ -2035,23 +2047,82 @@ def empty_cache(query: EmptyCacheQuery) -> ResponseReturnValue:
 @app.post("/clear_project_file_cache")
 @app.doc(summary="Clear cache and cloned files for a project", tags=["Cache"])
 @app.input(ClearProjectQuery, location="query", arg_name="query")
+@app.output(ClearProjectResponse)
 def clear_project(query: ClearProjectQuery) -> ResponseReturnValue:
     project_id = get_project_id_or_abort(request)
-    return _clear_project(project_id)
+    return _clear_project(project_id, force=query.force)
 
 
-def _clear_project(project_id: str) -> ResponseReturnValue:
+def _unpushed_work(path: str) -> Optional[str]:
+    """The work the clone at ``path`` holds that its remote lacks, as a
+    cloudmap write leaves: uncommitted changes, or commits no
+    remote-tracking branch has. None if there's none."""
+    try:
+        repo = git.Repo(path)
+        if repo.is_dirty(untracked_files=True):
+            return "uncommitted changes"
+        ahead = int(repo.git.rev_list("HEAD", "--not", "--remotes", "--count"))
+    except Exception as e:
+        logger.warning("can't tell whether %s has unpushed work", path, exc_info=True)
+        return f"can't tell: {e}"
+    if ahead:
+        return f"{ahead} commit{'s' if ahead > 1 else ''} not pushed"
+    return None
+
+
+def _remove_clones(
+    project_dir: str, force: bool = False
+) -> Tuple[List[str], List[Tuple[str, str]]]:
+    """Remove the clones under ``project_dir``, but for any with unpushed
+    work, which a clone made again wouldn't have, unless ``force``: the
+    clones removed, and those kept with why."""
+    clones: List[str] = []
+    for root, dirs, files in os.walk(project_dir):
+        if ".git" in dirs or ".git" in files:
+            dirs[:] = []  # a clone's own subdirectories aren't clones
+            clones.append(root)
+    kept = []
+    for clone in clones:
+        reason = None if force else _unpushed_work(clone)
+        if reason:
+            logger.warning("clear_project: keeping %s: %s", clone, reason)
+            kept.append((clone, reason))
+    if not kept:
+        logger.info("clear_project: removing %s", project_dir)
+        rmtree(project_dir, logger)
+        return clones, []
+    removed = [c for c in clones if c not in dict(kept)]
+    for clone in removed:
+        logger.info("clear_project: removing %s", clone)
+        rmtree(clone, logger)
+    return removed, kept
+
+
+def _clear_project(
+    project_id: str, clone: Optional[str] = None, force: bool = False
+) -> ResponseReturnValue:
+    """Clear ``project_id``'s cache keys and remove its clones: all of them,
+    or just ``clone``, the directory of one. ``force`` removes a clone with
+    work its remote lacks too."""
+    found = False
+    removed: List[str] = []
+    kept: List[Tuple[str, str]] = []
     if not local_mode() and project_id:
-        found = False
         # only delete repos we cloned
-        for visibility in ["public", "private"]:
-            project_dir = _get_managed_project_repo_dir(
-                project_id, "", dict(visibility=visibility)
-            )
+        dirs = (
+            [clone]
+            if clone
+            else [
+                _get_managed_project_repo_dir(project_id, "", dict(visibility=visibility))
+                for visibility in ["public", "private"]
+            ]
+        )
+        for project_dir in dirs:
             if os.path.isdir(project_dir):
                 found = True
-                logger.info("clear_project: removing %s", project_dir)
-                rmtree(project_dir, logger)
+                gone, stay = _remove_clones(project_dir, force)
+                removed.extend(gone)
+                kept.extend(stay)
         if not found:
             logger.info("clear_project: %s not found", project_id)
     cache = assert_not_none(get_cache())
@@ -2069,7 +2140,13 @@ def _clear_project(project_id: str) -> ResponseReturnValue:
         refreshed = set_current_ensemble_git_url(gui=True)
         if refreshed:
             app.config["UNFURL_GUI_MODE"] = refreshed
-    return f"{len(cleared)}"
+    root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
+    return ClearProjectResponse(
+        cleared=len(cleared),
+        found=found,
+        removed=[os.path.relpath(c, root) for c in removed],
+        kept=[KeptClone(path=os.path.relpath(c, root), reason=r) for c, r in kept],
+    ).model_dump()
 
 
 def _make_readonly_localenv(

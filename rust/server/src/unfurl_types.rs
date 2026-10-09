@@ -29,6 +29,26 @@ pub struct BatchPatchBody {
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
+/// What /clear_project_file_cache cleared.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct ClearProjectResponse {
+    /// How many of the project's cache keys were cleared
+    pub cleared: i64,
+    /// Whether the project had any clones here
+    pub found: bool,
+    /// The clones kept for holding work their remote lacks; `force` removes them too
+    pub kept: Vec<ClearProjectResponseKeptClone>,
+    /// The clones removed, relative to the clone root
+    pub removed: Vec<String>,
+}
+/// A clone /clear_project_file_cache kept, and why.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct ClearProjectResponseKeptClone {
+    /// The clone's directory, relative to the clone root
+    pub path: String,
+    /// The work its remote lacks: uncommitted changes, or commits not pushed
+    pub reason: String,
+}
 /// Request body for ``POST /cloudmap/analyze``; mirrors ``unfurl cloudmap --add``.
 #[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
 #[serde(default)]
@@ -1771,6 +1791,30 @@ impl PostClearProjectFileCacheRequest {}
 pub struct PostClearProjectFileCacheRequestQuery {
     /// Project ID for authorization and cache key scoping
     pub auth_project: Option<String>,
+    /// Remove the project's clones even where they hold work their remote lacks
+    #[default(Some(false))]
+    pub force: Option<bool>,
+}
+/// Response types for PostClearProjectFileCacheResponse
+#[derive(Debug, Clone)]
+pub enum PostClearProjectFileCacheResponse {
+    ///200: Successful response
+    Ok(ClearProjectResponse),
+    ///422: Validation error
+    UnprocessableEntity(ValidationError),
+    ///default: Unknown response
+    Unknown,
+}
+impl IntoResponse for PostClearProjectFileCacheResponse {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::Ok(data) => (http::StatusCode::OK, axum::Json(data)).into_response(),
+            Self::UnprocessableEntity(data) => {
+                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
+            }
+            Self::Unknown => http::StatusCode::OK.into_response(),
+        }
+    }
 }
 /// Like ``unfurl cloudmap --add`` / ``--replace``: analyze each URL and add the records it produces to ``cloudmap.yaml``. Records are written the same way as ``POST /cloudmap``, through the rust cloudmap server when one is configured. ``file:`` and ``git-local:`` URLs are rejected, and a bare name is always taken to be a container image.
 ///

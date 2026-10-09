@@ -1271,6 +1271,33 @@ class EmptyCacheQuery(ProjectAuthQuery):
 class ClearProjectQuery(ProjectAuthQuery):
     """Query parameters for /clear_project_file_cache."""
 
+    force: bool = Field(
+        default=False,
+        description="Remove the project's clones even where they hold work their remote lacks",
+    )
+
+
+class KeptClone(BaseModel):
+    """A clone /clear_project_file_cache kept, and why."""
+
+    path: str = Field(description="The clone's directory, relative to the clone root")
+    reason: str = Field(
+        description="The work its remote lacks: uncommitted changes, or commits not pushed"
+    )
+
+
+class ClearProjectResponse(BaseModel):
+    """What /clear_project_file_cache cleared."""
+
+    cleared: int = Field(description="How many of the project's cache keys were cleared")
+    found: bool = Field(description="Whether the project had any clones here")
+    removed: List[str] = Field(
+        description="The clones removed, relative to the clone root"
+    )
+    kept: List[KeptClone] = Field(
+        description="The clones kept for holding work their remote lacks; `force` removes them too"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Request body schemas

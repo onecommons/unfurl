@@ -514,6 +514,122 @@ def test_clone_repo_leaves_another_clones_lock(monkeypatch, tmp_path):
         assert f.read() == "12345"
 
 
+def _git(cwd, *args):
+    import subprocess
+
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _remote(tmp_path):
+    """A repository standing in for the project's remote, on ``main``."""
+    remote = tmp_path / "remote"
+    remote.mkdir()
+    _git(remote, "init", "-q", "-b", "main")
+    (remote / "cloudmap.yaml").write_text("repositories: {}\n")
+    _git(remote, "add", ".")
+    _git(remote, "commit", "-q", "-m", "first")
+    return remote
+
+
+@pytest.fixture
+def clone_root(monkeypatch, tmp_path):
+    monkeypatch.setitem(server.app.config, "UNFURL_CLONE_ROOT", str(tmp_path / "clones"))
+    monkeypatch.setitem(server.app.config, "UNFURL_CLOUD_SERVER", "https://unfurl.cloud")
+    monkeypatch.setattr(server, "get_cache", lambda: object())
+    monkeypatch.setattr(server, "clear_cache", lambda cache, prefix: [])
+    return tmp_path
+
+
+def test_clear_project_keeps_clones_with_unpushed_work(clone_root):
+    """Clearing a project removes its clones, but for one holding work its
+    remote lacks -- an uncommitted change, or a commit, as a cloudmap write
+    leaves -- which a clone made again wouldn't have; the response says
+    which, and why. ``force`` removes them too."""
+    remote = _remote(clone_root)
+    with server.app.app_context():
+        clones = {}
+        for name in ["clean", "dirty", "ahead"]:
+            clones[name] = server._get_project_repo_dir("org/proj", name, {})
+            _git(clone_root, "clone", "-q", str(remote), clones[name])
+        with open(os.path.join(clones["dirty"], "cloudmap.yaml"), "a") as f:
+            f.write("# an edit not committed yet\n")
+        with open(os.path.join(clones["ahead"], "cloudmap.yaml"), "a") as f:
+            f.write("# an edit not pushed\n")
+        _git(clones["ahead"], "commit", "-q", "-am", "not pushed")
+
+        got = server._clear_project("org/proj")
+        assert got["found"] is True
+        assert got["removed"] == ["public/org/proj/clean"]
+        assert sorted((k["path"], k["reason"]) for k in got["kept"]) == [
+            ("public/org/proj/ahead", "1 commit not pushed"),
+            ("public/org/proj/dirty", "uncommitted changes"),
+        ]
+        assert not os.path.exists(clones["clean"])
+        assert os.path.isdir(clones["dirty"])
+        assert os.path.isdir(clones["ahead"])
+
+        got = server._clear_project("org/proj", force=True)
+        assert got["kept"] == []
+        assert not os.path.exists(clones["dirty"])
+        assert not os.path.exists(clones["ahead"])
+
+        got = server._clear_project("org/proj")
+        assert got["found"] is False, "nothing left to clear"
+
+
+def test_a_failed_pull_serves_a_clone_with_unpushed_work(clone_root):
+    """A pull that can't fast-forward a clone holding a commit its remote
+    lacks keeps it and serves it as it is; another branch's clone is left
+    alone."""
+    from cachelib import SimpleCache
+
+    remote = _remote(clone_root)
+    with server.app.app_context():
+        main = server._get_project_repo_dir("org/proj", "main", {})
+        other = server._get_project_repo_dir("org/proj", "other", {})
+        for path in [main, other]:
+            _git(clone_root, "clone", "-q", str(remote), path)
+        with open(os.path.join(main, "cloudmap.yaml"), "a") as f:
+            f.write("# ours\n")
+        _git(main, "commit", "-q", "-am", "ours")
+        (remote / "theirs").write_text("theirs")
+        _git(remote, "add", ".")
+        _git(remote, "commit", "-q", "-m", "theirs")
+
+        entry = server.CacheEntry("org/proj", "main", "cloudmap.yaml", "load_yaml")
+        repo = entry.pull(SimpleCache())
+        assert entry.pull_state == "diverged"
+        assert repo.working_dir.rstrip("/") == main
+        assert os.path.isdir(other), "another branch's clone isn't touched"
+
+
+def test_a_failed_pull_removes_only_its_own_clean_clone(clone_root):
+    """A clean clone whose pull fails is removed to be cloned again, and
+    only it: another branch's clone stays."""
+    from cachelib import SimpleCache
+
+    remote = _remote(clone_root)
+    with server.app.app_context():
+        main = server._get_project_repo_dir("org/proj", "main", {})
+        other = server._get_project_repo_dir("org/proj", "other", {})
+        for path in [main, other]:
+            _git(clone_root, "clone", "-q", str(remote), path)
+        _git(main, "remote", "set-url", "origin", str(clone_root / "gone"))
+
+        entry = server.CacheEntry(
+            "org/proj", "main", "cloudmap.yaml", "load_yaml", do_clone=False
+        )
+        with pytest.raises(Exception):
+            entry.pull(SimpleCache())
+        assert not os.path.exists(main)
+        assert os.path.isdir(other)
+
+
 def test_clone_repo_without_project_id(monkeypatch, tmp_path):
     """A server serving a local path that isn't a repo must fail cleanly.
 

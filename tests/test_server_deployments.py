@@ -245,8 +245,8 @@ def test_server_update_deployment(server_env):
             )
             # Two keys are cleared: 'remote:pull:server/public/remote/main'
             # and 'remote:main:ensemble/ensemble.yaml:localenv'.
-            assert res.content == b"2", res.content
-            assert res.status_code == 200
+            assert res.status_code == 200, res.content
+            assert res.json()["cleared"] == 2, res.content
 
         finally:
             if p:
