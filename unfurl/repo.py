@@ -12,6 +12,7 @@ from typing import (
     Any,
     Dict,
     List,
+    Mapping,
     NamedTuple,
     Optional,
     Tuple,
@@ -614,20 +615,21 @@ class Repo(abc.ABC):
         try:
             if revision:
                 kwargs["branch"] = revision
-            # equivalent to git.Repo.clone_from() with add_transient_credentials() added
+            # equivalent to git.Repo.clone_from() with this config added: set on
+            # this command object rather than as a `--config` clone option,
+            # which GitPython rejects unless unsafe options are allowed
+            # wholesale, and rather than on os.environ, which every other git
+            # process in this one would inherit. It keeps the credentials out
+            # of argv and out of the clone's config.
             gitcmd = git.Repo.GitCommandWrapperType(os.getcwd())
+            kept = {}
             if not symlinks:
-                # set on this command object rather than as a `--config` clone
-                # option, which GitPython rejects unless unsafe options are
-                # allowed wholesale, and rather than on os.environ, which every
-                # other git process in this one would inherit.
-                gitcmd.update_environment(
-                    GIT_CONFIG_COUNT="1",
-                    GIT_CONFIG_KEY_0="core.symlinks",
-                    GIT_CONFIG_VALUE_0="false",
-                )
+                kept = git_config_env([("core.symlinks", "false")], os.environ)
+            transient = {}
             if username:
-                add_transient_credentials(gitcmd, gitUrl, username, password)
+                credentials = credentials_config(gitUrl, username, password)
+                transient = git_config_env(credentials, {**os.environ, **kept})
+            gitcmd.update_environment(**{**kept, **transient})
             repo = git.Repo._clone(
                 gitcmd,
                 gitUrl,
@@ -635,6 +637,10 @@ class Repo(abc.ABC):
                 git.GitCmdObjectDB,
                 **kwargs,
             )
+            if transient:
+                # _clone() copies gitcmd's environment to the clone's, where
+                # every later command would use the credentials
+                repo.git.update_environment(**{k: None for k in transient})
         except git.exc.GitCommandError as err:  # type: ignore
             raise UnfurlError(
                 f'couldn\'t create working directory, clone failed: "{err._cmdline}"\nTry re-running that command to diagnose the problem.'
@@ -1037,21 +1043,45 @@ class RepoView:
         return name, target_path
 
 
-def add_transient_credentials(git, url, username, password):
-    # percent-encoded: `-c` splits at the first "=", and a raw "@" or ":"
-    # would end the credentials early
-    transient_url = add_user_to_url(
+def credentials_config(url: str, username: str, password: str) -> List[Tuple[str, str]]:
+    """The git config, as (key, value) pairs, that makes git connect to ``url``
+    with ``username`` and ``password``: a ``url.<...>.insteadOf`` rewrite, which
+    git applies when it connects and doesn't store. Empty when ``url`` can't
+    carry them."""
+    # percent-encoded: a raw "@" or ":" would end the credentials early, and
+    # `-c` splits at the first "="
+    credentialed = add_user_to_url(
         url, quote(username, safe=""), quote(password or "", safe="")
     )
-    if transient_url == url:
-        return transient_url
+    if credentialed == url:
+        return []
     # unquoted: git takes quotes in `-c` literally, so the rewrite would never match
-    replacement = f"url.{transient_url}.insteadOf={url}"
+    return [(f"url.{credentialed}.insteadOf", url)]
+
+
+def git_config_env(
+    entries: List[Tuple[str, str]], env: Mapping[str, str]
+) -> Dict[str, str]:
+    """The ``GIT_CONFIG_*`` variables that add ``entries`` to the ones already
+    in ``env``."""
+    count = int(env.get("GIT_CONFIG_COUNT") or 0)
+    added = {"GIT_CONFIG_COUNT": str(count + len(entries))}
+    for i, (key, value) in enumerate(entries, count):
+        added[f"GIT_CONFIG_KEY_{i}"] = key
+        added[f"GIT_CONFIG_VALUE_{i}"] = value
+    return added
+
+
+def add_transient_credentials(git, url, username, password):
+    config = credentials_config(url, username, password)
+    if not config:
+        return url
+    ((key, value),) = config
     # _git_options get cleared after next git command is issued
     git._git_options = git.transform_kwargs(
-        split_single_char_options=True, c=replacement
+        split_single_char_options=True, c=f"{key}={value}"
     )
-    return transient_url
+    return key[len("url.") : -len(".insteadOf")]
 
 
 def make_actor(

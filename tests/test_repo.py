@@ -1213,3 +1213,108 @@ def test_add_transient_credentials_rewrites_the_url():
         == "https://deploy:t%3Dk%40n%3Ax%2Fy@gitlab.example.com/org/repo.git"
     )
     assert cmd.ls_remote("--get-url", url) == url
+
+
+USER, TOKEN = "deploy", "t=k@n:x/y"
+
+
+@pytest.fixture
+def auth_git_server(tmp_path, monkeypatch):
+    """A bare repository served over git's dumb HTTP protocol, behind basic
+    auth for USER and TOKEN: its url. Git is isolated from this machine's
+    config, so nothing prompts or stores the token."""
+    import base64
+    import subprocess
+    import threading
+    from functools import partial
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
+    monkeypatch.delenv("GIT_ASKPASS", raising=False)
+    monkeypatch.delenv("GIT_CONFIG_COUNT", raising=False)
+
+    def git(*args, cwd):
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+        )
+
+    work = tmp_path / "work"
+    work.mkdir()
+    git("init", "-q", "-b", "main", cwd=work)
+    (work / "README").write_text("hi\n")
+    git("add", "README", cwd=work)
+    git("commit", "-q", "-m", "init", cwd=work)
+    served = tmp_path / "served"
+    served.mkdir()
+    git("clone", "-q", "--bare", str(work), "repo.git", cwd=served)
+    git("update-server-info", cwd=served / "repo.git")
+
+    expected = "Basic " + base64.b64encode(f"{USER}:{TOKEN}".encode()).decode()
+
+    class Handler(SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.headers.get("Authorization") != expected:
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", 'Basic realm="git"')
+                self.end_headers()
+                return
+            super().do_GET()
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(
+        ("127.0.0.1", 0), partial(Handler, directory=str(served))
+    )
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_address[1]}/repo.git"
+    server.shutdown()
+
+
+def test_a_credentialed_clone_stores_no_credentials(auth_git_server, tmp_path):
+    from unfurl.repo import Repo as UnfurlRepo
+    from unfurl.util import UnfurlError
+
+    with pytest.raises(UnfurlError):
+        # dumb http can't make a shallow clone, so depth=0 throughout
+        UnfurlRepo.create_working_dir(auth_git_server, str(tmp_path / "anon"), depth=0)
+
+    for symlinks in (True, False):
+        dest = tmp_path / f"clone-{symlinks}"
+        repo = UnfurlRepo.create_working_dir(
+            auth_git_server,
+            str(dest),
+            depth=0,
+            username=USER,
+            password=TOKEN,
+            symlinks=symlinks,
+        )
+        assert (dest / "README").exists()
+        assert repo.repo.git.config("remote.origin.url") == auth_git_server
+        config = (dest / ".git" / "config").read_text()
+        assert "t%3Dk" not in config and USER not in config
+        if not symlinks:
+            assert repo.repo.git.config("core.symlinks") == "false"
+        # nor does the repository object the clone returns, which is cached
+        # and used for later requests
+        fetched = repo.run_cmd(["fetch", "-q"])[0] == 0
+        assert not fetched, f"fetched with the clone's credentials ({symlinks=})"
+
+
+def test_git_config_env_appends():
+    from unfurl.repo import git_config_env
+
+    inherited = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "a.b"}
+    assert git_config_env([("c.d", "1"), ("e.f", "2")], inherited) == {
+        "GIT_CONFIG_COUNT": "3",
+        "GIT_CONFIG_KEY_1": "c.d",
+        "GIT_CONFIG_VALUE_1": "1",
+        "GIT_CONFIG_KEY_2": "e.f",
+        "GIT_CONFIG_VALUE_2": "2",
+    }
+    assert git_config_env([("c.d", "1")], {})["GIT_CONFIG_KEY_0"] == "c.d"
