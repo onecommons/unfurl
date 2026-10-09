@@ -850,6 +850,33 @@ deleted that HEAD still has comes back, and the comparison sees only a
 record HEAD has that the view didn't, which a new upstream record
 looks like too.
 
+**`ScanOptions::recover_missing` takes the records to a branch instead.**
+In the rebuild's transaction, when HEAD lacks a record the missing
+commits made:
+1. **Find their base** *b*, before the transaction: the newest commit in
+   HEAD's first-parent history that W's chain has records or a segment
+   at. None, after an upstream rewrite, and it refuses as above.
+2. **Claim the branch** `git-sync/recovered-<commit>` at *b*, under the
+   family lock, after the check that a scan alongside didn't rebuild
+   first. A ref already at *b* is one a failed recovery left, and is
+   taken as claimed.
+3. **Rebuild W at *b*** from *b*'s tree, which keeps its records' ids.
+4. **Fork the branch** there, as an export forks (C.20), marked as W's
+   unfinished export.
+5. **Copy the rows** the missing commits made into its draft, as edits
+   over *b*: a tombstone where *b* has the record, a value where *b*
+   differs.
+6. **Rebuild W onto HEAD**, which places on *b*'s segment.
+
+Then the export's commit makes the branch's: the records on *b*'s files,
+so merging it into HEAD conflicts in git where upstream changed them
+too. A failure before that leaves an unfinished export, which
+`finish_exports` completes. It wins over `rebuild_missing`.
+
+**Deletions aren't recovered.** A deletion git-sync commits leaves no
+row: the fold purges its tombstone. So a record a missing commit deleted
+that HEAD still has comes back, counted neither as lost nor recovered.
+
 1. **Place the new HEAD *n*** ([§4.6](#46-placement)). After
    `git rebase main`, the base is typically main's head.
 2. **Build a new head H′** whose parent is the base. It holds the

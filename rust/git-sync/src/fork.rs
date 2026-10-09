@@ -775,16 +775,28 @@ async fn insert<DB: Store>(
 
 /// A committed view: each live record's content, and the commit it was
 /// committed in, by place.
-type View = BTreeMap<(String, String, String), (serde_json::Value, Option<String>)>;
+/// `None` content for a tombstone.
+type View = BTreeMap<(String, String, String), (Option<serde_json::Value>, Option<String>)>;
 
 /// Worktree `w`'s committed view.
 async fn committed_view<DB: Store>(tx: &mut sqlx::Transaction<'_, DB>, w: i64) -> Result<View> {
     Ok(DB::visible(tx, w, Scope::Chain, Filter::All)
         .await?
         .into_iter()
-        .filter(|r| !r.deleted)
-        .map(|r| ((r.file_path, r.path, r.key), (r.json, r.commit_id)))
+        .map(|r| {
+            let json = (!r.deleted).then_some(r.json);
+            ((r.file_path, r.path, r.key), (json, r.commit_id))
+        })
         .collect())
+}
+
+/// Whether a record committed as `was`, `None` for a deletion, is lost
+/// where a view now shows `now`.
+fn loses(was: Option<&serde_json::Value>, now: Option<&serde_json::Value>) -> bool {
+    match was {
+        Some(was) => now != Some(was),
+        None => now.is_some(),
+    }
 }
 
 /// How many records `before` shows that a commit the repository doesn't
@@ -794,7 +806,8 @@ fn lost(repo: &gix::Repository, before: &View, after: &View) -> Result<usize> {
     let mut missing: BTreeMap<&str, bool> = BTreeMap::new();
     let mut lost = 0;
     for (at, (json, commit)) in before {
-        if after.get(at).is_some_and(|(now, _)| now == json) {
+        let now = after.get(at).and_then(|(now, _)| now.as_ref());
+        if !loses(json.as_ref(), now) {
             continue;
         }
         let Some(commit) = commit.as_deref() else {
@@ -810,21 +823,44 @@ fn lost(repo: &gix::Repository, before: &View, after: &View) -> Result<usize> {
     Ok(lost)
 }
 
-/// §4.8, C.18: worktree `w`'s HEAD `n` doesn't descend from the commit its
-/// chain holds, after a rebase, reset or force-push: build its head again
-/// on the base placement finds, from `files`, every file of the tree at `n`.
-/// With `keep`, the commit its chain holds, which the repository doesn't
-/// have: a rebuild whose committed view loses a record is refused instead,
-/// with nothing changed.
+/// What a rebuild after a rewrite takes: §4.8, C.18.
+pub(crate) struct Rebuild<'a> {
+    pub(crate) w: i64,
+    pub(crate) family: i64,
+    /// The new HEAD, and every file of its tree.
+    pub(crate) n: &'a str,
+    pub(crate) files: &'a [HeadFile],
+    /// The commit `w`'s chain holds, when the repository doesn't have it:
+    /// a rebuild whose committed view loses a record is refused.
+    pub(crate) keep: Option<&'a str>,
+    /// Where those records go instead of being refused.
+    pub(crate) recover: Option<Recover<'a>>,
+}
+
+/// A branch the records commits the repository doesn't have made go to,
+/// forked at `base`, the commit they were made on, with every file of its
+/// tree: worktree `(origin, branch)`, exported from `from`.
+pub(crate) struct Recover<'a> {
+    pub(crate) origin: &'a str,
+    pub(crate) branch: &'a str,
+    pub(crate) from: &'a str,
+    pub(crate) base: &'a str,
+    pub(crate) files: &'a [HeadFile],
+}
+
+/// Worktree `w`'s HEAD `n` doesn't descend from the commit its chain
+/// holds, after a rebase, reset or force-push: build its head again on the
+/// base placement finds, from `files`, every file of the tree at `n`. With
+/// `keep`, a rebuild whose committed view loses a record is refused, with
+/// nothing changed, unless `recover` takes them to a branch: then the
+/// branch's worktree, its edits in its draft.
 pub(crate) async fn rebuild(
     db: &Db,
     repo: gix::Repository,
     formats: &FormatRegistry,
-    (w, family): (i64, i64),
-    n: &str,
-    files: &[HeadFile],
-    keep: Option<&str>,
-) -> Result<()> {
+    rb: &Rebuild<'_>,
+) -> Result<Option<i64>> {
+    let (w, family, n) = (rb.w, rb.family, rb.n);
     let database = db::commit::database_id(db).await?;
     on_pool!(db, pool => {
         let mut tx = pool.begin().await?;
@@ -833,9 +869,17 @@ pub(crate) async fn rebuild(
         // a scan running alongside rebuilt first
         if let Some(recorded) = Store::head_commit(&mut tx, w).await? {
             if recorded == n || git::is_ancestor(history.repo(), &recorded, n)? {
-                return Ok(());
+                return Ok(None);
             }
         }
+        let before = match rb.keep {
+            Some(_) => committed_view(&mut tx, w).await?,
+            None => BTreeMap::new(),
+        };
+        let recovered = match &rb.recover {
+            Some(to) => recover(&mut tx, &mut history, rb, to).await?,
+            None => None,
+        };
         let base = match place(&mut tx, &mut history, family, n).await? {
             None => None,
             Some(Placement::At(seg)) => Store::prepare_base(&mut tx, family, seg, n).await?,
@@ -844,12 +888,8 @@ pub(crate) async fn rebuild(
                 Some(s)
             }
         };
-        let before = match keep {
-            Some(_) => committed_view(&mut tx, w).await?,
-            None => BTreeMap::new(),
-        };
-        rebuild_on(&mut tx, family, w, base, n, files).await?;
-        if let Some(commit) = keep {
+        rebuild_on(&mut tx, family, w, base, n, rb.files).await?;
+        if let (Some(commit), None) = (rb.keep, recovered) {
             let after = committed_view(&mut tx, w).await?;
             let lost = lost(history.repo(), &before, &after)?;
             if lost > 0 {
@@ -861,11 +901,169 @@ pub(crate) async fn rebuild(
                 });
             }
         }
+        if let Some(b) = recovered {
+            segments::relink(&mut tx, b).await?;
+        }
         // `w`'s old exclusive segments are in no chain now (§4.13)
         Store::compact(&mut tx, family).await?;
         tx.commit().await?;
-        Ok(())
+        Ok(recovered)
     })
+}
+
+/// When HEAD lacks a record the commits the repository doesn't have made,
+/// take `w` back to the commit they were made on, fork the branch there,
+/// and put those records in its draft. `None`, with nothing done, when
+/// HEAD has them all.
+async fn recover<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    history: &mut History<'_>,
+    rb: &Rebuild<'_>,
+    to: &Recover<'_>,
+) -> Result<Option<i64>> {
+    let rows = DB::visible(tx, rb.w, Scope::Chain, Filter::All).await?;
+    let ours = missing_rows(history.repo(), rows)?;
+    if !any_lost(&ours, rb.files) {
+        return Ok(None);
+    }
+    claim(history.repo(), to.branch, to.base)?;
+    // `w` at the base first, keeping its records' ids, so the branch forks
+    // from its head there and `w`'s rebuild onto HEAD places on it
+    rebuild_on(tx, rb.family, rb.w, None, to.base, to.files).await?;
+    let Some(b) = fork_in(tx, history, rb.family, to.origin, to.branch, to.base).await? else {
+        // nowhere to fork it: the rebuild refuses, or loses them, as
+        // without recovery
+        let base =
+            gix::ObjectId::from_hex(to.base.as_bytes()).map_err(|e| Error::Git(e.to_string()))?;
+        git::delete_branch_if_at(history.repo(), to.branch, base)?;
+        return Ok(None);
+    };
+    DB::set_exporting_from(tx, b, to.from).await?;
+    let at_base: BTreeMap<Place, RecordRow> = DB::visible(tx, b, Scope::Chain, Filter::All)
+        .await?
+        .into_iter()
+        .filter(|r| !r.deleted)
+        .map(|r| (Place::from(&r), r))
+        .collect();
+    let edits: Vec<RecordRow> = ours
+        .into_iter()
+        .filter_map(|r| {
+            let below = at_base.get(&Place::from(&r)).map(|b| b.json.clone());
+            // a record the base has already, or a deletion of one it lacks
+            let same = match r.deleted {
+                true => below.is_none(),
+                false => below.as_ref() == Some(&r.json),
+            };
+            (!same).then(|| RecordRow {
+                commit_id: None,
+                base_commit_id: Some(to.base.to_string()),
+                base_json: below,
+                settled: Vec::new(),
+                conflict: None,
+                ..r
+            })
+        })
+        .collect();
+    crate::export::copy_edits(tx, b, &edits).await?;
+    Ok(Some(b))
+}
+
+/// Of `rows`, those commits the repository doesn't have made.
+fn missing_rows(repo: &gix::Repository, rows: Vec<RecordRow>) -> Result<Vec<RecordRow>> {
+    let mut missing: BTreeMap<String, bool> = BTreeMap::new();
+    let mut ours = Vec::new();
+    for r in rows {
+        let Some(commit) = r.commit_id.clone() else {
+            continue;
+        };
+        if !missing.contains_key(&commit) {
+            missing.insert(commit.clone(), !git::has_commit(repo, &commit)?);
+        }
+        if missing[&commit] {
+            ours.push(r);
+        }
+    }
+    Ok(ours)
+}
+
+/// Whether HEAD, every file of whose tree is `files`, lacks a record of
+/// `ours`, or still has one it deleted.
+fn any_lost(ours: &[RecordRow], files: &[HeadFile]) -> bool {
+    let head = head_tree(files);
+    ours.iter().any(|r| {
+        let was = (!r.deleted).then_some(&r.json);
+        loses(was, head.get(&Place::from(r)).copied())
+    })
+}
+
+/// Whether rebuilding from `rows`, a worktree's committed view, onto a
+/// HEAD whose tree is `files` loses a record a commit the repository
+/// doesn't have made.
+pub(crate) fn would_lose(
+    repo: &gix::Repository,
+    rows: Vec<RecordRow>,
+    files: &[HeadFile],
+) -> Result<bool> {
+    Ok(any_lost(&missing_rows(repo, rows)?, files))
+}
+
+/// Claim branch `branch` at `base`, or take it as claimed where a recovery
+/// that failed before naming it in the database left it there.
+fn claim(repo: &gix::Repository, branch: &str, base: &str) -> Result<()> {
+    let base = gix::ObjectId::from_hex(base.as_bytes()).map_err(|e| Error::Git(e.to_string()))?;
+    match git::create_branch(repo, branch, base) {
+        Err(Error::BranchExists { .. }) if git::branch_tip(repo, branch)? == Some(base) => Ok(()),
+        claimed => claimed,
+    }
+}
+
+/// Worktree `w`'s committed view's rows, tombstones included.
+pub(crate) async fn chain_rows(db: &Db, w: i64) -> Result<Vec<RecordRow>> {
+    on_pool!(db, pool => {
+        let mut tx = pool.begin().await?;
+        Store::visible(&mut tx, w, Scope::Chain, Filter::All).await
+    })
+}
+
+/// The newest commit in `n`'s first-parent history `known` holds, a
+/// worktree's [`chain_commits`]: the one the commits since, which the
+/// repository doesn't have, were made on.
+pub(crate) fn recovery_base(
+    repo: &gix::Repository,
+    n: &str,
+    known: &BTreeSet<String>,
+) -> Result<Option<String>> {
+    let mut at = Some(n.to_string());
+    for _ in 0..NAMED_FAMILY_DEPTH {
+        let Some(c) = at else { break };
+        if known.contains(&c) {
+            return Ok(Some(c));
+        }
+        at = git::commit_parents(repo, &c)?.into_iter().next();
+    }
+    Ok(None)
+}
+
+/// Every commit worktree `w`'s chain has records or a segment at.
+pub(crate) async fn chain_commits(db: &Db, w: i64) -> Result<BTreeSet<String>> {
+    on_pool!(db, pool => chain_commits_in(pool, w).await)
+}
+
+async fn chain_commits_in<DB: Store>(pool: &sqlx::Pool<DB>, w: i64) -> Result<BTreeSet<String>> {
+    let mut tx = pool.begin().await?;
+    let mut known: BTreeSet<String> = DB::visible(&mut tx, w, Scope::Chain, Filter::All)
+        .await?
+        .into_iter()
+        .filter_map(|r| r.commit_id)
+        .collect();
+    let head = DB::segs(&mut tx, w).await?.head;
+    known.extend(
+        DB::segment_chain(&mut tx, head)
+            .await?
+            .into_iter()
+            .filter_map(|s| s.head_commit),
+    );
+    Ok(known)
 }
 
 /// C.19: delete worktree `w` of `family`, then compact what only it used.

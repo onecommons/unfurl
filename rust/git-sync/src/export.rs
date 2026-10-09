@@ -62,6 +62,26 @@ impl SyncedRepo {
             .await
     }
 
+    /// Finish every export from this worktree a failure left unfinished,
+    /// a recovery's ([`crate::ScanOptions::recover_missing`]) included,
+    /// as [`Self::export_conflicts`] to the same branch would: what each
+    /// made. For a caller with nothing else writing, as at startup: an
+    /// export running alongside would be finished twice.
+    ///
+    /// # Errors
+    ///
+    /// The first export that can't be finished, with those before it done.
+    pub async fn finish_exports(&self) -> Result<Vec<Exported>> {
+        let this = db::worktree::get(self.db(), self.worktree_id()).await?;
+        let mut done = Vec::new();
+        for branch in db::worktree::exporting(self.db(), &this.origin, &this.branch).await? {
+            if let Some(e) = self.resume_export(&branch, &mut |_| Ok(())).await? {
+                done.push(e);
+            }
+        }
+        Ok(done)
+    }
+
     /// [`Self::export_conflicts`], failing after step `at`.
     #[cfg(feature = "fault-injection")]
     pub async fn export_failing(&self, branch: &str, at: ExportStep) -> Result<Option<Exported>> {
@@ -105,7 +125,7 @@ impl SyncedRepo {
     /// Finish this worktree's export of `branch` that failed after its
     /// edits moved: the branch's draft still holds them, or they're folded
     /// into a commit its ref isn't at yet. `None` when there's no worktree
-    /// of `branch`.
+    /// of `branch`, or its export finished with only its mark left.
     async fn resume_export(
         &self,
         branch: &str,
@@ -133,6 +153,11 @@ impl SyncedRepo {
             (true, true) => self.commit_export(branch, n, at, after).await.map(Some),
             (false, false) if git::parents(&repo, at)? == [tip] => {
                 self.finish_export(branch, n, tip, at).await.map(Some)
+            }
+            // finished, the ref moved, with its mark left behind
+            (false, true) => {
+                db::worktree::clear_exporting(self.db(), n).await?;
+                Ok(None)
             }
             _ => Err(exists(branch)),
         }
@@ -238,7 +263,7 @@ impl SyncedRepo {
 
     /// Commit branch `n`'s draft onto `base`, fold it into its head, and
     /// move the ref there.
-    async fn commit_export(
+    pub(crate) async fn commit_export(
         &self,
         branch: &str,
         n: i64,
@@ -447,7 +472,7 @@ async fn move_in_pool<DB: Store>(
 
 /// C.20 steps 1-3: a copy of each edit in `n`'s draft, as it is; a new
 /// record where `n`'s chain has its record at another place.
-async fn copy_edits<DB: Store>(
+pub(crate) async fn copy_edits<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     n: i64,
     edits: &[RecordRow],

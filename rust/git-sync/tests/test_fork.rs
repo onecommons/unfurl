@@ -280,15 +280,304 @@ async fn a_missing_commit_that_loses_nothing_rebuilds(sync: &SyncedRepo, tmp: &t
     let up = upstream_from(tmp.path(), &again);
     reset_and_prune(tmp.path(), &up, &gone);
 
-    sync.update_from_working_dir(ScanOptions::default())
+    // nothing to recover, either
+    let recover = ScanOptions {
+        recover_missing: true,
+        ..Default::default()
+    };
+    let outcome = sync
+        .update_from_working_dir(recover)
         .await
         .expect("rebuilt");
+    assert!(outcome.recovered.is_none());
+    let branches = git_out(tmp.path(), &["branch", "--list", "git-sync/*"]);
+    assert!(branches.is_empty(), "{branches}");
     assert!(names(sync).await.contains_key("two"));
     let head = sync.get_worktree().await.expect("worktree").commit_id;
     assert_eq!(head.as_deref(), Some(up.as_str()));
 }
 
 crud_test!(a_missing_commit_that_loses_nothing_rebuilds);
+
+/// With `recover_missing`, the records a missing commit made go to a branch
+/// forked where it was made, and the worktree rebuilds onto HEAD, keeping
+/// its records' ids.
+async fn a_missing_commit_recovers_to_a_branch(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let base = write_and_commit(sync, "one").await;
+    let gone = write_and_commit(sync, "two").await;
+    let one = names(sync).await["one"].1;
+    let up = upstream_from(tmp.path(), &base);
+    reset_and_prune(tmp.path(), &up, &gone);
+
+    let recover = ScanOptions {
+        recover_missing: true,
+        ..Default::default()
+    };
+    let outcome = sync
+        .update_from_working_dir(recover)
+        .await
+        .expect("recovered");
+    let got = outcome.recovered.expect("a branch");
+    assert_eq!(got.branch, format!("git-sync/recovered-{}", &gone[..12]));
+    assert_eq!(git_out(tmp.path(), &["rev-parse", &got.branch]), got.commit);
+    let parent = git_out(tmp.path(), &["rev-parse", &format!("{}^", got.commit)]);
+    assert_eq!(parent, base, "forked where the lost commit was made");
+    let file = git_out(
+        tmp.path(),
+        &["show", &format!("{}:cloudmap.yaml", got.commit)],
+    );
+    assert!(file.contains("name: two"), "{file}");
+    assert!(
+        file.contains("name: dashboard"),
+        "the base's, not upstream's"
+    );
+
+    let now = names(sync).await;
+    assert!(!now.contains_key("two"));
+    assert_eq!(now["one"].1, one, "the record keeps its id");
+    let head = sync.get_worktree().await.expect("worktree").commit_id;
+    assert_eq!(head.as_deref(), Some(up.as_str()));
+}
+
+crud_test!(a_missing_commit_recovers_to_a_branch);
+
+/// A record the missing commit and upstream both changed: merging the
+/// recovery branch conflicts in git, where it's decided.
+async fn a_recovered_record_upstream_changed_conflicts(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let base = write_and_commit(sync, "one").await;
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({ "name": "ours" }),
+        None,
+        false,
+    )
+    .await
+    .expect("write");
+    let gone = sync
+        .commit_repository("ours", Default::default())
+        .await
+        .expect("commit")
+        .commit
+        .expect("a commit");
+    let up = upstream_from(tmp.path(), &base);
+    reset_and_prune(tmp.path(), &up, &gone);
+
+    let recover = ScanOptions {
+        recover_missing: true,
+        ..Default::default()
+    };
+    let got = sync
+        .update_from_working_dir(recover)
+        .await
+        .expect("recovered")
+        .recovered
+        .expect("a branch");
+    let merged = std::process::Command::new("git")
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "merge",
+            "--no-edit",
+            &got.branch,
+        ])
+        .current_dir(tmp.path())
+        .status()
+        .expect("git");
+    assert!(!merged.success(), "the merge conflicts");
+}
+
+crud_test!(a_recovered_record_upstream_changed_conflicts);
+
+/// A missing commit's recovery, set up: `(base, gone, up)`, the commit it
+/// was made on, the commit itself, pruned, and upstream's HEAD.
+async fn missing_after(
+    sync: &SyncedRepo,
+    tmp: &tempfile::TempDir,
+    key: &str,
+) -> (String, String, String) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let base = write_and_commit(sync, "one").await;
+    let gone = write_and_commit(sync, key).await;
+    let up = upstream_from(tmp.path(), &base);
+    reset_and_prune(tmp.path(), &up, &gone);
+    (base, gone, up)
+}
+
+fn recovering() -> ScanOptions {
+    ScanOptions {
+        recover_missing: true,
+        ..Default::default()
+    }
+}
+
+/// A recovery that failed before naming its branch in the database left
+/// the ref at its base: the next takes it as claimed.
+async fn a_left_over_recovery_ref_is_reused(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
+    let (base, gone, _) = missing_after(sync, tmp, "two").await;
+    let branch = format!("git-sync/recovered-{}", &gone[..12]);
+    git(tmp.path(), &["branch", &branch, &base]);
+    let got = sync
+        .update_from_working_dir(recovering())
+        .await
+        .expect("recovered")
+        .recovered
+        .expect("a branch");
+    assert_eq!(got.branch, branch);
+}
+
+crud_test!(a_left_over_recovery_ref_is_reused);
+
+/// The recovery branch's name taken elsewhere: refused, with nothing
+/// changed.
+async fn a_recovery_branch_taken_is_refused(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
+    let (_, gone, up) = missing_after(sync, tmp, "two").await;
+    let branch = format!("git-sync/recovered-{}", &gone[..12]);
+    git(tmp.path(), &["branch", &branch, &up]);
+    let err = sync
+        .update_from_working_dir(recovering())
+        .await
+        .expect_err("taken");
+    assert!(matches!(err, Error::BranchExists { .. }), "{err:?}");
+    assert!(names(sync).await.contains_key("two"), "nothing changed");
+}
+
+crud_test!(a_recovery_branch_taken_is_refused);
+
+/// HEAD's history has nothing of the worktree's: no base to recover at,
+/// so it's refused, with no branch left.
+async fn a_recovery_with_no_base_is_refused(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let base = write_and_commit(sync, "one").await;
+    let gone = write_and_commit(sync, "two").await;
+    let alone = git_out(
+        tmp.path(),
+        &[
+            "commit-tree",
+            &format!("{base}^{{tree}}"),
+            "-m",
+            "unrelated",
+        ],
+    );
+    reset_and_prune(tmp.path(), &alone, &gone);
+    let err = sync
+        .update_from_working_dir(recovering())
+        .await
+        .expect_err("refused");
+    assert!(matches!(err, Error::CommitMissing { .. }), "{err:?}");
+    let branches = git_out(tmp.path(), &["branch", "--list", "git-sync/*"]);
+    assert!(branches.is_empty(), "{branches}");
+}
+
+crud_test!(a_recovery_with_no_base_is_refused);
+
+/// Recovering wins over rebuilding regardless: the records go to the
+/// branch.
+async fn recovering_wins_over_rebuilding(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
+    missing_after(sync, tmp, "two").await;
+    let both = ScanOptions {
+        rebuild_missing: true,
+        ..recovering()
+    };
+    let outcome = sync.update_from_working_dir(both).await.expect("recovered");
+    assert!(outcome.recovered.is_some());
+}
+
+crud_test!(recovering_wins_over_rebuilding);
+
+/// Pending edits made over the commit the repository then lost: a new
+/// record, and an edit to one upstream changed too. Then the scan with
+/// `options`.
+async fn pending_over_a_missing_commit(
+    sync: &SyncedRepo,
+    tmp: &tempfile::TempDir,
+    options: ScanOptions,
+) -> unfurl_git_sync::Result<unfurl_git_sync::SyncOutcome> {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let base = write_and_commit(sync, "one").await;
+    let gone = write_and_commit(sync, "two").await;
+    for (key, name) in [("three", "three"), (DASHBOARD, "ours")] {
+        sync.upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            key,
+            serde_json::json!({ "name": name }),
+            None,
+            false,
+        )
+        .await
+        .expect("pending edit");
+    }
+    let up = upstream_from(tmp.path(), &base);
+    reset_and_prune(tmp.path(), &up, &gone);
+    sync.update_from_working_dir(options).await
+}
+
+/// The pending edits a scan left: the new record pending, and the edit
+/// upstream changed under it in conflict.
+async fn pending_edits_stand(sync: &SyncedRepo) {
+    let pending = sync.list_changes(None, true).await.expect("changes");
+    let keys: Vec<&str> = pending.iter().map(|r| r.key.as_str()).collect();
+    assert!(keys.contains(&"three"), "{keys:?}");
+    assert!(keys.contains(&DASHBOARD), "{keys:?}");
+    let conflicts = sync.list_conflicts(None).await.expect("conflicts");
+    assert_eq!(conflicts.len(), 1, "{conflicts:?}");
+    assert_eq!(conflicts[0].key, DASHBOARD);
+}
+
+async fn pending_edits_survive_a_recovery(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
+    let outcome = pending_over_a_missing_commit(sync, tmp, recovering())
+        .await
+        .expect("recovered");
+    assert!(outcome.recovered.is_some());
+    pending_edits_stand(sync).await;
+}
+
+crud_test!(pending_edits_survive_a_recovery);
+
+async fn pending_edits_survive_a_refusal(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
+    let err = pending_over_a_missing_commit(sync, tmp, ScanOptions::default())
+        .await
+        .expect_err("refused");
+    assert!(matches!(err, Error::CommitMissing { .. }), "{err:?}");
+    let pending = sync.list_changes(None, true).await.expect("changes");
+    let keys: Vec<&str> = pending.iter().map(|r| r.key.as_str()).collect();
+    assert!(
+        keys.contains(&"three") && keys.contains(&DASHBOARD),
+        "{keys:?}"
+    );
+    assert_eq!(names(sync).await[DASHBOARD].0, "ours", "nothing changed");
+}
+
+crud_test!(pending_edits_survive_a_refusal);
+
+async fn pending_edits_survive_a_forced_rebuild(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
+    let force = ScanOptions {
+        rebuild_missing: true,
+        ..Default::default()
+    };
+    pending_over_a_missing_commit(sync, tmp, force)
+        .await
+        .expect("rebuilt");
+    pending_edits_stand(sync).await;
+}
+
+crud_test!(pending_edits_survive_a_forced_rebuild);
 
 /// A pending edit survives a rebuild. One to a record the rewrite left
 /// alone stays pending; one to a record the rewrite changed conflicts with

@@ -253,6 +253,13 @@ pub struct Config {
     #[arg(long, env = "UNFURL_CLOUDMAP_FORCE")]
     pub cloudmap_force: bool,
 
+    /// When the repository doesn't have the commit the database last saw,
+    /// the records the commits since made are saved to a branch forked
+    /// where they were made, `git-sync/recovered-<commit>`, to merge,
+    /// instead of refusing to start. Startup-only, like `cloudmap_force`.
+    #[arg(long, env = "UNFURL_CLOUDMAP_RECOVER")]
+    pub cloudmap_recover: bool,
+
     /// Serve whatever the index already holds instead of scanning the
     /// working tree at startup.
     ///
@@ -505,6 +512,7 @@ mod tests {
             cloudmap_db_url: None,
             cloud_server: "https://unfurl.cloud".into(),
             cloudmap_force: false,
+            cloudmap_recover: false,
             cloudmap_skip_scan: false,
             scan_abort_level: ScanAbortLevel::Report,
             log_style: None,

@@ -692,6 +692,13 @@ pub struct ScanOptions {
     /// [`crate::Error::CommitMissing`] and changes nothing. A rebuild that
     /// loses nothing, or one after a rewrite, doesn't need it.
     pub rebuild_missing: bool,
+    /// Instead, where a rebuild would lose records commits the repository
+    /// doesn't have made, they are saved to a branch forked at the commit
+    /// they were made on, `git-sync/recovered-<commit>`, and it rebuilds:
+    /// [`crate::SyncOutcome::recovered`] reports it. It wins over
+    /// `rebuild_missing`. A record such a commit deleted isn't recovered:
+    /// the commit left no row for it, and it comes back.
+    pub recover_missing: bool,
 }
 
 /// Attribution for a batch write: who asked for it and why.
@@ -951,6 +958,9 @@ pub struct WriteOutcome {
 /// whole pass.
 #[derive(Debug, Default)]
 pub struct SyncOutcome {
+    /// The branch [`ScanOptions::recover_missing`] took the records a
+    /// rebuild would have lost to.
+    pub recovered: Option<Exported>,
     /// Tracked files visited by the sync pass.
     pub files_seen: usize,
     /// Files whose database state was refreshed — records re-extracted

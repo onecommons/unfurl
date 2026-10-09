@@ -563,6 +563,15 @@ How it differs from this plan:
   until the ref is at the commit, so no other worktree's state, and no
   finished export's, passes for one. The branch and its commit are only
   in the local repository until pushed: a new clone has neither.
+- **`finish_exports`** completes every unfinished export from a
+  worktree, as exporting to each branch again would. The server calls it
+  once at startup, before anything else writes; two replicas starting
+  together could both finish the same one, which a claim on the row
+  would prevent.
+- **Recovery reuses the export's second half.** `recover_missing` forks
+  `git-sync/recovered-<commit>` at the commit the missing commits were
+  made on, copies their rows into its draft, and commits it as an export
+  does (§4.8), so a failure after the rebuild is an unfinished export.
 - **The branch gets the source's file rows** at the base, so its commit
   parses only the files the export changed.
 - **No entries are copied:** re-linking the branch's draft derives them.

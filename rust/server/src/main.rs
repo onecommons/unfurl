@@ -46,7 +46,37 @@ fn warn_about_skipped_scan(config: &Config, db_url: &str) {
 /// The per-file and per-record detail is already logged by the scan; this
 /// is the one aggregate line, and the only place the counts are compared
 /// against [`ScanAbortLevel`].
+/// Finish the exports a failure in an earlier run left unfinished, before
+/// anything else writes. One that can't be is left, and logged: its
+/// records stay in its branch's draft.
+async fn finish_exports(cm: &cloudmap::CloudMapState) {
+    match cm.synced().finish_exports().await {
+        Ok(done) => {
+            for e in done {
+                tracing::info!(
+                    branch = e.branch.as_str(),
+                    commit = e.commit.as_str(),
+                    records = e.records.len(),
+                    "finished an export an earlier run left unfinished"
+                );
+            }
+        }
+        Err(e) => tracing::warn!(
+            error = e.to_string().as_str(),
+            "an export an earlier run left unfinished couldn't be finished"
+        ),
+    }
+}
+
 fn report_scan(scan: &unfurl_git_sync::SyncOutcome, level: ScanAbortLevel) {
+    if let Some(e) = &scan.recovered {
+        tracing::warn!(
+            branch = e.branch.as_str(),
+            commit = e.commit.as_str(),
+            records = e.records.len(),
+            "the repository lacks commits the database made: their records are saved to a branch, to merge"
+        );
+    }
     let fatal: usize = scan.invalid.iter().map(|f| f.validation.fatal.len()).sum();
     let refused: usize = scan.invalid.iter().map(|f| f.validation.errors.len()).sum();
     tracing::info!(
@@ -208,6 +238,7 @@ async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
         Some(unfurl_git_sync::ScanOptions {
             force: config.cloudmap_force,
             rebuild_missing: config.cloudmap_force,
+            recover_missing: config.cloudmap_recover,
         })
     };
     match cloudmap::CloudMapState::open(repo, db_url, scan).await {
@@ -215,6 +246,7 @@ async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
             if let Some(outcome) = outcome {
                 report_scan(&outcome, config.scan_abort_level);
             }
+            finish_exports(&cm).await;
             Some(cm)
         }
         Err(e) => {
@@ -227,7 +259,8 @@ async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
                         )
                     });
                     format!(
-                        "{}; start with --cloudmap-force to rebuild from HEAD anyway",
+                        "{}; start with --cloudmap-recover so they are saved to a branch, \
+                         or --cloudmap-force to rebuild from HEAD without them",
                         list.unwrap_or_default()
                     )
                 }

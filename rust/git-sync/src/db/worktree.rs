@@ -65,6 +65,22 @@ pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Workt
     }))
 }
 
+/// The branches of `origin` the worktree on branch `from` hasn't finished
+/// exporting to.
+pub(crate) async fn exporting(db: &Db, origin: &str, from: &str) -> Result<Vec<String>> {
+    let rows: Vec<(String,)> = on_pool!(db, pool => {
+        sqlx::query_as(sql!(
+            pool,
+            "SELECT branch FROM worktree WHERE origin = ?1 AND exporting_from = ?2 ORDER BY id"
+        ))
+        .bind(origin)
+        .bind(from)
+        .fetch_all(pool)
+        .await?
+    });
+    Ok(rows.into_iter().map(|(b,)| b).collect())
+}
+
 /// Worktree `worktree_id`'s export is finished.
 pub(crate) async fn clear_exporting(db: &Db, worktree_id: i64) -> Result<()> {
     on_pool!(db, pool => {

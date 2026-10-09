@@ -509,13 +509,14 @@ impl SyncedRepo {
     /// after a rewrite: a rebase, reset or force-push leaves the chain
     /// holding a commit HEAD `head` doesn't descend from (§4.8). Where the
     /// repository doesn't have that commit at all, refuse a rebuild that
-    /// would lose committed records, unless `options` allow it.
+    /// would lose committed records, unless `options` allow it or recover
+    /// them to a branch, which it returns.
     async fn follow_head(
         &self,
         branch: &str,
         head: Option<&str>,
         options: &ScanOptions,
-    ) -> Result<()> {
+    ) -> Result<Option<crate::model::Exported>> {
         let worktree = db::worktree::get(self.db(), self.worktree_id()).await?;
         // a handle opened detached (CI, a tag, a pinned commit) follows
         // whatever is checked out; the rebuild covers a rewrite
@@ -533,40 +534,112 @@ impl SyncedRepo {
             }
         }
         let (Some(recorded), Some(n)) = (worktree.commit_id.as_deref(), head) else {
-            return Ok(());
+            return Ok(None);
         };
         let repo = self.repo()?;
         if recorded == n || git::is_ancestor(&repo, recorded, n)? {
-            return Ok(());
+            return Ok(None);
         }
-        let keep = match options.rebuild_missing || git::has_commit(&repo, recorded)? {
-            true => None,
-            false => Some(recorded.to_string()),
-        };
+        drop(repo);
+        self.rebuild_onto(&worktree, recorded, n, options, &mut |_| Ok(()))
+            .await
+    }
+
+    /// Rebuild after a rewrite, from `recorded`, the commit `worktree`'s
+    /// chain holds, onto HEAD `n`, which doesn't descend from it.
+    async fn rebuild_onto(
+        &self,
+        worktree: &crate::model::Worktree,
+        recorded: &str,
+        n: &str,
+        options: &ScanOptions,
+        after: &mut impl FnMut(crate::export::ExportStep) -> Result<()>,
+    ) -> Result<Option<crate::model::Exported>> {
+        let repo = self.repo()?;
+        let missing = !git::has_commit(&repo, recorded)?;
         let files = self
             .head_files(&repo, Some(n), &Default::default(), false)?
             .files;
-        let rebuilt = crate::fork::rebuild(
-            self.db(),
-            repo,
-            self.formats(),
-            (self.worktree_id(), self.family_id()),
+        drop(repo);
+        let recovery = match missing && options.recover_missing {
+            true => self.prepare_recovery(recorded, n, &files).await?,
+            false => None,
+        };
+        let rb = crate::fork::Rebuild {
+            w: self.worktree_id(),
+            family: self.family_id(),
             n,
-            &files,
-            keep.as_deref(),
-        )
-        .await;
-        match rebuilt {
-            Err(Error::CommitMissing { commit, lost, .. }) => {
-                let database = db::commit::database_id(self.db()).await?;
-                let since = crate::fork::written_since(&self.repo()?, n, &database)?;
-                Err(Error::CommitMissing {
-                    commit,
-                    lost,
-                    since,
-                })
+            files: &files,
+            keep: (missing && !options.rebuild_missing).then_some(recorded),
+            recover: recovery.as_ref().map(|p| crate::fork::Recover {
+                origin: &worktree.origin,
+                branch: &p.branch,
+                from: &worktree.branch,
+                base: &p.base,
+                files: &p.files,
+            }),
+        };
+        let rebuilt = crate::fork::rebuild(self.db(), self.repo()?, self.formats(), &rb).await;
+        match (rebuilt, recovery) {
+            (Ok(Some(b)), Some(p)) => {
+                after(crate::export::ExportStep::Moved)?;
+                let exported = self.commit_export(&p.branch, b, oid(&p.base)?, after);
+                exported.await.map(Some)
             }
-            rebuilt => rebuilt,
+            (Ok(_), _) => Ok(None),
+            (Err(e), _) => Err(self.missing_since(e, n).await),
+        }
+    }
+
+    /// Where the records commits since `recorded`, which the repository
+    /// doesn't have, made would go, when rebuilding onto HEAD `n`, whose
+    /// tree is `files`, would lose any: the commit they were made on, and
+    /// every file of its tree. `None` when it loses none, or `n`'s history
+    /// has no commit of this worktree's chain to recover them at.
+    async fn prepare_recovery(
+        &self,
+        recorded: &str,
+        n: &str,
+        files: &[crate::scan::HeadFile],
+    ) -> Result<Option<Prepared>> {
+        let rows = crate::fork::chain_rows(self.db(), self.worktree_id()).await?;
+        let known = crate::fork::chain_commits(self.db(), self.worktree_id()).await?;
+        let repo = self.repo()?;
+        if !crate::fork::would_lose(&repo, rows, files)? {
+            return Ok(None);
+        }
+        let Some(base) = crate::fork::recovery_base(&repo, n, &known)? else {
+            return Ok(None);
+        };
+        let files = self
+            .head_files(&repo, Some(&base), &Default::default(), false)?
+            .files;
+        Ok(Some(Prepared {
+            branch: format!("git-sync/recovered-{}", &recorded[..recorded.len().min(12)]),
+            base,
+            files,
+        }))
+    }
+
+    /// `e`, with where to read the records a [`Error::CommitMissing`]
+    /// would lose: what was written after the nearest commit HEAD `n` has
+    /// that this database made.
+    async fn missing_since(&self, e: Error, n: &str) -> Error {
+        let Error::CommitMissing { commit, lost, .. } = e else {
+            return e;
+        };
+        let since = match db::commit::database_id(self.db()).await {
+            Ok(database) => self
+                .repo()
+                .and_then(|repo| crate::fork::written_since(&repo, n, &database))
+                .ok()
+                .flatten(),
+            Err(_) => None,
+        };
+        Error::CommitMissing {
+            commit,
+            lost,
+            since,
         }
     }
 
@@ -692,7 +765,8 @@ impl SyncedRepo {
     ) -> Result<SyncOutcome> {
         let repo = self.repo()?;
         let head = meta.head_oid.map(|o| o.to_string());
-        self.follow_head(&meta.branch, head.as_deref(), options)
+        let recovered = self
+            .follow_head(&meta.branch, head.as_deref(), options)
             .await?;
         let tracked = git::tracked_files(&repo)?;
         let known_files: std::collections::HashMap<String, crate::model::File> =
@@ -701,7 +775,10 @@ impl SyncedRepo {
                 .into_iter()
                 .map(|f| (f.path.clone(), f))
                 .collect();
-        let mut stats = SyncOutcome::default();
+        let mut stats = SyncOutcome {
+            recovered,
+            ..Default::default()
+        };
 
         // The committed side: HEAD's blobs against the committed segments'.
         let HeadSide {
@@ -2689,6 +2766,18 @@ async fn commit_render_in_pool<DB: crate::db::store::Store>(
     Ok(true)
 }
 
+/// A recovery branch claimed at `base`, the commit the records it takes
+/// were made on, with every file of its tree.
+struct Prepared {
+    branch: String,
+    base: String,
+    files: Vec<crate::scan::HeadFile>,
+}
+
+fn oid(hex: &str) -> Result<gix::ObjectId> {
+    gix::ObjectId::from_hex(hex.as_bytes()).map_err(|e| Error::Git(e.to_string()))
+}
+
 #[cfg(test)]
 mod race_tests {
     //! Writers racing each other: one renders, scans or commits, another
@@ -3322,6 +3411,110 @@ mod race_tests {
                 .expect("finish")
                 .expect("finished");
             assert_eq!(Some(exported.commit), folded);
+        })
+        .await;
+    }
+
+    /// Exports a failure left unfinished, after any step, are finished by
+    /// `finish_exports`, with no branch named; a finished one's mark left
+    /// behind is cleared.
+    #[tokio::test]
+    async fn unfinished_exports_are_finished_at_startup() {
+        use crate::export::ExportStep;
+        for at in [ExportStep::Moved, ExportStep::Written, ExportStep::Folded] {
+            each_backend(async |sync, dir| {
+                conflicted(sync, dir).await;
+                sync.export_failing("exported", at)
+                    .await
+                    .expect_err("stopped");
+                let done = sync.finish_exports().await.expect("finished");
+                assert_eq!(done.len(), 1, "{at:?}");
+                assert_eq!(name_at(sync, &done[0].commit), "ours");
+                let repo = sync.repo().expect("repo");
+                let tip = git::branch_tip(&repo, "exported").expect("tip");
+                assert_eq!(tip.map(|t| t.to_string()), Some(done[0].commit.clone()));
+                assert!(sync.finish_exports().await.expect("none").is_empty());
+
+                // a mark a crash after the ref moved left behind
+                let n = done[0].worktree_id;
+                let branch = sync.get_worktree().await.expect("worktree").branch;
+                on_pool!(sync.db(), pool => {
+                    let mut tx = pool.begin().await.expect("tx");
+                    Store::set_exporting_from(&mut tx, n, &branch)
+                        .await
+                        .expect("mark");
+                    tx.commit().await.expect("commit");
+                });
+                assert!(sync.finish_exports().await.expect("cleared").is_empty());
+                let row = sync.worktrees(&Default::default()).await.expect("rows");
+                let marked = row.iter().find(|w| w.id == n).expect("the branch");
+                assert_eq!(marked.exporting_from, None, "the mark is cleared");
+            })
+            .await;
+        }
+    }
+
+    /// A recovery that fails after its rebuild committed leaves the
+    /// records in its branch's draft, an unfinished export
+    /// `finish_exports` completes.
+    #[tokio::test]
+    async fn a_failed_recovery_is_finished_at_startup() {
+        each_backend(async |sync, dir| {
+            let git = |args: &[&str]| -> String {
+                let out = std::process::Command::new("git")
+                    .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                    .args(args)
+                    .current_dir(dir)
+                    .output()
+                    .expect("git");
+                assert!(out.status.success(), "git {args:?}: {out:?}");
+                String::from_utf8_lossy(&out.stdout).trim().to_string()
+            };
+            let base = git(&["rev-parse", "HEAD"]);
+            sync.update_record(
+                Some(FILE),
+                "/repositories",
+                DASHBOARD,
+                json!({"name": "lost"}),
+                None,
+                false,
+            )
+            .await
+            .expect("write");
+            let gone = sync
+                .commit_repository("lost", Default::default())
+                .await
+                .expect("commit")
+                .commit
+                .expect("a commit");
+            git(&["reset", "-q", "--hard", &base]);
+            git(&["reflog", "expire", "--expire=now", "--all"]);
+            git(&["gc", "-q", "--prune=now"]);
+
+            let worktree = sync.get_worktree().await.expect("worktree");
+            let options = ScanOptions {
+                recover_missing: true,
+                ..Default::default()
+            };
+            let mut fail = |_| Err(Error::Other("stopped".into()));
+            let err = sync
+                .rebuild_onto(&worktree, &gone, &base, &options, &mut fail)
+                .await
+                .expect_err("stopped");
+            assert!(matches!(&err, Error::Other(m) if m == "stopped"), "{err:?}");
+            assert_eq!(
+                sync.get_worktree().await.expect("worktree").commit_id,
+                Some(base.clone()),
+                "the rebuild committed"
+            );
+
+            let done = sync.finish_exports().await.expect("finished");
+            assert_eq!(done.len(), 1);
+            assert_eq!(
+                done[0].branch,
+                format!("git-sync/recovered-{}", &gone[..12])
+            );
+            assert_eq!(name_at(sync, &done[0].commit), "lost");
         })
         .await;
     }

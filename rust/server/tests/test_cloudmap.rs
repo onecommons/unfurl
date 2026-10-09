@@ -155,6 +155,7 @@ fn default_config() -> Config {
         cloudmap_db_url: None,
         cloud_server: "https://unfurl.cloud".into(),
         cloudmap_force: false,
+        cloudmap_recover: false,
         cloudmap_skip_scan: false,
         scan_abort_level: unfurl_server::config::ScanAbortLevel::Report,
         log_style: None,
