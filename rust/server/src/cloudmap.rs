@@ -149,7 +149,37 @@ fn path_for_kind(kind: &str) -> Option<&'static str> {
 /// Long-lived cloudmap handle stored in [`crate::AppState`].
 #[derive(Clone)]
 pub struct CloudMapState {
+    /// The checkout reads go through, for any worktree in the database:
+    /// the configured one, or with none, any.
     inner: Arc<SyncedRepo>,
+    /// With none configured, every checkout, by its worktree's origin and
+    /// branch: a write naming its project and branch goes to it, and only
+    /// their projects are read.
+    checkouts: Arc<Vec<(String, String, Arc<SyncedRepo>)>>,
+    /// Whether `inner` is a configured checkout, which serves a request
+    /// naming no project or branch.
+    configured: bool,
+}
+
+/// The database `db_url` names: anything starting with `postgres://` or
+/// `postgresql://` is Postgres (only when the `unfurl-git-sync/postgres`
+/// feature is enabled at build time); everything else is SQLite.
+pub fn db_config(db_url: &str) -> Result<DbConfig, String> {
+    if db_url.starts_with("postgres://") || db_url.starts_with("postgresql://") {
+        #[cfg(feature = "postgres")]
+        {
+            Ok(DbConfig::Postgres { url: db_url.into() })
+        }
+        #[cfg(not(feature = "postgres"))]
+        {
+            Err(format!(
+                "cloudmap_db_url is Postgres ({db_url}) but unfurl-server was built \
+                 without the `postgres` feature"
+            ))
+        }
+    } else {
+        Ok(DbConfig::Sqlite { url: db_url.into() })
+    }
 }
 
 impl CloudMapState {
@@ -174,22 +204,7 @@ impl CloudMapState {
         (Self, Option<unfurl_git_sync::SyncOutcome>),
         Box<dyn std::error::Error + Send + Sync>,
     > {
-        let db_cfg = if db_url.starts_with("postgres://") || db_url.starts_with("postgresql://") {
-            #[cfg(feature = "postgres")]
-            {
-                DbConfig::Postgres { url: db_url.into() }
-            }
-            #[cfg(not(feature = "postgres"))]
-            {
-                return Err(format!(
-                    "cloudmap_db_url is Postgres ({db_url}) but unfurl-server was built \
-                     without the `postgres` feature"
-                )
-                .into());
-            }
-        } else {
-            DbConfig::Sqlite { url: db_url.into() }
-        };
+        let db_cfg = db_config(db_url)?;
 
         let registry = FormatRegistry::with_builtins();
         let synced = SyncedRepo::open(repo_path, db_cfg, registry).await?;
@@ -200,12 +215,50 @@ impl CloudMapState {
             Some(scan) => Some(synced.update_from_working_dir(scan).await?),
             None => None,
         };
-        Ok((
-            Self {
-                inner: Arc::new(synced),
-            },
-            outcome,
-        ))
+        Ok((Self::from_synced(synced), outcome))
+    }
+
+    /// Finish the exports a failure in an earlier run left unfinished,
+    /// before anything else writes. One that can't be is left, and
+    /// logged: its records stay in its branch's draft.
+    pub async fn finish_exports(&self) {
+        match self.inner.finish_exports().await {
+            Ok(done) => {
+                for e in done {
+                    tracing::info!(
+                        branch = e.branch.as_str(),
+                        commit = e.commit.as_str(),
+                        records = e.records.len(),
+                        "finished an export an earlier run left unfinished"
+                    );
+                }
+            }
+            Err(e) => tracing::warn!(
+                error = e.to_string().as_str(),
+                "an export an earlier run left unfinished couldn't be finished"
+            ),
+        }
+    }
+
+    /// Serve `checkouts`, one per worktree, with none configured: each
+    /// takes the writes naming its project and branch, and reads are of
+    /// their projects alone. `None` with none.
+    pub async fn serving(
+        checkouts: Vec<CloudMapState>,
+    ) -> Result<Option<Self>, unfurl_git_sync::Error> {
+        let mut routes = Vec::new();
+        for c in checkouts {
+            let worktree = c.inner.get_worktree().await?;
+            routes.push((worktree.origin, worktree.branch, c.inner));
+        }
+        let Some((_, _, first)) = routes.first() else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            inner: first.clone(),
+            checkouts: Arc::new(routes),
+            configured: false,
+        }))
     }
 
     /// The repository this state reads from.
@@ -225,6 +278,8 @@ impl CloudMapState {
     pub fn from_synced(synced: SyncedRepo) -> Self {
         Self {
             inner: Arc::new(synced),
+            checkouts: Arc::new(Vec::new()),
+            configured: true,
         }
     }
 
@@ -263,6 +318,10 @@ impl CloudMapState {
     /// from the origin, because a local checkout can have a remote too.
     ///
     /// Both gates read the same `worktree` row, so this costs one query.
+    ///
+    /// Serving checkouts with none configured ([`Self::serving`]), a write
+    /// goes to the one for its project and branch, `main` when it names
+    /// none, as python reads it; one naming no project is `Missing`.
     pub async fn project_check(
         &self,
         project_id: Option<&str>,
@@ -270,7 +329,10 @@ impl CloudMapState {
         dev_mode: bool,
     ) -> Result<ProjectCheck, unfurl_git_sync::Error> {
         if dev_mode {
-            return Ok(ProjectCheck::Serve);
+            return Ok(ProjectCheck::Serve(self.clone()));
+        }
+        if !self.configured {
+            return self.checkout_for(project_id, branch).await;
         }
         let worktree = self.inner.get_worktree().await?;
         // Checked before the project so that a request naming a branch but no
@@ -287,9 +349,42 @@ impl CloudMapState {
             }
         }
         Ok(match project_id.filter(|p| !p.is_empty()) {
-            Some(p) if origin_matches(&worktree.origin, p) => ProjectCheck::Serve,
+            Some(p) if origin_matches(&worktree.origin, p) => ProjectCheck::Serve(self.clone()),
             Some(_) => ProjectCheck::OtherProject,
             None => ProjectCheck::Missing,
+        })
+    }
+
+    /// The checkout of `project_id` on `branch`, `main` when it names none.
+    async fn checkout_for(
+        &self,
+        project_id: Option<&str>,
+        branch: Option<&str>,
+    ) -> Result<ProjectCheck, unfurl_git_sync::Error> {
+        let Some(project) = project_id.map(str::trim).filter(|p| !p.is_empty()) else {
+            return Ok(ProjectCheck::Missing);
+        };
+        let branch = branch
+            .map(str::trim)
+            .filter(|b| !b.is_empty() && *b != "HEAD")
+            .unwrap_or("main");
+        let mut known = false;
+        for (origin, on, handle) in self.checkouts.iter() {
+            if !origin_matches(origin, project) {
+                continue;
+            }
+            known = true;
+            if branch_matches(on, branch) {
+                return Ok(ProjectCheck::Serve(Self {
+                    inner: handle.clone(),
+                    checkouts: self.checkouts.clone(),
+                    configured: true,
+                }));
+            }
+        }
+        Ok(match known {
+            true => ProjectCheck::OtherBranch,
+            false => ProjectCheck::OtherProject,
         })
     }
 
@@ -315,16 +410,24 @@ impl CloudMapState {
         let branch = branch
             .map(str::trim)
             .filter(|b| !b.is_empty() && *b != "HEAD");
-        if dev_mode || (project.is_none() && branch.is_none()) {
+        if dev_mode {
             return Ok(ReadTarget::Read(None));
         }
-        let origin = match project {
-            Some(p) => format!(
+        let origin = match (project, self.configured) {
+            // only the projects of the checkouts served: the rest, private
+            // ones among them, are python's to authorize
+            (Some(p), false) if !self.checkouts.iter().any(|(o, _, _)| origin_matches(o, p)) => {
+                return Ok(ReadTarget::Proxy)
+            }
+            (Some(p), _) => format!(
                 "{}/{}",
                 cloud_server.trim_end_matches('/'),
                 p.trim_matches('/')
             ),
-            None => self.inner.get_worktree().await?.origin,
+            (None, true) if branch.is_none() => return Ok(ReadTarget::Read(None)),
+            (None, true) => self.inner.get_worktree().await?.origin,
+            // no checkout is the default to read
+            (None, false) => return Ok(ReadTarget::Proxy),
         };
         let of_origin = WorktreeFilter {
             origin: Some(origin),
@@ -548,10 +651,9 @@ pub enum ReadTarget {
 }
 
 /// Outcome of [`CloudMapState::project_check`].
-#[derive(Debug, PartialEq, Eq)]
 pub enum ProjectCheck {
-    /// The request may be served from the configured repository.
-    Serve,
+    /// The request may be served from this checkout.
+    Serve(CloudMapState),
     /// The request named a different project — python routes per project, so
     /// it should be proxied there.
     OtherProject,
@@ -1579,7 +1681,7 @@ pub async fn post_cloudmap_local(
     // would otherwise apply an unattributed write to it. A write naming
     // another branch is routed like a read for one: this worktree can only
     // write to the branch it is checked out on.
-    match cm
+    let cm = match cm
         .project_check(
             params.auth_project.as_deref(),
             branch.as_deref(),
@@ -1587,7 +1689,7 @@ pub async fn post_cloudmap_local(
         )
         .await
     {
-        Ok(ProjectCheck::Serve) => {}
+        Ok(ProjectCheck::Serve(target)) => target,
         Ok(ProjectCheck::Missing) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -1632,7 +1734,7 @@ pub async fn post_cloudmap_local(
             )
                 .into_response();
         }
-    }
+    };
 
     // Who to attribute the write to, from the header python's
     // `_get_author` documents. Read before `parts` is consumed by the
@@ -1651,7 +1753,7 @@ pub async fn post_cloudmap_local(
             Ok(ValidatedJson(body)) => body,
             Err(rejection) => return rejection,
         };
-    match post_cloudmap_apply(cm, body, author).await {
+    match post_cloudmap_apply(&cm, body, author).await {
         Ok(response) => response.into_response(),
         Err(err) => err.into_response(),
     }

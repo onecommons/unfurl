@@ -3,6 +3,7 @@
 //! Library re-exports for integration tests.
 
 pub mod cache;
+pub mod clone;
 pub mod cloudmap;
 pub mod config;
 pub mod patch;

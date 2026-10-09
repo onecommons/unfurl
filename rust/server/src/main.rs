@@ -40,35 +40,13 @@ fn warn_about_skipped_scan(config: &Config, db_url: &str) {
     }
 }
 
-/// Logs what the startup scan found, and exits when the operator asked
-/// for a clean index rather than a reported one.
+/// Logs what the startup scan found, and returns whether the operator
+/// asked, through `level`, for a clean index rather than a reported one.
 ///
 /// The per-file and per-record detail is already logged by the scan; this
 /// is the one aggregate line, and the only place the counts are compared
 /// against [`ScanAbortLevel`].
-/// Finish the exports a failure in an earlier run left unfinished, before
-/// anything else writes. One that can't be is left, and logged: its
-/// records stay in its branch's draft.
-async fn finish_exports(cm: &cloudmap::CloudMapState) {
-    match cm.synced().finish_exports().await {
-        Ok(done) => {
-            for e in done {
-                tracing::info!(
-                    branch = e.branch.as_str(),
-                    commit = e.commit.as_str(),
-                    records = e.records.len(),
-                    "finished an export an earlier run left unfinished"
-                );
-            }
-        }
-        Err(e) => tracing::warn!(
-            error = e.to_string().as_str(),
-            "an export an earlier run left unfinished couldn't be finished"
-        ),
-    }
-}
-
-fn report_scan(scan: &unfurl_git_sync::SyncOutcome, level: ScanAbortLevel) {
+fn report_scan(scan: &unfurl_git_sync::SyncOutcome, level: ScanAbortLevel) -> bool {
     if let Some(e) = &scan.recovered {
         tracing::warn!(
             branch = e.branch.as_str(),
@@ -89,15 +67,16 @@ fn report_scan(scan: &unfurl_git_sync::SyncOutcome, level: ScanAbortLevel) {
         refused = refused,
         "cloudmap startup scan complete"
     );
-    if level.aborts(fatal, refused) {
+    let aborts = level.aborts(fatal, refused);
+    if aborts {
         tracing::error!(
             abort_level = %level,
             skipped_files = fatal,
             refused = refused,
-            "cloudmap does not conform to its schema; refusing to start"
+            "cloudmap does not conform to its schema; refusing to serve it"
         );
-        std::process::exit(1);
     }
+    aborts
 }
 
 /// Initialises tracing.  If UNFURL_LOGFILE is set, write directly to that
@@ -221,6 +200,9 @@ async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
             );
             return None;
         }
+        (None, Some(db_url)) if config.clone_root.is_some() => {
+            return open_clones(config, db_url).await;
+        }
         (None, Some(_)) => {
             tracing::warn!(
                 "cloudmap_db_url is set but cloudmap_repo is not; \
@@ -231,48 +213,111 @@ async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
         (None, None) => return None,
     };
     tracing::info!("opening cloudmap repo at {} (db={})", repo, db_url);
-    let scan = if config.cloudmap_skip_scan {
-        warn_about_skipped_scan(config, db_url);
-        None
-    } else {
-        Some(unfurl_git_sync::ScanOptions {
-            force: config.cloudmap_force,
-            rebuild_missing: config.cloudmap_force,
-            recover_missing: config.cloudmap_recover,
-        })
-    };
+    let scan = scan_options(config, db_url, config.cloudmap_recover);
     match cloudmap::CloudMapState::open(repo, db_url, scan).await {
         Ok((cm, outcome)) => {
-            if let Some(outcome) = outcome {
-                report_scan(&outcome, config.scan_abort_level);
+            if outcome.is_some_and(|o| report_scan(&o, config.scan_abort_level)) {
+                std::process::exit(1);
             }
-            finish_exports(&cm).await;
+            cm.finish_exports().await;
             Some(cm)
         }
         Err(e) => {
-            let hint = match e.downcast_ref::<unfurl_git_sync::Error>() {
-                Some(unfurl_git_sync::Error::CommitMissing { since, .. }) => {
-                    let list = since.map(|v| {
-                        format!(
-                            "; started with --cloudmap-skip-scan, {} includes them",
-                            written_since_read(repo, &config.cloud_server, v)
-                        )
-                    });
-                    format!(
-                        "{}; start with --cloudmap-recover so they are saved to a branch, \
-                         or --cloudmap-force to rebuild from HEAD without them",
-                        list.unwrap_or_default()
-                    )
-                }
-                _ => String::new(),
-            };
             tracing::error!(
-                error = format!("{e}{hint}").as_str(),
+                error = format!(
+                    "{e}{}",
+                    open_hint(&*e, repo, config, config.cloudmap_recover)
+                )
+                .as_str(),
                 "failed to open cloudmap repo"
             );
             std::process::exit(1);
         }
     }
+}
+
+/// Clone mode: a checkout of each worktree the database at `db_url`
+/// tracks, under `clone_root`, each scanned and served. A worktree whose
+/// checkout can't be made or opened is logged and left to python. Records
+/// a missing commit made are saved to a branch: a new clone is where
+/// that happens.
+async fn open_clones(config: &Config, db_url: &str) -> Option<cloudmap::CloudMapState> {
+    let root = std::path::Path::new(config.clone_root.as_deref()?);
+    let db = or_exit(
+        cloudmap::db_config(db_url),
+        "failed to open the cloudmap database",
+    );
+    tracing::info!(
+        "cloning the cloudmap's worktrees under {} (db={})",
+        root.display(),
+        db_url
+    );
+    let scan = scan_options(config, db_url, true);
+    let checkouts = unfurl_server::clone::prepare(&db, root, &config.cloud_server).await;
+    let served = unfurl_server::clone::serve(
+        checkouts,
+        db_url,
+        scan,
+        |outcome| !report_scan(outcome, config.scan_abort_level),
+        |e, path| open_hint(e, path, config, true),
+    )
+    .await;
+    or_exit(served, "failed to serve the cloudmap checkouts")
+}
+
+/// `result`'s value, or, logging `what` failed, the process's end.
+fn or_exit<T, E: std::fmt::Display>(result: Result<T, E>, what: &str) -> T {
+    result.unwrap_or_else(|e| {
+        tracing::error!(error = e.to_string().as_str(), "{what}");
+        std::process::exit(1);
+    })
+}
+
+/// The startup scan's options, `None` to skip it.
+fn scan_options(
+    config: &Config,
+    db_url: &str,
+    recover: bool,
+) -> Option<unfurl_git_sync::ScanOptions> {
+    if config.cloudmap_skip_scan {
+        warn_about_skipped_scan(config, db_url);
+        return None;
+    }
+    Some(unfurl_git_sync::ScanOptions {
+        force: config.cloudmap_force,
+        rebuild_missing: config.cloudmap_force,
+        recover_missing: recover,
+    })
+}
+
+/// What to do about `e`, failing to open the checkout at `repo`, with
+/// recovery on or not.
+fn open_hint(
+    e: &(dyn std::error::Error + 'static),
+    repo: &str,
+    config: &Config,
+    recovering: bool,
+) -> String {
+    let Some(unfurl_git_sync::Error::CommitMissing { since, .. }) =
+        e.downcast_ref::<unfurl_git_sync::Error>()
+    else {
+        return String::new();
+    };
+    let list = since.map(|v| {
+        format!(
+            "; started with --cloudmap-skip-scan, {} includes them",
+            written_since_read(repo, &config.cloud_server, v)
+        )
+    });
+    let recover = match recovering {
+        // it ran, and found no commit to save them at
+        true => "",
+        false => " with --cloudmap-recover so they are saved to a branch, or",
+    };
+    format!(
+        "{}; start{recover} with --cloudmap-force to rebuild from HEAD without them",
+        list.unwrap_or_default()
+    )
 }
 
 /// The `GET /cloudmap` that reads what the checkout at `repo` wrote after

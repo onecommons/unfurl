@@ -246,6 +246,22 @@ A checkout-less branch is a `worktree` row like any other: it gets no
 `SyncedRepo` of its own, and the handle of the checkout it was made from
 advances and sweeps it.
 
+**Clone mode (the server, built).** A server given a database and a clone
+root but no checkout (`--clone-root`, which `unfurl serve` sets) makes
+the checkouts from the database: for each worktree whose origin is a
+project on the cloud server, a clone of its branch where python puts one
+for a request with no credentials, `public/<project>/<branch>`, or a
+fast-forward of the one there, under python's lock file. One that can't
+be fast-forwarded, with commits the remote lacks, is served as it is. A
+worktree that can't be cloned (a private project, an exported branch the
+remote lacks, a remote that doesn't answer in five minutes) is logged
+and left to python, and so is any project with no checkout here: python
+checks a request's credentials, which this server doesn't. Each checkout
+is opened and scanned with `recover_missing`, since a new clone is where
+commits the database made go missing, and writes are routed to the
+checkout of their project and branch (`main` when they name none). Reads
+go through any of them, as they read the database.
+
 ### A branch switch under an open handle
 
 Today it silently writes branch B's content into A's worktree. With

@@ -228,6 +228,15 @@ pub struct Config {
     #[arg(long, env = "UNFURL_CLOUDMAP_DB_URL")]
     pub cloudmap_db_url: Option<String>,
 
+    /// With `cloudmap_db_url` and no `cloudmap_repo`: clone a checkout of
+    /// every worktree the database tracks under this directory, or update
+    /// the one there, at startup, and serve them all. The layout is python's
+    /// server's for a request with no credentials, `public/<project>/<branch>`,
+    /// so the two share checkouts; a private project, which can't be cloned
+    /// there, is left to python. `unfurl serve` passes its `--clone-root`.
+    #[arg(long, env = "UNFURL_CLONE_ROOT")]
+    pub clone_root: Option<String>,
+
     /// URL of the Unfurl Cloud server a request's `auth_project` names a
     /// project on: a cloudmap read for it is answered from the worktree
     /// whose origin is `{cloud_server}/{auth_project}`. `unfurl serve`
@@ -510,6 +519,7 @@ mod tests {
             branch_poll_interval_ms: 1000,
             cloudmap_repo: None,
             cloudmap_db_url: None,
+            clone_root: None,
             cloud_server: "https://unfurl.cloud".into(),
             cloudmap_force: false,
             cloudmap_recover: false,

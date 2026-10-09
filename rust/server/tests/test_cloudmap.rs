@@ -153,6 +153,7 @@ fn default_config() -> Config {
         branch_poll_interval_ms: 50,
         cloudmap_repo: None,
         cloudmap_db_url: None,
+        clone_root: None,
         cloud_server: "https://unfurl.cloud".into(),
         cloudmap_force: false,
         cloudmap_recover: false,
@@ -3446,4 +3447,92 @@ async fn skipping_the_scan_serves_the_index_as_it_stands() {
         .await
         .expect("open and scan");
     assert_eq!(name_of(&cm).await.as_deref(), Some("renamed-on-disk"));
+}
+
+/// Serving checkouts with none configured, as clone mode does: a write goes
+/// to the checkout of its project, on `main` when it names no branch. One
+/// for a project or branch with no checkout is proxied, one naming no
+/// project is refused, and a read naming neither project nor branch, with
+/// no checkout to default to, is proxied.
+#[tokio::test]
+async fn writes_go_to_the_checkout_of_their_project() {
+    let (_, checkouts, _db) = two_worktrees().await;
+    let each = checkouts
+        .iter()
+        .map(|(s, _)| CloudMapState::from_synced(s.clone()))
+        .collect();
+    let cm = CloudMapState::serving(each)
+        .await
+        .expect("serving")
+        .expect("checkouts");
+    let key = "git://unfurl.cloud/onecommons/written.git";
+    let write = |name: &str, branch: Option<&str>| {
+        let mut body = serde_json::json!({"repositories": {key: {"name": name}}});
+        if let Some(b) = branch {
+            body["branch"] = b.into();
+        }
+        body
+    };
+    let app = || router(make_strict_state(cm.clone()));
+    let name_in = |i: usize| {
+        let synced = checkouts[i].0.clone();
+        async move {
+            synced
+                .get_record("cloudmap.yaml", "/repositories", key)
+                .await
+                .expect("get")
+                .map(|r| r.json["name"].clone())
+        }
+    };
+
+    let (status, body) = post_json_as(app(), write("other", None), Some("onecommons/other")).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(name_in(1).await, Some("other".into()));
+    assert_eq!(name_in(0).await, None, "not the other checkout's");
+
+    let (status, body) =
+        post_json_as(app(), write("this", Some("main")), Some(REMOTE_PROJECT)).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(name_in(0).await, Some("this".into()));
+
+    for (body, project) in [
+        (write("x", None), Some("onecommons/nowhere")),
+        (write("x", Some("feature")), Some("onecommons/other")),
+    ] {
+        let (status, _) = post_json_as(app(), body, project).await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY, "{project:?}");
+    }
+    let (status, _) = post_json_as(app(), write("x", None), None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = get_json(app(), "/cloudmap?kind=repositories").await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+}
+
+/// Serving checkouts with none configured, a project in the database with
+/// no checkout served, as a private one, isn't read or written here: it's
+/// python's to authorize.
+#[tokio::test]
+async fn a_project_not_served_is_left_to_python() {
+    let (_, checkouts, _db) = two_worktrees().await;
+    let only = vec![CloudMapState::from_synced(checkouts[0].0.clone())];
+    let cm = CloudMapState::serving(only)
+        .await
+        .expect("serving")
+        .expect("checkouts");
+    let app = || router(make_strict_state(cm.clone()));
+    let (status, _) = get_json(
+        app(),
+        "/cloudmap?kind=repositories&auth_project=onecommons/other",
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let body = serde_json::json!({"repositories": {"git://unfurl.cloud/x.git": {"name": "x"}}});
+    let (status, _) = post_json_as(app(), body, Some("onecommons/other")).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    let (status, _) = get_json(
+        app(),
+        &format!("/cloudmap?kind=repositories&auth_project={REMOTE_PROJECT}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the project served still reads");
 }
