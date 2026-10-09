@@ -22,6 +22,7 @@ from .repo import (
     is_url_or_git_path,
     normalize_git_url,
     split_git_url,
+    split_url_credentials,
     commit_secrets,
     sanitize_url,
 )
@@ -1158,10 +1159,20 @@ class EnsembleBuilder:
         # check if source is a git url
         repoURL, filePath, revision = split_git_url(self.input_source)
         self.source_revision = revision
+        username = password = None
+        # parent_localenv is only passed by the server (_create_ensemble), and
+        # only the hosted server, not the local gui, sets this override on it
+        parent = self.options.get("parent_localenv")
+        if parent and parent.overrides.get("transient_url_credentials"):
+            # clone with them, but don't store them in the clone, which other
+            # users' requests share
+            repoURL, username, password = split_url_credentials(repoURL)
         repoURL = normalize_git_url(repoURL)
         if currentProject:
             # XXX use currentProject.get_relative_path(destDir) as clone destination
-            repo = currentProject.find_or_create_working_dir(repoURL, revision)
+            repo = currentProject.find_or_create_working_dir(
+                repoURL, revision, username=username, password=password
+            )
             destDir = repo.working_dir
         else:
             if os.path.exists(destDir) and os.listdir(destDir):
@@ -1169,7 +1180,9 @@ class EnsembleBuilder:
                     f'Can not clone project into "{destDir}": folder is not empty'
                 )
             # clone the remote repo to destDir
-            Repo.create_working_dir(repoURL, destDir, revision)
+            Repo.create_working_dir(
+                repoURL, destDir, revision, username=username, password=password
+            )
 
         targetDir = os.path.join(destDir, filePath)
         sourceProjectRoot = Project.find_path(targetDir, destDir)

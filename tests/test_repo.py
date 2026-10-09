@@ -2,6 +2,7 @@ import unittest
 import os
 import traceback
 import pytest
+from urllib.parse import quote
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
 from unfurl.localenv import LocalEnv
@@ -1218,61 +1219,118 @@ def test_add_transient_credentials_rewrites_the_url():
 USER, TOKEN = "deploy", "t=k@n:x/y"
 
 
+class AuthGitServer:
+    """Bare repositories served by `git http-backend` behind basic auth for
+    USER and TOKEN."""
+
+    def __init__(self, root, port):
+        self.root = root
+        self.port = port
+
+    def url(self, name, credentials=False):
+        userinfo = f"{USER}:{quote(TOKEN, safe='')}@" if credentials else ""
+        return f"http://{userinfo}127.0.0.1:{self.port}/{name}.git"
+
+    def commit(self, name, files):
+        """Commit ``files`` (path: text) to repository ``name``, creating it."""
+        work = self.root / "work" / name
+        if not work.exists():
+            work.mkdir(parents=True)
+            _git("init", "-q", "-b", "main", cwd=work)
+        for path, text in files.items():
+            (work / path).write_text(text)
+        _git("add", "-A", cwd=work)
+        _git("commit", "-q", "-m", "commit", cwd=work)
+        bare = self.root / "served" / f"{name}.git"
+        if not bare.exists():
+            _git("clone", "-q", "--bare", str(work), str(bare), cwd=self.root)
+        else:
+            _git("push", "-q", str(bare), "main", cwd=work)
+
+
+def _git(*args, cwd):
+    import subprocess
+
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+    )
+
+
 @pytest.fixture
 def auth_git_server(tmp_path, monkeypatch):
-    """A bare repository served over git's dumb HTTP protocol, behind basic
-    auth for USER and TOKEN: its url. Git is isolated from this machine's
-    config, so nothing prompts or stores the token."""
+    """An AuthGitServer with repository "repo" (a README). Git is isolated
+    from this machine's config, so nothing prompts or stores the token."""
     import base64
     import subprocess
     import threading
-    from functools import partial
-    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
     monkeypatch.delenv("GIT_ASKPASS", raising=False)
     monkeypatch.delenv("GIT_CONFIG_COUNT", raising=False)
-
-    def git(*args, cwd):
-        subprocess.run(
-            ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
-            cwd=cwd,
-            check=True,
-            capture_output=True,
-        )
-
-    work = tmp_path / "work"
-    work.mkdir()
-    git("init", "-q", "-b", "main", cwd=work)
-    (work / "README").write_text("hi\n")
-    git("add", "README", cwd=work)
-    git("commit", "-q", "-m", "init", cwd=work)
-    served = tmp_path / "served"
-    served.mkdir()
-    git("clone", "-q", "--bare", str(work), "repo.git", cwd=served)
-    git("update-server-info", cwd=served / "repo.git")
-
+    # left set by tests that run the cli, where it would skip the pulls tested
+    monkeypatch.delenv("UNFURL_SKIP_UPSTREAM_CHECK", raising=False)
+    (tmp_path / "served").mkdir()
     expected = "Basic " + base64.b64encode(f"{USER}:{TOKEN}".encode()).decode()
 
-    class Handler(SimpleHTTPRequestHandler):
-        def do_GET(self):
+    class Handler(BaseHTTPRequestHandler):
+        def backend(self):
             if self.headers.get("Authorization") != expected:
                 self.send_response(401)
                 self.send_header("WWW-Authenticate", 'Basic realm="git"')
                 self.end_headers()
                 return
-            super().do_GET()
+            path, _, query = self.path.partition("?")
+            length = int(self.headers.get("Content-Length") or 0)
+            env = dict(
+                os.environ,
+                GIT_PROJECT_ROOT=str(tmp_path / "served"),
+                GIT_HTTP_EXPORT_ALL="1",
+                PATH_INFO=path,
+                QUERY_STRING=query,
+                REQUEST_METHOD=self.command,
+                CONTENT_TYPE=self.headers.get("Content-Type", ""),
+                HTTP_CONTENT_ENCODING=self.headers.get("Content-Encoding", ""),
+                HTTP_GIT_PROTOCOL=self.headers.get("Git-Protocol", ""),
+                REMOTE_USER=USER,
+            )
+            out = subprocess.run(
+                ["git", "http-backend"],
+                input=self.rfile.read(length),
+                env=env,
+                capture_output=True,
+            ).stdout
+            sep = b"\r\n\r\n" if b"\r\n\r\n" in out else b"\n\n"
+            head, _, body = out.partition(sep)
+            status, headers = 200, []
+            for line in head.decode().splitlines():
+                key, _, value = line.partition(":")
+                if key.lower() == "status":
+                    status = int(value.split()[0])
+                else:
+                    headers.append((key, value.strip()))
+            self.send_response(status)
+            for key, value in headers:
+                self.send_header(key, value)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        do_GET = do_POST = backend
 
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(
-        ("127.0.0.1", 0), partial(Handler, directory=str(served))
-    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{server.server_address[1]}/repo.git"
+    git_server = AuthGitServer(tmp_path, server.server_address[1])
+    git_server.commit("repo", {"README": "hi\n"})
+    yield git_server
     server.shutdown()
 
 
@@ -1280,22 +1338,17 @@ def test_a_credentialed_clone_stores_no_credentials(auth_git_server, tmp_path):
     from unfurl.repo import Repo as UnfurlRepo
     from unfurl.util import UnfurlError
 
+    url = auth_git_server.url("repo")
     with pytest.raises(UnfurlError):
-        # dumb http can't make a shallow clone, so depth=0 throughout
-        UnfurlRepo.create_working_dir(auth_git_server, str(tmp_path / "anon"), depth=0)
+        UnfurlRepo.create_working_dir(url, str(tmp_path / "anon"))
 
     for symlinks in (True, False):
         dest = tmp_path / f"clone-{symlinks}"
         repo = UnfurlRepo.create_working_dir(
-            auth_git_server,
-            str(dest),
-            depth=0,
-            username=USER,
-            password=TOKEN,
-            symlinks=symlinks,
+            url, str(dest), username=USER, password=TOKEN, symlinks=symlinks
         )
         assert (dest / "README").exists()
-        assert repo.repo.git.config("remote.origin.url") == auth_git_server
+        assert repo.repo.git.config("remote.origin.url") == url
         config = (dest / ".git" / "config").read_text()
         assert "t%3Dk" not in config and USER not in config
         if not symlinks:
@@ -1318,3 +1371,94 @@ def test_git_config_env_appends():
         "GIT_CONFIG_VALUE_2": "2",
     }
     assert git_config_env([("c.d", "1")], {})["GIT_CONFIG_KEY_0"] == "c.d"
+
+
+MODES = {
+    "hosted": dict(apply_url_credentials=True, transient_url_credentials=True),
+    "gui": dict(apply_url_credentials=True),
+    "cli": {},
+}
+
+
+def _project_env(tmp_path, mode="hosted"):
+    """A LocalEnv on an empty project, with the overrides of ``mode``:
+    the hosted server's, the local gui's, or the command line's."""
+    from unfurl.localenv import LocalEnv
+
+    project = tmp_path / "project"
+    project.mkdir()
+    _git("init", "-q", cwd=project)
+    (project / "unfurl.yaml").write_text("apiVersion: unfurl/v1.0.0\nkind: Project\n")
+    return LocalEnv(str(project), homePath="", can_be_empty=True, overrides=MODES[mode])
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_hosted_server_clones_keep_no_credentials(auth_git_server, tmp_path, mode):
+    env = _project_env(tmp_path, mode)
+    given = auth_git_server.url("repo", credentials=True)
+    repo, _, created = env.find_or_create_working_dir(given)
+    assert created
+    stored = repo.repo.git.config("remote.origin.url")
+    # on a user's own machine the url is kept as given, as git does
+    assert stored == (auth_git_server.url("repo") if mode == "hosted" else given)
+
+
+def test_server_pulls_with_the_hosts_credentials(auth_git_server, tmp_path):
+    """A clone kept without credentials is pulled with those of another
+    repository on its host, the ones apply_url_credentials clones with."""
+    import git as gitpython
+
+    env = _project_env(tmp_path)
+    # stands in for the server's project clone, whose url has credentials
+    auth_git_server.commit("project", {"unfurl.yaml": "x\n"})
+    keeper = tmp_path / "project" / "keeper"
+    given = auth_git_server.url("project", credentials=True)
+    _git("clone", "-q", given, str(keeper), cwd=tmp_path)
+    env.project.workingDirs[str(keeper)] = GitRepo(gitpython.Repo(keeper)).as_repo_view()
+
+    url = auth_git_server.url("repo")
+    repo, _, created = env.find_or_create_working_dir(url)
+    assert created and repo.repo.git.config("remote.origin.url") == url
+
+    auth_git_server.commit("repo", {"README": "updated\n"})
+    repo, _, created = env.find_or_create_working_dir(url)
+    assert not created
+    assert open(os.path.join(repo.working_dir, "README")).read() == "updated\n"
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_a_blueprint_clone_keeps_no_credentials(auth_git_server, tmp_path, mode):
+    from unfurl.init import EnsembleBuilder
+
+    project_yaml = "apiVersion: unfurl/v1.0.0\nkind: Project\n"
+    auth_git_server.commit("blueprint", {"unfurl.yaml": project_yaml})
+    given = auth_git_server.url("blueprint", credentials=True)
+    options: dict = {"home": ""}
+    if mode != "cli":
+        options["parent_localenv"] = _project_env(tmp_path, mode)
+    dest = tmp_path / "dest"
+    EnsembleBuilder(given, "ensemble", options).clone_remote_project(None, str(dest))
+    stored = gitpython_config(dest, "remote.origin.url")
+    assert stored == (auth_git_server.url("blueprint") if mode == "hosted" else given)
+
+
+def gitpython_config(path, key):
+    import git as gitpython
+
+    return gitpython.Repo(path).git.config(key)
+
+
+@pytest.mark.parametrize("gui", [False, True])
+def test_only_the_hosted_server_keeps_clones_free_of_credentials(
+    tmp_path, monkeypatch, gui
+):
+    from unfurl.server.serve import app, _make_readonly_localenv
+
+    project_env = _project_env(tmp_path, "cli")
+    monkeypatch.setitem(app.config, "UNFURL_GUI_MODE", project_env if gui else None)
+    monkeypatch.setitem(app.config, "UNFURL_OPTIONS", {})
+    with app.app_context():
+        err, local_env = _make_readonly_localenv(str(tmp_path), "project")
+    assert not err and local_env
+    assert local_env.overrides.get("apply_url_credentials")
+    assert bool(local_env.overrides.get("transient_url_credentials")) == (not gui)

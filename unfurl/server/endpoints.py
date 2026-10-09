@@ -1362,6 +1362,9 @@ def _patch_ensemble(
     if gui_mode:
         overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
         overrides["use_local_cache"] = True
+    else:
+        # the hosted server's clones keep no credentials (see LocalEnv)
+        overrides["transient_url_credentials"] = True
     ensure_local_config(parent_localenv.project.projectRoot)
     local_env = LocalEnv(
         clone_location,

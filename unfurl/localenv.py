@@ -8,6 +8,7 @@ Repositories can optionally be organized into projects that have a local configu
 By convention, the "home" project defines a localhost instance and adds it to its context.
 """
 
+import contextlib
 import os
 import os.path
 from pathlib import Path
@@ -16,6 +17,7 @@ import traceback
 from typing import (
     Any,
     Callable,
+    ContextManager,
     Iterable,
     Dict,
     List,
@@ -35,6 +37,7 @@ from .repo import (
     add_user_to_url,
     normalize_git_url,
     split_git_url,
+    split_url_credentials,
     RepoView,
     normalize_git_url_hard,
 )
@@ -60,7 +63,7 @@ from .yamlloader import (
     make_yaml,
 )
 from . import DefaultNames, get_home_config_path
-from urllib.parse import urlparse, urlunsplit, urlsplit
+from urllib.parse import quote, unquote, urlparse, urlunsplit, urlsplit
 from ruamel.yaml.comments import CommentedMap
 from toscaparser.repositories import Repository
 
@@ -370,9 +373,7 @@ class Project:
         self, repoURL: str, revision: Optional[str] = None
     ) -> Tuple[Optional[RepoView], str, bool]:
         # if repo isn't found, return the repo url, possibly rewritten to include server credentials
-        apply_credentials = self.overrides.get("apply_url_credentials")
         candidate = None
-        repourl_parts = urlsplit(repoURL)
         normalized = normalize_git_url_hard(repoURL)
         for dir, repository in self.workingDirs.items():
             repo = repository.repo
@@ -393,21 +394,32 @@ class Project:
                     candidate = repository
                 else:
                     return repository, repoURL, True
-            elif apply_credentials:
-                # if an existing repository has the same hostname as the new repository's url
-                # and has credentials, update the new url with those credentials
-                candidate_parts = urlsplit(repo.url)
-                password = candidate_parts.password
-                if candidate_parts.username and password:
-                    if (
-                        candidate_parts.hostname == repourl_parts.hostname
-                        and candidate_parts.port == repourl_parts.port
-                    ):
-                        # rewrite repoUrl to add credentials
-                        repoURL = add_user_to_url(
-                            repoURL, candidate_parts.username, password
-                        )
+        credentials = candidate is None and self._credentials_for(repoURL)
+        if credentials:
+            username, password = credentials
+            repoURL = add_user_to_url(
+                repoURL, quote(username, safe=""), quote(password, safe="")
+            )
         return candidate, repoURL, False
+
+    def _credentials_for(self, url: str) -> Optional[Tuple[str, str]]:
+        """With ``apply_url_credentials``, the username and password in the url
+        of an existing repository on ``url``'s host."""
+        if not self.overrides.get("apply_url_credentials"):
+            return None
+        parts = urlsplit(url)
+        for repository in self.workingDirs.values():
+            if not repository.repo:
+                continue
+            other = urlsplit(repository.repo.url)
+            if (
+                other.username
+                and other.password
+                and other.hostname == parts.hostname
+                and other.port == parts.port
+            ):
+                return unquote(other.username), unquote(other.password)
+        return None
 
     def find_repo(self, repoURL: str, revision: Optional[str] = None) -> Optional[Repo]:
         repo, _, _ = self._find_repo(repoURL, revision)
@@ -441,7 +453,12 @@ class Project:
         return candidate, None, None
 
     def create_working_dir(
-        self, gitUrl: str, ref: Optional[str] = None, package: Optional[Package] = None
+        self,
+        gitUrl: str,
+        ref: Optional[str] = None,
+        package: Optional[Package] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
     ) -> Repo:
         localRepoPath = self._create_path_for_git_repo(gitUrl)
         if package and ref and is_semver(ref, True):
@@ -449,7 +466,9 @@ class Project:
         else:
             repo = None
         if not repo:
-            repo = Repo.create_working_dir(gitUrl, localRepoPath, ref)
+            repo = Repo.create_working_dir(
+                gitUrl, localRepoPath, ref, username=username, password=password
+            )
         # add to workingDirs
         self.workingDirs[os.path.abspath(localRepoPath)] = repo.as_repo_view()
         return repo
@@ -481,11 +500,17 @@ class Project:
         return newRepo
 
     def find_or_create_working_dir(
-        self, repoURL: str, revision: Optional[str] = None
+        self,
+        repoURL: str,
+        revision: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
     ) -> Repo:
         repo = self.find_repo(repoURL, revision)
         if not repo:
-            repo = self.create_working_dir(repoURL, revision)
+            repo = self.create_working_dir(
+                repoURL, revision, username=username, password=password
+            )
         return repo
 
     def adjust_manifest_path(self, location: dict, local_env: "LocalEnv") -> str:
@@ -1823,14 +1848,38 @@ class LocalEnv:
                 "Can not create clone repository, ensemble is not in an Unfurl project."
             )
             return None
+        username = password = None
+        if self.overrides.get("transient_url_credentials"):
+            # the hosted server's: clone with them, but don't store them in
+            # the clone, which other users' requests share
+            repoURL, username, password = split_url_credentials(repoURL)
         while project:
             if basepath is None or project.is_path_in_project(basepath):
-                repo = project.create_working_dir(repoURL, revision, package)
                 break
             project = project.parentProject
         else:  # no break
-            repo = start.create_working_dir(repoURL, revision, package)
-        return repo
+            project = start
+        return project.create_working_dir(
+            repoURL, revision, package, username=username, password=password
+        )
+
+    def _credentials_for(self, url: str) -> Optional[Tuple[str, str]]:
+        project = self.project or self.homeProject
+        while project:
+            credentials = project._credentials_for(url)
+            if credentials:
+                return credentials
+            project = project.parentProject
+        return None
+
+    def _upstream_credentials(self, repo: GitRepo) -> ContextManager[None]:
+        """Give ``repo``'s git commands the credentials for its remote's host
+        (see :py:meth:`_credentials_for`) when its url has none of its own."""
+        url = repo.url
+        credentials = not urlsplit(url).username and self._credentials_for(url)
+        if not credentials:
+            return contextlib.nullcontext()
+        return repo.with_credentials(url, *credentials)
 
     def find_or_create_working_dir(
         self,
@@ -1861,16 +1910,18 @@ class LocalEnv:
                             gitrepo = repo.convert_to_git()
                         else:
                             gitrepo = cast(GitRepo, repo)
-                        gitrepo.checkout(
-                            revision or "", fetch_first=True, **checkout_args
-                        )
+                        with self._upstream_credentials(gitrepo):
+                            gitrepo.checkout(
+                                revision or "", fetch_first=True, **checkout_args
+                            )
                         repoview.repo = gitrepo
                 elif (
                     not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
                     and isinstance(repo, GitRepo)
                     and not dirty
                 ):
-                    repo.pull(revision=revision)
+                    with self._upstream_credentials(repo):
+                        repo.pull(revision=revision)
         else:
             # url is the repoUrl (possibly rewritten) at this point
             # git-local repos must already exist locally

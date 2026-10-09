@@ -6,6 +6,7 @@ import os.path
 from pathlib import Path
 import re
 import sys
+from contextlib import contextmanager
 from functools import lru_cache
 from typing import (
     TYPE_CHECKING,
@@ -118,6 +119,15 @@ def sanitize_url(url: str, redact=True) -> str:
                 netloc = host
             return parts._replace(netloc=netloc).geturl()
     return url
+
+
+def split_url_credentials(url: str) -> Tuple[str, Optional[str], Optional[str]]:
+    """``url`` without its credentials, and its username and password."""
+    parts = urlparse(url)
+    if not parts.username:
+        return url, None, None
+    password = unquote(parts.password) if parts.password else None
+    return sanitize_url(url, False), unquote(parts.username), password
 
 
 def normalize_git_url_hard(url):
@@ -1350,6 +1360,18 @@ class GitRepo(Repo):
                 with_extended_output=True,
                 with_exceptions=with_exceptions,
             )
+
+    @contextmanager
+    def with_credentials(
+        self, url: str, username: str, password: Optional[str]
+    ) -> Iterator[None]:
+        """Run this repository's git commands with ``username`` and
+        ``password`` for ``url``, without storing them."""
+        gitcmd = self.repo.git
+        env = {**os.environ, **gitcmd.environment()}
+        config = credentials_config(url, username, password or "")
+        with gitcmd.custom_environment(**git_config_env(config, env)):
+            yield
 
     def add_to_local_git_ignore(self, rule):
         path = os.path.join(self.repo.git_dir, "info")

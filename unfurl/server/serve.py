@@ -2178,6 +2178,9 @@ def _make_readonly_localenv(
             safe_mode=True,
         )
         overrides["UNFURL_SEARCH_ROOT"] = clone_root
+        if not gui_local_env:
+            # the hosted server's clones keep no credentials (see LocalEnv)
+            overrides["transient_url_credentials"] = True
         if requested_format:
             overrides["format"] = requested_format
         clone_location = os.path.join(clone_root, deployment_path)
