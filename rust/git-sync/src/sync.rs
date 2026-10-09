@@ -3191,7 +3191,7 @@ mod race_tests {
                         }
                         Ok(())
                     },
-                    async || Ok(()),
+                    |_| Ok(()),
                 )
                 .await
                 .expect("export")
@@ -3207,45 +3207,168 @@ mod race_tests {
         .await;
     }
 
-    /// An export that fails after its edits moved loses nothing, and
-    /// calling it again finishes it.
+    /// An export that fails after any step from the move on loses
+    /// nothing, and calling it again finishes it.
     #[tokio::test]
     async fn a_failed_export_is_finished_by_the_next() {
+        use crate::export::ExportStep;
+        for at in [ExportStep::Moved, ExportStep::Written, ExportStep::Folded] {
+            each_backend(async |sync, dir| {
+                conflicted(sync, dir).await;
+                let base = git::worktree_meta(&sync.repo().expect("repo"))
+                    .expect("meta")
+                    .head_oid
+                    .expect("head");
+                let err = sync
+                    .export_failing("exported", at)
+                    .await
+                    .expect_err("stopped");
+                assert!(
+                    matches!(&err, Error::Other(m) if m.starts_with("stopped")),
+                    "{err:?}"
+                );
+                assert!(sync
+                    .list_conflicts(None)
+                    .await
+                    .expect("conflicts")
+                    .is_empty());
+                let repo = sync.repo().expect("repo");
+                let tip = git::branch_tip(&repo, "exported").expect("tip");
+                assert_eq!(tip, Some(base), "{at:?}: the ref stays at the base");
+                let folded = branch_commit(sync, "exported").await;
+
+                let exported = sync
+                    .export_conflicts("exported")
+                    .await
+                    .expect("finish")
+                    .expect("finished");
+                assert_ne!(exported.commit, base.to_string());
+                if at == ExportStep::Folded {
+                    assert_eq!(Some(&exported.commit), folded.as_ref(), "the commit folded");
+                }
+                let tip = git::branch_tip(&repo, "exported").expect("tip");
+                assert_eq!(tip.map(|t| t.to_string()), Some(exported.commit.clone()));
+                assert_eq!(name_at(sync, &exported.commit), "ours");
+                let again = sync.export_conflicts("exported").await;
+                assert!(
+                    matches!(again, Err(Error::BranchExists { .. })),
+                    "{again:?}"
+                );
+            })
+            .await;
+        }
+    }
+
+    /// The commit the database has branch `branch`'s worktree at.
+    async fn branch_commit(sync: &SyncedRepo, branch: &str) -> Option<String> {
+        let filter = crate::model::WorktreeFilter {
+            origin: None,
+            branch: Some(branch.into()),
+        };
+        let rows = sync.worktrees(&filter).await.expect("worktrees");
+        rows[0].commit_id.clone()
+    }
+
+    /// An export that failed after its fold, then a write: the next call
+    /// moves the ref to the commit folded.
+    #[tokio::test]
+    async fn a_failed_export_is_finished_after_a_write() {
+        use crate::export::ExportStep;
         each_backend(async |sync, dir| {
             conflicted(sync, dir).await;
-            let base = git::worktree_meta(&sync.repo().expect("repo"))
-                .expect("meta")
-                .head_oid
-                .expect("head");
-            let err = sync
-                .export_racing(
-                    "exported",
-                    async || Ok(()),
-                    async || Err(Error::Other("stopped".into())),
-                )
+            sync.export_failing("exported", ExportStep::Folded)
                 .await
-                .expect_err("stopped after the move");
-            assert!(matches!(&err, Error::Other(m) if m == "stopped"), "{err:?}");
-            assert!(sync
-                .list_conflicts(None)
+                .expect_err("stopped");
+            let folded = branch_commit(sync, "exported").await;
+            let write = crate::model::BatchOp::Upsert {
+                file_path: Some(FILE.into()),
+                path: "/repositories".into(),
+                key: "another".into(),
+                json: json!({"name": "another"}),
+                expected: None,
+                resolve: false,
+            };
+            sync.apply_batch(vec![write], true, None)
                 .await
-                .expect("conflicts")
-                .is_empty());
-            let tip = git::branch_tip(&sync.repo().expect("repo"), "exported").expect("tip");
-            assert_eq!(tip, Some(base), "the ref stays at the base");
+                .expect("a write");
 
             let exported = sync
                 .export_conflicts("exported")
                 .await
                 .expect("finish")
                 .expect("finished");
-            assert_ne!(exported.commit, base.to_string());
-            assert_eq!(name_at(sync, &exported.commit), "ours");
+            assert_eq!(Some(exported.commit), folded);
+        })
+        .await;
+    }
+
+    /// A failed export whose ref someone else committed to, before or
+    /// after its fold: the next call leaves the branch alone rather than
+    /// take their commit for its own.
+    #[tokio::test]
+    async fn a_failed_export_is_not_finished_on_another_commit() {
+        use crate::export::ExportStep;
+        for at in [ExportStep::Moved, ExportStep::Folded] {
+            each_backend(async |sync, dir| {
+                conflicted(sync, dir).await;
+                sync.export_failing("exported", at)
+                    .await
+                    .expect_err("stopped");
+                let repo = sync.repo().expect("repo");
+                let base = git::branch_tip(&repo, "exported")
+                    .expect("tip")
+                    .expect("the ref");
+                let theirs = vec![("other.txt".to_string(), Some(b"theirs".to_vec()))];
+                let c = git::commit_files_onto(&repo, base, &theirs, "theirs").expect("commit");
+                git::move_branch(&repo, "exported", base, c).expect("move");
+
+                let again = sync.export_conflicts("exported").await;
+                assert!(
+                    matches!(again, Err(Error::BranchExists { .. })),
+                    "{at:?}: {again:?}"
+                );
+                assert_eq!(git::branch_tip(&repo, "exported").expect("tip"), Some(c));
+            })
+            .await;
+        }
+    }
+
+    /// A finished export with an edit in its branch's draft since, as a
+    /// checkout of the branch would make: exporting to it again is
+    /// refused, with nothing committed or moved.
+    #[tokio::test]
+    async fn a_finished_export_is_not_resumed() {
+        each_backend(async |sync, dir| {
+            conflicted(sync, dir).await;
+            let exported = sync
+                .export_conflicts("exported")
+                .await
+                .expect("export")
+                .expect("exported");
+            let branch = sync.sibling(exported.worktree_id);
+            let edit = crate::model::BatchOp::Upsert {
+                file_path: Some(FILE.into()),
+                path: "/repositories".into(),
+                key: "on-the-branch".into(),
+                json: json!({"name": "on the branch"}),
+                expected: None,
+                resolve: false,
+            };
+            branch
+                .apply_batch(vec![edit], true, None)
+                .await
+                .expect("an edit on the branch");
+
             let again = sync.export_conflicts("exported").await;
             assert!(
                 matches!(again, Err(Error::BranchExists { .. })),
                 "{again:?}"
             );
+            let repo = sync.repo().expect("repo");
+            let tip = git::branch_tip(&repo, "exported").expect("tip");
+            assert_eq!(tip.map(|t| t.to_string()), Some(exported.commit));
+            let pending = branch.list_changes(None, false).await.expect("changes");
+            assert!(pending.iter().any(|r| r.key == "on-the-branch"));
         })
         .await;
     }

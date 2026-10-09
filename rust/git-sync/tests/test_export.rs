@@ -5,7 +5,10 @@
 
 mod common;
 
-use common::{crud_test, dashboard_on_disk, head_commit, stand_up_conflict, upsert_op, DASHBOARD};
+use common::{
+    crud_test, dashboard_on_disk, file_backed_fixture, head_commit, open_at, stand_up_conflict,
+    upsert_op, DASHBOARD,
+};
 use tempfile::TempDir;
 use unfurl_git_sync::{
     parse_commit_rollup, BatchOp, CommitOptions, Error, ScanOptions, SyncedRepo, TxnMeta,
@@ -143,6 +146,65 @@ async fn an_existing_branch_is_refused(sync: &SyncedRepo, tmp: &TempDir) {
     );
     assert_eq!(sync.list_conflicts(None).await.expect("conflicts").len(), 1);
     assert_eq!(name_of(sync, DASHBOARD).await, "ours");
+}
+
+/// Exporting to the worktree's own branch is refused, with nothing moved:
+/// its pending edits aren't an unfinished export.
+async fn its_own_branch_is_refused(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+    let branch = git_ok(tmp, &["rev-parse", "--abbrev-ref", "HEAD"]);
+    let head = head_commit(sync).await;
+    let err = sync.export_conflicts(&branch).await.expect_err("its own");
+    assert!(matches!(&err, Error::BranchExists { .. }), "{err:?}");
+    assert_eq!(git_ok(tmp, &["rev-parse", &branch]), head);
+    assert_eq!(sync.list_conflicts(None).await.expect("conflicts").len(), 1);
+    assert_eq!(name_of(sync, DASHBOARD).await, "ours");
+}
+
+/// Exporting to another live worktree's branch is refused, with nothing
+/// moved: that worktree's pending edits stay its own.
+#[tokio::test]
+async fn another_worktrees_branch_is_refused() {
+    let (tmp, db) = file_backed_fixture().await;
+    git_ok(
+        &tmp,
+        &["remote", "add", "origin", "https://example.com/export.git"],
+    );
+    let main = open_at(tmp.path(), &db).await;
+    stand_up_conflict(&main, &tmp).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("feature");
+    git_ok(
+        &tmp,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature",
+            path.to_str().expect("utf8"),
+        ],
+    );
+    let feature = open_at(&path, &db).await;
+    feature
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    feature
+        .apply_batch(vec![upsert_op("feature-edit")], true, None)
+        .await
+        .expect("a pending edit");
+    let tip = git_ok(&tmp, &["rev-parse", "feature"]);
+
+    let err = main.export_conflicts("feature").await.expect_err("taken");
+    assert!(matches!(&err, Error::BranchExists { .. }), "{err:?}");
+    assert_eq!(git_ok(&tmp, &["rev-parse", "feature"]), tip);
+    assert_eq!(main.list_conflicts(None).await.expect("conflicts").len(), 1);
+    let pending = feature.list_changes(None, false).await.expect("changes");
+    assert!(
+        pending.iter().any(|r| r.key == "feature-edit"),
+        "{pending:?}"
+    );
 }
 
 /// Merging the branch back conflicts in git where the records did, and
@@ -406,6 +468,7 @@ crud_test!(an_edit_whose_record_moved_is_a_new_record);
 crud_test!(the_base_is_where_the_edits_were_made);
 crud_test!(no_conflicts_export_nothing);
 crud_test!(an_existing_branch_is_refused);
+crud_test!(its_own_branch_is_refused);
 crud_test!(merging_the_branch_back_conflicts_in_git);
 crud_test!(batches_follow_their_records);
 crud_test!(a_wholly_exported_batch_leaves);

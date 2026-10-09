@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use proptest::prelude::*;
 use unfurl_git_sync::{
-    ConflictState, DataFormat, DbConfig, FormatRegistry, Record, RecordQuery, Resolution,
+    ConflictState, DataFormat, DbConfig, Exported, FormatRegistry, Record, RecordQuery, Resolution,
     ScanOptions, SyncedRepo,
 };
 
@@ -88,6 +88,14 @@ fn sql_export_op() -> impl Strategy<Value = Op> {
     export_op().prop_filter("the SQL side runs it", sql_supports)
 }
 
+/// Exports, some failing partway and finished by the next.
+fn sql_failed_export_op() -> impl Strategy<Value = Op> {
+    prop_oneof![
+        4 => sql_export_op(),
+        2 => any::<u8>().prop_map(Op::FailedExport),
+    ]
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(20))]
 
@@ -120,6 +128,12 @@ proptest! {
     fn exports_agree_with_the_implementation(ops in prop::collection::vec(sql_export_op(), 1..40)) {
         run(&ops);
     }
+
+    #[test]
+    #[ignore]
+    fn failed_exports_agree_with_the_implementation(ops in prop::collection::vec(sql_failed_export_op(), 1..40)) {
+        run(&ops);
+    }
 }
 
 // The random tests above are ignored, so these replay the seeds they saved
@@ -150,6 +164,11 @@ proptest! {
 
     #[test]
     fn exports_regressions(ops in prop::collection::vec(sql_export_op(), 1..40)) {
+        run(&ops);
+    }
+
+    #[test]
+    fn failed_exports_regressions(ops in prop::collection::vec(sql_failed_export_op(), 1..40)) {
         run(&ops);
     }
 }

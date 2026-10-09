@@ -417,6 +417,14 @@ pub(crate) trait Store: sqlx::Database + Sized {
         worktree_id: i64,
     ) -> impl Future<Output = Result<Vec<crate::model::Txn>>> + Send;
 
+    /// Worktree `worktree_id` is a branch the worktree on branch `from`
+    /// is exporting its conflicts to.
+    fn set_exporting_from(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+        from: &str,
+    ) -> impl Future<Output = Result<()>> + Send;
+
     /// `txn` row `id` belongs to `worktree_id` now.
     fn move_txn(
         tx: &mut sqlx::Transaction<'_, Self>,
@@ -1602,6 +1610,20 @@ macro_rules! store_impl {
                          created_at, commit_id FROM txn WHERE worktree_id = ?1 AND commit_id IS NULL \
                      ORDER BY first_version, id",);
                 Ok(sqlx::query_as(&sql).bind(worktree_id).fetch_all(&mut **tx).await?)
+            }
+
+            async fn set_exporting_from(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                worktree_id: i64,
+                from: &str,
+            ) -> Result<()> {
+                let sql = sql!(tx, "UPDATE worktree SET exporting_from = ?2 WHERE id = ?1");
+                sqlx::query(&sql)
+                    .bind(worktree_id)
+                    .bind(from)
+                    .execute(&mut **tx)
+                    .await?;
+                Ok(())
             }
 
             async fn move_txn(

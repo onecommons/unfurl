@@ -490,7 +490,7 @@ pub fn export_base(
 }
 
 /// `commit`'s tree.
-fn tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::ObjectId> {
+pub(crate) fn tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::ObjectId> {
     Ok(repo
         .find_commit(commit)
         .map_err(git_err)?
@@ -814,7 +814,7 @@ fn present(repo: &gix::Repository, commit: &str) -> Result<Option<gix::ObjectId>
         .map(|_| oid))
 }
 
-fn parents(repo: &gix::Repository, oid: gix::ObjectId) -> Result<Vec<gix::ObjectId>> {
+pub(crate) fn parents(repo: &gix::Repository, oid: gix::ObjectId) -> Result<Vec<gix::ObjectId>> {
     Ok(repo
         .find_commit(oid)
         .map_err(git_err)?

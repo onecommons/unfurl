@@ -13,6 +13,10 @@ CREATE TABLE worktree (
     -- the first `update_from_working_dir` run; never overwritten
     -- afterwards (operators can pin it manually).
     default_file_path TEXT,
+    -- For a branch C.20 is exporting conflicts to, until its ref is at
+    -- its commit: the branch of the worktree exporting them, in the same
+    -- origin.
+    exporting_from    TEXT,
     -- The family's root worktree, whose `version_seq` row this one draws
     -- versions from.
     family_id         BIGINT,

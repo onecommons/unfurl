@@ -13,7 +13,7 @@ fn sql_supports(op: &Op) -> bool {
         // a trailer is a commit's; there's no working-tree form of it
         Op::DiskEdit(_, _, _, wins) => !matches!(wins, FileWins::Diverged),
         Op::Fork(..) | Op::Rebuild(..) | Op::Rebase(..) | Op::Delete(_) => true,
-        Op::Export(_) => true,
+        Op::Export(_) | Op::FailedExport(_) => true,
         _ => false,
     }
 }
@@ -62,6 +62,7 @@ impl Before {
             | Op::Rebuild(n, ..)
             | Op::Rebase(n, ..)
             | Op::Export(n) => Some(n),
+            Op::FailedExport(n) => Some(n / 3),
             _ => None,
         };
         let w = n.and_then(|n| world.pick(n, false)).unwrap_or(MAIN);
@@ -246,12 +247,17 @@ impl SqlWorld {
                     .block_on(self.repos[&w].resolve_conflict(&file, path, &key, resolution, None))
                     .unwrap();
             }
-            Op::Export(_) => {
+            Op::Export(_) | Op::FailedExport(_) => {
                 let branch = format!("export-{}", before.wts);
-                let got = self
-                    .rt
-                    .block_on(self.repos[&w].export_conflicts(&branch))
-                    .unwrap();
+                let failed = match *op {
+                    Op::FailedExport(n) => self.fail_export(w, &branch, n % 3),
+                    _ => None,
+                };
+                let got = failed.unwrap_or_else(|| {
+                    self.rt
+                        .block_on(self.repos[&w].export_conflicts(&branch))
+                        .unwrap()
+                });
                 if world.model.wts.len() == before.wts {
                     assert!(got.is_none(), "the implementation exported: {got:?}");
                     return;
@@ -288,6 +294,20 @@ impl SqlWorld {
                 }
             }
             _ => unreachable!("unsupported ops aren't run"),
+        }
+    }
+
+    /// Export `w`'s conflicts to `branch`, failing after step `step` of 3:
+    /// `None` when it failed, else what it did, with nothing to move or
+    /// no such step to fail after.
+    fn fail_export(&mut self, w: Wt, branch: &str, step: u8) -> Option<Option<Exported>> {
+        use unfurl_git_sync::export::ExportStep;
+        let steps = [ExportStep::Moved, ExportStep::Written, ExportStep::Folded];
+        let at = steps[step as usize];
+        match self.rt.block_on(self.repos[&w].export_failing(branch, at)) {
+            Err(unfurl_git_sync::Error::Other(m)) if m.starts_with("stopped") => None,
+            Err(e) => panic!("the failed export: {e}"),
+            Ok(done) => Some(done),
         }
     }
 

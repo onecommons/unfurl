@@ -556,6 +556,13 @@ How it differs from this plan:
   branch's draft, and exporting to the same branch finishes it. An error
   from `commit_repository` after its export leaves them on the branch
   its options name; calling it again finishes an unfinished export.
+  The draft is folded into the commit before the ref moves, so the
+  database already names the commit when only the ref is left to move.
+  Only the exporting worktree's own unfinished export is resumed:
+  `worktree.exporting_from` names its branch from the move transaction
+  until the ref is at the commit, so no other worktree's state, and no
+  finished export's, passes for one. The branch and its commit are only
+  in the local repository until pushed: a new clone has neither.
 - **The branch gets the source's file rows** at the base, so its commit
   parses only the files the export changed.
 - **No entries are copied:** re-linking the branch's draft derives them.

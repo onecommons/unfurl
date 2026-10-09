@@ -9,8 +9,8 @@ use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{FileRow, NewRecordRow, RecordRow};
 use crate::db::{self, on_pool};
 use crate::error::{Error, Result};
-use crate::model::{ConflictState, Exported, Record, Resolution};
-use crate::rollup::build_commit_message;
+use crate::model::{CommitRollup, ConflictState, Exported, Record, Resolution};
+use crate::rollup::{build_commit_message, parse_commit_rollup};
 use crate::scan::Carried;
 use crate::sync::WRITE_ATTEMPTS;
 use crate::{git, segments, SyncedRepo};
@@ -25,6 +25,18 @@ enum Attempt {
     Raced,
 }
 
+/// The steps of an export after its edits move to the branch, where a
+/// failure leaves it for the next call to finish.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExportStep {
+    /// The edits are in the branch's draft, and its ref is at the base.
+    Moved,
+    /// The commit is written, unreachable, and the ref still at the base.
+    Written,
+    /// The draft is folded into the commit, and the ref still at the base.
+    Folded,
+}
+
 impl SyncedRepo {
     /// Move this worktree's edits under an unresolved conflict to a new
     /// branch `branch`, with no checkout, forked where they were made and
@@ -34,37 +46,53 @@ impl SyncedRepo {
     /// finds new ones first, as [`Self::commit_repository`] runs one.
     ///
     /// An export that failed after its edits moved is finished by calling
-    /// this again with the same `branch`.
+    /// this again with the same `branch`. The branch is only in this
+    /// repository until it's pushed: a new clone has neither it nor its
+    /// commit.
     ///
     /// # Errors
     ///
     /// [`Error::BranchExists`] when the ref or a worktree of `branch`
-    /// exists, other than an unfinished export's; [`Error::Other`] when
-    /// writes kept changing the conflicted edits. A file that can't be
-    /// rendered at the base fails it with nothing changed.
+    /// exists, other than this worktree's unfinished export;
+    /// [`Error::Other`] when writes kept changing the conflicted edits. A
+    /// file that can't be rendered at the base fails it with nothing
+    /// changed.
     pub async fn export_conflicts(&self, branch: &str) -> Result<Option<Exported>> {
-        self.export_racing(branch, async || Ok(()), async || Ok(()))
+        self.export_racing(branch, async || Ok(()), |_| Ok(()))
             .await
     }
 
+    /// [`Self::export_conflicts`], failing after step `at`.
+    #[cfg(feature = "fault-injection")]
+    pub async fn export_failing(&self, branch: &str, at: ExportStep) -> Result<Option<Exported>> {
+        let fail = |step| match step == at {
+            true => Err(Error::Other(format!("stopped after {step:?}"))),
+            false => Ok(()),
+        };
+        self.export_racing(branch, async || Ok(()), fail).await
+    }
+
     /// [`Self::export_conflicts`], running `before_move` between reading
-    /// the conflicted edits and moving them, and `after_move` between the
-    /// move and the commit: where another writer, or a failure, would come.
+    /// the conflicted edits and moving them, and `after` after each step
+    /// from the move on: where another writer, or a failure, would come.
     pub(crate) async fn export_racing(
         &self,
         branch: &str,
         mut before_move: impl AsyncFnMut() -> Result<()>,
-        mut after_move: impl AsyncFnMut() -> Result<()>,
+        mut after: impl FnMut(ExportStep) -> Result<()>,
     ) -> Result<Option<Exported>> {
-        if let Some(exported) = self.resume_export(branch).await? {
+        if let Some(exported) = self.resume_export(branch, &mut after).await? {
             return Ok(Some(exported));
         }
         for _ in 0..WRITE_ATTEMPTS {
             match self.try_export(branch, &mut before_move).await? {
                 Attempt::Nothing => return Ok(None),
                 Attempt::Moved(n, base) => {
-                    after_move().await?;
-                    return self.commit_export(branch, n, base).await.map(Some);
+                    after(ExportStep::Moved)?;
+                    return self
+                        .commit_export(branch, n, base, &mut after)
+                        .await
+                        .map(Some);
                 }
                 Attempt::Raced => {}
             }
@@ -74,28 +102,39 @@ impl SyncedRepo {
         )))
     }
 
-    /// Finish an export of `branch` that failed after its edits moved: its
-    /// worktree's draft still holds them, and the ref still names the base.
-    /// `None` when there's no worktree of `branch`.
-    async fn resume_export(&self, branch: &str) -> Result<Option<Exported>> {
-        let origin = db::worktree::get(self.db(), self.worktree_id())
-            .await?
-            .origin;
-        let Some(n) = db::worktree::find(self.db(), &origin, branch).await? else {
+    /// Finish this worktree's export of `branch` that failed after its
+    /// edits moved: the branch's draft still holds them, or they're folded
+    /// into a commit its ref isn't at yet. `None` when there's no worktree
+    /// of `branch`.
+    async fn resume_export(
+        &self,
+        branch: &str,
+        after: &mut impl FnMut(ExportStep) -> Result<()>,
+    ) -> Result<Option<Exported>> {
+        let this = db::worktree::get(self.db(), self.worktree_id()).await?;
+        let Some(n) = db::worktree::find(self.db(), &this.origin, branch).await? else {
             return Ok(None);
         };
-        let base = db::worktree::get(self.db(), n).await?.commit_id;
-        let tip = git::branch_tip(&self.repo()?, branch)?.map(|t| t.to_string());
+        let exporting = db::worktree::get(self.db(), n).await?;
+        // only an unfinished export from this worktree: anything else, this
+        // one included, has edits and commits of its own
+        let repo = self.repo()?;
+        let tip = git::branch_tip(&repo, branch)?;
+        let (true, Some(at), Some(tip)) = (
+            exporting.exporting_from.as_ref() == Some(&this.branch),
+            exporting.commit_id,
+            tip,
+        ) else {
+            return Err(exists(branch));
+        };
+        let at = gix::ObjectId::from_hex(at.as_bytes()).map_err(|e| Error::Git(e.to_string()))?;
         let pending = !on_pool!(self.db(), pool => draft_edits_in_pool(pool, n).await)?.is_empty();
-        match base {
-            Some(base) if pending && tip.as_deref() == Some(base.as_str()) => {
-                let base = gix::ObjectId::from_hex(base.as_bytes())
-                    .map_err(|e| Error::Git(e.to_string()))?;
-                self.commit_export(branch, n, base).await.map(Some)
+        match (pending, tip == at) {
+            (true, true) => self.commit_export(branch, n, at, after).await.map(Some),
+            (false, false) if git::parents(&repo, at)? == [tip] => {
+                self.finish_export(branch, n, tip, at).await.map(Some)
             }
-            _ => Err(Error::BranchExists {
-                branch: branch.to_string(),
-            }),
+            _ => Err(exists(branch)),
         }
     }
 
@@ -121,13 +160,14 @@ impl SyncedRepo {
         self.render_at(&repo, base, edits.iter().cloned().map(|e| e.into_record(w)))?;
         let blobs = git::tree_blobs(&repo, &base.to_string())?;
         let files = self.files_at(&blobs).await?;
-        let origin = db::worktree::get(self.db(), w).await?.origin;
+        let from = db::worktree::get(self.db(), w).await?;
         // claims the name before anything in the database changes
         git::create_branch(&repo, branch, base)?;
         let ids: Vec<i64> = edits.iter().map(|e| e.id).collect();
         let fork = Fork {
-            origin: &origin,
+            origin: &from.origin,
             branch,
+            from: &from.branch,
             base: &base.to_string(),
             files: &files,
         };
@@ -196,9 +236,15 @@ impl SyncedRepo {
         on_pool!(self.db(), pool => move_in_pool(self, pool, &mut history, fork, ids).await)
     }
 
-    /// Commit the branch `n`'s draft onto `base`, moving the ref there,
-    /// and fold it into its head.
-    async fn commit_export(&self, branch: &str, n: i64, base: gix::ObjectId) -> Result<Exported> {
+    /// Commit branch `n`'s draft onto `base`, fold it into its head, and
+    /// move the ref there.
+    async fn commit_export(
+        &self,
+        branch: &str,
+        n: i64,
+        base: gix::ObjectId,
+        after: &mut impl FnMut(ExportStep) -> Result<()>,
+    ) -> Result<Exported> {
         let sib = self.sibling(n);
         let repo = self.repo()?;
         let edits = on_pool!(self.db(), pool => draft_edits_in_pool(pool, n).await)?;
@@ -212,11 +258,11 @@ impl SyncedRepo {
                 let message =
                     build_commit_message(&format!("Export conflicts to {branch}"), &rollup);
                 let c = git::commit_files_onto(&repo, base, &changed, &message)?;
-                git::move_branch(&repo, branch, base, c)?;
+                after(ExportStep::Written)?;
                 c
             }
         };
-        let commit = commit.to_string();
+        let oid = commit.to_string();
         // its files at the base, so only those the export changed are parsed
         let known: std::collections::HashMap<String, crate::model::File> =
             db::file::list(self.db(), n)
@@ -224,16 +270,55 @@ impl SyncedRepo {
                 .into_iter()
                 .map(|f| (f.path.clone(), f))
                 .collect();
-        let head_side = sib.head_files(&repo, Some(&commit), &known, false)?;
+        let head_side = sib.head_files(&repo, Some(&oid), &known, false)?;
         let carried = Carried {
-            commit: &commit,
+            commit: &oid,
             files: &files,
             removed: &[],
             watermark,
             head_files: &head_side.files,
             named: &named,
         };
+        // before the ref moves: the commit is then the branch's in the
+        // database, and an export that fails here only has the ref to move
         on_pool!(self.db(), pool => crate::scan::commit_in_pool(&sib, pool, &carried).await)?;
+        if commit != base {
+            after(ExportStep::Folded)?;
+        }
+        self.branch_export(branch, n, base, commit, rollup).await
+    }
+
+    /// Finish an export whose draft is folded into `commit`: move the ref
+    /// there from `base`.
+    async fn finish_export(
+        &self,
+        branch: &str,
+        n: i64,
+        base: gix::ObjectId,
+        commit: gix::ObjectId,
+    ) -> Result<Exported> {
+        let message = git::commit_message(&self.repo()?, &commit.to_string()).unwrap_or_default();
+        let rollup = parse_commit_rollup(&message)?.ok_or_else(|| {
+            Error::Other(format!(
+                "{branch}: the export's commit {commit} has no rollup"
+            ))
+        })?;
+        self.branch_export(branch, n, base, commit, rollup).await
+    }
+
+    /// Move `branch` from `base` to `commit`, and the export is finished.
+    async fn branch_export(
+        &self,
+        branch: &str,
+        n: i64,
+        base: gix::ObjectId,
+        commit: gix::ObjectId,
+        rollup: CommitRollup,
+    ) -> Result<Exported> {
+        if commit != base {
+            git::move_branch(&self.repo()?, branch, base, commit)?;
+        }
+        db::worktree::clear_exporting(self.db(), n).await?;
         let records = rollup
             .txns
             .into_iter()
@@ -243,17 +328,25 @@ impl SyncedRepo {
         Ok(Exported {
             branch: branch.to_string(),
             worktree_id: n,
-            commit,
+            commit: commit.to_string(),
             records,
         })
     }
 }
 
-/// Where the branch is forked: its worktree's origin and branch, the base
-/// commit, and the files there (path, format, blob).
+fn exists(branch: &str) -> Error {
+    Error::BranchExists {
+        branch: branch.to_string(),
+    }
+}
+
+/// Where the branch is forked: its worktree's origin and branch, the
+/// exporting worktree's branch, the base commit, and the files there
+/// (path, format, blob).
 struct Fork<'a> {
     origin: &'a str,
     branch: &'a str,
+    from: &'a str,
     base: &'a str,
     files: &'a [(String, String, String)],
 }
@@ -341,6 +434,7 @@ async fn move_in_pool<DB: Store>(
         };
         DB::upsert_file(&mut tx, n, &row).await?;
     }
+    DB::set_exporting_from(&mut tx, n, fork.from).await?;
     copy_edits(&mut tx, n, &edits).await?;
     for e in &edits {
         resolve_conflict_in_tx(&mut tx, sync, e.at(), Resolution::Theirs, None).await?;

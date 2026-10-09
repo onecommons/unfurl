@@ -47,6 +47,9 @@ pub struct Worktree {
     /// [`crate::SyncedRepo::update_from_working_dir`] run; never
     /// overwritten afterwards (operators can pin it manually).
     pub default_file_path: Option<String>,
+    /// For a branch [`crate::SyncedRepo::export_conflicts`] hasn't
+    /// finished exporting to: the branch of the worktree exporting.
+    pub exporting_from: Option<String>,
 }
 
 /// One row of the `file` table — a tracked file within a worktree.

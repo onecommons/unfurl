@@ -40,7 +40,8 @@ pub(crate) async fn matching(
     db: &Db,
     filter: &crate::model::WorktreeFilter,
 ) -> Result<Vec<crate::model::Worktree>> {
-    const SQL: &str = "SELECT id, origin, branch, commit_id, default_file_path FROM worktree \
+    const SQL: &str =
+        "SELECT id, origin, branch, commit_id, default_file_path, exporting_from FROM worktree \
          WHERE (CAST(?1 AS TEXT) IS NULL OR origin = ?1) \
            AND (CAST(?2 AS TEXT) IS NULL OR branch = ?2) ORDER BY id";
     let (origin, branch) = filter.normalized();
@@ -55,13 +56,24 @@ pub(crate) async fn matching(
 
 pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Worktree> {
     const SQL: &str =
-        "SELECT id, origin, branch, commit_id, default_file_path FROM worktree WHERE id = ?1";
+        "SELECT id, origin, branch, commit_id, default_file_path, exporting_from FROM worktree WHERE id = ?1";
     Ok(on_pool!(db, pool => {
         sqlx::query_as(sql!(pool, SQL))
             .bind(worktree_id)
             .fetch_one(pool)
             .await?
     }))
+}
+
+/// Worktree `worktree_id`'s export is finished.
+pub(crate) async fn clear_exporting(db: &Db, worktree_id: i64) -> Result<()> {
+    on_pool!(db, pool => {
+        sqlx::query(sql!(pool, "UPDATE worktree SET exporting_from = NULL WHERE id = ?1"))
+            .bind(worktree_id)
+            .execute(pool)
+            .await?;
+    });
+    Ok(())
 }
 
 /// The root worktree of `worktree_id`'s family: the upstream it and its

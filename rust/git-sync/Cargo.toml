@@ -24,6 +24,8 @@ postgres = ["sqlx/postgres"]
 # Compatibility alias so callers can still write `--features sqlite` —
 # SQLite is always built in, this is a no-op flag.
 sqlite = []
+# `SyncedRepo::export_failing`, for tests of what a failed export leaves.
+fault-injection = []
 
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "sync"] }
@@ -63,6 +65,7 @@ schemars = "0.8"
 serde_json = { version = "1", features = ["preserve_order"] }
 
 [dev-dependencies]
+unfurl-git-sync = { path = ".", features = ["fault-injection"] }
 proptest = "1.11.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "sync"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

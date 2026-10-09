@@ -2136,3 +2136,20 @@ fn an_export_of_a_deletion_hides_the_base_row() {
         Op::Export(0),
     ]);
 }
+
+/// An export failing after each of its steps, finished by the next, then
+/// another export from the same worktree.
+#[test]
+fn a_failed_export_is_finished_by_the_next() {
+    for step in 0..3 {
+        run(&[
+            Op::Write(0, 0, false),
+            Op::External(0, vec![(1, false)]),
+            Op::DiskEdit(0, 0, false, FileWins::Never),
+            Op::FailedExport(step),
+            Op::Write(0, 1, false),
+            Op::External(0, vec![(1, true)]),
+            Op::Export(0),
+        ]);
+    }
+}

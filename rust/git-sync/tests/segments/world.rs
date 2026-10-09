@@ -40,6 +40,10 @@ enum Op {
     Move(u8, Key, bool),
     /// Export a worktree's unresolved conflicts to a new branch (C.20).
     Export(u8),
+    /// An export that fails after one of its steps and is finished by the
+    /// next: the same as one that didn't fail. `.0 / 3` picks the
+    /// worktree and `.0 % 3` the step.
+    FailedExport(u8),
     /// A merge made outside the database into a worktree's head of other
     /// worktrees' commits (each a worktree and how far back), checked out
     /// and scanned. `.3` picks each conflicting key's side, and `.4` are
@@ -994,6 +998,7 @@ impl World {
                     .push(OWt::new(self.git.commits[c].clone(), ids, false));
             }
             Op::Export(n) => self.export(n),
+            Op::FailedExport(n) => self.export(n / 3),
             Op::NewUser => {
                 let pos = self.imp.wts[MAIN].history.len() - 1;
                 self.imp.fork(MAIN, pos, &self.git);

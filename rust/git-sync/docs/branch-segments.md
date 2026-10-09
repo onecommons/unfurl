@@ -1393,12 +1393,20 @@ server-side hook, a name already taken) fails the push and changes
 nothing locally.
 
 **What it needs:**
-- **gix 0.89 or later,** with its `merge` feature for the tree merge, and
-  `blocking-network-client` for fetch. Upgrading from 0.66 is due anyway
-  for security advisories (RUSTSEC-2025-0021, RUSTSEC-2025-0140).
-- **Push,** which gix (0.89 too) doesn't do: the `git` command line or
-  git2. Credentials come from wherever the server's existing pushes get
-  theirs. Nor does it rebase, which the unfold makes unnecessary.
+- **The `git` command line** for what gix (0.89) doesn't do:
+  - **push;**
+  - **updating the working tree and index** for the fast-forward and the
+    reset: `git merge --ff-only` and `git reset --hard`. gix's only
+    checkout (`gix_worktree_state::checkout`, what a clone uses) writes
+    every index entry, removes nothing the new tree dropped, and
+    overwrites local changes unchecked.
+
+  Credentials come from wherever the server's existing pushes get
+  theirs. Nor does git-sync rebase, which the unfold makes unnecessary.
+- **gix's `merge` feature** for the tree merge, and
+  `blocking-network-client` for fetch, unless the `git` command line
+  fetches too. git-sync is on gix 0.89, which has both; neither is
+  enabled yet.
 - **Exclusive use of the checkout** for a reset. Pulling and pushing hold
   the family lock only for their structural steps
   ([§4.14](#414-concurrency)); the network and gix work happens outside
@@ -3170,19 +3178,26 @@ draft is `:d`. In order:
    (§4.14), below. It also gives `:n` W's file rows, with their blobs at
    `:base`: a fork has none, and `:n` has no checkout to scan.
 5. **Commit:** render `:n`'s draft onto `:base`'s blobs, with the rollup
-   of `:n`'s batches, as the commit `:commit` whose parent is `:base`, and
-   move the ref to it. When the edits change nothing there, `:commit` is
-   `:base`.
+   of `:n`'s batches, as the commit `:commit` whose parent is `:base`.
+   Nothing names it yet. When the edits change nothing there, `:commit`
+   is `:base`.
 6. **Fold** `:n`'s draft into its head at `:commit` (C.12), and bring the
    head up to its tree (C.10). With `:n`'s file rows at the base, only
    the files the export changed are parsed.
+7. **Move the ref** from `:base` to `:commit`, and clear
+   `worktree.exporting_from`.
 
 The commit is written after the move because its rollup names ids that
 only the move settles (step 2 below renews some). Between the two, the
-edits are in `:n`'s draft, where nothing else writes. A failure there
-loses nothing: an export of the same `:branch` finds `:n` with an
-uncommitted draft and the ref still at its base, and finishes steps 5
-and 6.
+edits are in `:n`'s draft, where nothing else writes. The fold comes
+before the ref moves, so that once it's done the database names the
+commit and only the ref is left. A failure anywhere loses nothing: an
+export of the same `:branch` from W finds `:n` marked as W's unfinished
+export, with either an uncommitted draft and the ref at `:n`'s commit
+(steps 5 to 7 to go) or an empty draft and the ref at that commit's
+parent (step 7 to go). The mark is what keeps a live worktree's
+pending edits, or a finished export's, from passing for an unfinished
+one.
 
 ```sql
 -- the edits that go: W's pending edits at a key with an unresolved
@@ -3249,4 +3264,7 @@ WHERE worktree_id = :w AND commit_id IS NULL
 --    each place it holds. W's entries aren't copied: those at other places
 --    hide the record where W's history moved it from, which :n's needn't
 --    have done.
+
+-- 6. :n is W's unfinished export until step 7
+UPDATE worktree SET exporting_from = :w_branch WHERE id = :n;
 ```
