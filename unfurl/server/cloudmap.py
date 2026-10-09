@@ -213,7 +213,9 @@ def _forward_default(path: str) -> Optional[Response]:
         return None
     params = [(k, v) for k, v in request.args.items(multi=True) if k != "auth_project"]
     body = _get_body(request) if request.method == "POST" else None
-    r = proxy.forward(request.method, path, params, body)
+    # lets the rust server refuse a request it forwarded here
+    via = ", ".join(filter(None, [request.headers.get("Via"), "1.1 unfurl"]))
+    r = proxy.forward(request.method, path, params, body, {"Via": via})
     return Response(
         r.content,
         status=r.status_code,

@@ -8,7 +8,9 @@ use axum::{
     http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Response},
 };
+use once_cell::sync::Lazy;
 use reqwest::Client;
+use std::hash::{BuildHasher, Hasher};
 
 /// Forward an incoming request to the Python backend and stream the
 /// response back to the client.
@@ -32,6 +34,11 @@ pub async fn forward(
             return (StatusCode::BAD_GATEWAY, "bad gateway").into_response();
         }
     };
+
+    if via_names_this_proxy(req.headers()) {
+        tracing::error!("{} came back to this proxy; refusing it", path_and_query);
+        return (StatusCode::LOOP_DETECTED, "loop detected").into_response();
+    }
 
     // Build the proxied request.
     let method = req.method().clone();
@@ -59,6 +66,7 @@ pub async fn forward(
             builder = builder.header(n, v);
         }
     }
+    builder = builder.header(header::VIA, format!("1.1 {}", *VIA_PSEUDONYM));
     builder = builder.body(body_bytes);
 
     let target_str = target.to_string();
@@ -95,8 +103,25 @@ fn is_hop_by_hop(name: &str) -> bool {
     )
 }
 
-/// Pseudonym this proxy identifies itself by in `Via`.
-const VIA_PSEUDONYM: &str = "unfurl-server";
+/// Pseudonym this proxy identifies itself by in `Via`: unique to the
+/// process, so a request relayed through another unfurl-server isn't taken
+/// for one that came back here.
+static VIA_PSEUDONYM: Lazy<String> = Lazy::new(|| {
+    let id = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish();
+    format!("unfurl-server-{id:016x}")
+});
+
+/// Whether a `Via` entry on `headers` is this proxy's.
+fn via_names_this_proxy(headers: &HeaderMap) -> bool {
+    headers
+        .get_all(header::VIA)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .any(|entry| entry.split_whitespace().nth(1) == Some(VIA_PSEUDONYM.as_str()))
+}
 
 /// `received-protocol` for a `Via` entry: the HTTP version the response
 /// arrived on. The protocol name is omitted for HTTP, per RFC 9110.
@@ -115,7 +140,7 @@ fn via_protocol(version: reqwest::Version) -> &'static str {
 async fn convert_response(resp: reqwest::Response) -> Response {
     let status =
         StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    let via = format!("{} {}", via_protocol(resp.version()), VIA_PSEUDONYM);
+    let via = format!("{} {}", via_protocol(resp.version()), *VIA_PSEUDONYM);
     let mut headers = HeaderMap::new();
     for (name, value) in resp.headers().iter() {
         if is_hop_by_hop(name.as_str()) {

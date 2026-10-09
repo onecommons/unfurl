@@ -1508,7 +1508,8 @@ def test_cli_server_without_a_configured_cloudmap_uses_its_own(monkeypatch, tmp_
 
 def test_default_rust_worktree_is_forwarded_to(monkeypatch):
     """Without a project, reads and writes are forwarded to the rust server's
-    worktree with the request's own parameters."""
+    worktree with the request's own parameters, and its Via, so it can tell
+    a request it forwarded here."""
     from unfurl.cloudmap.proxy import CloudMapProxy
 
     monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
@@ -1522,21 +1523,30 @@ def test_default_rust_worktree_is_forwarded_to(monkeypatch):
         status_code = 200
         headers = {"Content-Type": "application/json"}
 
-    def forward(self, method, path, params, body=None):
-        sent.append((method, path, params, body))
+    def forward(self, method, path, params, body=None, headers=None):
+        sent.append((method, path, params, body, headers))
         return Answer()
 
     monkeypatch.setattr(CloudMapProxy, "forward", forward)
     client = server.app.test_client()
-    res = client.get("/cloudmap/facets?group_by=type&facet=type")
+    res = client.get(
+        "/cloudmap/facets?group_by=type&facet=type",
+        headers={"Via": "1.1 unfurl-server-1"},
+    )
     assert res.json == {"forwarded": True}
     # a server started by the cli writes without a project too
     monkeypatch.setenv("UNFURL_SERVE_PATH", ".")
     res = client.post("/cloudmap", json={"repositories": {}})
     assert res.json == {"forwarded": True}
     assert sent == [
-        ("GET", "/facets", [("group_by", "type"), ("facet", "type")], None),
-        ("POST", "", [], {"repositories": {}}),
+        (
+            "GET",
+            "/facets",
+            [("group_by", "type"), ("facet", "type")],
+            None,
+            {"Via": "1.1 unfurl-server-1, 1.1 unfurl"},
+        ),
+        ("POST", "", [], {"repositories": {}}, {"Via": "1.1 unfurl"}),
     ]
 
 
@@ -1595,7 +1605,7 @@ def test_default_upstream_cloudmap_is_forwarded_to(monkeypatch, tmp_path):
         status_code = 200
         headers = {"Content-Type": "application/json"}
 
-    def forward(self, method, path, params, body=None):
+    def forward(self, method, path, params, body=None, headers=None):
         sent.append((self, self._endpoint, self._base_query, self._headers()))
         return Answer()
 

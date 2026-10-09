@@ -543,18 +543,19 @@ class CloudMapProxy(CloudMapStore):
         path: str,
         params: List[Tuple[str, str]],
         body: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
     ) -> requests.Response:
         """Send a request to ``path`` under the server's ``/cloudmap`` endpoint
         (``""`` for the endpoint itself) with ``params`` -- except those this
-        proxy's own query parameters set -- and this proxy's credentials, and
-        return the server's response as is."""
+        proxy's own query parameters set -- ``headers`` and this proxy's
+        credentials, and return the server's response as is."""
         own = {key for key, _ in self._base_query}
         return self._session.request(
             method,
             self._endpoint + path,
             params=list(self._base_query) + [p for p in params if p[0] not in own],
             json=body,
-            headers=self._headers(),
+            headers={**(headers or {}), **self._headers()},
             timeout=self._timeout,
         )
 

@@ -252,7 +252,8 @@ async fn server_header_distinguishes_proxy_from_backend() {
     );
     // `Server` alone can't say the proxy was in front of that response --
     // it looks identical to reaching python directly. This is what does.
-    assert_eq!(res.headers().get(header::VIA).unwrap(), "1.1 unfurl-server");
+    let via = res.headers().get(header::VIA).unwrap().to_str().unwrap();
+    assert!(via.starts_with("1.1 unfurl-server-"), "{via}");
 }
 
 /// `Via` marks the hop, so it belongs only on responses that took one.
@@ -295,5 +296,81 @@ async fn via_appends_to_an_existing_chain() {
         .iter()
         .map(|v| v.to_str().unwrap())
         .collect();
-    assert_eq!(chain, vec!["1.1 upstream-gateway", "1.1 unfurl-server"]);
+    assert_eq!(chain.len(), 2, "{chain:?}");
+    assert_eq!(chain[0], "1.1 upstream-gateway");
+    assert!(chain[1].starts_with("1.1 unfurl-server-"), "{chain:?}");
+}
+
+/// A backend that answers with the `Via` it was sent, and counts its calls.
+async fn via_echo() -> (Config, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let counted = calls.clone();
+    let backend = axum::Router::new().fallback(move |headers: axum::http::HeaderMap| {
+        counted.fetch_add(1, Ordering::SeqCst);
+        let sent: Vec<String> = headers
+            .get_all(header::VIA)
+            .iter()
+            .map(|v| v.to_str().unwrap().to_owned())
+            .collect();
+        async move { sent.join(", ") }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, backend).await.unwrap() });
+    let config = Config::parse_from(["unfurl-server", "--backend-url", &format!("http://{addr}")]);
+    (config, calls)
+}
+
+async fn proxied(config: Config, via: Option<&str>) -> (StatusCode, String, String) {
+    let mut req = Request::builder().uri("/some/proxied/path");
+    if let Some(via) = via {
+        req = req.header(header::VIA, via);
+    }
+    let res = build_router(state(config), None)
+        .oneshot(req.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = res.status();
+    let ours = res
+        .headers()
+        .get_all(header::VIA)
+        .iter()
+        .next_back()
+        .map(|v| v.to_str().unwrap().to_owned())
+        .unwrap_or_default();
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, ours, String::from_utf8(body.to_vec()).unwrap())
+}
+
+/// The backend is told the request came through here, after any proxies
+/// before this one.
+#[tokio::test]
+async fn via_is_added_to_the_forwarded_request() {
+    let (config, _) = via_echo().await;
+    let (status, ours, sent) = proxied(config, Some("1.1 gateway")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(sent, format!("1.1 gateway, {ours}"));
+}
+
+/// A request that has already passed through this proxy is refused rather
+/// than sent around again, without reaching the backend.
+#[tokio::test]
+async fn a_request_that_came_back_is_refused() {
+    use std::sync::atomic::Ordering;
+    let (config, calls) = via_echo().await;
+    let (_, ours, _) = proxied(config.clone(), None).await;
+    let (status, _, _) = proxied(config, Some(&format!("1.1 gateway, {ours}, 1.1 unfurl"))).await;
+    assert_eq!(status, StatusCode::LOOP_DETECTED);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+/// Another unfurl-server in the chain isn't this one.
+#[tokio::test]
+async fn another_unfurl_server_in_the_chain_is_forwarded() {
+    let (config, _) = via_echo().await;
+    let (status, _, _) = proxied(config, Some("1.1 unfurl-server-0000000000000000")).await;
+    assert_eq!(status, StatusCode::OK);
 }

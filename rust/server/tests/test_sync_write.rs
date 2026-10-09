@@ -92,10 +92,8 @@ async fn sync_write_forwards_client_headers() {
     assert_eq!(res.status(), StatusCode::OK, "expected a proxied response");
     // A sync write really is relayed, unlike the queued path, where the
     // proxy answers the ack itself and marks no hop.
-    assert_eq!(
-        res.headers().get(header::VIA).map(|v| v.to_str().unwrap()),
-        Some("1.1 unfurl-server")
-    );
+    let via = res.headers().get(header::VIA).unwrap().to_str().unwrap();
+    assert!(via.starts_with("1.1 unfurl-server-"), "{via}");
 
     let seen = captured.lock().unwrap().clone();
     assert_eq!(seen.len(), 1, "backend should have received one request");
