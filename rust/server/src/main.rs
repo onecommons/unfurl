@@ -207,6 +207,7 @@ async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
     } else {
         Some(unfurl_git_sync::ScanOptions {
             force: config.cloudmap_force,
+            rebuild_missing: config.cloudmap_force,
         })
     };
     match cloudmap::CloudMapState::open(repo, db_url, scan).await {
@@ -217,13 +218,46 @@ async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
             Some(cm)
         }
         Err(e) => {
+            let hint = match e.downcast_ref::<unfurl_git_sync::Error>() {
+                Some(unfurl_git_sync::Error::CommitMissing { since, .. }) => {
+                    let list = since.map(|v| {
+                        format!(
+                            "; started with --cloudmap-skip-scan, {} includes them",
+                            written_since_read(repo, &config.cloud_server, v)
+                        )
+                    });
+                    format!(
+                        "{}; start with --cloudmap-force to rebuild from HEAD anyway",
+                        list.unwrap_or_default()
+                    )
+                }
+                _ => String::new(),
+            };
             tracing::error!(
-                error = e.to_string().as_str(),
+                error = format!("{e}{hint}").as_str(),
                 "failed to open cloudmap repo"
             );
             std::process::exit(1);
         }
     }
+}
+
+/// The `GET /cloudmap` that reads what the checkout at `repo` wrote after
+/// version `since`: named by its project on `cloud_server` and its branch,
+/// where the checkout says what those are.
+fn written_since_read(repo: &str, cloud_server: &str, since: i64) -> String {
+    let mut query = Vec::new();
+    let meta = unfurl_git_sync::git::open_repo(std::path::Path::new(repo))
+        .and_then(|r| unfurl_git_sync::git::worktree_meta(&r));
+    if let Ok(meta) = meta {
+        let host = unfurl_git_sync::git::normalize_git_url_hard(cloud_server);
+        if let Some(project) = meta.origin.strip_prefix(&format!("{host}/")) {
+            query.push(format!("auth_project={project}"));
+        }
+        query.push(format!("branch={}", meta.branch));
+    }
+    query.push(format!("since_version={since}"));
+    format!("GET /cloudmap?{}", query.join("&"))
 }
 
 /// Resolves `host:port` to every address the OS hands back via getaddrinfo
@@ -335,5 +369,49 @@ async fn shutdown_signal() {
     tokio::select! {
         _ = ctrl_c => {},
         _ = terminate => {},
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::written_since_read;
+
+    /// A checkout of `origin`, or with no remote.
+    fn checkout(origin: Option<&str>) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        unfurl_git_sync::git::init_with_files(
+            dir.path(),
+            &[("a.yaml".into(), b"a: 1\n".to_vec())],
+            "init",
+        )
+        .expect("init");
+        if let Some(origin) = origin {
+            let status = std::process::Command::new("git")
+                .args(["remote", "add", "origin", origin])
+                .current_dir(dir.path())
+                .status()
+                .expect("git");
+            assert!(status.success());
+        }
+        dir
+    }
+
+    #[test]
+    fn the_read_names_the_checkouts_project_and_branch() {
+        let dir = checkout(Some("https://unfurl.cloud/org/proj.git"));
+        let read = written_since_read(dir.path().to_str().unwrap(), "https://unfurl.cloud", 7);
+        assert!(
+            read.starts_with("GET /cloudmap?auth_project=org/proj&branch="),
+            "{read}"
+        );
+        assert!(read.ends_with("&since_version=7"), "{read}");
+    }
+
+    #[test]
+    fn a_checkout_elsewhere_is_named_by_its_branch_alone() {
+        let dir = checkout(None);
+        let read = written_since_read(dir.path().to_str().unwrap(), "https://unfurl.cloud", 7);
+        assert!(read.starts_with("GET /cloudmap?branch="), "{read}");
+        assert!(!read.contains("auth_project"), "{read}");
     }
 }

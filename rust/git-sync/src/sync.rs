@@ -507,8 +507,15 @@ impl SyncedRepo {
 
     /// Refuse a checkout on another branch than the handle's, and rebuild
     /// after a rewrite: a rebase, reset or force-push leaves the chain
-    /// holding a commit HEAD `head` doesn't descend from (§4.8).
-    async fn follow_head(&self, branch: &str, head: Option<&str>) -> Result<()> {
+    /// holding a commit HEAD `head` doesn't descend from (§4.8). Where the
+    /// repository doesn't have that commit at all, refuse a rebuild that
+    /// would lose committed records, unless `options` allow it.
+    async fn follow_head(
+        &self,
+        branch: &str,
+        head: Option<&str>,
+        options: &ScanOptions,
+    ) -> Result<()> {
         let worktree = db::worktree::get(self.db(), self.worktree_id()).await?;
         // a handle opened detached (CI, a tag, a pinned commit) follows
         // whatever is checked out; the rebuild covers a rewrite
@@ -532,19 +539,35 @@ impl SyncedRepo {
         if recorded == n || git::is_ancestor(&repo, recorded, n)? {
             return Ok(());
         }
+        let keep = match options.rebuild_missing || git::has_commit(&repo, recorded)? {
+            true => None,
+            false => Some(recorded.to_string()),
+        };
         let files = self
             .head_files(&repo, Some(n), &Default::default(), false)?
             .files;
-        crate::fork::rebuild(
+        let rebuilt = crate::fork::rebuild(
             self.db(),
             repo,
             self.formats(),
-            self.worktree_id(),
-            self.family_id(),
+            (self.worktree_id(), self.family_id()),
             n,
             &files,
+            keep.as_deref(),
         )
-        .await
+        .await;
+        match rebuilt {
+            Err(Error::CommitMissing { commit, lost, .. }) => {
+                let database = db::commit::database_id(self.db()).await?;
+                let since = crate::fork::written_since(&self.repo()?, n, &database)?;
+                Err(Error::CommitMissing {
+                    commit,
+                    lost,
+                    since,
+                })
+            }
+            rebuilt => rebuilt,
+        }
     }
 
     /// What a scan's first pass makes of one tracked file: nothing, a
@@ -669,7 +692,8 @@ impl SyncedRepo {
     ) -> Result<SyncOutcome> {
         let repo = self.repo()?;
         let head = meta.head_oid.map(|o| o.to_string());
-        self.follow_head(&meta.branch, head.as_deref()).await?;
+        self.follow_head(&meta.branch, head.as_deref(), options)
+            .await?;
         let tracked = git::tracked_files(&repo)?;
         let known_files: std::collections::HashMap<String, crate::model::File> =
             db::file::list(self.db(), self.worktree_id())
@@ -3605,9 +3629,12 @@ mod scan_cache_tests {
     }
 
     async fn scan(sync: &SyncedRepo, force: bool) -> SyncOutcome {
-        sync.update_from_working_dir(ScanOptions { force })
-            .await
-            .expect("scan")
+        sync.update_from_working_dir(ScanOptions {
+            force,
+            ..Default::default()
+        })
+        .await
+        .expect("scan")
     }
 
     async fn commit_of(sync: &SyncedRepo, path: &str) -> Option<String> {

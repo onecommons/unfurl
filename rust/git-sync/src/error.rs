@@ -189,6 +189,23 @@ pub enum Error {
         /// The branch name, without `refs/heads/`.
         branch: String,
     },
+    /// The commit the worktree last saw isn't in the repository, a new
+    /// clone of a remote that never got it, say, and rebuilding the
+    /// worktree's committed view from HEAD would lose `lost` records
+    /// committed since. Nothing changed; [`crate::ScanOptions::rebuild_missing`]
+    /// rebuilds anyway. A deletion since isn't counted: the record comes
+    /// back.
+    #[error("the worktree's last commit {commit} isn't in the repository: rebuilding from HEAD would lose {lost} committed records")]
+    CommitMissing {
+        /// The commit the worktree last saw.
+        commit: String,
+        /// How many committed records the rebuild would lose.
+        lost: usize,
+        /// A `since_version` whose read includes them: every record written
+        /// after the nearest commit HEAD has that this database made.
+        /// `None` when HEAD has none.
+        since: Option<i64>,
+    },
     /// Catch-all for failure cases that don't fit the variants above.
     #[error("{0}")]
     Other(String),

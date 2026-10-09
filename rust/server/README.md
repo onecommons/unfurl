@@ -53,7 +53,7 @@ otherwise `/cloudmap` is proxied to Python):
 |---|---|---|---|
 | Path to a checked-out cloudmap repo | `--cloudmap-repo` | `UNFURL_CLOUDMAP_REPO` | (unset) |
 | Index DB URL (`sqlite::memory:`, `sqlite:///path/to.db`, `postgres://...`) | `--cloudmap-db-url` | `UNFURL_CLOUDMAP_DB_URL` | (unset) |
-| Working tree wins over in-flight edits on the startup scan | `--cloudmap-force` | `UNFURL_CLOUDMAP_FORCE` | `false` |
+| Working tree wins over in-flight edits on the startup scan, and a missing last commit is rebuilt from HEAD instead of refusing to start | `--cloudmap-force` | `UNFURL_CLOUDMAP_FORCE` | `false` |
 | Serve the index as it stands, without scanning at startup | `--cloudmap-skip-scan` | `UNFURL_CLOUDMAP_SKIP_SCAN` | `false` |
 | Smallest refusal that aborts the startup scan (`report`, `file`, `record`) | `--scan-abort-level` | `UNFURL_SCAN_ABORT_LEVEL` | `report` |
 | Cloud server whose projects `auth_project` names | `--cloud-server` | `UNFURL_CLOUD_SERVER` | `https://unfurl.cloud` |

@@ -241,7 +241,10 @@ pub struct Config {
 
     /// Let the working tree win over every in-flight cloudmap edit on
     /// the startup scan: pending records are overwritten from disk and
-    /// their conflicts dropped.
+    /// their conflicts dropped. And when the repository doesn't have the
+    /// commit the database last saw (a new clone of a remote that never
+    /// got it), rebuild from HEAD though that loses committed records,
+    /// where the server would otherwise refuse to start.
     ///
     /// For an operator who has decided the checkout is authoritative,
     /// after resolving a divergence by hand. Startup-only on purpose —

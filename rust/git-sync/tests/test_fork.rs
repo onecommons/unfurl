@@ -162,6 +162,134 @@ async fn a_reset_head_rebuilds_and_resets_cursors() {
     );
 }
 
+/// `git` in `dir`, with an identity: its output.
+fn git_out(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git");
+    assert!(out.status.success(), "git {args:?}: {out:?}");
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// From `from`, a commit made upstream, changing a record git-sync's
+/// commits since `from` didn't: its oid.
+fn upstream_from(dir: &std::path::Path, from: &str) -> String {
+    git(dir, &["reset", "-q", "--hard", from]);
+    let file = dir.join("cloudmap.yaml");
+    let text = std::fs::read_to_string(&file).expect("read");
+    std::fs::write(&file, text.replace("name: dashboard", "name: upstream")).expect("write");
+    git_out(dir, &["commit", "-q", "-am", "upstream"]);
+    git_out(dir, &["rev-parse", "HEAD"])
+}
+
+/// Move HEAD to `to` and prune what that leaves unreachable, so commits
+/// git-sync made since are gone, as from a new clone of a remote that
+/// never got them.
+fn reset_and_prune(dir: &std::path::Path, to: &str, gone: &str) {
+    git(dir, &["reset", "-q", "--hard", to]);
+    git(dir, &["reflog", "expire", "--expire=now", "--all"]);
+    git(dir, &["gc", "-q", "--prune=now"]);
+    let missing = std::process::Command::new("git")
+        .args(["cat-file", "-e", &format!("{gone}^{{commit}}")])
+        .current_dir(dir)
+        .status()
+        .expect("git");
+    assert!(!missing.success(), "{gone} is pruned");
+}
+
+/// A scan whose recorded commit the repository no longer has refuses to
+/// rebuild the committed view when that loses a record, and changes
+/// nothing; `rebuild_missing` rebuilds anyway.
+async fn a_missing_commit_that_loses_records_is_refused(
+    sync: &SyncedRepo,
+    tmp: &tempfile::TempDir,
+) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let base = write_and_commit(sync, "one").await;
+    let gone = write_and_commit(sync, "two").await;
+    let up = upstream_from(tmp.path(), &base);
+    reset_and_prune(tmp.path(), &up, &gone);
+
+    // the record upstream changed isn't lost
+    let err = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect_err("refused");
+    let Error::CommitMissing {
+        commit,
+        lost: 1,
+        since: Some(since),
+    } = &err
+    else {
+        panic!("{err:?}");
+    };
+    assert_eq!(*commit, gone);
+    assert!(names(sync).await.contains_key("two"), "nothing changed");
+    // the record lost is among those written since
+    let written = RecordQuery {
+        since_version: Some(*since),
+        ..Default::default()
+    };
+    let keys: Vec<String> = sync
+        .find_records(&written)
+        .await
+        .expect("find")
+        .into_iter()
+        .map(|r| r.key)
+        .collect();
+    assert!(keys.contains(&"two".to_string()), "{keys:?}");
+    assert!(!keys.contains(&"one".to_string()), "{keys:?}");
+
+    let rebuild = ScanOptions {
+        rebuild_missing: true,
+        ..Default::default()
+    };
+    sync.update_from_working_dir(rebuild)
+        .await
+        .expect("rebuilt");
+    assert!(!names(sync).await.contains_key("two"), "the record went");
+}
+
+crud_test!(a_missing_commit_that_loses_records_is_refused);
+
+/// A missing recorded commit whose records HEAD has anyway, as when what
+/// it committed reached the remote as another commit: the rebuild loses
+/// nothing, so it goes ahead.
+async fn a_missing_commit_that_loses_nothing_rebuilds(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let base = write_and_commit(sync, "one").await;
+    let gone = write_and_commit(sync, "two").await;
+    let again = git_out(
+        tmp.path(),
+        &[
+            "commit-tree",
+            &format!("{gone}^{{tree}}"),
+            "-p",
+            &base,
+            "-m",
+            "the same, made again",
+        ],
+    );
+    let up = upstream_from(tmp.path(), &again);
+    reset_and_prune(tmp.path(), &up, &gone);
+
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rebuilt");
+    assert!(names(sync).await.contains_key("two"));
+    let head = sync.get_worktree().await.expect("worktree").commit_id;
+    assert_eq!(head.as_deref(), Some(up.as_str()));
+}
+
+crud_test!(a_missing_commit_that_loses_nothing_rebuilds);
+
 /// A pending edit survives a rebuild. One to a record the rewrite left
 /// alone stays pending; one to a record the rewrite changed conflicts with
 /// the value the new HEAD has.

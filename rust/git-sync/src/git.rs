@@ -802,6 +802,11 @@ pub fn commit_message(repo: &gix::Repository, commit: &str) -> Option<String> {
     Some(commit.message_raw().ok()?.to_string())
 }
 
+/// Whether this repository has `commit` as a commit.
+pub(crate) fn has_commit(repo: &gix::Repository, commit: &str) -> Result<bool> {
+    Ok(present(repo, commit)?.is_some())
+}
+
 /// `commit`, when this repository has it as a commit.
 fn present(repo: &gix::Repository, commit: &str) -> Result<Option<gix::ObjectId>> {
     let Ok(oid) = gix::ObjectId::from_hex(commit.as_bytes()) else {

@@ -828,6 +828,28 @@ or that commit is missing: after a rebase, reset, squash or force-push.
 It's also how a user's branch is rebased before it's published
 ([§4.12](#412-layered-reads-user-branches-and-private-overlays)).
 
+**A missing recorded commit is refused when the rebuild loses records.**
+The repository lacking it at all usually means a new clone of a remote
+that never got git-sync's commits, not a rewrite. Rebuilding then
+replaces records those commits hold with HEAD's, and compaction deletes
+them. So the rebuild runs in its transaction, compares W's committed
+view before and after, and when a record committed in a commit the
+repository doesn't have is gone or changed, rolls back and fails with
+`CommitMissing`. A record upstream changed, which the remote has
+moved on since, isn't lost. A rebuild that loses nothing, as when
+the commits reached the remote as other commits, goes ahead, and
+`ScanOptions::rebuild_missing` lets the caller accept the loss.
+
+The error carries a `since_version` whose read includes the records it
+would lose: one below the `Git-Sync-Next-Version` of the nearest commit
+in HEAD's history this database made. It isn't exact: it also returns
+pending edits and anything else written since.
+
+A deletion the missing commits made isn't counted: a record they
+deleted that HEAD still has comes back, and the comparison sees only a
+record HEAD has that the view didn't, which a new upstream record
+looks like too.
+
 1. **Place the new HEAD *n*** ([§4.6](#46-placement)). After
    `git rebase main`, the base is typically main's head.
 2. **Build a new head H′** whose parent is the base. It holds the

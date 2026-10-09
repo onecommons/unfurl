@@ -1482,7 +1482,10 @@ async fn a_forced_scan_hands_every_record_to_the_file(sync: &SyncedRepo, tmp: &T
     .expect("upsert");
 
     let scan = sync
-        .update_from_working_dir(ScanOptions { force: true })
+        .update_from_working_dir(ScanOptions {
+            force: true,
+            ..Default::default()
+        })
         .await
         .expect("forced rescan");
     assert!(scan.conflicts.is_empty(), "{scan:?}");
@@ -1804,7 +1807,10 @@ async fn a_forced_scan_drops_a_record_the_file_lost(sync: &SyncedRepo, tmp: &Tem
     // The file says the record is gone, and force says the file wins:
     // the in-flight row goes with it rather than being preserved.
     let scan = sync
-        .update_from_working_dir(ScanOptions { force: true })
+        .update_from_working_dir(ScanOptions {
+            force: true,
+            ..Default::default()
+        })
         .await
         .expect("forced rescan");
     assert!(scan.conflicts.is_empty(), "{scan:?}");

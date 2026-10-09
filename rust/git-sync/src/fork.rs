@@ -8,10 +8,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{At, FileRow, NewRecordRow, Place, RecordRow};
 use crate::db::{self, on_pool, Db};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::format::FormatRegistry;
 use crate::git;
 use crate::ids::History;
+use crate::model::CommitRollup;
 use crate::rollup::parse_commit_rollup;
 use crate::scan::HeadFile;
 use crate::segments;
@@ -210,15 +211,38 @@ pub(crate) async fn open(
 /// The family the nearest commit this database made in `head`'s
 /// first-parent history names.
 fn named_family(repo: &gix::Repository, head: &str, database: &str) -> Result<Option<String>> {
+    let named = nearest_rollup(repo, head, |r| {
+        r.database.as_deref() == Some(database) && r.family.is_some()
+    })?;
+    Ok(named.and_then(|r| r.family))
+}
+
+/// The `since_version` that reads every record written after the nearest
+/// commit this database made in `head`'s first-parent history.
+pub(crate) fn written_since(
+    repo: &gix::Repository,
+    head: &str,
+    database: &str,
+) -> Result<Option<i64>> {
+    let ours = nearest_rollup(repo, head, |r| r.database.as_deref() == Some(database))?;
+    Ok(ours.map(|r| r.next_version - 1))
+}
+
+/// The rollup of the nearest commit in `head`'s first-parent history that
+/// has one `wanted` accepts.
+fn nearest_rollup(
+    repo: &gix::Repository,
+    head: &str,
+    wanted: impl Fn(&CommitRollup) -> bool,
+) -> Result<Option<CommitRollup>> {
     let mut at = Some(head.to_string());
     for _ in 0..NAMED_FAMILY_DEPTH {
         let Some(c) = at else { break };
-        let family = git::commit_message(repo, &c)
+        let rollup = git::commit_message(repo, &c)
             .and_then(|m| parse_commit_rollup(&m).ok().flatten())
-            .filter(|r| r.database.as_deref() == Some(database))
-            .and_then(|r| r.family);
-        if family.is_some() {
-            return Ok(family);
+            .filter(&wanted);
+        if rollup.is_some() {
+            return Ok(rollup);
         }
         at = git::commit_parents(repo, &c)?.into_iter().next();
     }
@@ -749,17 +773,57 @@ async fn insert<DB: Store>(
     .await
 }
 
+/// A committed view: each live record's content, and the commit it was
+/// committed in, by place.
+type View = BTreeMap<(String, String, String), (serde_json::Value, Option<String>)>;
+
+/// Worktree `w`'s committed view.
+async fn committed_view<DB: Store>(tx: &mut sqlx::Transaction<'_, DB>, w: i64) -> Result<View> {
+    Ok(DB::visible(tx, w, Scope::Chain, Filter::All)
+        .await?
+        .into_iter()
+        .filter(|r| !r.deleted)
+        .map(|r| ((r.file_path, r.path, r.key), (r.json, r.commit_id)))
+        .collect())
+}
+
+/// How many records `before` shows that a commit the repository doesn't
+/// have made, and `after` doesn't show: what a rebuild from `before` to
+/// `after` loses. A record upstream changed isn't one.
+fn lost(repo: &gix::Repository, before: &View, after: &View) -> Result<usize> {
+    let mut missing: BTreeMap<&str, bool> = BTreeMap::new();
+    let mut lost = 0;
+    for (at, (json, commit)) in before {
+        if after.get(at).is_some_and(|(now, _)| now == json) {
+            continue;
+        }
+        let Some(commit) = commit.as_deref() else {
+            continue;
+        };
+        if !missing.contains_key(commit) {
+            missing.insert(commit, !git::has_commit(repo, commit)?);
+        }
+        if missing[commit] {
+            lost += 1;
+        }
+    }
+    Ok(lost)
+}
+
 /// §4.8, C.18: worktree `w`'s HEAD `n` doesn't descend from the commit its
 /// chain holds, after a rebase, reset or force-push: build its head again
 /// on the base placement finds, from `files`, every file of the tree at `n`.
+/// With `keep`, the commit its chain holds, which the repository doesn't
+/// have: a rebuild whose committed view loses a record is refused instead,
+/// with nothing changed.
 pub(crate) async fn rebuild(
     db: &Db,
     repo: gix::Repository,
     formats: &FormatRegistry,
-    w: i64,
-    family: i64,
+    (w, family): (i64, i64),
     n: &str,
     files: &[HeadFile],
+    keep: Option<&str>,
 ) -> Result<()> {
     let database = db::commit::database_id(db).await?;
     on_pool!(db, pool => {
@@ -780,7 +844,23 @@ pub(crate) async fn rebuild(
                 Some(s)
             }
         };
+        let before = match keep {
+            Some(_) => committed_view(&mut tx, w).await?,
+            None => BTreeMap::new(),
+        };
         rebuild_on(&mut tx, family, w, base, n, files).await?;
+        if let Some(commit) = keep {
+            let after = committed_view(&mut tx, w).await?;
+            let lost = lost(history.repo(), &before, &after)?;
+            if lost > 0 {
+                // the transaction rolls back as it drops
+                return Err(Error::CommitMissing {
+                    commit: commit.to_string(),
+                    lost,
+                    since: None,
+                });
+            }
+        }
         // `w`'s old exclusive segments are in no chain now (§4.13)
         Store::compact(&mut tx, family).await?;
         tx.commit().await?;

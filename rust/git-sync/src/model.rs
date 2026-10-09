@@ -686,6 +686,12 @@ pub struct ScanOptions {
     /// would make this a no-op on exactly the files it is meant to
     /// resolve.
     pub force: bool,
+    /// Rebuild the worktree's committed view from HEAD even when the commit
+    /// it last saw isn't in the repository and that loses committed
+    /// records; without it the scan fails with
+    /// [`crate::Error::CommitMissing`] and changes nothing. A rebuild that
+    /// loses nothing, or one after a rewrite, doesn't need it.
+    pub rebuild_missing: bool,
 }
 
 /// Attribution for a batch write: who asked for it and why.

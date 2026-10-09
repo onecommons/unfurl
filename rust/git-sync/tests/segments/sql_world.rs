@@ -406,7 +406,7 @@ impl SqlWorld {
 
     fn scan(&self, w: Wt, force: bool) {
         self.rt
-            .block_on(self.repos[&w].update_from_working_dir(ScanOptions { force }))
+            .block_on(self.repos[&w].update_from_working_dir(ScanOptions { force, ..Default::default() }))
             .unwrap();
     }
 
