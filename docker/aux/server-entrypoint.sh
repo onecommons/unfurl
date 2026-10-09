@@ -23,6 +23,13 @@ if [ -z "${UNFURL_PACKAGE_DIGEST:-}" ]; then
 fi
 export UNFURL_PACKAGE_DIGEST="${UNFURL_PACKAGE_DIGEST:-}"
 export RUST_LOG="${RUST_LOG:-info}"
+# with a configured checkout the rust server holds the cloudmap, so python
+# reads it from there, as `unfurl serve` arranges. Not with only a clone
+# root: it has no default cloudmap, and forwards a request naming no project
+# back to python, which would forward it here again
+if [ -n "${UNFURL_CLOUDMAP_REPO:-}" ] && [ -n "${UNFURL_CLOUDMAP_DB_URL:-}" ]; then
+    export UNFURL_LOCAL_CLOUDMAP_URL="${UNFURL_LOCAL_CLOUDMAP_URL:-http://127.0.0.1:${port}}"
+fi
 
 gunicorn -b "127.0.0.1:${backend_port}" -w "${workers}" unfurl.server.serve:app "$@" &
 unfurl-server &
