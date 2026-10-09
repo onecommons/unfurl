@@ -3,7 +3,7 @@ FROM python:3.13-slim
 ENV UNFURL_HOME=""
 
 RUN apt-get -qq update && \
-    apt-get -qq --no-install-recommends install -y git curl unzip wget expect build-essential && \
+    apt-get -qq --no-install-recommends install -y git curl unzip wget expect build-essential tini && \
     apt-get -qq clean -y && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --user-group unfurl
@@ -19,10 +19,13 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --pr
     pip install --no-cache-dir /unfurl[server] && \
     rm -rf /unfurl ~/.cargo ~/.rustup
 
+COPY --chmod=0755 docker/aux/server-entrypoint.sh /usr/local/bin/server-entrypoint.sh
+
 USER unfurl:unfurl
 
 EXPOSE 5000
 
 ARG NUM_WORKERS=4
 ENV NUM_WORKERS=${NUM_WORKERS}
-ENTRYPOINT gunicorn -b=0.0.0.0:5000 -w=${NUM_WORKERS} unfurl.server.serve:app
+# -g: signals reach gunicorn and unfurl-server too, not just the script
+ENTRYPOINT ["tini", "-g", "--", "/usr/local/bin/server-entrypoint.sh"]
