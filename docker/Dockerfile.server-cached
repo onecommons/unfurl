@@ -15,4 +15,4 @@ ENV CACHE_CONTROL_SERVE_STALE=2592000
 # copy custom entrypoint and nginx config for caching
 COPY docker/aux/nginx.conf     /etc/nginx/nginx.conf
 COPY docker/aux/entrypoint.sh  /entrypoint.sh
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["tini", "-g", "--", "/entrypoint.sh"]
