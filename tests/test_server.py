@@ -562,6 +562,27 @@ def test_cors_origins_resolved_and_handed_to_rust_server(monkeypatch, tmp_path):
     assert captured["env"]["UNFURL_SERVE_CORS"] == "https://cloud.example.com"
 
 
+def test_secret_handed_to_rust_server(monkeypatch, tmp_path):
+    """`--secret` sets only the app config, so it's passed on explicitly: the
+    rust server checks it on the writes it queues and replays them with it."""
+    fake_bin = tmp_path / "unfurl-server"
+    fake_bin.write_text("")
+    monkeypatch.setattr(server, "_find_rust_server_bin", lambda: str(fake_bin))
+    monkeypatch.delenv("UNFURL_SERVE_SECRET", raising=False)
+    monkeypatch.setitem(server.app.config, "UNFURL_SECRET", "s3cret")
+    captured = {}
+
+    class FakePopen:
+        pid = 1234
+
+        def __init__(self, argv, env=None, stderr=None):
+            captured["env"] = env
+
+    monkeypatch.setattr(server.subprocess, "Popen", FakePopen)
+    server._start_proxy_server("127.0.0.1", 8080)
+    assert captured["env"]["UNFURL_SERVE_SECRET"] == "s3cret"
+
+
 def test_cloud_server_handed_to_rust_server(monkeypatch, tmp_path):
     """`--cloud-server` sets only the app config, so it's passed on explicitly."""
     fake_bin = tmp_path / "unfurl-server"

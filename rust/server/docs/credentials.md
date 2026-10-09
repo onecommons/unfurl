@@ -255,8 +255,13 @@ Each phase stands on its own.
 **Phase 0, now: stop the leaks that need no new machinery**
 1. Checkouts without credentials (§2.3), starting with the blueprint clone
    and `apply_url_credentials`.
-2. The queue stores an allowlist of headers, so no `Authorization`,
-   `Cookie` or `X-Git-Credentials` in Redis.
+2. The queue stores only the headers `batch_patch` reads (`X-Unfurl-User`,
+   `X-Git-Credentials`, and `X-Forwarded-For` for its access log) and the
+   request's path, so none of what the gateway
+   passes on (a GitLab token, OAuth token or session cookie) or `?secret=`.
+   The worker replays with the server's own secret, so the Rust server checks
+   the secret before it queues a write. `X-Git-Credentials` stays until
+   Phase 1: Python refuses a write without credentials.
 
 **Phase 1: grants, and a queue that stores none.** The grant table and key;
 validation with GitLab; queued items carrying grant IDs; the worker

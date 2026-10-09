@@ -116,8 +116,9 @@ pub struct Config {
     #[arg(long, env = "CACHE_KEY_PREFIX", default_value = "ufsv::")]
     pub cache_key_prefix: String,
 
-    /// Shared secret for authenticating internal requests.
-    #[arg(long, env = "UNFURL_SECRET", default_value = "")]
+    /// The API secret clients authenticate with, as the Python server's
+    /// `--secret`; empty for none.
+    #[arg(long, env = "UNFURL_SERVE_SECRET", default_value = "")]
     pub secret: String,
 
     /// Timeout in seconds for proxied HTTP requests to the Python backend.

@@ -25,7 +25,8 @@ static INC_QUEUEID: Lazy<redis::Script> = Lazy::new(|| redis::Script::new(INC_QU
 /// Payload stored in the Redis per-project batch list.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct QueueItem {
-    /// Full path and query string, e.g. `/create_provider?auth_project=foo`.
+    /// The request's path, e.g. `/create_provider`. Items queued by earlier
+    /// versions also have its query string.
     pub endpoint: String,
     pub body: JsonValue,
     pub headers: HashMap<String, String>,
@@ -970,6 +971,9 @@ pub async fn run_worker(
                 let mut builder = client.post(&url);
                 for (k, v) in &headers {
                     builder = builder.header(k.as_str(), v.as_str());
+                }
+                if !config.secret.is_empty() {
+                    builder = builder.bearer_auth(&config.secret);
                 }
                 builder = builder.json(&batch_json);
 

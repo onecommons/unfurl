@@ -594,31 +594,44 @@ pub async fn handle_types(
 // Write / queue handlers
 // ---------------------------------------------------------------------------
 
-/// Filter the upstream request's headers down to the set stashed on a
-/// queued item and replayed by `run_worker`.
-///
-/// Queue path only. It drops `content-type` because the worker
-/// re-serializes the consolidated batch with `.json()`, which sets its
-/// own -- so this set is wrong for a synchronous forward, which passes
-/// the client's bytes through untouched and needs the original.
+/// The headers a queued item keeps for `run_worker` to replay: the ones
+/// `batch_patch` reads. Everything else -- the client's GitLab token or
+/// session cookie, the API secret -- stays out of Redis.
+const QUEUED_HEADERS: [&str; 3] = ["x-unfurl-user", "x-git-credentials", "x-forwarded-for"];
+
+/// Filter the upstream request's headers down to [`QUEUED_HEADERS`].
 fn filter_forward_headers(headers: &axum::http::HeaderMap) -> HashMap<String, String> {
-    headers
+    QUEUED_HEADERS
         .iter()
-        .filter_map(|(k, v)| {
-            let name = k.as_str();
-            if name == "host"
-                || name == "transfer-encoding"
-                || name == "connection"
-                || name == "content-length"
-                || name == "content-type"
-            {
-                return None;
-            }
-            v.to_str()
-                .ok()
-                .map(|val| (name.to_string(), val.to_string()))
+        .filter_map(|name| {
+            let value = headers.get(*name)?.to_str().ok()?;
+            Some((name.to_string(), value.to_string()))
         })
         .collect()
+}
+
+/// Whether the request carries the API secret, as Python's `before_request`
+/// accepts it: `?secret=` or `Authorization: Bearer`. True when none is set.
+fn has_secret(
+    secret: &str,
+    headers: &axum::http::HeaderMap,
+    params: &HashMap<String, String>,
+) -> bool {
+    if secret.is_empty() {
+        return true;
+    }
+    let bearer = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(' ').nth(1));
+    [params.get("secret").map(String::as_str), bearer]
+        .into_iter()
+        .flatten()
+        .any(|given| constant_time_eq(given.as_bytes(), secret.as_bytes()))
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
 /// Core POST-write logic, shared by [`handle_patch_ensemble`] and
@@ -684,6 +697,18 @@ async fn handle_write(
     let client_queueid = body.get("queueid").and_then(|v| v.as_i64());
     if let Some(queueid) = client_queueid {
         if let Some(ref redis) = state.redis {
+            // The worker replays the write with the server's own secret,
+            // so this is the only check a queued write gets.
+            if !has_secret(&state.config.secret, &headers, &params) {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(json!({
+                        "code": "UNAUTHORIZED",
+                        "message": "Please pass the secret as a query parameter or as an Authorization bearer token",
+                    })),
+                )
+                    .into_response();
+            }
             // Atomically validate and increment the queueid.
             let mut conn = redis.clone();
             let qid_result = match queue::inc_queueid(
@@ -754,7 +779,7 @@ async fn handle_write(
                     let mut updated_body = body;
                     updated_body["queueid"] = serde_json::json!(new_queueid);
                     let item = QueueItem {
-                        endpoint: endpoint.clone(),
+                        endpoint: endpoint_uri.path().to_string(),
                         body: updated_body,
                         headers: filter_forward_headers(&headers),
                     };
@@ -776,7 +801,7 @@ async fn handle_write(
                     updated_body["latest_commit"] = serde_json::Value::String(new_commit.clone());
                     updated_body["queueid"] = serde_json::json!(new_queueid);
                     let item = QueueItem {
-                        endpoint: endpoint.clone(),
+                        endpoint: endpoint_uri.path().to_string(),
                         body: updated_body,
                         headers: filter_forward_headers(&headers),
                     };

@@ -2634,6 +2634,11 @@ def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes
     cloud_server = app.config.get("UNFURL_CLOUD_SERVER")
     if cloud_server:
         env["UNFURL_CLOUD_SERVER"] = cloud_server
+    # `--secret` sets only the app config; the rust server checks it on the
+    # writes it queues and sends it with the batches it replays
+    secret = app.config.get("UNFURL_SECRET")
+    if secret:
+        env["UNFURL_SERVE_SECRET"] = secret
     # Map UNFURL_LOGGING to RUST_LOG so Rust tracing picks up the same level.
     # At debug/trace, scope the verbose level to our crate and keep the
     # chatty dependencies (reqwest, hyper, tower_http, h2, want, mio) at

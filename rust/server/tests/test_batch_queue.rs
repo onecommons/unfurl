@@ -1885,3 +1885,162 @@ async fn repaired_queue_key_redirects_after_a_real_commit() {
 
     cleanup_keys(&mut conn, prefix).await;
 }
+
+// ---------------------------------------------------------------------------
+// Credentials in queued writes
+// ---------------------------------------------------------------------------
+
+/// The credentials a request can bring through the gateway, each marked so
+/// a stored or replayed copy is easy to spot.
+const CLIENT_SECRETS: [&str; 5] = [
+    "q-secret",
+    "q-private-token",
+    "h-private-token",
+    "gitlab-session",
+    "oauth-token",
+];
+
+/// POST a queued `update_ensemble` through the real router with everything
+/// a client behind the gateway may send, and `secret` as `?secret=`.
+async fn queue_write(
+    config: &Config,
+    conn: redis::aio::MultiplexedConnection,
+    secret: &str,
+) -> StatusCode {
+    let state = AppState {
+        config: Arc::new(config.clone()),
+        client: reqwest::Client::new(),
+        redis: Some(conn),
+        cloudmap: None,
+    };
+    let body = json!({
+        "patch": [{"__typename": "DeploymentTemplate", "name": "t"}],
+        "commit_msg": "change",
+        "branch": "main",
+        "latest_commit": "abc123",
+        "deployment_path": "",
+        "queueid": 0,
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/update_ensemble?auth_project=p&secret={secret}&private_token=q-private-token"
+        ))
+        .header("content-type", "application/json")
+        .header("private-token", "h-private-token")
+        .header("cookie", "_gitlab_session=gitlab-session")
+        .header("x-forwarded-access-token", "oauth-token")
+        .header("authorization", "Bearer oauth-token")
+        .header("x-git-credentials", "dXNlcjp0b2tlbg==")
+        .header("x-unfurl-user", "A User <a@example.com>")
+        .header("x-forwarded-for", "192.0.2.1")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    build_router(state, None)
+        .oneshot(req)
+        .await
+        .unwrap()
+        .status()
+}
+
+/// A backend that records the headers of each request it receives.
+async fn header_backend() -> (String, Arc<Mutex<Vec<axum::http::HeaderMap>>>) {
+    let seen: Arc<Mutex<Vec<axum::http::HeaderMap>>> = Arc::default();
+    let recorded = seen.clone();
+    let app = axum::Router::new().fallback(move |headers: axum::http::HeaderMap| {
+        recorded.lock().unwrap().push(headers);
+        async { StatusCode::OK }
+    });
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{addr}"), seen)
+}
+
+/// Redis holds none of the client's credentials but the git credentials
+/// `batch_patch` needs, and the worker authenticates with the server's own
+/// secret.
+#[tokio::test]
+async fn a_queued_write_stores_no_client_credentials() {
+    let Some(url) = redis_url() else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let prefix = "queue_creds";
+    let mut config = test_config(prefix, 0.2);
+    config.secret = "q-secret".into();
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let status = queue_write(&config, conn.clone(), "q-secret").await;
+    assert_eq!(status, StatusCode::OK);
+
+    let stored: Vec<String> = redis::cmd("LRANGE")
+        .arg(config.batch_list_key("p"))
+        .arg(0)
+        .arg(-1)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(stored.len(), 1);
+    for secret in CLIENT_SECRETS {
+        assert!(
+            !stored[0].contains(secret),
+            "{secret} stored: {}",
+            stored[0]
+        );
+    }
+    let item: QueueItem = serde_json::from_str(&stored[0]).unwrap();
+    assert_eq!(
+        item.headers,
+        HashMap::from([
+            ("x-git-credentials".into(), "dXNlcjp0b2tlbg==".into()),
+            ("x-unfurl-user".into(), "A User <a@example.com>".into()),
+            ("x-forwarded-for".into(), "192.0.2.1".into()),
+        ])
+    );
+
+    let (backend_url, seen) = header_backend().await;
+    let worker_conn = client.get_multiplexed_async_connection().await.unwrap();
+    let worker = tokio::spawn(queue::run_worker(
+        worker_conn,
+        config.clone(),
+        backend_url,
+        reqwest::Client::new(),
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    worker.abort();
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1, "expected the batch to be replayed");
+    assert_eq!(seen[0]["authorization"], "Bearer q-secret");
+    assert_eq!(seen[0]["x-git-credentials"], "dXNlcjp0b2tlbg==");
+    assert!(!seen[0].contains_key("cookie"));
+    cleanup_keys(&mut conn, prefix).await;
+}
+
+/// Without the server's secret a write is refused before it's queued: the
+/// worker would replay it with that secret, so Python can't refuse it later.
+#[tokio::test]
+async fn a_write_without_the_secret_is_not_queued() {
+    let Some(url) = redis_url() else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let prefix = "queue_nosecret";
+    let mut config = test_config(prefix, 0.2);
+    config.secret = "the-secret".into();
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let status = queue_write(&config, conn.clone(), "q-secret").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let queued: i64 = redis::cmd("LLEN")
+        .arg(config.batch_list_key("p"))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(queued, 0);
+    cleanup_keys(&mut conn, prefix).await;
+}
