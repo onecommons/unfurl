@@ -156,7 +156,11 @@ async fn connect_redis(config: &Config) -> Option<redis::aio::MultiplexedConnect
     let redacted_url = config.redacted_redis_url();
     let redacted_url = redacted_url.as_deref().unwrap_or("");
     let Some(url) = config.effective_redis_url() else {
-        tracing::info!("no Redis config set, caching disabled");
+        tracing::warn!(
+            "NO REDIS CONFIGURED (set CACHE_REDIS_URL, or CACHE_REDIS_HOST): response \
+             caching, the write queue (queueid batching), /events and /queue_state are \
+             disabled. Production deployments need Redis."
+        );
         return None;
     };
     let client = redis::Client::open(url.as_str()).unwrap_or_else(|e| {
@@ -368,7 +372,7 @@ async fn main() {
             if layer.is_some() {
                 tracing::info!(
                     "CORS enabled for origins: {}",
-                    config.cors_origins.as_deref().unwrap_or("")
+                    config.effective_cors_origins()
                 );
             }
             layer

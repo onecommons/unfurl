@@ -305,11 +305,9 @@ pub struct Config {
     /// Origins allowed to make cross-origin requests, separated by
     /// whitespace or commas, or `*` for any origin.
     ///
-    /// Reads python's `UNFURL_SERVE_CORS`. When `unfurl serve` spawns this
-    /// process it exports the origins it resolved for its own flask-cors
-    /// setup, including the `UNFURL_CLOUD_SERVER` fallback, so the two
-    /// servers answer preflights identically. Unset or empty adds no CORS
-    /// layer at all.
+    /// Reads python's `UNFURL_SERVE_CORS`. Unset or empty, it is
+    /// `cloud_server`'s origin, the python server's fallback, so the two
+    /// answer preflights identically however this one was started.
     #[arg(long = "cors-origins", env = "UNFURL_SERVE_CORS")]
     pub cors_origins: Option<String>,
 }
@@ -339,13 +337,30 @@ impl Config {
             .unwrap_or_else(|| format!("http://{}:{}", self.host, self.port + 1))
     }
 
-    /// CORS layer for `cors_origins`, or `None` when no origins are configured.
+    /// `cors_origins`, or `cloud_server`'s origin when that's unset or empty;
+    /// empty when neither gives one.
+    pub fn effective_cors_origins(&self) -> String {
+        match self.cors_origins.as_deref().map(str::trim) {
+            Some(origins) if !origins.is_empty() => origins.to_string(),
+            _ => url::Url::parse(&self.cloud_server)
+                .ok()
+                .map(|u| u.origin())
+                // an opaque origin serializes as "null", which would allow it
+                .filter(|o| o.is_tuple())
+                .map(|o| o.ascii_serialization())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// CORS layer for [`Self::effective_cors_origins`], or `None` when there
+    /// are none.
     ///
     /// Credentials are deliberately not allowed: flask-cors defaults to
     /// `supports_credentials=False`, and tower-http panics at runtime if
     /// credentials are combined with the `*` wildcard.
     pub fn cors_layer(&self) -> Result<Option<CorsLayer>, String> {
-        let raw = self.cors_origins.as_deref().unwrap_or("").trim();
+        let effective = self.effective_cors_origins();
+        let raw = effective.trim();
         if raw.is_empty() {
             return Ok(None);
         }
@@ -479,6 +494,27 @@ fn redact_url(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cors_origins_fall_back_to_the_cloud_servers_origin() {
+        let origins = |argv: &[&str]| {
+            let mut args = vec!["unfurl-server"];
+            args.extend_from_slice(argv);
+            Config::parse_from(args).effective_cors_origins()
+        };
+        assert_eq!(origins(&[]), "https://unfurl.cloud");
+        assert_eq!(
+            origins(&["--cloud-server", "https://git.example.com:8443/some/path"]),
+            "https://git.example.com:8443"
+        );
+        assert_eq!(origins(&["--cors-origins", " "]), "https://unfurl.cloud");
+        assert_eq!(
+            origins(&["--cors-origins", "https://a.test https://b.test"]),
+            "https://a.test https://b.test"
+        );
+        assert_eq!(origins(&["--cloud-server", "not a url"]), "");
+        assert_eq!(origins(&["--cloud-server", "mailto:ops@example.com"]), "");
+    }
 
     /// Helper: build a Config with only the redis fields set, everything else defaulted.
     fn config_with_redis(

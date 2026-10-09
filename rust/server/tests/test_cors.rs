@@ -54,14 +54,38 @@ fn preflight(path: &str, origin: &str) -> Request<Body> {
         .unwrap()
 }
 
+/// With no origins configured, the cloud server's (the default
+/// `https://unfurl.cloud`) is allowed, as by the python server, so a GUI
+/// served from it can call this server however it was started.
+#[tokio::test]
+async fn the_cloud_servers_origin_is_allowed_by_default() {
+    let (status, headers) = send(None, preflight("/export", ORIGIN)).await;
+    assert!(status.is_success(), "got {status}");
+    assert_eq!(
+        headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
+        ORIGIN
+    );
+    let (_status, headers) = send(None, preflight("/export", "https://evil.test")).await;
+    assert!(!headers.contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+}
+
 /// The bug this wiring fixes: `/export` is registered `get()`-only, so
-/// without a CORS layer a browser's preflight is rejected by the method
-/// router before any handler or proxy sees it.
+/// without a CORS layer -- no origins, and a cloud server with none to
+/// take -- a browser's preflight is rejected by the method router before
+/// any handler or proxy sees it.
 #[tokio::test]
 async fn preflight_is_405_without_cors() {
-    let (status, headers) = send(None, preflight("/export", ORIGIN)).await;
-    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
-    assert!(!headers.contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
+    let config = Config::parse_from(["unfurl-server", "--cloud-server", "not a url"]);
+    let cors = config.cors_layer().expect("valid cors config");
+    assert!(cors.is_none());
+    let res = build_router(state(config), cors)
+        .oneshot(preflight("/export", ORIGIN))
+        .await
+        .expect("router response");
+    assert_eq!(res.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert!(!res
+        .headers()
+        .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN));
 }
 
 #[tokio::test]
@@ -173,12 +197,13 @@ async fn proxied_response_has_exactly_one_allow_origin() {
 }
 
 #[test]
-fn empty_and_whitespace_origins_add_no_layer() {
+fn empty_and_whitespace_origins_take_the_cloud_servers() {
     for raw in [None, Some(""), Some("   ")] {
         let config = config_with_cors(raw);
+        assert_eq!(config.effective_cors_origins(), ORIGIN, "{raw:?}");
         assert!(
-            config.cors_layer().expect("no error").is_none(),
-            "{raw:?} should not build a cors layer"
+            config.cors_layer().expect("no error").is_some(),
+            "{raw:?} should build a cors layer"
         );
     }
 }
