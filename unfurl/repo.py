@@ -25,7 +25,7 @@ import git.exc
 from git.objects import Commit
 
 from .logs import getLogger, PY_COLORS
-from urllib.parse import urlparse, unquote
+from urllib.parse import quote, urlparse, unquote
 from .util import (
     UnfurlError,
     assert_not_none,
@@ -1038,10 +1038,15 @@ class RepoView:
 
 
 def add_transient_credentials(git, url, username, password):
-    transient_url = add_user_to_url(url, username, password)
+    # percent-encoded: `-c` splits at the first "=", and a raw "@" or ":"
+    # would end the credentials early
+    transient_url = add_user_to_url(
+        url, quote(username, safe=""), quote(password or "", safe="")
+    )
     if transient_url == url:
         return transient_url
-    replacement = f'url."{transient_url}".insteadOf="{url}"'
+    # unquoted: git takes quotes in `-c` literally, so the rewrite would never match
+    replacement = f"url.{transient_url}.insteadOf={url}"
     # _git_options get cleared after next git command is issued
     git._git_options = git.transform_kwargs(
         split_single_char_options=True, c=replacement

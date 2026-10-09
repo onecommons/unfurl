@@ -1198,3 +1198,18 @@ def test_saving_keeps_a_nested_projects_spec_url(tmp_path, monkeypatch, remote):
         assert spec_url == remote + "#:sub"
     else:
         assert spec_url.startswith("git-local://") and spec_url.endswith("/sub")
+
+
+def test_add_transient_credentials_rewrites_the_url():
+    import git as gitpython
+    from unfurl.repo import add_transient_credentials
+
+    url = "https://gitlab.example.com/org/repo.git"
+    cmd = gitpython.Git()
+    add_transient_credentials(cmd, url, "deploy", "t=k@n:x/y")
+    # applies to the next command only
+    assert (
+        cmd.ls_remote("--get-url", url)
+        == "https://deploy:t%3Dk%40n%3Ax%2Fy@gitlab.example.com/org/repo.git"
+    )
+    assert cmd.ls_remote("--get-url", url) == url
