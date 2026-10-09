@@ -1278,7 +1278,7 @@ impl SyncedRepo {
         &self,
         filter: &crate::model::WorktreeFilter,
     ) -> Result<Vec<crate::model::Worktree>> {
-        db::worktree::matching(self.db(), filter).await
+        self.db().worktrees(filter).await
     }
 
     /// Returns the [`crate::model::Worktree`] row this `SyncedRepo` is

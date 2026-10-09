@@ -339,6 +339,14 @@ impl Db {
             }
         }
     }
+
+    /// Every worktree in the database `filter` matches, by id.
+    pub async fn worktrees(
+        &self,
+        filter: &crate::model::WorktreeFilter,
+    ) -> Result<Vec<crate::model::Worktree>> {
+        worktree::matching(self, filter).await
+    }
 }
 
 async fn check_sqlite_version(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<()> {

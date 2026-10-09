@@ -2791,6 +2791,12 @@ async fn reads_other_worktrees_in_the_same_database() {
         ..in_b.clone()
     };
     assert!(a.worktrees(&elsewhere).await.expect("list").is_empty());
+    // and without a checkout, from the database alone
+    let config = unfurl_git_sync::DbConfig::Sqlite { url: db.clone() };
+    let bare = unfurl_git_sync::Db::connect(&config)
+        .await
+        .expect("connect");
+    assert_eq!(ids(bare.worktrees(&in_b).await.expect("list")), [b_row.id]);
 
     b.upsert_record(
         Some("cloudmap.yaml"),
