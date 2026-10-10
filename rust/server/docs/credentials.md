@@ -75,7 +75,7 @@ The plan has two scopes:
 
 | # | Threat | Today | Baseline | Hardening |
 |---|---|---|---|---|
-| T1 | Credentials at rest in Redis: memory, RDB/AOF files, replicas, backups | Queued items keep `X-Git-Credentials` (`QUEUED_HEADERS`, `routes.rs`), and bodies carry `private_token`, `blueprint_url`'s token and `cloud_vars_url`'s | Queued items hold grant IDs and plain bodies, no credentials | — |
+| T1 | Credentials at rest in Redis: memory, RDB/AOF files, replicas, backups | With a grant store, queued items name a grant in place of `X-Git-Credentials`; without one, they keep the header. Bodies carry `private_token`, `blueprint_url`'s token and `cloud_vars_url`'s, and a batch is replayed with its first item's credentials | Queued items hold grant IDs and plain bodies, no credentials | — |
 | T2 | Credentials at rest on disk | The hosted server's blueprint and dependency clones keep plain URLs (`transient_url_credentials`), but its project clones embed credentials on purpose (`_clone_repo`, `set_url_credentials`), and its other clones' fetches take the token from them; older clones keep the tokens they were made with | Remote URLs are plain; credentials reach git per command | — |
 | T3 | One user's credentials used for another's action | A batch is forwarded with its *first* item's headers (`queue::consolidate`), so a later item is committed and pushed with the first writer's token; a `private/` clone holds whichever user's token cloned it, and pulls with it for everyone. Tyk has checked that every writer may write and every reader may read, so no one gains access they lack; what's left is that GitLab records the first writer as the pusher, and enforces protected branches by the first writer's role | Batches are split by grant, so each user's writes are pushed with their own token | — |
 | T4 | Requests that reach the server without passing through Tyk (defence in depth) | Python checks the secret on every request it receives (`before_request` hook, `serve.py`); the Rust server checks it only on a write it queues, whose replay authenticates with the server's own secret. With Python bound to localhost (the server images), what the Rust server answers by itself skips the check: cache hits served from Redis, and the cloudmap endpoints served from the git-sync database | The Rust server checks the secret on every request, as Python does (CORS preflights exempt) | — |
@@ -112,7 +112,7 @@ grant_key: key_id · check (an HMAC of a fixed string under the key)
   queues: the `X-Git-Credentials` header; `username`/`private_token`/`password`
   in the body; the userinfo of `blueprint_url`; the `private_token`
   parameter of `cloud_vars_url` (a project token). `user` is the
-  `X-Unfurl-Username` the gateway sets, and `origin` the repository as
+  `X-Unfurl-Username` the gateway sets (empty without one), and `origin` the repository as
   `worktree.origin` spells it (`unfurl.cloud/org/project`): the request's
   `auth_project` on `UNFURL_CLOUD_SERVER`, or `blueprint_url` for its own
   credentials. So the grant for a worktree's remote is an exact match.
@@ -298,14 +298,13 @@ environment.
 order, each standing on its own:
 1. The grant table and its queries (git-sync) and the server's grant
    store: key, encryption, create, look up, expire.
-2. Queued writes name a grant for `X-Git-Credentials`, and the worker
-   restores it on replay.
-3. Batches partitioned by credential.
-4. Credentials in the body, `blueprint_url` and `cloud_vars_url` become
+2. Batches partitioned by credential.
+3. Credentials in the body, `blueprint_url` and `cloud_vars_url` become
    grants too.
-5. Work after the request uses grants: the startup clone (`clone.rs`), and
-   git-sync's pulls and pushes when they land.
-6. The Rust server checks the secret on every request (T4).
+4. Work after the request uses grants: the startup clone (`clone.rs`), and
+   git-sync's pulls and pushes when they land; a grant whose token git
+   refuses is deleted.
+5. The Rust server checks the secret on every request (T4).
 
 This completes the baseline. Until a deployment has a key, its queue
 stores credentials as before (§2.1).
@@ -327,6 +326,11 @@ the key readable only by the latter (§2.5).
 - Deployments with Redis need a grant key (a mounted secret) and a
   cloudmap database for Phase 1; without them, the server warns at startup
   and queues credentials as before.
+- With a grant store, a queued write whose credentials can't be stored
+  (the database is down) is refused with a 503, not queued with them; and a
+  batch whose grant has expired, or that a replica without the key drains,
+  fails as the write would, with a 401, rather than reaching Python without
+  credentials.
 - A grant expires `UNFURL_GRANT_TTL_DAYS` after its token was last seen, so
   background work for a project nobody has used for that long waits.
 - With hardening, Python never receives a user's token, a project token or

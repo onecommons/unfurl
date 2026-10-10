@@ -18,6 +18,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::config::Config;
+use crate::grants::GrantStore;
+use std::sync::Arc;
 
 static ENQUEUE: Lazy<redis::Script> = Lazy::new(|| redis::Script::new(ENQUEUE_SCRIPT));
 static INC_QUEUEID: Lazy<redis::Script> = Lazy::new(|| redis::Script::new(INC_QUEUEID_SCRIPT));
@@ -30,6 +32,11 @@ pub struct QueueItem {
     pub endpoint: String,
     pub body: JsonValue,
     pub headers: HashMap<String, String>,
+    /// The grant holding the write's `X-Git-Credentials`, which the worker
+    /// restores when it replays it. Items queued without a grant store, or
+    /// by earlier versions, have none, and their headers as they came.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -770,12 +777,9 @@ fn extract_queueid(body: &JsonValue) -> Option<i64> {
 /// within each partition preserve their original order. The batch's
 /// `latest_commit` and `queueid` are taken from the last queued request
 /// in the partition.
-fn consolidate(
-    project_id: &str,
-    items: Vec<QueueItem>,
-) -> Vec<(PartitionedBatch, HashMap<String, String>)> {
-    // Preserve insertion order with a Vec of (key, batch, headers).
-    let mut groups: Vec<(PartitionKey, PartitionedBatch, HashMap<String, String>)> = Vec::new();
+fn consolidate(project_id: &str, items: Vec<QueueItem>) -> Vec<(PartitionedBatch, Replayed)> {
+    // Preserve insertion order with a Vec of (key, batch, headers and grant).
+    let mut groups: Vec<(PartitionKey, PartitionedBatch, Replayed)> = Vec::new();
 
     for item in items {
         let body = &item.body;
@@ -815,7 +819,14 @@ fn consolidate(
                 requests: vec![req],
                 queueid,
             };
-            groups.push((key, batch, item.headers));
+            groups.push((
+                key,
+                batch,
+                Replayed {
+                    headers: item.headers,
+                    grant: item.grant,
+                },
+            ));
         }
     }
 
@@ -834,7 +845,14 @@ pub async fn run_worker(
     config: Config,
     backend_url: String,
     client: Client,
+    grants: Option<Arc<GrantStore>>,
 ) {
+    let replay = Replay {
+        config: &config,
+        backend_url: &backend_url,
+        client: &client,
+        grants: grants.as_deref(),
+    };
     let ready_key = config.batch_ready_set_key();
     let lock_prefix = config.batch_lock_prefix();
     let poll_interval = std::time::Duration::from_secs_f64(config.worker_poll_interval_secs);
@@ -948,85 +966,112 @@ pub async fn run_worker(
 
             let batches = consolidate(project_id, items);
 
-            for (batch, headers) in batches {
-                let url = format!(
-                    "{}/batch_patch?auth_project={}",
-                    backend_url,
-                    urlencoding::encode(project_id)
-                );
-                tracing::debug!(
-                    "forwarding batch to {} (requests={})",
-                    url,
-                    batch.requests.len()
-                );
-
-                let batch_json = match serde_json::to_value(&batch) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::error!("failed to serialize merged batch: {}", e);
-                        continue;
-                    }
-                };
-
-                let mut builder = client.post(&url);
-                for (k, v) in &headers {
-                    builder = builder.header(k.as_str(), v.as_str());
-                }
-                if !config.secret.is_empty() {
-                    builder = builder.bearer_auth(&config.secret);
-                }
-                builder = builder.json(&batch_json);
-
-                // The items were LPOP'd before this call, so a failure here
-                // has already destroyed the patches. Record it against the
-                // queue key -- python only writes that key on success, so
-                // without this the key keeps the pre-batch queueid forever
-                // and the client's next write is told everything is fine.
-                match builder.send().await {
-                    Ok(resp) => {
-                        let status = resp.status();
-                        if !status.is_success() {
-                            let body = resp.text().await.unwrap_or_default();
-                            tracing::error!(
-                                "backend returned {} for batch_patch (project={}): {}",
-                                status,
-                                project_id,
-                                body
-                            );
-                            mark_batch_failed(
-                                &mut conn,
-                                &config,
-                                project_id,
-                                &batch,
-                                status.as_u16(),
-                                &body,
-                            )
-                            .await;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "failed to forward batch_patch to backend (project={}): {}",
-                            project_id,
-                            e
-                        );
-                        // No response to report, so use the status that says
-                        // exactly that: the proxy could not reach upstream.
-                        mark_batch_failed(
-                            &mut conn,
-                            &config,
-                            project_id,
-                            &batch,
-                            502,
-                            &format!("could not reach the backend: {e}"),
-                        )
-                        .await;
-                    }
-                }
+            for (batch, replayed) in batches {
+                replay
+                    .forward(&mut conn, project_id, &batch, replayed)
+                    .await;
             }
 
             // Release the lock.
             let _: Result<(), _> = conn.del(&lock_key).await;
+        }
+    }
+}
+
+/// The headers and grant a batch is replayed with: its first item's.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Replayed {
+    headers: HashMap<String, String>,
+    grant: Option<String>,
+}
+
+/// What the worker needs to send a batch on to Python.
+struct Replay<'a> {
+    config: &'a Config,
+    backend_url: &'a str,
+    client: &'a Client,
+    grants: Option<&'a GrantStore>,
+}
+
+impl Replay<'_> {
+    /// Send `batch` to Python's `batch_patch`, with the credentials of its
+    /// grant restored; record its failure if it isn't applied.
+    async fn forward(
+        &self,
+        conn: &mut redis::aio::MultiplexedConnection,
+        project_id: &str,
+        batch: &PartitionedBatch,
+        replayed: Replayed,
+    ) {
+        let headers = match self.restore(replayed).await {
+            Ok(headers) => headers,
+            Err(reason) => {
+                tracing::error!(project = project_id, "{}", reason);
+                mark_batch_failed(conn, self.config, project_id, batch, 401, &reason).await;
+                return;
+            }
+        };
+        let url = format!(
+            "{}/batch_patch?auth_project={}",
+            self.backend_url,
+            urlencoding::encode(project_id)
+        );
+        tracing::debug!(
+            "forwarding batch to {} (requests={})",
+            url,
+            batch.requests.len()
+        );
+        let mut builder = self.client.post(&url);
+        for (k, v) in &headers {
+            builder = builder.header(k.as_str(), v.as_str());
+        }
+        if !self.config.secret.is_empty() {
+            builder = builder.bearer_auth(&self.config.secret);
+        }
+        builder = builder.json(batch);
+
+        // The items were LPOP'd before this call, so a failure here
+        // has already destroyed the patches. Record it against the
+        // queue key -- python only writes that key on success, so
+        // without this the key keeps the pre-batch queueid forever
+        // and the client's next write is told everything is fine.
+        let (status, body) = match builder.send().await {
+            Ok(resp) if resp.status().is_success() => return,
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                (status, resp.text().await.unwrap_or_default())
+            }
+            // No response to report, so use the status that says
+            // exactly that: the proxy could not reach upstream.
+            Err(e) => (502, format!("could not reach the backend: {e}")),
+        };
+        tracing::error!(
+            "batch_patch failed with {} (project={}): {}",
+            status,
+            project_id,
+            body
+        );
+        mark_batch_failed(conn, self.config, project_id, batch, status, &body).await;
+    }
+
+    /// `replayed`'s headers, with `X-Git-Credentials` back from its grant.
+    async fn restore(&self, replayed: Replayed) -> Result<HashMap<String, String>, String> {
+        let mut headers = replayed.headers;
+        let Some(id) = replayed.grant else {
+            return Ok(headers);
+        };
+        let store = self
+            .grants
+            .ok_or(format!("no grant store to read grant {id} with"))?;
+        match store.token(&id).await {
+            Ok(Some(credentials)) => {
+                headers.insert("x-git-credentials".into(), credentials);
+                Ok(headers)
+            }
+            Ok(None) => Err(format!(
+                "the credentials for this write (grant {id}) have expired; send it again"
+            )),
+            Err(e) => Err(format!("couldn't read grant {id}: {e}")),
         }
     }
 }
@@ -1066,6 +1111,7 @@ mod tests {
                 "environment": "prod",
             }),
             headers: HashMap::new(),
+            grant: None,
         }];
 
         let batches = consolidate("proj1", items);
@@ -1092,6 +1138,7 @@ mod tests {
                     "deployment_path": "d1",
                 }),
                 headers: HashMap::new(),
+                grant: None,
             },
             QueueItem {
                 endpoint: "/delete_deployment?auth_project=proj1".into(),
@@ -1103,6 +1150,7 @@ mod tests {
                     "queueid": 2,
                 }),
                 headers: HashMap::new(),
+                grant: None,
             },
         ];
 
@@ -1132,6 +1180,7 @@ mod tests {
                     "queueid": 1,
                 }),
                 headers: HashMap::new(),
+                grant: None,
             },
             QueueItem {
                 endpoint: "/update_ensemble?auth_project=proj1".into(),
@@ -1142,6 +1191,7 @@ mod tests {
                     "queueid": 1,
                 }),
                 headers: HashMap::new(),
+                grant: None,
             },
         ];
 
@@ -1165,6 +1215,7 @@ mod tests {
                     "queueid": 1,
                 }),
                 headers: HashMap::new(),
+                grant: None,
             },
             QueueItem {
                 endpoint: "/update_ensemble?auth_project=proj1".into(),
@@ -1175,6 +1226,7 @@ mod tests {
                     "queueid": 1,
                 }),
                 headers: HashMap::new(),
+                grant: None,
             },
         ];
 
@@ -1195,6 +1247,7 @@ mod tests {
                     "deployment_path": "environments/gcp/primary_provider",
                 }),
                 headers: HashMap::new(),
+                grant: None,
             },
             QueueItem {
                 endpoint: "/update_environment?auth_project=proj1".into(),
@@ -1205,6 +1258,7 @@ mod tests {
                     "queueid": 2,
                 }),
                 headers: HashMap::new(),
+                grant: None,
             },
             QueueItem {
                 endpoint: "/delete_deployment?auth_project=proj1".into(),
@@ -1215,6 +1269,7 @@ mod tests {
                     "queueid": 3,
                 }),
                 headers: HashMap::new(),
+                grant: None,
             },
         ];
 

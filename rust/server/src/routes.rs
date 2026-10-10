@@ -610,6 +610,47 @@ fn filter_forward_headers(headers: &axum::http::HeaderMap) -> HashMap<String, St
         .collect()
 }
 
+/// The headers a queued write keeps, and the grant its `X-Git-Credentials`
+/// went into instead, with a grant store: for the project `project_id` on
+/// the cloud server, as the user the gateway names. A write whose grant
+/// can't be stored is refused rather than queued with its credentials.
+async fn queued_credentials(
+    state: &AppState,
+    project_id: &str,
+    headers: &axum::http::HeaderMap,
+) -> Result<(HashMap<String, String>, Option<String>), Response> {
+    let mut kept = filter_forward_headers(headers);
+    let Some(store) = &state.grants else {
+        return Ok((kept, None));
+    };
+    let Some(credentials) = kept.remove("x-git-credentials") else {
+        return Ok((kept, None));
+    };
+    let username = headers
+        .get("x-unfurl-username")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+    let origin = format!(
+        "{}/{}",
+        state.config.cloud_server.trim_end_matches('/'),
+        project_id
+    );
+    match store.grant(username, &origin, &credentials).await {
+        Ok(id) => Ok((kept, Some(id))),
+        Err(e) => {
+            tracing::error!(error = %e, project = project_id, "couldn't store a write's credentials");
+            Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "code": "UNAVAILABLE",
+                    "message": "could not store the write's credentials",
+                })),
+            )
+                .into_response())
+        }
+    }
+}
+
 /// Whether the request carries the API secret, as Python's `before_request`
 /// accepts it: `?secret=` or `Authorization: Bearer`. True when none is set.
 fn has_secret(
@@ -709,6 +750,11 @@ async fn handle_write(
                 )
                     .into_response();
             }
+            let (kept_headers, grant) =
+                match queued_credentials(&state, &project_id, &headers).await {
+                    Ok(stashed) => stashed,
+                    Err(response) => return response,
+                };
             // Atomically validate and increment the queueid.
             let mut conn = redis.clone();
             let qid_result = match queue::inc_queueid(
@@ -781,7 +827,8 @@ async fn handle_write(
                     let item = QueueItem {
                         endpoint: endpoint_uri.path().to_string(),
                         body: updated_body,
-                        headers: filter_forward_headers(&headers),
+                        headers: kept_headers.clone(),
+                        grant: grant.clone(),
                     };
                     if let Err(e) =
                         queue::enqueue(&mut conn, &state.config, &project_id, &item).await
@@ -803,7 +850,8 @@ async fn handle_write(
                     let item = QueueItem {
                         endpoint: endpoint_uri.path().to_string(),
                         body: updated_body,
-                        headers: filter_forward_headers(&headers),
+                        headers: kept_headers.clone(),
+                        grant: grant.clone(),
                     };
                     if let Err(e) =
                         queue::enqueue(&mut conn, &state.config, &project_id, &item).await

@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 use unfurl_server::config::Config;
+use unfurl_server::grants::{GrantKey, GrantStore};
 use unfurl_server::queue::{self, ExportQueueCheck, QueueIdResult, QueueItem};
 use unfurl_server::{build_router, AppState};
 
@@ -125,6 +126,7 @@ fn make_item(
             "environment": "production",
         }),
         headers: HashMap::new(),
+        grant: None,
     }
 }
 
@@ -181,7 +183,14 @@ async fn test_enqueue_and_drain_single_project() {
     let worker_backend = backend_url.clone();
     let worker_client = reqwest::Client::new();
     let worker_handle = tokio::spawn(async move {
-        queue::run_worker(worker_conn, worker_config, worker_backend, worker_client).await;
+        queue::run_worker(
+            worker_conn,
+            worker_config,
+            worker_backend,
+            worker_client,
+            None,
+        )
+        .await;
     });
 
     // Wait for the batch window to expire + worker poll + processing time.
@@ -273,7 +282,14 @@ async fn test_different_branches_produce_separate_batches() {
         let config = config.clone();
         let backend_url = backend_url.clone();
         async move {
-            queue::run_worker(worker_conn, config, backend_url, reqwest::Client::new()).await;
+            queue::run_worker(
+                worker_conn,
+                config,
+                backend_url,
+                reqwest::Client::new(),
+                None,
+            )
+            .await;
         }
     });
 
@@ -346,7 +362,14 @@ async fn test_mixed_endpoints_in_single_batch() {
         let config = config.clone();
         let backend_url = backend_url.clone();
         async move {
-            queue::run_worker(worker_conn, config, backend_url, reqwest::Client::new()).await;
+            queue::run_worker(
+                worker_conn,
+                config,
+                backend_url,
+                reqwest::Client::new(),
+                None,
+            )
+            .await;
         }
     });
 
@@ -431,7 +454,14 @@ async fn test_multiple_projects_batched_independently() {
         let config = config.clone();
         let backend_url = backend_url.clone();
         async move {
-            queue::run_worker(worker_conn, config, backend_url, reqwest::Client::new()).await;
+            queue::run_worker(
+                worker_conn,
+                config,
+                backend_url,
+                reqwest::Client::new(),
+                None,
+            )
+            .await;
         }
     });
 
@@ -494,7 +524,14 @@ async fn test_new_items_after_drain_start_fresh_window() {
         let config = config.clone();
         let backend_url = backend_url.clone();
         async move {
-            queue::run_worker(worker_conn, config, backend_url, reqwest::Client::new()).await;
+            queue::run_worker(
+                worker_conn,
+                config,
+                backend_url,
+                reqwest::Client::new(),
+                None,
+            )
+            .await;
         }
     });
 
@@ -1147,6 +1184,7 @@ async fn failed_batch_marks_queue_key() {
             worker_config,
             backend_url,
             reqwest::Client::new(),
+            None,
         )
         .await;
     });
@@ -1312,6 +1350,7 @@ async fn unreachable_backend_marks_queue_key() {
             worker_config,
             backend_url,
             reqwest::Client::new(),
+            None,
         )
         .await;
     });
@@ -1910,13 +1949,14 @@ async fn queue_write(
     config: &Config,
     conn: redis::aio::MultiplexedConnection,
     secret: &str,
+    grants: Option<Arc<GrantStore>>,
 ) -> StatusCode {
     let state = AppState {
         config: Arc::new(config.clone()),
         client: reqwest::Client::new(),
         redis: Some(conn),
         cloudmap: None,
-        grants: None,
+        grants,
     };
     let body = json!({
         "patch": [{"__typename": "DeploymentTemplate", "name": "t"}],
@@ -1978,7 +2018,7 @@ async fn a_queued_write_stores_no_client_credentials() {
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     cleanup_keys(&mut conn, prefix).await;
 
-    let status = queue_write(&config, conn.clone(), "q-secret").await;
+    let status = queue_write(&config, conn.clone(), "q-secret", None).await;
     assert_eq!(status, StatusCode::OK);
 
     let stored: Vec<String> = redis::cmd("LRANGE")
@@ -2013,6 +2053,7 @@ async fn a_queued_write_stores_no_client_credentials() {
         config.clone(),
         backend_url,
         reqwest::Client::new(),
+        None,
     ));
     tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
     worker.abort();
@@ -2039,7 +2080,7 @@ async fn a_write_without_the_secret_is_not_queued() {
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     cleanup_keys(&mut conn, prefix).await;
 
-    let status = queue_write(&config, conn.clone(), "q-secret").await;
+    let status = queue_write(&config, conn.clone(), "q-secret", None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     let queued: i64 = redis::cmd("LLEN")
         .arg(config.batch_list_key("p"))
@@ -2048,4 +2089,121 @@ async fn a_write_without_the_secret_is_not_queued() {
         .unwrap();
     assert_eq!(queued, 0);
     cleanup_keys(&mut conn, prefix).await;
+}
+
+/// A grant store on a new SQLite database in `dir`.
+async fn grant_store(dir: &std::path::Path) -> Arc<GrantStore> {
+    let key = dir.join("grant.key");
+    std::fs::write(&key, [5u8; 32]).unwrap();
+    let url = format!("sqlite://{}?mode=rwc", dir.join("db.sqlite").display());
+    let db = unfurl_git_sync::db::Db::connect(&unfurl_git_sync::db::DbConfig::Sqlite { url })
+        .await
+        .unwrap();
+    let key = GrantKey::from_file(&key).unwrap();
+    let ttl = std::time::Duration::from_secs(3600);
+    Arc::new(GrantStore::open(db, key, ttl).await.unwrap())
+}
+
+/// With a grant store, a queued write's git credentials go into a grant,
+/// so Redis holds neither them nor any other credential, and the worker
+/// replays the write with them as the client sent them.
+#[tokio::test]
+async fn a_queued_write_keeps_its_git_credentials_in_a_grant() {
+    let Some(url) = redis_url() else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let prefix = "queue_grant";
+    let mut config = test_config(prefix, 0.2);
+    config.secret = "q-secret".into();
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+    let dir = tempfile::tempdir().unwrap();
+    let grants = grant_store(dir.path()).await;
+
+    let status = queue_write(&config, conn.clone(), "q-secret", Some(grants.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let stored: Vec<String> = redis::cmd("LRANGE")
+        .arg(config.batch_list_key("p"))
+        .arg(0)
+        .arg(-1)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(stored.len(), 1);
+    for secret in CLIENT_SECRETS
+        .iter()
+        .chain(&["dXNlcjp0b2tlbg==", "user:token"])
+    {
+        assert!(
+            !stored[0].contains(secret),
+            "{secret} stored: {}",
+            stored[0]
+        );
+    }
+    let item: QueueItem = serde_json::from_str(&stored[0]).unwrap();
+    assert!(item.grant.is_some());
+    assert!(!item.headers.contains_key("x-git-credentials"));
+
+    let (backend_url, seen) = header_backend().await;
+    let worker_conn = client.get_multiplexed_async_connection().await.unwrap();
+    let worker = tokio::spawn(queue::run_worker(
+        worker_conn,
+        config.clone(),
+        backend_url,
+        reqwest::Client::new(),
+        Some(grants),
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    worker.abort();
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1, "expected the batch to be replayed");
+    assert_eq!(seen[0]["x-git-credentials"], "dXNlcjp0b2tlbg==");
+    assert_eq!(seen[0]["x-unfurl-user"], "A User <a@example.com>");
+    cleanup_keys(&mut conn, prefix).await;
+}
+
+/// A batch whose grant can't be read -- unknown or expired, or with no
+/// store to read it -- is failed, not sent to Python without credentials.
+#[tokio::test]
+async fn a_batch_without_its_credentials_is_failed_not_sent() {
+    let Some(url) = redis_url() else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let store = grant_store(dir.path()).await;
+    for (prefix, grants) in [("grant_gone", Some(store)), ("grant_nostore", None)] {
+        let config = test_config(prefix, 0.2);
+        let client = redis::Client::open(url.as_str()).unwrap();
+        let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+        cleanup_keys(&mut conn, prefix).await;
+        let mut item = make_item("/update_ensemble", "main", "abc123", json!([]), "change");
+        item.grant = Some("not-a-grant".into());
+        queue::enqueue(&mut conn, &config, "p", &item)
+            .await
+            .unwrap();
+
+        let (backend_url, seen) = header_backend().await;
+        let worker_conn = client.get_multiplexed_async_connection().await.unwrap();
+        let worker = tokio::spawn(queue::run_worker(
+            worker_conn,
+            config.clone(),
+            backend_url,
+            reqwest::Client::new(),
+            grants,
+        ));
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        worker.abort();
+        assert!(seen.lock().unwrap().is_empty(), "{prefix}: sent anyway");
+        let failed: Option<String> = redis::cmd("GET")
+            .arg(config.queue_entry_key("p", "main", "abc123"))
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(failed.as_deref(), Some("failed:401:0"), "{prefix}");
+        cleanup_keys(&mut conn, prefix).await;
+    }
 }

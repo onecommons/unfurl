@@ -126,13 +126,16 @@ fn init_tracing(config: &Config) {
 }
 
 /// Connects to Redis for cache lookups, if configured, and spawns the batch
-/// worker on a connection of its own.
+/// worker on a connection of its own, restoring credentials from `grants`.
 ///
 /// The queue worker MUST use a *separate* connection: a clone() of
 /// MultiplexedConnection shares the same underlying socket, and BLPOP 0
 /// (infinite timeout) on that socket would block every subsequent GET/SET
 /// command, causing all cache lookups to hang indefinitely.
-async fn connect_redis(config: &Config) -> Option<redis::aio::MultiplexedConnection> {
+async fn connect_redis(
+    config: &Config,
+    grants: Option<Arc<GrantStore>>,
+) -> Option<redis::aio::MultiplexedConnection> {
     let redacted_url = config.redacted_redis_url();
     let redacted_url = redacted_url.as_deref().unwrap_or("");
     let Some(url) = config.effective_redis_url() else {
@@ -165,7 +168,7 @@ async fn connect_redis(config: &Config) -> Option<redis::aio::MultiplexedConnect
     let backend = config.backend_url();
     let http_client = reqwest::Client::new();
     tokio::spawn(async move {
-        queue::run_worker(worker_conn, worker_config, backend, http_client).await;
+        queue::run_worker(worker_conn, worker_config, backend, http_client, grants).await;
     });
     tracing::debug!("batch worker started");
     Some(conn)
@@ -429,12 +432,12 @@ async fn main() {
         config.cache_key_prefix,
     );
 
-    let redis = connect_redis(&config).await;
     // without Redis nothing is queued, so nothing needs a grant
-    let grants = match redis {
+    let grants = match config.effective_redis_url() {
         Some(_) => open_grants(&config).await,
         None => None,
     };
+    let redis = connect_redis(&config, grants.clone()).await;
     let state = AppState {
         config: Arc::new(config.clone()),
         redis,
