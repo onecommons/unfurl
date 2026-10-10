@@ -883,7 +883,7 @@ class CacheEntry:
             + ":pull:"
             + _get_project_repo_dir(self.project_id, branch, self.args)
         )
-        # treat repo_key as a mutex to serialize write operations on the repo
+        # the last pull's time and outcome
         val = cache.get(repo_key)
         if val:
             logger.debug(f"pull cache hit found for {repo_key}: {val}")
@@ -893,19 +893,6 @@ class CacheEntry:
                 # using a local development repo that's on a different branch or
                 # we checked out a tag not a branch, no pull is needed
                 return self.checked_repo
-
-            if action == "in_flight":
-                logger.debug(f"pull inflight for {repo_key}")
-                start_time = time.time()
-                while time.time() - start_time < _cache_inflight_timeout:
-                    time.sleep(_cache_inflight_sleep_duration)
-                    val = cache.get(repo_key)
-                    if not val:
-                        break  # cache was cleared?
-                    last_check, action = cast(PullCacheEntry, val)
-                    if action != "in_flight":  # finished, assume repo is up-to-date
-                        self.pull_state = action
-                        return self.checked_repo
 
             if stale_ok_age and (
                 stale_ok_age == -1 or time.time() - last_check <= stale_ok_age
@@ -917,7 +904,12 @@ class CacheEntry:
                     logger.trace(f"recent pull for {action} {repo_key}")
                     return self.repo
 
-        cache.set(repo_key, (time.time(), "in_flight"), _cache_inflight_timeout)
+        # Claim the pull atomically: two requests that both found the pull
+        # stale would otherwise both pull into one working tree. Not under
+        # the project's key prefix, which a failed pull clears.
+        lock_key = "_pull_lock::" + repo_key
+        if not cache.add(lock_key, os.getpid(), timeout=_cache_inflight_timeout):
+            return self._wait_for_pull(cache, repo_key, lock_key)
         try:
             if not self.repo:
                 self._set_project_repo()
@@ -968,6 +960,22 @@ class CacheEntry:
             logger.info(f"pull failed for {repo_key}")
             cache.set(repo_key, (time.time(), "failed"))
             raise
+        finally:
+            cache.delete(lock_key)
+
+    def _wait_for_pull(self, cache: Cache, repo_key: str, lock_key: str) -> Repo:
+        """Wait for the pull another request holds ``lock_key`` for, and
+        take the repository it left."""
+        logger.debug(f"pull inflight for {repo_key}")
+        start_time = time.time()
+        while cache.get(lock_key) is not None:
+            if time.time() - start_time > _cache_inflight_timeout:
+                raise UnfurlError(f"timed out waiting for the pull of {repo_key}")
+            time.sleep(_cache_inflight_sleep_duration)
+        val = cache.get(repo_key)
+        if val:
+            self.pull_state = cast(PullCacheEntry, val)[1]
+        return self.checked_repo
 
     def _set_commit_info(self, paths: Optional[List[str]] = None) -> None:
         if paths is None:
@@ -2113,7 +2121,9 @@ def _clear_project(
             [clone]
             if clone
             else [
-                _get_managed_project_repo_dir(project_id, "", dict(visibility=visibility))
+                _get_managed_project_repo_dir(
+                    project_id, "", dict(visibility=visibility)
+                )
                 for visibility in ["public", "private"]
             ]
         )

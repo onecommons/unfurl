@@ -630,6 +630,55 @@ def test_a_failed_pull_removes_only_its_own_clean_clone(clone_root):
         assert os.path.isdir(other)
 
 
+def test_concurrent_pulls_pull_once(clone_root, monkeypatch):
+    """Two requests that find a checkout's pull stale at once: one pulls,
+    the other waits for it and takes what it left, rather than both
+    pulling into one working tree."""
+    import threading
+    from cachelib import SimpleCache
+
+    remote = _remote(clone_root)
+    with server.app.app_context():
+        main = server._get_project_repo_dir("org/proj", "main", {})
+        _git(clone_root, "clone", "-q", str(remote), main)
+
+    pulls = []
+
+    def slow_pull(repo, branch, shallow_since=None):
+        pulls.append(branch)
+        time.sleep(0.5)
+        return "pulled"
+
+    monkeypatch.setattr(server, "pull", slow_pull)
+    # both read the pull's state before either claims it: the race
+    both_read = threading.Barrier(2)
+    seen = threading.local()
+
+    class RacingCache(SimpleCache):
+        def get(self, key):
+            value = super().get(key)
+            if ":pull:" in key and not key.startswith("_pull_lock") and not getattr(seen, "once", False):
+                seen.once = True
+                both_read.wait(timeout=5)
+            return value
+
+    cache = RacingCache()
+    got = []
+
+    def request():
+        with server.app.app_context():
+            entry = server.CacheEntry("org/proj", "main", "cloudmap.yaml", "load_yaml")
+            got.append(entry.pull(cache).working_dir)
+
+    threads = [threading.Thread(target=request) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert pulls == ["main"]
+    assert len(got) == 2 and got[0] == got[1]
+
+
 def test_clone_repo_without_project_id(monkeypatch, tmp_path):
     """A server serving a local path that isn't a repo must fail cleanly.
 
