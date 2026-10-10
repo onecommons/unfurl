@@ -6,8 +6,7 @@
 //! A grant holds a credential as `X-Git-Credentials` does, the base64 of
 //! `user:secret`, whichever field it came from.
 
-use crate::grants::{GrantError, GrantStore};
-use base64::Engine;
+use crate::grants::{credentials, decode_credentials, GrantError, GrantStore};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as JsonValue};
 use url::Url;
@@ -225,19 +224,6 @@ fn take_private_token(url: &str) -> Option<(Url, String)> {
         url.query_pairs_mut().clear().extend_pairs(kept);
     }
     Some((url, token))
-}
-
-fn credentials(user: &str, secret: &str) -> String {
-    base64::engine::general_purpose::STANDARD.encode(format!("{user}:{secret}"))
-}
-
-fn decode_credentials(token: &str) -> Option<(String, String)> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(token)
-        .ok()?;
-    let text = String::from_utf8(bytes).ok()?;
-    let (user, secret) = text.split_once(':')?;
-    Some((user.to_string(), secret.to_string()))
 }
 
 #[cfg(test)]

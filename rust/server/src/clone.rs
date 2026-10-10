@@ -11,10 +11,12 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use unfurl_git_sync::model::{PRIVATE, PUBLIC};
 use unfurl_git_sync::{Db, DbConfig, Worktree, WorktreeFilter};
 
 use crate::cloudmap::CloudMapState;
 use crate::gitlock::{self, GitLocks};
+use crate::grants::{Credentials, GrantStore};
 
 /// A checkout ready to open: worktree `project` on `branch`, at `path`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,9 +28,16 @@ pub struct Checkout {
 
 /// A checkout of each worktree in the database `db` whose origin is a
 /// project on `cloud_server`, cloned under `clone_root` or brought up to
-/// its remote. A worktree that can't be cloned is logged and left out: a
-/// project cloning needs credentials for, a branch only this database has
-/// (an exported one), one python is cloning or pulling, or a remote that
+/// its remote: anonymously, under `public/`, unless the repository is
+/// known to be private, and otherwise under `private/` with the most
+/// recently used of `grants` for it. Whether a repository turned out
+/// public or private is recorded; private can also mean gone, since the
+/// cloud server refuses a missing project as it does a private one, and
+/// then the grants for it, none of which opens it, are forgotten. A
+/// private one no grant opens is served from the checkout it has, if any,
+/// as it is. A worktree that can't be
+/// cloned is logged and left out: a branch only this database has (an
+/// exported one), one python is cloning or pulling, or a remote that
 /// doesn't answer in time. A checkout that can't be brought up, diverged
 /// by commits the remote hasn't got, is served as it is.
 pub async fn prepare(
@@ -36,11 +45,19 @@ pub async fn prepare(
     clone_root: &Path,
     cloud_server: &str,
     locks: Option<&GitLocks>,
+    grants: Option<&GrantStore>,
 ) -> Vec<Checkout> {
-    let worktrees = match Db::connect(db).await {
-        Ok(db) => db.worktrees(&WorktreeFilter::default()).await,
-        Err(e) => Err(e),
+    let db = match Db::connect(db).await {
+        Ok(db) => db,
+        Err(e) => {
+            tracing::error!(
+                error = e.to_string().as_str(),
+                "can't open the cloudmap database"
+            );
+            return Vec::new();
+        }
     };
+    let worktrees = db.worktrees(&WorktreeFilter::default()).await;
     let worktrees = match worktrees {
         Ok(w) => w,
         Err(e) => {
@@ -59,36 +76,207 @@ pub async fn prepare(
             "git locks shared with python are keyed under"
         );
     }
+    let startup = Startup {
+        db: &db,
+        clone_root,
+        cloud_server,
+        locks,
+        grants,
+    };
     let mut ready = Vec::new();
     for w in worktrees {
-        let Some(project) = project_of(&w, cloud_server) else {
+        if let Some(checkout) = startup.settle(&w).await {
+            ready.push(checkout);
+        }
+    }
+    ready
+}
+
+/// What [`prepare`] brings each worktree's checkout up with.
+struct Startup<'a> {
+    db: &'a Db,
+    clone_root: &'a Path,
+    cloud_server: &'a str,
+    locks: Option<&'a GitLocks>,
+    grants: Option<&'a GrantStore>,
+}
+
+/// How many of a private repository's grants are tried before it's left
+/// to python.
+const GRANTS_TRIED: usize = 3;
+
+impl Startup<'_> {
+    /// Worktree `w`'s checkout, cloned or brought up: anonymously unless
+    /// its repository is known to be private, then with a grant.
+    async fn settle(&self, w: &Worktree) -> Option<Checkout> {
+        let Some(project) = project_of(w, self.cloud_server) else {
             tracing::debug!(
                 origin = w.origin.as_str(),
                 "not a project on the cloud server; skipped"
             );
-            continue;
+            return None;
         };
-        let checkout = Checkout {
-            path: clone_root.join("public").join(&project).join(&w.branch),
-            project,
-            branch: w.branch.clone(),
-        };
-        let url = format!(
-            "{}/{}.git",
-            cloud_server.trim_end_matches('/'),
-            checkout.project
+        let url = format!("{}/{project}.git", self.cloud_server.trim_end_matches('/'));
+        if w.visibility.as_deref() != Some(PRIVATE) {
+            let checkout = self.checkout(w, &project, "public");
+            match update(&checkout, &url, self.locks, &Access::anonymous(&url)).await {
+                Ok(()) => {
+                    if w.visibility.is_none() {
+                        self.mark(&w.origin, PUBLIC).await;
+                    }
+                    return Some(checkout);
+                }
+                Err(e) if refused(&e) => self.mark(&w.origin, PRIVATE).await,
+                Err(e) => {
+                    left_out(&checkout, &e);
+                    return None;
+                }
+            }
+        }
+        let private = self.checkout(w, &project, "private");
+        if let Some(checkout) = self.settle_private(private.clone(), &w.origin, &url).await {
+            return Some(checkout);
+        }
+        // until a grant opens it, a checkout already here serves as it is:
+        // the gateway has checked each reader's access to the project
+        [private, self.checkout(w, &project, "public")]
+            .into_iter()
+            .find(|c| c.path.join(".git").exists())
+    }
+
+    /// `checkout`, of private repository `origin`, cloned or brought up
+    /// with its most recently used grant that works: one git refuses is
+    /// forgotten, and the next tried.
+    async fn settle_private(
+        &self,
+        checkout: Checkout,
+        origin: &str,
+        url: &str,
+    ) -> Option<Checkout> {
+        let grants = self.grants?;
+        for _ in 0..GRANTS_TRIED {
+            let credentials = match grants.latest_credentials(origin).await {
+                Ok(Some(credentials)) => credentials,
+                Ok(None) => break,
+                Err(e) => {
+                    left_out(&checkout, &e.to_string());
+                    return None;
+                }
+            };
+            let access = Access::with(url, &credentials);
+            match update(&checkout, url, self.locks, &access).await {
+                Ok(()) => return Some(checkout),
+                Err(e) if refused(&e) => {
+                    tracing::info!(
+                        grant = credentials.grant.as_str(),
+                        "git refused a grant; forgotten"
+                    );
+                    if let Err(e) = grants.forget(&credentials.grant).await {
+                        left_out(&checkout, &e.to_string());
+                        return None;
+                    }
+                }
+                Err(e) => {
+                    left_out(&checkout, &e);
+                    return None;
+                }
+            }
+        }
+        tracing::info!(
+            project = checkout.project.as_str(),
+            branch = checkout.branch.as_str(),
+            "private, and no grant opens it; left to python"
         );
-        match update(&checkout, &url, locks).await {
-            Ok(()) => ready.push(checkout),
-            Err(e) => tracing::warn!(
-                project = checkout.project.as_str(),
-                branch = checkout.branch.as_str(),
-                error = e.as_str(),
-                "no checkout of this cloudmap worktree; it isn't served"
-            ),
+        None
+    }
+
+    fn checkout(&self, w: &Worktree, project: &str, under: &str) -> Checkout {
+        Checkout {
+            path: self.clone_root.join(under).join(project).join(&w.branch),
+            project: project.to_string(),
+            branch: w.branch.clone(),
         }
     }
-    ready
+
+    async fn mark(&self, origin: &str, visibility: &str) {
+        if let Err(e) = self.db.set_visibility(origin, Some(visibility)).await {
+            tracing::warn!(
+                origin,
+                error = e.to_string().as_str(),
+                "can't record visibility"
+            );
+        }
+    }
+}
+
+fn left_out(checkout: &Checkout, error: &str) {
+    tracing::warn!(
+        project = checkout.project.as_str(),
+        branch = checkout.branch.as_str(),
+        error,
+        "no checkout of this cloudmap worktree; it isn't served"
+    );
+}
+
+/// Whether git's error `error` is a refusal of the credentials it had, or
+/// of none: the remote wants credentials (401), others (403), or answers
+/// as if the repository weren't there (404), as GitLab and GitHub answer
+/// credentials that can't see it. Not a missing branch, which credentials
+/// that work meet too.
+fn refused(error: &str) -> bool {
+    [
+        "could not read Username",
+        "Authentication failed",
+        "Access denied",
+        "returned error: 401",
+        "returned error: 403",
+        "could not be found or you don't have permission",
+    ]
+    .iter()
+    .any(|sign| error.contains(sign))
+        || (error.contains("repository '") && error.contains("' not found"))
+}
+
+/// How git reaches the cloud server: its protocol, and credentials for its
+/// host, as config in git's environment, which it doesn't store.
+struct Access {
+    protocol: String,
+    env: Vec<(String, String)>,
+}
+
+impl Access {
+    fn anonymous(url: &str) -> Self {
+        Access {
+            protocol: protocol_of(url),
+            env: Vec::new(),
+        }
+    }
+
+    /// `credentials` for `url`'s whole host: a `url.<...>.insteadOf`
+    /// rewrite, as python's `credentials_config`.
+    fn with(url: &str, credentials: &Credentials) -> Self {
+        let mut access = Self::anonymous(url);
+        if let Ok(parsed) = url::Url::parse(url) {
+            if let Some(host) = parsed.host_str() {
+                let host = match parsed.port() {
+                    Some(port) => format!("{host}:{port}"),
+                    None => host.to_string(),
+                };
+                let scheme = parsed.scheme();
+                let user = urlencoding::encode(&credentials.user);
+                let secret = urlencoding::encode(&credentials.secret);
+                access.env = vec![
+                    ("GIT_CONFIG_COUNT".into(), "1".into()),
+                    (
+                        "GIT_CONFIG_KEY_0".into(),
+                        format!("url.{scheme}://{user}:{secret}@{host}/.insteadOf"),
+                    ),
+                    ("GIT_CONFIG_VALUE_0".into(), format!("{scheme}://{host}/")),
+                ];
+            }
+        }
+        access
+    }
 }
 
 /// Open each of `checkouts` on the database at `db_url`, scanning it with
@@ -135,17 +323,22 @@ fn project_of(w: &Worktree, cloud_server: &str) -> Option<String> {
 /// Clone `url`'s branch to the checkout, or fast-forward the one there,
 /// holding its lock as python does: created exclusively, with this
 /// process's pid in it.
-async fn update(checkout: &Checkout, url: &str, locks: Option<&GitLocks>) -> Result<(), String> {
+async fn update(
+    checkout: &Checkout,
+    url: &str,
+    locks: Option<&GitLocks>,
+    access: &Access,
+) -> Result<(), String> {
     let parent = checkout.path.parent().unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let git_lock = gitlock::hold(locks, &checkout.path, gitlock::TTL).await?;
-    let updated = update_locked(checkout, url).await;
+    let updated = update_locked(checkout, url, access).await;
     gitlock::release(git_lock).await;
     updated
 }
 
 /// [`update`], holding the checkout's git lock.
-async fn update_locked(checkout: &Checkout, url: &str) -> Result<(), String> {
+async fn update_locked(checkout: &Checkout, url: &str, access: &Access) -> Result<(), String> {
     let lock = lock_path(&checkout.path);
     let held = std::fs::OpenOptions::new()
         .write(true)
@@ -161,8 +354,8 @@ async fn update_locked(checkout: &Checkout, url: &str) -> Result<(), String> {
         )
     })?;
     let updated = match checkout.path.exists() {
-        true => pull(&checkout.path, url).await,
-        false => clone(checkout, url).await,
+        true => pull(&checkout.path, access).await,
+        false => clone(checkout, url, access).await,
     };
     let _ = std::fs::remove_file(&lock);
     updated
@@ -170,9 +363,9 @@ async fn update_locked(checkout: &Checkout, url: &str) -> Result<(), String> {
 
 /// Fast-forward the checkout at `path` to its remote, or leave it as it is
 /// where it can't be: its commits the remote lacks are its to keep, as
-/// python's server keeps the cloudmap commits it hasn't pushed.
-async fn pull(path: &Path, url: &str) -> Result<(), String> {
-    let protocol = protocol_of(url);
+/// python's server keeps the cloudmap commits it hasn't pushed. A remote
+/// refusing its credentials, or the lack of them, is an error.
+async fn pull(path: &Path, access: &Access) -> Result<(), String> {
     if !path.join(".git").exists() {
         return Err(format!(
             "{} is there but isn't a git checkout",
@@ -180,12 +373,15 @@ async fn pull(path: &Path, url: &str) -> Result<(), String> {
         ));
     }
     // as `clone` does, for a checkout made before it did, or by python
-    git(path, &protocol, &["config", "core.symlinks", "false"]).await?;
-    if git(path, &protocol, &["rev-parse", "--is-shallow-repository"]).await? == "true" {
+    git(path, access, &["config", "core.symlinks", "false"]).await?;
+    if git(path, access, &["rev-parse", "--is-shallow-repository"]).await? == "true" {
         // git-sync needs the history a shallow clone of python's lacks
-        git(path, &protocol, &["fetch", "-q", "--unshallow"]).await?;
+        git(path, access, &["fetch", "-q", "--unshallow"]).await?;
     }
-    if let Err(e) = git(path, &protocol, &["pull", "-q", "--ff-only"]).await {
+    if let Err(e) = git(path, access, &["pull", "-q", "--ff-only"]).await {
+        if refused(&e) {
+            return Err(e);
+        }
         tracing::warn!(
             path = %path.display(),
             error = e.as_str(),
@@ -197,12 +393,12 @@ async fn pull(path: &Path, url: &str) -> Result<(), String> {
 
 /// Clone `url`'s branch to the checkout. No submodules: git-sync reads
 /// none, and their urls are whoever can push to the project's.
-async fn clone(checkout: &Checkout, url: &str) -> Result<(), String> {
+async fn clone(checkout: &Checkout, url: &str, access: &Access) -> Result<(), String> {
     let path = checkout.path.to_string_lossy();
     // from here, where a relative `path` is
     git(
         Path::new("."),
-        &protocol_of(url),
+        access,
         &[
             "clone",
             // a committed symlink would otherwise expose a file outside it;
@@ -254,6 +450,28 @@ const KEPT_ENV: [&str; 16] = [
     "CURL_CA_BUNDLE",
 ];
 
+/// `text` with any credentials in a url's userinfo taken out.
+fn redact(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find("//") {
+        let (before, after) = rest.split_at(start + 2);
+        out.push_str(before);
+        let authority = after
+            .find(|c: char| c == '/' || c.is_whitespace() || c == '\'')
+            .unwrap_or(after.len());
+        match after[..authority].rfind('@') {
+            Some(at) => {
+                out.push_str("<redacted>");
+                rest = &after[at..];
+            }
+            None => rest = after,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The protocol `url` uses, as `GIT_ALLOW_PROTOCOL` names it.
 fn protocol_of(url: &str) -> String {
     match url.split_once("://") {
@@ -267,7 +485,7 @@ fn protocol_of(url: &str) -> String {
 /// failed. Nothing configured on the host -- its environment, its system
 /// or global git config, such as a credential helper or a url rewrite --
 /// reaches a clone of a user's repository.
-async fn git(dir: &Path, protocol: &str, args: &[&str]) -> Result<String, String> {
+async fn git(dir: &Path, access: &Access, args: &[&str]) -> Result<String, String> {
     let mut command = tokio::process::Command::new("git");
     command.env_clear();
     for name in KEPT_ENV {
@@ -280,7 +498,8 @@ async fn git(dir: &Path, protocol: &str, args: &[&str]) -> Result<String, String
         .current_dir(dir)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_ALLOW_PROTOCOL", protocol)
+        .env("GIT_ALLOW_PROTOCOL", &access.protocol)
+        .envs(access.env.iter().map(|(k, v)| (k, v)))
         // never wait on a prompt for credentials
         .env("GIT_TERMINAL_PROMPT", "0")
         // git's messages, for telling a refusal of credentials apart
@@ -293,11 +512,12 @@ async fn git(dir: &Path, protocol: &str, args: &[&str]) -> Result<String, String
         .map_err(|e| format!("git: {e}"))?;
     match out.status.success() {
         true => Ok(String::from_utf8_lossy(&out.stdout).trim().to_string()),
-        false => Err(format!(
+        // without any credentials git might show in a url
+        false => Err(redact(&format!(
             "git {}: {}",
             args.join(" "),
             String::from_utf8_lossy(&out.stderr).trim()
-        )),
+        ))),
     }
 }
 
@@ -315,6 +535,86 @@ mod tests {
             exporting_from: None,
             visibility: None,
         }
+    }
+
+    #[test]
+    fn credentials_in_gits_errors_are_redacted() {
+        let error = "fatal: unable to access 'https://deploy:t=k%40n:x%2Fy@host/org/p.git/': \
+                     The requested URL returned error: 403 (http://u:p@other:8080/x)";
+        let redacted = redact(error);
+        assert!(
+            !redacted.contains("t=k") && !redacted.contains("u:p"),
+            "{redacted}"
+        );
+        assert!(
+            redacted.contains("https://<redacted>@host/org/p.git/"),
+            "{redacted}"
+        );
+        assert!(
+            redacted.contains("http://<redacted>@other:8080/x"),
+            "{redacted}"
+        );
+        assert_eq!(redact("git clone file:///srv/x"), "git clone file:///srv/x");
+    }
+
+    #[test]
+    fn a_refusal_of_credentials_is_told_apart() {
+        for refusal in [
+            "fatal: could not read Username for 'http://h': terminal prompts disabled",
+            "fatal: Authentication failed for 'https://h/x.git/'",
+            "remote: HTTP Basic: Access denied",
+            "The requested URL returned error: 403",
+        ] {
+            assert!(refused(refusal), "{refusal}");
+        }
+        for other in [
+            "fatal: unable to access 'https://h/': Could not resolve host: h",
+            "fatal: Not possible to fast-forward, aborting.",
+            "The requested URL returned error: 404",
+        ] {
+            assert!(!refused(other), "{other}");
+        }
+    }
+
+    #[test]
+    fn a_repository_hidden_from_credentials_is_told_from_a_missing_branch() {
+        for hidden in [
+            "remote: The project you were looking for could not be found or you don't have permission to view it.",
+            "fatal: repository 'https://h/org/proj.git/' not found",
+        ] {
+            assert!(refused(hidden), "{hidden}");
+        }
+        assert!(!refused(
+            "fatal: Remote branch exported not found in upstream origin"
+        ));
+    }
+
+    /// Credentials go to git for the cloud server's whole host, encoded,
+    /// and not anywhere it stores them.
+    #[test]
+    fn credentials_reach_git_for_the_whole_host() {
+        let credentials = Credentials {
+            grant: "g".into(),
+            user: "deploy".into(),
+            secret: "t=k@n:x/y".into(),
+        };
+        let access = Access::with("https://unfurl.cloud:8443/org/proj.git", &credentials);
+        assert_eq!(
+            access.env,
+            [
+                ("GIT_CONFIG_COUNT".to_string(), "1".to_string()),
+                (
+                    "GIT_CONFIG_KEY_0".to_string(),
+                    "url.https://deploy:t%3Dk%40n%3Ax%2Fy@unfurl.cloud:8443/.insteadOf".to_string()
+                ),
+                (
+                    "GIT_CONFIG_VALUE_0".to_string(),
+                    "https://unfurl.cloud:8443/".to_string()
+                ),
+            ]
+        );
+        assert_eq!(access.protocol, "https");
+        assert!(Access::anonymous("https://h/x.git").env.is_empty());
     }
 
     #[test]

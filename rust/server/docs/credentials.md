@@ -264,6 +264,16 @@ Synchronous requests, which are never stored, are forwarded as today.
   data is then served to each requester only after their own check, so it
   grants no one access they lack. A project with no unexpired grant waits for
   one; a service token for such projects is optional and out of this plan.
+- **The startup clone** (`clone.rs`) tries a project anonymously, into
+  `public/`, unless it's known to be private, and records which it is:
+  public when that works, private only when the remote refuses it for lack
+  of credentials. A private project is cloned or pulled into `private/`
+  with its most recently used grant; one git refuses is forgotten, and the
+  next tried. With none, a checkout it already has is served as it is.
+  Grants need Redis (there's no queue to make them without it), so without
+  it a private project is left to python, as before. A project recorded
+  private isn't tried anonymously again: one made public later stays under
+  `private/` until its record is cleared.
 - **An expired or revoked grant** fails its job visibly; the user's next
   request makes a new one.
 
@@ -354,9 +364,8 @@ Each phase stands on its own.
 order, each standing on its own:
 1. The grant table and its queries (git-sync) and the server's grant
    store: key, encryption, create, look up, expire.
-2. Work after the request uses grants: the startup clone (`clone.rs`), and
-   git-sync's pulls and pushes when they land; a grant whose token git
-   refuses is deleted.
+2. git-sync's pulls and pushes use grants when they land, as the startup
+   clone does.
 
 Deferred: the Rust server checking the secret on every request (T4, §2.2).
 

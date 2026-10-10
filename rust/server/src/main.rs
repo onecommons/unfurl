@@ -192,6 +192,7 @@ fn build_http_client(config: &Config) -> reqwest::Client {
 async fn open_cloudmap(
     config: &Config,
     locks: Option<GitLocks>,
+    grants: Option<&GrantStore>,
 ) -> Option<cloudmap::CloudMapState> {
     let (repo, db_url) = match (
         config.cloudmap_repo.as_deref(),
@@ -209,7 +210,7 @@ async fn open_cloudmap(
             return None;
         }
         (None, Some(db_url)) if config.clone_root.is_some() => {
-            return open_clones(config, db_url, locks).await;
+            return open_clones(config, db_url, locks, grants).await;
         }
         (None, Some(_)) => {
             tracing::warn!(
@@ -249,6 +250,7 @@ async fn open_clones(
     config: &Config,
     db_url: &str,
     locks: Option<GitLocks>,
+    grants: Option<&GrantStore>,
 ) -> Option<cloudmap::CloudMapState> {
     let root = std::path::Path::new(config.clone_root.as_deref()?);
     let db = or_exit(
@@ -262,7 +264,8 @@ async fn open_clones(
     );
     let scan = scan_options(config, db_url, true);
     let checkouts =
-        unfurl_server::clone::prepare(&db, root, &config.cloud_server, locks.as_ref()).await;
+        unfurl_server::clone::prepare(&db, root, &config.cloud_server, locks.as_ref(), grants)
+            .await;
     let served = unfurl_server::clone::serve(
         checkouts,
         db_url,
@@ -452,7 +455,7 @@ async fn main() {
         config: Arc::new(config.clone()),
         redis,
         client: build_http_client(&config),
-        cloudmap: open_cloudmap(&config, locks).await,
+        cloudmap: open_cloudmap(&config, locks, grants.as_deref()).await,
         grants,
     };
 

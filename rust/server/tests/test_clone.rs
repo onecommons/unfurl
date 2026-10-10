@@ -98,7 +98,7 @@ impl World {
     }
 
     async fn prepare(&self) -> Vec<Checkout> {
-        prepare(&self.db, &self.root(), &self.server(), None).await
+        prepare(&self.db, &self.root(), &self.server(), None, None).await
     }
 
     /// A commit on the server's `main`, made from the seed checkout.
@@ -241,7 +241,14 @@ async fn a_private_project_is_left_to_python() {
 #[tokio::test]
 async fn a_worktree_on_another_server_is_left_out() {
     let world = World::new().await;
-    let got = prepare(&world.db, &world.root(), "https://elsewhere.example", None).await;
+    let got = prepare(
+        &world.db,
+        &world.root(),
+        "https://elsewhere.example",
+        None,
+        None,
+    )
+    .await;
     assert!(got.is_empty());
     assert!(!world.root().exists());
 }
@@ -387,7 +394,14 @@ async fn a_clone_waits_for_its_git_lock() {
     });
 
     let locks = GitLocks::new(conn.clone(), &prefix);
-    let got = prepare(&world.db, &world.root(), &world.server(), Some(&locks)).await;
+    let got = prepare(
+        &world.db,
+        &world.root(),
+        &world.server(),
+        Some(&locks),
+        None,
+    )
+    .await;
     assert_eq!(got.len(), 1);
     assert!(
         released.load(Ordering::SeqCst),

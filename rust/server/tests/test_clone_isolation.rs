@@ -74,7 +74,7 @@ async fn a_clone_ignores_the_hosts_git_configuration() {
     );
 
     let root = tmp.path().join("clones");
-    let ready = prepare(&db, &root, &server_url, None).await;
+    let ready = prepare(&db, &root, &server_url, None, None).await;
     assert_eq!(ready.len(), 1, "the clone failed");
     assert!(root.join("public/org/proj/main/cloudmap.yaml").exists());
 }

@@ -150,6 +150,40 @@ impl GrantKey {
     }
 }
 
+/// A credential as a grant holds it, whichever field it came from: the
+/// base64 of `user:secret`, the `X-Git-Credentials` form.
+pub(crate) fn credentials(user: &str, secret: &str) -> String {
+    base64::engine::general_purpose::STANDARD.encode(format!("{user}:{secret}"))
+}
+
+/// The user and secret of a credential as a grant holds it.
+pub(crate) fn decode_credentials(token: &str) -> Option<(String, String)> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(token)
+        .ok()?;
+    let text = String::from_utf8(bytes).ok()?;
+    let (user, secret) = text.split_once(':')?;
+    Some((user.to_string(), secret.to_string()))
+}
+
+/// The user and secret of the most recently used grant for a repository,
+/// and the grant they came from.
+#[derive(Clone)]
+pub struct Credentials {
+    pub grant: String,
+    pub user: String,
+    pub secret: String,
+}
+
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credentials")
+            .field("grant", &self.grant)
+            .field("user", &self.user)
+            .finish_non_exhaustive()
+    }
+}
+
 /// A grant's id and expiry, cached by token digest and origin.
 type Cache = HashMap<(String, String), (String, i64)>;
 
@@ -279,6 +313,46 @@ impl GrantStore {
     #[cfg(test)]
     pub(crate) async fn db_grant(&self, id: &str) -> Grant {
         self.db.grant(id).await.unwrap().unwrap()
+    }
+
+    /// The credentials of the most recently used grant for the repository
+    /// `origin` that hasn't expired, for git work no request is behind.
+    pub async fn latest_credentials(
+        &self,
+        origin: &str,
+    ) -> Result<Option<Credentials>, GrantError> {
+        self.latest_credentials_at(origin, now()).await
+    }
+
+    async fn latest_credentials_at(
+        &self,
+        origin: &str,
+        now: i64,
+    ) -> Result<Option<Credentials>, GrantError> {
+        let Some(grant) = self.db.latest_grant(origin, now).await? else {
+            return Ok(None);
+        };
+        if grant.key_id != self.key.id() {
+            return Err(GrantError::WrongKey);
+        }
+        let token = self.key.decrypt(&grant.id, &grant.token)?;
+        let (user, secret) = decode_credentials(&token).ok_or(GrantError::Decrypt)?;
+        Ok(Some(Credentials {
+            grant: grant.id,
+            user,
+            secret,
+        }))
+    }
+
+    /// Delete the grant `id`, as when git refuses its credential, so it's
+    /// neither tried again nor handed out by the cache.
+    pub async fn forget(&self, id: &str) -> Result<(), GrantError> {
+        self.db.delete_grant(id).await?;
+        self.cache
+            .lock()
+            .unwrap()
+            .retain(|_, (cached, _)| cached != id);
+        Ok(())
     }
 
     /// Delete expired grants, returning how many.
@@ -489,6 +563,66 @@ mod tests {
         let old = store.grant_at("", ORIGIN, "t1", "", 0).await.unwrap();
         store.grant_at("", ORIGIN, "t2", "", 10).await.unwrap();
         assert_eq!(store.db_grant(&old).await.expires_at, LONG);
+    }
+
+    /// Git work no request is behind gets the most recently used grant's
+    /// user and secret for the repository.
+    #[tokio::test]
+    async fn the_latest_credentials_for_a_repository() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_lasting(db(dir.path()).await, 100_000).await;
+        assert!(store
+            .latest_credentials_at(ORIGIN, 0)
+            .await
+            .unwrap()
+            .is_none());
+        store
+            .grant_at("alice", ORIGIN, &credentials("deploy", "old"), "", 0)
+            .await
+            .unwrap();
+        let id = store
+            .grant_at("bob", ORIGIN, &credentials("deploy", "t=k@n:x/y"), "", 10)
+            .await
+            .unwrap();
+        let latest = store
+            .latest_credentials_at(ORIGIN, 20)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (
+                latest.grant.as_str(),
+                latest.user.as_str(),
+                latest.secret.as_str()
+            ),
+            (id.as_str(), "deploy", "t=k@n:x/y")
+        );
+        assert!(!format!("{latest:?}").contains("t=k@n"), "Debug hides it");
+    }
+
+    /// A grant git refused is gone, from the database and the cache: the
+    /// same token brought again makes a new one.
+    #[tokio::test]
+    async fn a_forgotten_grant_is_neither_tried_nor_handed_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_lasting(db(dir.path()).await, 100_000).await;
+        let token = credentials("deploy", "revoked");
+        let id = store
+            .grant_at("alice", ORIGIN, &token, "", 0)
+            .await
+            .unwrap();
+        store.forget(&id).await.unwrap();
+        assert!(store
+            .latest_credentials_at(ORIGIN, 1)
+            .await
+            .unwrap()
+            .is_none());
+        let again = store
+            .grant_at("alice", ORIGIN, &token, "", 1)
+            .await
+            .unwrap();
+        assert_ne!(again, id, "the cache handed out the forgotten grant");
+        assert!(store.token_at(&again, 2).await.unwrap().is_some());
     }
 
     #[test]
