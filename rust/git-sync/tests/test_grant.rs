@@ -188,3 +188,42 @@ async fn a_grant_is_never_extended_backwards() {
     })
     .await;
 }
+
+/// A user's new credential for a repository shortens their others for it,
+/// never lengthening one, and leaves other users' and other repositories'
+/// alone.
+#[tokio::test]
+async fn a_users_other_grants_for_a_repository_are_shortened() {
+    each_backend(async |db: &Db| {
+        let g = |id: &str, user: &str, origin: &str, token: &[u8], expires_at| {
+            let mut grant = grant(id, origin, token, 10, expires_at);
+            grant.username = user.into();
+            grant
+        };
+        for grant in [
+            g("old", "alice", ORIGIN, b"t1", 1000),
+            g("soon", "alice", ORIGIN, b"t2", 50),
+            g("new", "alice", ORIGIN, b"t3", 1000),
+            g("bobs", "bob", ORIGIN, b"t4", 1000),
+            g("elsewhere", "alice", "unfurl.cloud/org/other", b"t5", 1000),
+        ] {
+            db.put_grant(&grant).await.unwrap();
+        }
+        let shortened = db
+            .shorten_grants("alice", "https://unfurl.cloud/org/proj.git", "new", 100)
+            .await
+            .unwrap();
+        assert_eq!(shortened, 1);
+        for (id, expires_at) in [
+            ("old", 100),
+            ("soon", 50),
+            ("new", 1000),
+            ("bobs", 1000),
+            ("elsewhere", 1000),
+        ] {
+            let stored = db.grant(id).await.unwrap().unwrap();
+            assert_eq!(stored.expires_at, expires_at, "{id}");
+        }
+    })
+    .await;
+}

@@ -96,6 +96,35 @@ impl Db {
         }))
     }
 
+    /// Have `username`'s grants for `origin`, other than `except`, expire by
+    /// `by` if they would later, as when they bring a new credential for
+    /// it. Returns how many it shortened.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Db`] if the statement fails.
+    pub async fn shorten_grants(
+        &self,
+        username: &str,
+        origin: &str,
+        except: &str,
+        by: i64,
+    ) -> Result<u64> {
+        const SQL: &str = "UPDATE credential_grant SET expires_at = ?4 \
+             WHERE username = ?1 AND origin = ?2 AND id <> ?3 AND expires_at > ?4";
+        let origin = normalize_git_url_hard(origin);
+        Ok(on_pool!(self, pool => {
+            sqlx::query(sql!(pool, SQL))
+                .bind(username)
+                .bind(&origin)
+                .bind(except)
+                .bind(by)
+                .execute(pool)
+                .await?
+                .rows_affected()
+        }))
+    }
+
     /// Delete the grants expired at `now`, returning how many.
     ///
     /// # Errors
