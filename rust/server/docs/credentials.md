@@ -70,8 +70,12 @@ The plan has two scopes:
   `/proc/<pid>/environ` and `/proc/<pid>/mem`. The baseline still gives it
   credentials in memory; hardening (§2.5) doesn't.
 - **The Rust server** is smaller and parses only HTTP and JSON, but git-sync
-  in it scans users' repositories, so it is a deputy too: its reads of a
-  checkout mustn't follow a symlink out of it (unverified). It holds the
+  in it scans users' repositories, so it is a deputy too. Neither server
+  checks out a symlink from an untrusted repository: their clones set
+  `core.symlinks=false` in the clone's config, so every later checkout
+  writes a committed symlink as a plain file too (the startup clones and the
+  server's project clones; in safe mode, an untrusted project's dependency
+  and blueprint clones), and a pull sets it on a clone made before. It holds the
   key that decrypts grants. Its compromise is out of scope (as GitLab's
   application server holding `db_key_base` is for GitLab).
 - **TLS** protects every connection that leaves the host.

@@ -1231,14 +1231,17 @@ class AuthGitServer:
         userinfo = f"{USER}:{quote(TOKEN, safe='')}@" if credentials else ""
         return f"http://{userinfo}127.0.0.1:{self.port}/{name}.git"
 
-    def commit(self, name, files):
-        """Commit ``files`` (path: text) to repository ``name``, creating it."""
+    def commit(self, name, files, symlinks={}):
+        """Commit ``files`` (path: text) and ``symlinks`` (path: target) to
+        repository ``name``, creating it."""
         work = self.root / "work" / name
         if not work.exists():
             work.mkdir(parents=True)
             _git("init", "-q", "-b", "main", cwd=work)
         for path, text in files.items():
             (work / path).write_text(text)
+        for path, target in symlinks.items():
+            os.symlink(target, work / path)
         _git("add", "-A", cwd=work)
         _git("commit", "-q", "-m", "commit", cwd=work)
         bare = self.root / "served" / f"{name}.git"
@@ -1380,16 +1383,19 @@ MODES = {
 }
 
 
-def _project_env(tmp_path, mode="hosted"):
+def _project_env(tmp_path, mode="hosted", **overrides):
     """A LocalEnv on an empty project, with the overrides of ``mode``:
-    the hosted server's, the local gui's, or the command line's."""
+    the hosted server's, the local gui's, or the command line's, and
+    ``overrides``."""
     from unfurl.localenv import LocalEnv
 
     project = tmp_path / "project"
     project.mkdir()
     _git("init", "-q", cwd=project)
     (project / "unfurl.yaml").write_text("apiVersion: unfurl/v1.0.0\nkind: Project\n")
-    return LocalEnv(str(project), homePath="", can_be_empty=True, overrides=MODES[mode])
+    return LocalEnv(
+        str(project), homePath="", can_be_empty=True, overrides={**MODES[mode], **overrides}
+    )
 
 
 @pytest.mark.parametrize("mode", MODES)
@@ -1440,6 +1446,56 @@ def test_a_blueprint_clone_keeps_no_credentials(auth_git_server, tmp_path, mode)
     EnsembleBuilder(given, "ensemble", options).clone_remote_project(None, str(dest))
     stored = gitpython_config(dest, "remote.origin.url")
     assert stored == (auth_git_server.url("blueprint") if mode == "hosted" else given)
+
+
+@pytest.mark.parametrize("safe_mode", [True, False])
+def test_an_untrusted_projects_clones_check_out_no_symlinks(
+    auth_git_server, tmp_path, safe_mode
+):
+    """In safe mode, the server's, a committed symlink could expose a file
+    outside the clone: it's written as a plain file, at the first checkout
+    and every later one."""
+    auth_git_server.commit("links", {"README": "x"}, symlinks={"first": "/etc/hosts"})
+    env = _project_env(tmp_path, "cli", safe_mode=safe_mode)
+    url = auth_git_server.url("links", credentials=True)
+    repo, _, created = env.find_or_create_working_dir(url)
+    assert created
+    auth_git_server.commit("links", {}, symlinks={"later": "/etc/hosts"})
+    env.find_or_create_working_dir(url)
+    for name in ["first", "later"]:
+        path = os.path.join(repo.working_dir, name)
+        assert os.path.lexists(path)
+        assert os.path.islink(path) != safe_mode, name
+
+
+def test_a_clone_made_before_safe_mode_stops_checking_out_symlinks(
+    auth_git_server, tmp_path
+):
+    auth_git_server.commit("links", {"README": "x"})
+    env = _project_env(tmp_path, "cli")
+    url = auth_git_server.url("links", credentials=True)
+    repo, _, _ = env.find_or_create_working_dir(url)
+    env.overrides["safe_mode"] = True
+    auth_git_server.commit("links", {}, symlinks={"later": "/etc/hosts"})
+    env.find_or_create_working_dir(url)
+    assert not os.path.islink(os.path.join(repo.working_dir, "later"))
+
+
+def test_an_untrusted_blueprint_clone_checks_out_no_symlinks(auth_git_server, tmp_path):
+    from unfurl.init import EnsembleBuilder
+
+    project_yaml = "apiVersion: unfurl/v1.0.0\nkind: Project\n"
+    auth_git_server.commit(
+        "blueprint", {"unfurl.yaml": project_yaml}, symlinks={"link": "/etc/hosts"}
+    )
+    options: dict = {
+        "home": "",
+        "parent_localenv": _project_env(tmp_path, "hosted", safe_mode=True),
+    }
+    dest = tmp_path / "dest"
+    given = auth_git_server.url("blueprint", credentials=True)
+    EnsembleBuilder(given, "ensemble", options).clone_remote_project(None, str(dest))
+    assert (dest / "link").exists() and not (dest / "link").is_symlink()
 
 
 def gitpython_config(path, key):

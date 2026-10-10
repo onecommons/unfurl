@@ -1168,10 +1168,17 @@ class EnsembleBuilder:
             # users' requests share
             repoURL, username, password = split_url_credentials(repoURL)
         repoURL = normalize_git_url(repoURL)
+        # a committed symlink in an untrusted blueprint could expose a file
+        # outside the clone
+        symlinks = not (parent and parent.overrides.get("safe_mode"))
         if currentProject:
             # XXX use currentProject.get_relative_path(destDir) as clone destination
             repo = currentProject.find_or_create_working_dir(
-                repoURL, revision, username=username, password=password
+                repoURL,
+                revision,
+                username=username,
+                password=password,
+                symlinks=symlinks,
             )
             destDir = repo.working_dir
         else:
@@ -1181,7 +1188,12 @@ class EnsembleBuilder:
                 )
             # clone the remote repo to destDir
             Repo.create_working_dir(
-                repoURL, destDir, revision, username=username, password=password
+                repoURL,
+                destDir,
+                revision,
+                username=username,
+                password=password,
+                symlinks=symlinks,
             )
 
         targetDir = os.path.join(destDir, filePath)

@@ -128,6 +128,44 @@ async fn a_worktree_with_no_checkout_is_cloned() {
     assert!(!world.public().with_extension("lock").exists());
 }
 
+impl World {
+    /// Push a commit adding `name`, a symlink to a file outside the checkout.
+    fn push_symlink_upstream(&self, name: &str) {
+        let seed = self.tmp.path().join("seed/org/proj");
+        std::os::unix::fs::symlink("/etc/hosts", seed.join(name)).expect("symlink");
+        git(&seed, &["add", "."]);
+        git(&seed, &["commit", "-q", "-m", name]);
+        git(&seed, &["push", "-q", "origin", "main"]);
+    }
+}
+
+/// A committed symlink would expose a file outside the checkout, so every
+/// checkout, the first and each one after, writes it as a plain file.
+#[tokio::test]
+async fn a_clone_never_checks_out_a_symlink() {
+    let world = World::new().await;
+    world.push_symlink_upstream("first");
+    world.prepare().await;
+    world.push_symlink_upstream("later");
+    world.prepare().await;
+    for name in ["first", "later"] {
+        let path = world.public().join(name);
+        assert!(path.exists() && !path.is_symlink(), "{name} is a symlink");
+    }
+}
+
+/// A checkout cloned before symlinks were turned off has them turned off
+/// when it's next pulled.
+#[tokio::test]
+async fn an_existing_checkout_stops_checking_out_symlinks() {
+    let world = World::new().await;
+    world.prepare().await;
+    git(&world.public(), &["config", "--unset", "core.symlinks"]);
+    world.push_symlink_upstream("later");
+    world.prepare().await;
+    assert!(!world.public().join("later").is_symlink());
+}
+
 #[tokio::test]
 async fn a_checkout_behind_its_remote_is_fast_forwarded() {
     let world = World::new().await;

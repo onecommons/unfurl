@@ -158,6 +158,8 @@ async fn pull(path: &Path) -> Result<(), String> {
             path.display()
         ));
     }
+    // as `clone` does, for a checkout made before it did, or by python
+    git(path, &["config", "core.symlinks", "false"]).await?;
     if git(path, &["rev-parse", "--is-shallow-repository"]).await? == "true" {
         // git-sync needs the history a shallow clone of python's lacks
         git(path, &["fetch", "-q", "--unshallow"]).await?;
@@ -180,10 +182,11 @@ async fn clone(checkout: &Checkout, url: &str) -> Result<(), String> {
     git(
         Path::new("."),
         &[
-            // a committed symlink would otherwise expose a file outside it
+            "clone",
+            // a committed symlink would otherwise expose a file outside it;
+            // in the clone's config, so it holds for every later checkout
             "-c",
             "core.symlinks=false",
-            "clone",
             "-q",
             "--branch",
             &checkout.branch,

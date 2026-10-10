@@ -459,6 +459,7 @@ class Project:
         package: Optional[Package] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
+        symlinks: bool = True,
     ) -> Repo:
         localRepoPath = self._create_path_for_git_repo(gitUrl)
         if package and ref and is_semver(ref, True):
@@ -467,7 +468,12 @@ class Project:
             repo = None
         if not repo:
             repo = Repo.create_working_dir(
-                gitUrl, localRepoPath, ref, username=username, password=password
+                gitUrl,
+                localRepoPath,
+                ref,
+                username=username,
+                password=password,
+                symlinks=symlinks,
             )
         # add to workingDirs
         self.workingDirs[os.path.abspath(localRepoPath)] = repo.as_repo_view()
@@ -505,11 +511,16 @@ class Project:
         revision: Optional[str] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
+        symlinks: bool = True,
     ) -> Repo:
         repo = self.find_repo(repoURL, revision)
         if not repo:
             repo = self.create_working_dir(
-                repoURL, revision, username=username, password=password
+                repoURL,
+                revision,
+                username=username,
+                password=password,
+                symlinks=symlinks,
             )
         return repo
 
@@ -1860,8 +1871,21 @@ class LocalEnv:
         else:  # no break
             project = start
         return project.create_working_dir(
-            repoURL, revision, package, username=username, password=password
+            repoURL,
+            revision,
+            package,
+            username=username,
+            password=password,
+            # an untrusted project's: a committed symlink could expose a file
+            # outside the clone
+            symlinks=not self.overrides.get("safe_mode"),
         )
+
+    def _keep_out_symlinks(self, repo: GitRepo) -> None:
+        """In safe mode, have checkouts in ``repo``, cloned before it set this,
+        write committed symlinks as plain files."""
+        if self.overrides.get("safe_mode"):
+            repo.repo.git.config("core.symlinks", "false")
 
     def _credentials_for(self, url: str) -> Optional[Tuple[str, str]]:
         project = self.project or self.homeProject
@@ -1910,6 +1934,7 @@ class LocalEnv:
                             gitrepo = repo.convert_to_git()
                         else:
                             gitrepo = cast(GitRepo, repo)
+                        self._keep_out_symlinks(gitrepo)
                         with self._upstream_credentials(gitrepo):
                             gitrepo.checkout(
                                 revision or "", fetch_first=True, **checkout_args
@@ -1920,6 +1945,7 @@ class LocalEnv:
                     and isinstance(repo, GitRepo)
                     and not dirty
                 ):
+                    self._keep_out_symlinks(repo)
                     with self._upstream_credentials(repo):
                         repo.pull(revision=revision)
         else:
