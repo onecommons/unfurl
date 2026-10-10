@@ -88,7 +88,7 @@ The plan has two scopes:
 | # | Threat | Today | Baseline | Hardening |
 |---|---|---|---|---|
 | T1 | Credentials at rest in Redis: memory, RDB/AOF files, replicas, backups | With a grant store, queued items name grants in place of `X-Git-Credentials` and the body's `private_token`, `password`, `blueprint_url`'s token and `cloud_vars_url`'s; without one, they keep them. A batch is pushed with one item's credentials (T3) | Queued items hold grant IDs and plain bodies, no credentials | — |
-| T2 | Credentials at rest on disk | The hosted server's blueprint and dependency clones keep plain URLs (`transient_url_credentials`), but its project clones embed credentials on purpose (`_clone_repo`, `set_url_credentials`), and its other clones' fetches take the token from them; older clones keep the tokens they were made with | Remote URLs are plain; credentials reach git per command | — |
+| T2 | Credentials at rest on disk | The hosted server's clones keep plain URLs and get the request's credentials per command; a clone made before that keeps its token until a request next opens it | Remote URLs are plain; credentials reach git per command | — |
 | T3 | One user's credentials used for another's action | Each queued write is committed as its own author, but a batch is pushed once, with its *first* item's credentials (`queue::consolidate`); a `private/` clone holds whichever user's token cloned it, and pulls with it for everyone. Tyk has checked that every writer may write and every reader may read, so no one gains access they lack; what's left is that GitLab records the first writer as the pusher, and enforces protected branches by the first writer's role | Accepted: a push per user would cost a push per writer in every batch window | — |
 | T4 | Requests that reach the server without passing through Tyk (defence in depth) | Python checks the secret on every request it receives (`before_request` hook, `serve.py`); the Rust server checks it only on a write it queues, whose replay authenticates with the server's own secret. With Python bound to localhost (the server images), what the Rust server answers by itself skips the check: cache hits served from Redis, and the cloudmap endpoints served from the git-sync database | Deferred (§2.2): a NetworkPolicy letting only Tyk reach the servers covers it | — |
 | T5 | A compromised Python process, or one led by content to read a file (a confused deputy) | It sees every user's token in every request, and every token stored in the checkouts' `.git/config`; it can read its environment (the Redis and database passwords, the API secret) | It sees the tokens of the requests and batches it handles, in memory; none are stored for it to find. But in one container as one user it can read the grant key file and the Rust server's `/proc/<pid>/environ` and memory, so every stored grant | The grant key isn't in its filesystem (§2.5), and it sees grant IDs only: usable only through the local proxy, within their scope, until they expire |
@@ -218,13 +218,18 @@ Synchronous requests, which are never stored, are forwarded as today.
   and pulls on existing clones (`find_or_create_working_dir`) get the
   request's credentials the same way.
 - `apply_url_credentials`, which reused a token by reading it from another
-  clone's URL, takes the request's credentials from the `LocalEnv`'s
-  overrides instead, set by the server from the request.
+  clone's URL, takes the request's credentials instead: the server binds
+  them, for its cloud server's host, to a variable scoped to the request
+  (`unfurl.repo.request_credentials`), never to a `LocalEnv`, which
+  requests share, and resets it when the request ends. A batch binds each
+  of its requests' own. With none, the server borrows no clone's.
 - The server's project clones (`_clone_repo`) stop embedding credentials,
-  and their pulls use the request's credentials, or, for a pull with no
-  request behind it, a grant (§2.4).
-- Existing clones' remote URLs are cleaned once, when opened
-  (`git remote set-url origin <url without credentials>`).
+  and their pulls and pushes use the request's (§2.4 covers work with no
+  request behind it).
+- Existing clones' remote URLs, fetch and push, are cleaned when a request
+  next opens them.
+- All of this is the server's alone: the local gui's and the command line's
+  clones are the user's own, and keep their credentials in their URLs.
 - Startup clones run git with an emptied environment, no global or system
   config, and `GIT_ALLOW_PROTOCOL=https` (T6).
 

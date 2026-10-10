@@ -4,13 +4,14 @@
 HTTP endpoints for unfurl server.
 """
 
+import contextlib
 import gc
 import json
 import os
 import re
 from urllib.parse import urlparse
 from base64 import b64decode
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, ContextManager, Dict, List, Optional, Tuple, Union, cast
 
 from flask import Response, current_app, g, jsonify, make_response, request
 from flask.typing import ResponseReturnValue
@@ -58,6 +59,8 @@ from .serve import (
     UNFURL_SERVER_DEBUG_PATCH,
     _get_filepath,
     _get_project_repo,
+    _transient_credentials,
+    set_request_credentials,
     localenv_from_cache_checked,
     app,
     create_error_response,
@@ -892,6 +895,11 @@ def _apply_batch_requests(
             g.batch_author = req_body.pop("author")
         else:
             g.pop("batch_author", None)
+        # this request's own credentials for its clones and fetches; the
+        # request's teardown resets them
+        req_password = req_body.get("private_token", req_body.get("password"))
+        if _transient_credentials() and req_body.get("username") and req_password:
+            set_request_credentials(req_body["username"], req_password)
         create = endpoint in ("create_ensemble", "create_provider")
         # Caught per request so an exception says which one, like a returned
         # error does. Without this the two carried disjoint halves of the
@@ -1515,13 +1523,18 @@ def _push_changes(
     `rollback=False` is for callers that roll back themselves, so a batch
     doesn't get reset twice against two different revisions.
     """
+    url = None
+    credentials: ContextManager[None] = contextlib.nullcontext()
     if password:
         assert username is not None
-        url = add_user_to_url(repo.url, username, password)
-    else:
-        url = None
+        if _transient_credentials():
+            # so the pull a rejected push makes has them too
+            credentials = repo.with_credentials(repo.url, username, password)
+        else:
+            url = add_user_to_url(repo.url, username, password)
     try:
-        repo.push(url)
+        with credentials:
+            repo.push(url)
         logger.info("pushed")
     except Exception as err:
         if rollback:

@@ -1409,27 +1409,42 @@ def test_hosted_server_clones_keep_no_credentials(auth_git_server, tmp_path, mod
     assert stored == (auth_git_server.url("repo") if mode == "hosted" else given)
 
 
-def test_server_pulls_with_the_hosts_credentials(auth_git_server, tmp_path):
-    """A clone kept without credentials is pulled with those of another
-    repository on its host, the ones apply_url_credentials clones with."""
-    import git as gitpython
+def test_the_server_clones_and_pulls_with_the_requests_credentials(
+    auth_git_server, tmp_path
+):
+    """The server's clones on the cloud server's host are made and pulled
+    with the request's credentials, which none of them stores."""
+    from unfurl.repo import request_credentials
 
     env = _project_env(tmp_path)
-    # stands in for the server's project clone, whose url has credentials
+    host = f"http://127.0.0.1:{auth_git_server.port}/"
+    url = auth_git_server.url("repo")
+    token = request_credentials.set((host, USER, TOKEN))
+    try:
+        repo, _, created = env.find_or_create_working_dir(url)
+        assert created and repo.repo.git.config("remote.origin.url") == url
+        auth_git_server.commit("repo", {"README": "updated\n"})
+        repo, _, created = env.find_or_create_working_dir(url)
+        assert not created
+    finally:
+        request_credentials.reset(token)
+    assert open(os.path.join(repo.working_dir, "README")).read() == "updated\n"
+
+
+def test_the_server_borrows_no_clones_stored_credentials(auth_git_server, tmp_path):
+    """Without the request's credentials, the server doesn't use those stored
+    in another clone's url, which could be another user's."""
+    import git as gitpython
+    from unfurl.util import UnfurlError
+
+    env = _project_env(tmp_path)
     auth_git_server.commit("project", {"unfurl.yaml": "x\n"})
     keeper = tmp_path / "project" / "keeper"
     given = auth_git_server.url("project", credentials=True)
     _git("clone", "-q", given, str(keeper), cwd=tmp_path)
     env.project.workingDirs[str(keeper)] = GitRepo(gitpython.Repo(keeper)).as_repo_view()
-
-    url = auth_git_server.url("repo")
-    repo, _, created = env.find_or_create_working_dir(url)
-    assert created and repo.repo.git.config("remote.origin.url") == url
-
-    auth_git_server.commit("repo", {"README": "updated\n"})
-    repo, _, created = env.find_or_create_working_dir(url)
-    assert not created
-    assert open(os.path.join(repo.working_dir, "README")).read() == "updated\n"
+    with pytest.raises(UnfurlError):
+        env.find_or_create_working_dir(auth_git_server.url("repo"))
 
 
 @pytest.mark.parametrize("mode", MODES)
@@ -1518,3 +1533,130 @@ def test_only_the_hosted_server_keeps_clones_free_of_credentials(
     assert not err and local_env
     assert local_env.overrides.get("apply_url_credentials")
     assert bool(local_env.overrides.get("transient_url_credentials")) == (not gui)
+
+
+def _serve(monkeypatch, auth_git_server, tmp_path, gui=False):
+    """The server app, with its cloud server at the test git server, in
+    server mode or, with ``gui``, the local gui's."""
+    from unfurl.server import serve
+
+    config = serve.app.config
+    monkeypatch.setitem(
+        config, "UNFURL_CLOUD_SERVER", f"http://127.0.0.1:{auth_git_server.port}/"
+    )
+    monkeypatch.setitem(config, "UNFURL_CLONE_ROOT", str(tmp_path / "clones"))
+    monkeypatch.setitem(config, "UNFURL_LOCAL_PROJECTS", {})
+    monkeypatch.setitem(
+        config, "UNFURL_GUI_MODE", _project_env(tmp_path, "gui") if gui else None
+    )
+    return serve
+
+
+def _git_credentials_header():
+    from base64 import b64encode
+
+    return {"X-Git-Credentials": b64encode(f"{USER}:{TOKEN}".encode()).decode()}
+
+
+def _stored_config(repo):
+    with open(os.path.join(repo.working_dir, ".git", "config")) as f:
+        return f.read()
+
+
+def test_the_servers_project_clones_keep_no_credentials(
+    auth_git_server, tmp_path, monkeypatch
+):
+    """The server clones and pulls a project with the request's credentials,
+    and stores them nowhere; once the request ends, nothing holds them."""
+    from unfurl.repo import request_credentials
+
+    serve = _serve(monkeypatch, auth_git_server, tmp_path)
+    args = {"username": USER, "private_token": TOKEN}
+    with serve.app.test_request_context(headers=_git_credentials_header()):
+        serve.app.preprocess_request()
+        repo = serve._clone_repo("repo", "main", None, args)
+        assert TOKEN not in _stored_config(repo)
+        assert quote(TOKEN, safe="") not in _stored_config(repo)
+        auth_git_server.commit("repo", {"later": "x"})
+        serve.pull(repo, "main")
+        assert os.path.exists(os.path.join(repo.working_dir, "later"))
+    assert request_credentials.get() is None
+
+
+def test_the_local_guis_clones_keep_their_credentials(
+    auth_git_server, tmp_path, monkeypatch
+):
+    """The local gui's clones are the user's own, and keep their credentials
+    in their url so the user's later pulls work."""
+    from unfurl.repo import request_credentials
+
+    serve = _serve(monkeypatch, auth_git_server, tmp_path, gui=True)
+    args = {"username": USER, "private_token": TOKEN}
+    with serve.app.test_request_context(headers=_git_credentials_header()):
+        serve.app.preprocess_request()
+        assert request_credentials.get() is None
+        repo = serve._clone_repo("repo", "main", None, args)
+        assert quote(TOKEN, safe="") in _stored_config(repo)
+
+
+def test_a_clone_made_with_stored_credentials_is_cleaned(
+    auth_git_server, tmp_path, monkeypatch
+):
+    serve = _serve(monkeypatch, auth_git_server, tmp_path)
+    args = {"username": USER, "private_token": TOKEN}
+    with serve.app.test_request_context():
+        path = serve._get_project_repo_dir("repo", "main", args)
+    os.makedirs(os.path.dirname(path))
+    stored = auth_git_server.url("repo", credentials=True)
+    _git("clone", "-q", stored, path, cwd=tmp_path)
+    _git("remote", "set-url", "--push", "origin", stored, cwd=path)
+    with serve.app.test_request_context(headers=_git_credentials_header()):
+        serve.app.preprocess_request()
+        repo = serve._get_project_repo("repo", "main", args)
+        assert repo
+        config = _stored_config(repo)
+    assert quote(TOKEN, safe="") not in config, config
+    assert auth_git_server.url("repo") in config
+
+
+def test_credentials_set_during_a_request_end_with_it(tmp_path, monkeypatch):
+    """As a batch sets each of its requests' credentials: the request's
+    teardown undoes them, whether or not it brought its own."""
+    from unfurl.repo import request_credentials
+    from unfurl.server import serve
+
+    monkeypatch.setitem(serve.app.config, "UNFURL_GUI_MODE", None)
+    with serve.app.test_request_context():
+        serve.app.preprocess_request()
+        serve.set_request_credentials("someone", "their-token")
+        assert request_credentials.get()
+    assert request_credentials.get() is None
+
+
+def test_the_server_pushes_with_credentials_it_doesnt_store(
+    auth_git_server, tmp_path, monkeypatch
+):
+    from unfurl.server import endpoints
+
+    serve = _serve(monkeypatch, auth_git_server, tmp_path)
+    monkeypatch.setattr(endpoints, "set_branch_head", lambda *args: None)
+    args = {"username": USER, "private_token": TOKEN}
+    with serve.app.test_request_context(headers=_git_credentials_header()):
+        serve.app.preprocess_request()
+        repo = serve._clone_repo("repo", "main", None, args)
+        start = repo.revision
+        with open(os.path.join(repo.working_dir, "pushed"), "w") as f:
+            f.write("x")
+        repo.commit_files([os.path.join(repo.working_dir, "pushed")], "push it")
+        err = endpoints._push_changes(repo, USER, TOKEN, start, "repo", "main")
+        assert err is None, err
+    assert repo.revision == _git_out("rev-parse", "main", cwd=auth_git_server.root / "served" / "repo.git")
+    assert quote(TOKEN, safe="") not in _stored_config(repo)
+
+
+def _git_out(*args, cwd):
+    import subprocess
+
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout.strip()

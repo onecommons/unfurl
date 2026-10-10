@@ -27,7 +27,8 @@ import git.exc
 from git.objects import Commit
 
 from .logs import getLogger, PY_COLORS
-from urllib.parse import quote, urlparse, unquote
+from contextvars import ContextVar
+from urllib.parse import quote, urlparse, unquote, urlsplit
 from .util import (
     UnfurlError,
     assert_not_none,
@@ -1053,6 +1054,27 @@ class RepoView:
         return name, target_path
 
 
+#: The credentials of the request being handled, for repositories on the host
+#: they were issued for: ``(that host's url, username, password)``. The server
+#: sets it for one request at a time, so it never lands on a LocalEnv, which
+#: requests share.
+request_credentials: ContextVar[Optional[Tuple[str, str, str]]] = ContextVar(
+    "request_credentials", default=None
+)
+
+
+def request_credentials_for(url: str) -> Optional[Tuple[str, str]]:
+    """The request's username and password, if ``url`` is on their host."""
+    current = request_credentials.get()
+    if not current:
+        return None
+    host, username, password = current
+    theirs, ours = urlsplit(host), urlsplit(url)
+    if ours.hostname and (ours.hostname, ours.port) == (theirs.hostname, theirs.port):
+        return username, password
+    return None
+
+
 def credentials_config(url: str, username: str, password: str) -> List[Tuple[str, str]]:
     """The git config, as (key, value) pairs, that makes git connect to ``url``
     with ``username`` and ``password``: a ``url.<...>.insteadOf`` rewrite, which
@@ -1151,6 +1173,26 @@ class GitRepo(Repo):
         if isinstance(state.get("repo"), str):  # restore from working_dir
             state["repo"] = git.Repo(state["repo"])
         self.__dict__.update(state)
+
+    def forget_url_credentials(self) -> None:
+        """Remove credentials stored in the remote's fetch and push urls."""
+        remote = self.remote
+        if not remote:
+            return
+        for key in ("url", "pushurl"):
+            name = f"remote.{remote.name}.{key}"
+            try:
+                urls = self.repo.git.config("--get-all", name).splitlines()
+            except git.exc.GitCommandError:  # none set
+                continue
+            plain = [sanitize_url(url, False) for url in urls]
+            if plain == urls:
+                continue
+            self.repo.git.config("--unset-all", name)
+            for url in dict.fromkeys(plain):
+                self.repo.git.config("--add", name, url)
+        self.url = sanitize_url(self.url, False)
+        self.push_url = None
 
     def add_transient_push_credentials(self, username: str, password: str) -> str:
         if not self.remote:

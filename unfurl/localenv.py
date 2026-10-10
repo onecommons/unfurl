@@ -37,6 +37,7 @@ from .repo import (
     add_user_to_url,
     normalize_git_url,
     split_git_url,
+    request_credentials_for,
     split_url_credentials,
     RepoView,
     normalize_git_url_hard,
@@ -403,8 +404,12 @@ class Project:
         return candidate, repoURL, False
 
     def _credentials_for(self, url: str) -> Optional[Tuple[str, str]]:
-        """With ``apply_url_credentials``, the username and password in the url
-        of an existing repository on ``url``'s host."""
+        """Credentials for ``url``'s host: on the server
+        (``transient_url_credentials``), the request's; with
+        ``apply_url_credentials``, those in the url of an existing repository
+        on that host; otherwise none."""
+        if self.overrides.get("transient_url_credentials"):
+            return request_credentials_for(url)
         if not self.overrides.get("apply_url_credentials"):
             return None
         parts = urlsplit(url)

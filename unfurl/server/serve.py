@@ -27,6 +27,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import contextlib
 import shutil
 import subprocess
 import time
@@ -40,6 +41,7 @@ from typing import (
     Generator,
     Iterable,
     List,
+    Mapping,
     NamedTuple,
     Optional,
     Set,
@@ -51,7 +53,7 @@ from typing import (
     Callable,
 )
 from typing_extensions import Literal
-from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
+from urllib.parse import quote, urljoin, urlparse, urlsplit, urlunsplit
 from base64 import b64decode
 
 from apiflask import APIFlask, HTTPError
@@ -61,6 +63,7 @@ from flask import (
     Response,
     abort,
     current_app,
+    g,
     jsonify,
     make_response,
     request,
@@ -103,6 +106,8 @@ from ..repo import (
     Repo,
     RepoView,
     normalize_git_url,
+    request_credentials,
+    request_credentials_for,
 )
 from ..util import (
     UnfurlError,
@@ -555,7 +560,12 @@ def _get_project_repo(
         repo = Repo.make_repo(path)
         if not repo:
             return None
-        if args:
+        if _transient_credentials():
+            # a clone from before they were transient: its fetches now use
+            # each request's
+            if isinstance(repo, GitRepo):
+                repo.forget_url_credentials()
+        elif args:
             # make sure we are using the latest credentials:
             username, password = (
                 args.get("username"),
@@ -587,13 +597,20 @@ def _clone_repo(
         args.get("username"),
         args.get("private_token", args.get("password")),
     )
-    # note: adding credentials to the git URL permanently so pull works with private repositories
-    git_url = get_project_url(project_id, username, password)
+    if _transient_credentials():
+        # used for the clone only: later fetches use each request's
+        git_url = get_project_url(project_id)
+    else:
+        # the local gui's: in the url, so the user's own pulls work later
+        git_url = get_project_url(project_id, username, password)
+        username = password = None
     with lock_file(repo_path + ".lock"):  # see _get_project_repo
         return Repo.create_working_dir(
             git_url,
             repo_path,
             branch,
+            username=username,
+            password=password,
             shallow_since=shallow_since,
             # a committed symlink pointing outside the clone would otherwise
             # expose an arbitrary file through the checked-out tree
@@ -852,12 +869,18 @@ def pull(repo: GitRepo, branch: str, shallow_since=None) -> str:
         shallow_since = str(min(shallow_since, committed_date))
     else:
         shallow_since = str(committed_date)
+    credentials = request_credentials_for(repo.url)
     try:
-        repo.pull(
-            revision=branch,
-            with_exceptions=True,
-            shallow_since=shallow_since,
-        )
+        with (
+            repo.with_credentials(repo.url, *credentials)
+            if credentials
+            else contextlib.nullcontext()
+        ):
+            repo.pull(
+                revision=branch,
+                with_exceptions=True,
+                shallow_since=shallow_since,
+            )
     except git.exc.GitCommandError as e:  # type: ignore
         if (
             "You are not currently on a branch." in e.stderr
@@ -1575,6 +1598,59 @@ def hook():
         )
 
 
+def _transient_credentials() -> bool:
+    """Whether the server's clones keep no credentials: on the server, not
+    the local gui, whose clones are the user's own."""
+    return not app.config.get("UNFURL_GUI_MODE")
+
+
+def set_request_credentials(username: str, password: str) -> None:
+    """Make ``username`` and ``password`` the credentials the request's
+    clones and fetches on the cloud server use (see ``request_credentials``),
+    until the request's teardown."""
+    token = request_credentials.set(
+        (app.config.get("UNFURL_CLOUD_SERVER") or "", username, password)
+    )
+    # the first: resetting to it undoes every later one too
+    if "request_credentials" not in g:
+        g.request_credentials = token
+
+
+def _git_credentials(request: Request) -> Optional[Tuple[str, str]]:
+    """The git username and password ``request`` brings, if any."""
+    header = request.headers.get("X-Git-Credentials")
+    if header:
+        username, _, password = b64decode(header).decode().partition(":")
+        return username, password
+    sources: List[Mapping[str, Any]] = [request.args, request.get_json(silent=True) or {}]
+    for fields in sources:
+        if not isinstance(fields, Mapping):
+            continue
+        user = fields.get("username")
+        secret = fields.get("private_token", fields.get("password"))
+        if isinstance(user, str) and isinstance(secret, str) and user and secret:
+            return user, secret
+    return None
+
+
+@app.before_request
+def bind_request_credentials() -> None:
+    """On the server, its clones and fetches use the request's credentials."""
+    if not _transient_credentials():
+        return
+    credentials = _git_credentials(request)
+    if credentials:
+        set_request_credentials(*credentials)
+
+
+@app.teardown_request
+def unbind_request_credentials(_exc: Optional[BaseException]) -> None:
+    # without this, the next request on this worker would use them
+    token = g.pop("request_credentials", None)
+    if token is not None:
+        request_credentials.reset(token)
+
+
 @app.get("/health")
 @app.doc(summary="Health check", tags=["Status"])
 def health() -> str:
@@ -1597,10 +1673,10 @@ def get_project_url(project_id: str, username=None, password=None, branch=None) 
     assert base_url
     if username:
         url_parts = urlsplit(base_url)
+        userinfo = quote(username, safe="")
         if password:
-            netloc = f"{username}:{password}@{url_parts.netloc}"
-        else:
-            netloc = f"{username}@{url_parts.netloc}"
+            userinfo += ":" + quote(password, safe="")
+        netloc = f"{userinfo}@{url_parts.netloc}"
         base_url = urlunsplit(url_parts._replace(netloc=netloc))
     url = urljoin(base_url, project_id.rstrip("/") + ".git")
     if branch and branch != "(MISSING)":
