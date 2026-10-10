@@ -50,6 +50,21 @@ pub struct Worktree {
     /// For a branch [`crate::SyncedRepo::export_conflicts`] hasn't
     /// finished exporting to: the branch of the worktree exporting.
     pub exporting_from: Option<String>,
+    /// Whether the repository is public: [`PUBLIC`], [`PRIVATE`], or `None`
+    /// until something finds out (see [`crate::db::Db::set_visibility`]).
+    pub visibility: Option<String>,
+}
+
+/// A [`Worktree::visibility`]: anyone may read the repository.
+pub const PUBLIC: &str = "public";
+/// A [`Worktree::visibility`]: only those with access may read it.
+pub const PRIVATE: &str = "private";
+
+impl Worktree {
+    /// Whether the repository is public, or not known to be private.
+    pub fn is_public_or_unknown(&self) -> bool {
+        self.visibility.as_deref() != Some(PRIVATE)
+    }
 }
 
 /// One row of the `file` table — a tracked file within a worktree.

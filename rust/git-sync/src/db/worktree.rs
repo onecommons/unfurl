@@ -41,9 +41,10 @@ pub(crate) async fn matching(
     filter: &crate::model::WorktreeFilter,
 ) -> Result<Vec<crate::model::Worktree>> {
     const SQL: &str =
-        "SELECT id, origin, branch, commit_id, default_file_path, exporting_from FROM worktree \
-         WHERE (CAST(?1 AS TEXT) IS NULL OR origin = ?1) \
-           AND (CAST(?2 AS TEXT) IS NULL OR branch = ?2) ORDER BY id";
+        "SELECT w.id, w.origin, w.branch, w.commit_id, w.default_file_path, w.exporting_from, \
+         r.visibility FROM worktree w LEFT JOIN repository r ON r.origin = w.origin \
+         WHERE (CAST(?1 AS TEXT) IS NULL OR w.origin = ?1) \
+           AND (CAST(?2 AS TEXT) IS NULL OR w.branch = ?2) ORDER BY w.id";
     let (origin, branch) = filter.normalized();
     Ok(on_pool!(db, pool => {
         sqlx::query_as(sql!(pool, SQL))
@@ -56,7 +57,9 @@ pub(crate) async fn matching(
 
 pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Worktree> {
     const SQL: &str =
-        "SELECT id, origin, branch, commit_id, default_file_path, exporting_from FROM worktree WHERE id = ?1";
+        "SELECT w.id, w.origin, w.branch, w.commit_id, w.default_file_path, w.exporting_from, \
+         r.visibility FROM worktree w LEFT JOIN repository r ON r.origin = w.origin \
+         WHERE w.id = ?1";
     Ok(on_pool!(db, pool => {
         sqlx::query_as(sql!(pool, SQL))
             .bind(worktree_id)
@@ -168,4 +171,31 @@ pub(crate) async fn set_default_file(db: &Db, worktree_id: i64, value: Option<&s
             .await?;
     });
     Ok(())
+}
+
+impl Db {
+    /// Record whether the repository `origin`, in any spelling of its url,
+    /// is public: [`crate::model::PUBLIC`] or [`crate::model::PRIVATE`], or
+    /// `None` for not known. Its worktrees, those created later included,
+    /// read it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Db`] if the statement fails, as it does for
+    /// any other visibility.
+    pub async fn set_visibility(&self, origin: &str, visibility: Option<&str>) -> Result<()> {
+        let origin = crate::git::normalize_git_url_hard(origin);
+        on_pool!(self, pool => {
+            sqlx::query(sql!(
+                pool,
+                "INSERT INTO repository (origin, visibility) VALUES (?1, ?2) \
+                 ON CONFLICT (origin) DO UPDATE SET visibility = excluded.visibility"
+            ))
+            .bind(&origin)
+            .bind(visibility)
+            .execute(pool)
+            .await?;
+        });
+        Ok(())
+    }
 }

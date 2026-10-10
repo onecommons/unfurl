@@ -265,6 +265,7 @@ mod tests {
             commit_id: None,
             default_file_path: None,
             exporting_from: None,
+            visibility: None,
         }
     }
 
