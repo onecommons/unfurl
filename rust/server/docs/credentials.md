@@ -134,7 +134,11 @@ grant_key: key_id · check (an HMAC of a fixed string under the key)
   job that uses it (§2.4). So `scopes` is left empty, for hardening to
   fill (§2.5).
 - **Expires** `UNFURL_GRANT_TTL_DAYS` (default 30) after the last request
-  that brought its token.
+  that brought its token. A user's new token for a repository retires
+  their others for it: they expire within the hour, long enough for writes
+  queued with them, and no sooner than a process's cache could have last
+  handed one out. A token still in use is extended again by its next
+  request. Without the gateway's username, nothing is retired.
 - **Stored in the cloudmap database** (Postgres, or SQLite for a server
   built without Postgres), with the token encrypted with AES-256-GCM: a
   random nonce per token, stored with the ciphertext, and the grant ID as
@@ -391,9 +395,7 @@ Each guards an invariant, so each is checked by breaking what it guards
 
 ## 6. Open questions
 
-1. Whether a user's newer token replaces their older grants for the same
-   project.
-2. Projects with no recent grant: wait, or a service token (§2.4).
-3. Where the grant key comes from in each deployment (a Kubernetes or Docker
+1. Projects with no recent grant: wait, or a service token (§2.4).
+2. Where the grant key comes from in each deployment (a Kubernetes or Docker
    secret).
-4. For hardening: whether the repositories use Git LFS (§2.5).
+3. For hardening: whether the repositories use Git LFS (§2.5).

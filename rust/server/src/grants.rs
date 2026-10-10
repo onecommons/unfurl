@@ -241,6 +241,14 @@ impl GrantStore {
             expires_at,
         };
         let id = self.db.put_grant(&grant).await?;
+        if id == grant.id && !username.is_empty() {
+            // a new credential: the user's others for the repository expire,
+            // but not before a cache could have last handed one out
+            let by = now.saturating_add(REFRESH_SECS);
+            self.db
+                .shorten_grants(username, &grant.origin, &id, by)
+                .await?;
+        }
         let mut cache = self.cache.lock().unwrap();
         if cache.len() >= CACHE_LIMIT {
             cache.clear();
@@ -431,6 +439,56 @@ mod tests {
         open(&args).await.unwrap();
         std::fs::write(&key, [2u8; 32]).unwrap();
         assert!(open(&args).await.unwrap_err().contains("different key"));
+    }
+
+    async fn store_lasting(db: Db, ttl: i64) -> GrantStore {
+        let key = GrantKey::from_bytes(&[1; 32]).unwrap();
+        GrantStore::open(db, key, Duration::from_secs(ttl as u64))
+            .await
+            .unwrap()
+    }
+
+    /// A user's new token for a repository leaves their old one an hour,
+    /// for writes queued with it, then retires it.
+    #[tokio::test]
+    async fn a_new_token_retires_the_users_old_one() {
+        const LONG: i64 = 100_000;
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_lasting(db(dir.path()).await, LONG).await;
+        let old = store.grant_at("alice", ORIGIN, "t1", "", 0).await.unwrap();
+        let new = store.grant_at("alice", ORIGIN, "t2", "", 10).await.unwrap();
+        let expiry = |id| {
+            let store = &store;
+            async move { store.db_grant(id).await.expires_at }
+        };
+        assert_eq!(expiry(&old).await, 10 + REFRESH_SECS);
+        assert_eq!(expiry(&new).await, 10 + LONG);
+        assert!(store
+            .token_at(&old, 10 + REFRESH_SECS - 1)
+            .await
+            .unwrap()
+            .is_some());
+
+        // brought again, in another process: its own grant, extended, and
+        // nobody else's shortened
+        let other = store_lasting(db(dir.path()).await, LONG).await;
+        assert_eq!(
+            other.grant_at("alice", ORIGIN, "t1", "", 20).await.unwrap(),
+            old
+        );
+        assert_eq!(expiry(&old).await, 20 + LONG);
+        assert_eq!(expiry(&new).await, 10 + LONG);
+    }
+
+    /// Without the gateway's username, tokens can't be told to be one user's.
+    #[tokio::test]
+    async fn without_a_username_no_grant_is_retired() {
+        const LONG: i64 = 100_000;
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_lasting(db(dir.path()).await, LONG).await;
+        let old = store.grant_at("", ORIGIN, "t1", "", 0).await.unwrap();
+        store.grant_at("", ORIGIN, "t2", "", 10).await.unwrap();
+        assert_eq!(store.db_grant(&old).await.expires_at, LONG);
     }
 
     #[test]
