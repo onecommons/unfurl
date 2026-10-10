@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::config::Config;
 use crate::grants::GrantStore;
+use crate::stash::{self, Stashed};
 use std::sync::Arc;
 
 static ENQUEUE: Lazy<redis::Script> = Lazy::new(|| redis::Script::new(ENQUEUE_SCRIPT));
@@ -37,6 +38,10 @@ pub struct QueueItem {
     /// by earlier versions, have none, and their headers as they came.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant: Option<String>,
+    /// The credentials taken out of `body` into grants, which the worker
+    /// puts back when it replays it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stashed: Vec<Stashed>,
 }
 
 // ---------------------------------------------------------------------------
@@ -557,6 +562,9 @@ struct BatchRequest {
     /// The original request body, less any `author` of the client's own.
     #[serde(flatten)]
     body: JsonValue,
+    /// The credentials taken out of `body`, to put back before it's sent.
+    #[serde(skip)]
+    stashed: Vec<Stashed>,
 }
 
 /// A partitioned batch ready to be posted to `/batch_patch`.
@@ -813,6 +821,7 @@ fn consolidate(project_id: &str, items: Vec<QueueItem>) -> Vec<(PartitionedBatch
             endpoint: endpoint_name(&item.endpoint).to_string(),
             author: item.headers.get("x-unfurl-user").cloned(),
             body,
+            stashed: item.stashed,
         };
 
         if let Some(idx) = groups.iter().position(|(k, _, _)| k == &key) {
@@ -975,9 +984,7 @@ pub async fn run_worker(
             let batches = consolidate(project_id, items);
 
             for (batch, replayed) in batches {
-                replay
-                    .forward(&mut conn, project_id, &batch, replayed)
-                    .await;
+                replay.forward(&mut conn, project_id, batch, replayed).await;
             }
 
             // Release the lock.
@@ -1008,17 +1015,22 @@ impl Replay<'_> {
         &self,
         conn: &mut redis::aio::MultiplexedConnection,
         project_id: &str,
-        batch: &PartitionedBatch,
+        mut batch: PartitionedBatch,
         replayed: Replayed,
     ) {
-        let headers = match self.restore(replayed).await {
+        let restored = match self.restore(replayed).await {
+            Ok(headers) => self.restore_bodies(&mut batch).await.map(|()| headers),
+            Err(reason) => Err(reason),
+        };
+        let headers = match restored {
             Ok(headers) => headers,
             Err(reason) => {
                 tracing::error!(project = project_id, "{}", reason);
-                mark_batch_failed(conn, self.config, project_id, batch, 401, &reason).await;
+                mark_batch_failed(conn, self.config, project_id, &batch, 401, &reason).await;
                 return;
             }
         };
+        let batch = &batch;
         let url = format!(
             "{}/batch_patch?auth_project={}",
             self.backend_url,
@@ -1060,6 +1072,20 @@ impl Replay<'_> {
             body
         );
         mark_batch_failed(conn, self.config, project_id, batch, status, &body).await;
+    }
+
+    /// Put back the credentials taken out of `batch`'s requests' bodies.
+    async fn restore_bodies(&self, batch: &mut PartitionedBatch) -> Result<(), String> {
+        for request in &mut batch.requests {
+            if request.stashed.is_empty() {
+                continue;
+            }
+            let store = self
+                .grants
+                .ok_or("no grant store to read a write's credentials with")?;
+            stash::restore(store, &mut request.body, &request.stashed).await?;
+        }
+        Ok(())
     }
 
     /// `replayed`'s headers, with `X-Git-Credentials` back from its grant.
@@ -1116,6 +1142,7 @@ mod tests {
                 .map(|u| HashMap::from([("x-unfurl-user".to_string(), u.to_string())]))
                 .unwrap_or_default(),
             grant: None,
+            stashed: Vec::new(),
         };
         let body = json!({"branch": "main", "latest_commit": "c1", "patch": []});
         let mut spoofed = body.clone();
@@ -1159,6 +1186,7 @@ mod tests {
             }),
             headers: HashMap::new(),
             grant: None,
+            stashed: Vec::new(),
         }];
 
         let batches = consolidate("proj1", items);
@@ -1186,6 +1214,7 @@ mod tests {
                 }),
                 headers: HashMap::new(),
                 grant: None,
+                stashed: Vec::new(),
             },
             QueueItem {
                 endpoint: "/delete_deployment?auth_project=proj1".into(),
@@ -1198,6 +1227,7 @@ mod tests {
                 }),
                 headers: HashMap::new(),
                 grant: None,
+                stashed: Vec::new(),
             },
         ];
 
@@ -1228,6 +1258,7 @@ mod tests {
                 }),
                 headers: HashMap::new(),
                 grant: None,
+                stashed: Vec::new(),
             },
             QueueItem {
                 endpoint: "/update_ensemble?auth_project=proj1".into(),
@@ -1239,6 +1270,7 @@ mod tests {
                 }),
                 headers: HashMap::new(),
                 grant: None,
+                stashed: Vec::new(),
             },
         ];
 
@@ -1263,6 +1295,7 @@ mod tests {
                 }),
                 headers: HashMap::new(),
                 grant: None,
+                stashed: Vec::new(),
             },
             QueueItem {
                 endpoint: "/update_ensemble?auth_project=proj1".into(),
@@ -1274,6 +1307,7 @@ mod tests {
                 }),
                 headers: HashMap::new(),
                 grant: None,
+                stashed: Vec::new(),
             },
         ];
 
@@ -1295,6 +1329,7 @@ mod tests {
                 }),
                 headers: HashMap::new(),
                 grant: None,
+                stashed: Vec::new(),
             },
             QueueItem {
                 endpoint: "/update_environment?auth_project=proj1".into(),
@@ -1306,6 +1341,7 @@ mod tests {
                 }),
                 headers: HashMap::new(),
                 grant: None,
+                stashed: Vec::new(),
             },
             QueueItem {
                 endpoint: "/delete_deployment?auth_project=proj1".into(),
@@ -1317,6 +1353,7 @@ mod tests {
                 }),
                 headers: HashMap::new(),
                 grant: None,
+                stashed: Vec::new(),
             },
         ];
 

@@ -11,6 +11,7 @@ pub mod patch;
 pub mod proxy;
 pub mod queue;
 pub mod routes;
+pub mod stash;
 pub mod unfurl_types;
 
 use axum::http::{header, HeaderValue};

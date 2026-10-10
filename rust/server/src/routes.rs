@@ -610,21 +610,34 @@ fn filter_forward_headers(headers: &axum::http::HeaderMap) -> HashMap<String, St
         .collect()
 }
 
-/// The headers a queued write keeps, and the grant its `X-Git-Credentials`
-/// went into instead, with a grant store: for the project `project_id` on
-/// the cloud server, as the user the gateway names. A write whose grant
-/// can't be stored is refused rather than queued with its credentials.
+/// What a queued write stores: the headers it keeps and its body, less the
+/// credentials a grant store took into grants, and those grants.
+struct Queued {
+    headers: HashMap<String, String>,
+    body: JsonValue,
+    grant: Option<String>,
+    stashed: Vec<crate::stash::Stashed>,
+}
+
+/// The credentials of a write to be queued taken out into grants, with a
+/// grant store: its `X-Git-Credentials`, and those in `body`, for the
+/// project `project_id` on the cloud server, as the user the gateway
+/// names. A write whose grants can't be stored is refused rather than
+/// queued with its credentials.
 async fn queued_credentials(
     state: &AppState,
     project_id: &str,
     headers: &axum::http::HeaderMap,
-) -> Result<(HashMap<String, String>, Option<String>), Response> {
-    let mut kept = filter_forward_headers(headers);
-    let Some(store) = &state.grants else {
-        return Ok((kept, None));
+    body: &JsonValue,
+) -> Result<Queued, Response> {
+    let mut queued = Queued {
+        headers: filter_forward_headers(headers),
+        body: body.clone(),
+        grant: None,
+        stashed: Vec::new(),
     };
-    let Some(credentials) = kept.remove("x-git-credentials") else {
-        return Ok((kept, None));
+    let Some(store) = &state.grants else {
+        return Ok(queued);
     };
     let username = headers
         .get("x-unfurl-username")
@@ -635,9 +648,24 @@ async fn queued_credentials(
         state.config.cloud_server.trim_end_matches('/'),
         project_id
     );
-    match store.grant(username, &origin, &credentials).await {
-        Ok(id) => Ok((kept, Some(id))),
-        Err(e) => {
+    let stored = async {
+        if let Some(credentials) = queued.headers.remove("x-git-credentials") {
+            queued.grant = Some(store.grant(username, &origin, &credentials, "").await?);
+        }
+        queued.stashed = crate::stash::stash(store, username, &origin, &mut queued.body).await?;
+        Ok::<_, crate::stash::StashError>(())
+    };
+    match stored.await {
+        Ok(()) => Ok(queued),
+        Err(crate::stash::StashError::Unparsable(field)) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "code": "BAD_REQUEST",
+                "message": format!("{field} has credentials but isn't a valid url"),
+            })),
+        )
+            .into_response()),
+        Err(crate::stash::StashError::Store(e)) => {
             tracing::error!(error = %e, project = project_id, "couldn't store a write's credentials");
             Err((
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -750,11 +778,10 @@ async fn handle_write(
                 )
                     .into_response();
             }
-            let (kept_headers, grant) =
-                match queued_credentials(&state, &project_id, &headers).await {
-                    Ok(stashed) => stashed,
-                    Err(response) => return response,
-                };
+            let queued = match queued_credentials(&state, &project_id, &headers, &body).await {
+                Ok(queued) => queued,
+                Err(response) => return response,
+            };
             // Atomically validate and increment the queueid.
             let mut conn = redis.clone();
             let qid_result = match queue::inc_queueid(
@@ -822,13 +849,14 @@ async fn handle_write(
                         .into_response();
                 }
                 QueueIdResult::Ok { new_queueid } => {
-                    let mut updated_body = body;
+                    let mut updated_body = queued.body;
                     updated_body["queueid"] = serde_json::json!(new_queueid);
                     let item = QueueItem {
                         endpoint: endpoint_uri.path().to_string(),
                         body: updated_body,
-                        headers: kept_headers.clone(),
-                        grant: grant.clone(),
+                        headers: queued.headers,
+                        grant: queued.grant,
+                        stashed: queued.stashed,
                     };
                     if let Err(e) =
                         queue::enqueue(&mut conn, &state.config, &project_id, &item).await
@@ -844,14 +872,15 @@ async fn handle_write(
                 } => {
                     // Update the body's latest_commit and queueid before enqueuing
                     // so the worker sends the correct values to batch_patch.
-                    let mut updated_body = body;
+                    let mut updated_body = queued.body;
                     updated_body["latest_commit"] = serde_json::Value::String(new_commit.clone());
                     updated_body["queueid"] = serde_json::json!(new_queueid);
                     let item = QueueItem {
                         endpoint: endpoint_uri.path().to_string(),
                         body: updated_body,
-                        headers: kept_headers.clone(),
-                        grant: grant.clone(),
+                        headers: queued.headers,
+                        grant: queued.grant,
+                        stashed: queued.stashed,
                     };
                     if let Err(e) =
                         queue::enqueue(&mut conn, &state.config, &project_id, &item).await

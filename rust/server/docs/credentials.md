@@ -83,7 +83,7 @@ The plan has two scopes:
 
 | # | Threat | Today | Baseline | Hardening |
 |---|---|---|---|---|
-| T1 | Credentials at rest in Redis: memory, RDB/AOF files, replicas, backups | With a grant store, queued items name a grant in place of `X-Git-Credentials`; without one, they keep the header. Bodies carry `private_token`, `blueprint_url`'s token and `cloud_vars_url`'s, and a batch is replayed with its first item's credentials | Queued items hold grant IDs and plain bodies, no credentials | — |
+| T1 | Credentials at rest in Redis: memory, RDB/AOF files, replicas, backups | With a grant store, queued items name grants in place of `X-Git-Credentials` and the body's `private_token`, `password`, `blueprint_url`'s token and `cloud_vars_url`'s; without one, they keep them. A batch is pushed with one item's credentials (T3) | Queued items hold grant IDs and plain bodies, no credentials | — |
 | T2 | Credentials at rest on disk | The hosted server's blueprint and dependency clones keep plain URLs (`transient_url_credentials`), but its project clones embed credentials on purpose (`_clone_repo`, `set_url_credentials`), and its other clones' fetches take the token from them; older clones keep the tokens they were made with | Remote URLs are plain; credentials reach git per command | — |
 | T3 | One user's credentials used for another's action | Each queued write is committed as its own author, but a batch is pushed once, with its *first* item's credentials (`queue::consolidate`); a `private/` clone holds whichever user's token cloned it, and pulls with it for everyone. Tyk has checked that every writer may write and every reader may read, so no one gains access they lack; what's left is that GitLab records the first writer as the pusher, and enforces protected branches by the first writer's role | Accepted: a push per user would cost a push per writer in every batch window | — |
 | T4 | Requests that reach the server without passing through Tyk (defence in depth) | Python checks the secret on every request it receives (`before_request` hook, `serve.py`); the Rust server checks it only on a write it queues, whose replay authenticates with the server's own secret. With Python bound to localhost (the server images), what the Rust server answers by itself skips the check: cache hits served from Redis, and the cloudmap endpoints served from the git-sync database | Deferred (§2.2): a NetworkPolicy letting only Tyk reach the servers covers it | — |
@@ -179,10 +179,18 @@ grant_key: key_id · check (an HMAC of a fixed string under the key)
   only Tyk reach the servers covers the same requests, Python's included.
 - **Store a grant ID for `X-Git-Credentials`**, so the stored headers are
   `X-Unfurl-User` and `X-Forwarded-For`, and the item names its grant.
-- **Strip credentials from the stored body**: `username`, `private_token`
-  and `password`; the userinfo of `blueprint_url`; the `private_token`
-  parameter of `cloud_vars_url`. Each becomes a grant (§2.1), and the stored
-  item names its grant ID instead. A queued item holds no token or secret.
+- **Strip credentials from the stored body**: `private_token` and
+  `password` (the `username` beside them, an identity, stays); the userinfo
+  of `blueprint_url`; the `private_token` parameter of `cloud_vars_url`.
+  Each becomes a grant (§2.1), holding `user:secret` in base64, the
+  `X-Git-Credentials` form, whichever field it came from: for the write's
+  project, the blueprint's repository, or, for `cloud_vars_url`'s project
+  token, the variables URL itself, with `api:variables:read`, so it's never
+  taken for a repository's grant. The stored item names its grants, and
+  holds no token or secret. A URL that carries a credential but can't be
+  parsed is refused (400) rather than stored. On replay each comes back:
+  the fields as sent, the URLs equivalent (`private_token` is put back
+  last).
 - **Each request in a batch carries its own author** (its `X-Unfurl-User`,
   as `author`), which its commit is attributed to; a client's own `author`
   is replaced. The batch is pushed once, with its first request's
@@ -319,9 +327,7 @@ environment.
 order, each standing on its own:
 1. The grant table and its queries (git-sync) and the server's grant
    store: key, encryption, create, look up, expire.
-2. Credentials in the body, `blueprint_url` and `cloud_vars_url` become
-   grants too.
-3. Work after the request uses grants: the startup clone (`clone.rs`), and
+2. Work after the request uses grants: the startup clone (`clone.rs`), and
    git-sync's pulls and pushes when they land; a grant whose token git
    refuses is deleted.
 

@@ -199,15 +199,16 @@ impl GrantStore {
     }
 
     /// The id of `username`'s grant of `token` for the repository
-    /// `origin`, created or, if its token was seen before, with its expiry
-    /// extended.
+    /// `origin`, with `scopes` (empty for a git credential), created or, if
+    /// its token was seen before, with its expiry extended.
     pub async fn grant(
         &self,
         username: &str,
         origin: &str,
         token: &str,
+        scopes: &str,
     ) -> Result<String, GrantError> {
-        self.grant_at(username, origin, token, now()).await
+        self.grant_at(username, origin, token, scopes, now()).await
     }
 
     async fn grant_at(
@@ -215,6 +216,7 @@ impl GrantStore {
         username: &str,
         origin: &str,
         token: &str,
+        scopes: &str,
         now: i64,
     ) -> Result<String, GrantError> {
         let token_digest = self.key.digest(token);
@@ -231,7 +233,7 @@ impl GrantStore {
             id,
             username: username.to_string(),
             origin: cache_key.1.clone(),
-            scopes: String::new(),
+            scopes: scopes.to_string(),
             key_id: self.key.id().to_string(),
             token_digest,
             created_at: now,
@@ -263,6 +265,12 @@ impl GrantStore {
             }
             _ => Ok(None),
         }
+    }
+
+    /// The stored row of the grant `id`, for tests.
+    #[cfg(test)]
+    pub(crate) async fn db_grant(&self, id: &str) -> Grant {
+        self.db.grant(id).await.unwrap().unwrap()
     }
 
     /// Delete expired grants, returning how many.
@@ -311,7 +319,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = store(db(dir.path()).await, 1).await.unwrap();
         let id = store
-            .grant_at("alice", ORIGIN, "glpat-secret", 0)
+            .grant_at("alice", ORIGIN, "glpat-secret", "", 0)
             .await
             .unwrap();
         assert_eq!(
@@ -328,7 +336,10 @@ mod tests {
     async fn the_stored_digest_is_keyed() {
         let dir = tempfile::tempdir().unwrap();
         let store = store(db(dir.path()).await, 1).await.unwrap();
-        let id = store.grant_at("alice", ORIGIN, "hunter2", 0).await.unwrap();
+        let id = store
+            .grant_at("alice", ORIGIN, "hunter2", "", 0)
+            .await
+            .unwrap();
         let stored = store.db.grant(&id).await.unwrap().unwrap();
         assert_ne!(stored.token_digest, hex(&Sha256::digest(b"hunter2")));
         let other = GrantKey::from_bytes(&[2; 32]).unwrap();
@@ -377,11 +388,19 @@ mod tests {
     async fn a_token_brought_again_extends_its_grant() {
         let dir = tempfile::tempdir().unwrap();
         let store = store(db(dir.path()).await, 1).await.unwrap();
-        let id = store.grant_at("alice", ORIGIN, "t", 0).await.unwrap();
-        let other_repo = store.grant_at("alice", "unfurl.cloud/org/x", "t", 0).await;
+        let id = store.grant_at("alice", ORIGIN, "t", "", 0).await.unwrap();
+        let other_repo = store
+            .grant_at("alice", "unfurl.cloud/org/x", "t", "", 0)
+            .await;
         assert_ne!(other_repo.unwrap(), id);
         assert_eq!(store.token_at(&id, TTL).await.unwrap(), None, "expired");
-        let again = store.grant_at("alice", "https://unfurl.cloud/org/proj.git", "t", TTL + 10);
+        let again = store.grant_at(
+            "alice",
+            "https://unfurl.cloud/org/proj.git",
+            "t",
+            "",
+            TTL + 10,
+        );
         assert_eq!(again.await.unwrap(), id);
         assert!(store.token_at(&id, TTL + 20).await.unwrap().is_some());
     }

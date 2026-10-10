@@ -127,6 +127,7 @@ fn make_item(
         }),
         headers: HashMap::new(),
         grant: None,
+        stashed: Vec::new(),
     }
 }
 
@@ -2206,4 +2207,106 @@ async fn a_batch_without_its_credentials_is_failed_not_sent() {
         assert_eq!(failed.as_deref(), Some("failed:401:0"), "{prefix}");
         cleanup_keys(&mut conn, prefix).await;
     }
+}
+
+/// A backend that records the JSON body of each request it receives.
+async fn body_backend() -> (String, Arc<Mutex<Vec<JsonValue>>>) {
+    let seen: Arc<Mutex<Vec<JsonValue>>> = Arc::default();
+    let recorded = seen.clone();
+    let app = axum::Router::new().fallback(move |body: axum::body::Bytes| {
+        recorded
+            .lock()
+            .unwrap()
+            .push(serde_json::from_slice(&body).unwrap_or(JsonValue::Null));
+        async { StatusCode::OK }
+    });
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{addr}"), seen)
+}
+
+/// Credentials in a queued write's body go into grants: Redis holds none,
+/// and Python receives the body as it was sent.
+#[tokio::test]
+async fn a_queued_write_keeps_its_body_credentials_in_grants() {
+    let Some(url) = redis_url() else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let prefix = "queue_body_grants";
+    let config = test_config(prefix, 0.2);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+    let dir = tempfile::tempdir().unwrap();
+    let grants = grant_store(dir.path()).await;
+
+    let credentials = json!({
+        "username": "deploy",
+        "private_token": "body-token",
+        "blueprint_url": "https://bob:blueprint-pw@gitlab.example.com/org/bp.git",
+        "cloud_vars_url": "https://unfurl.cloud/api/v4/projects/7/variables?private_token=vars-token",
+    });
+    let mut body = json!({
+        "patch": [{"__typename": "DeploymentTemplate", "name": "t"}],
+        "commit_msg": "change",
+        "branch": "main",
+        "latest_commit": "abc123",
+        "deployment_path": "",
+        "queueid": 0,
+    });
+    body.as_object_mut()
+        .unwrap()
+        .extend(credentials.as_object().unwrap().clone());
+    let state = AppState {
+        config: Arc::new(config.clone()),
+        client: reqwest::Client::new(),
+        redis: Some(conn.clone()),
+        cloudmap: None,
+        grants: Some(grants.clone()),
+    };
+    let req = Request::builder()
+        .method("POST")
+        .uri("/update_ensemble?auth_project=p")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let res = build_router(state, None).oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let stored: Vec<String> = redis::cmd("LRANGE")
+        .arg(config.batch_list_key("p"))
+        .arg(0)
+        .arg(-1)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(stored.len(), 1);
+    for secret in ["body-token", "blueprint-pw", "vars-token"] {
+        assert!(
+            !stored[0].contains(secret),
+            "{secret} stored: {}",
+            stored[0]
+        );
+    }
+
+    let (backend_url, seen) = body_backend().await;
+    let worker_conn = client.get_multiplexed_async_connection().await.unwrap();
+    let worker = tokio::spawn(queue::run_worker(
+        worker_conn,
+        config.clone(),
+        backend_url,
+        reqwest::Client::new(),
+        Some(grants),
+    ));
+    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    worker.abort();
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1, "expected the batch to be replayed");
+    let replayed = &seen[0]["requests"][0];
+    for (key, value) in credentials.as_object().unwrap() {
+        assert_eq!(&replayed[key], value, "{key}");
+    }
+    cleanup_keys(&mut conn, prefix).await;
 }
