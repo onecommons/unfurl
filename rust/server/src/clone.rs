@@ -86,6 +86,7 @@ pub async fn prepare(
     let mut ready = Vec::new();
     for w in worktrees {
         if let Some(checkout) = startup.settle(&w).await {
+            startup.record_default(&w, &checkout).await;
             ready.push(checkout);
         }
     }
@@ -195,6 +196,29 @@ impl Startup<'_> {
             path: self.clone_root.join(under).join(project).join(&w.branch),
             project: project.to_string(),
             branch: w.branch.clone(),
+        }
+    }
+
+    /// Record the default branch worktree `w`'s `checkout` found its
+    /// remote has, where it isn't what's recorded.
+    async fn record_default(&self, w: &Worktree, checkout: &Checkout) {
+        let found = unfurl_git_sync::git::open_repo(&checkout.path)
+            .and_then(|repo| unfurl_git_sync::git::remote_default_branch(&repo, "origin"));
+        let error = match found {
+            Ok(Some(branch)) if w.default_branch.as_deref() != Some(branch.as_str()) => self
+                .db
+                .set_default_branch(&w.origin, Some(&branch))
+                .await
+                .err(),
+            Ok(_) => None,
+            Err(e) => Some(e),
+        };
+        if let Some(e) = error {
+            tracing::warn!(
+                origin = w.origin.as_str(),
+                error = e.to_string().as_str(),
+                "can't record the default branch"
+            );
         }
     }
 
@@ -378,7 +402,15 @@ async fn pull(path: &Path, access: &Access) -> Result<(), String> {
         // git-sync needs the history a shallow clone of python's lacks
         git(path, access, &["fetch", "-q", "--unshallow"]).await?;
     }
-    if let Err(e) = git(path, access, &["pull", "-q", "--ff-only"]).await {
+    // keeps origin/HEAD, the default branch, current (git 2.48 and later)
+    let pull = [
+        "-c",
+        "remote.origin.followRemoteHEAD=always",
+        "pull",
+        "-q",
+        "--ff-only",
+    ];
+    if let Err(e) = git(path, access, &pull).await {
         if refused(&e) {
             return Err(e);
         }
@@ -534,6 +566,7 @@ mod tests {
             default_file_path: None,
             exporting_from: None,
             visibility: None,
+            default_branch: None,
         }
     }
 

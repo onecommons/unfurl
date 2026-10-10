@@ -413,6 +413,20 @@ pub fn create_branch(repo: &gix::Repository, name: &str, oid: gix::ObjectId) -> 
     }
 }
 
+/// The branch `remote`'s HEAD named when the repository was last cloned or
+/// fetched from it, `refs/remotes/<remote>/HEAD`, if that's recorded.
+pub fn remote_default_branch(repo: &gix::Repository, remote: &str) -> Result<Option<String>> {
+    let prefix = format!("refs/remotes/{remote}/");
+    Ok(repo
+        .try_find_reference(format!("{prefix}HEAD").as_str())
+        .map_err(git_err)?
+        .and_then(|r| {
+            let target = r.target();
+            let name = target.try_name()?.as_bstr().to_str().ok()?;
+            name.strip_prefix(&prefix).map(str::to_string)
+        }))
+}
+
 /// The commit branch `name` names, if it exists.
 pub fn branch_tip(repo: &gix::Repository, name: &str) -> Result<Option<gix::ObjectId>> {
     Ok(repo

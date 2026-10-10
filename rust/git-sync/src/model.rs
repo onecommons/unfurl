@@ -53,6 +53,9 @@ pub struct Worktree {
     /// Whether the repository is public: [`PUBLIC`], [`PRIVATE`], or `None`
     /// until something finds out (see [`crate::db::Db::set_visibility`]).
     pub visibility: Option<String>,
+    /// The branch the repository's HEAD names, or `None` until something
+    /// finds out (see [`crate::db::Db::set_default_branch`]).
+    pub default_branch: Option<String>,
 }
 
 /// A [`Worktree::visibility`]: anyone may read the repository.
@@ -64,6 +67,11 @@ impl Worktree {
     /// Whether the repository is public, or not known to be private.
     pub fn is_public_or_unknown(&self) -> bool {
         self.visibility.as_deref() != Some(PRIVATE)
+    }
+
+    /// The repository's default branch: `main` until one is recorded.
+    pub fn default_branch(&self) -> &str {
+        self.default_branch.as_deref().unwrap_or("main")
     }
 }
 

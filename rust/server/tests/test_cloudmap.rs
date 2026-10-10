@@ -3662,3 +3662,48 @@ async fn a_commit_refused_for_its_git_lock_applies_nothing() {
         .expect("get");
     assert!(got.is_none(), "applied: {got:?}");
 }
+
+/// Serving checkouts with none configured, a write and a read naming no
+/// branch go to their project's recorded default branch, not `main`.
+#[tokio::test]
+async fn a_request_naming_no_branch_goes_to_the_default_branch() {
+    let db = TestDb::new(true).await;
+    let main = checkout(REMOTE_PROJECT, "main", &db).await;
+    let dev = checkout(REMOTE_PROJECT, "dev", &db).await;
+    let origin = main.0.get_worktree().await.expect("worktree").origin;
+    unfurl_git_sync::Db::connect(&unfurl_server::cloudmap::db_config(&db.url).expect("db"))
+        .await
+        .expect("connect")
+        .set_default_branch(&origin, Some("dev"))
+        .await
+        .expect("set");
+    let each = [&main, &dev]
+        .iter()
+        .map(|(c, _)| CloudMapState::from_synced(c.clone()))
+        .collect();
+    let cm = CloudMapState::serving(each, None)
+        .await
+        .expect("serving")
+        .expect("checkouts");
+    let app = || router(make_strict_state(cm.clone()));
+
+    let key = "git://unfurl.cloud/onecommons/to-the-default.git";
+    let body = serde_json::json!({"repositories": {key: {"name": "on dev"}}});
+    let (status, response) = post_json_as(app(), body, Some(REMOTE_PROJECT)).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    for (handle, expected) in [(&dev.0, true), (&main.0, false)] {
+        let got = handle
+            .get_record("cloudmap.yaml", "/repositories", key)
+            .await
+            .expect("get");
+        assert_eq!(got.is_some(), expected, "{:?}", handle.get_worktree().await);
+    }
+
+    let (status, read) = get_json(
+        app(),
+        &format!("/cloudmap?kind=repositories&auth_project={REMOTE_PROJECT}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(read.to_string().contains("on dev"), "read main: {read}");
+}

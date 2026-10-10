@@ -154,10 +154,9 @@ pub struct CloudMapState {
     /// The checkout reads go through, for any worktree in the database:
     /// the configured one, or with none, any.
     inner: Arc<SyncedRepo>,
-    /// With none configured, every checkout, by its worktree's origin and
-    /// branch: a write naming its project and branch goes to it, and only
-    /// their projects are read.
-    checkouts: Arc<Vec<(String, String, Arc<SyncedRepo>)>>,
+    /// With none configured, every checkout: a write naming its project
+    /// and branch goes to it, and only their projects are read.
+    checkouts: Arc<Vec<Route>>,
     /// Whether `inner` is a configured checkout, which serves a request
     /// naming no project or branch.
     configured: bool,
@@ -171,6 +170,15 @@ pub struct CloudMapState {
 
 /// How long a write waits for its checkout's git lock before it's refused.
 const COMMIT_WAIT: Duration = Duration::from_secs(30);
+
+/// A checkout served with none configured, by its worktree.
+struct Route {
+    origin: String,
+    branch: String,
+    /// Its repository's default branch, which a write naming none goes to.
+    default_branch: String,
+    handle: Arc<SyncedRepo>,
+}
 
 /// The database `db_url` names: anything starting with `postgres://` or
 /// `postgresql://` is Postgres (only when the `unfurl-git-sync/postgres`
@@ -284,13 +292,18 @@ impl CloudMapState {
         let mut routes = Vec::new();
         for c in checkouts {
             let worktree = c.inner.get_worktree().await?;
-            routes.push((worktree.origin, worktree.branch, c.inner));
+            routes.push(Route {
+                default_branch: worktree.default_branch().to_string(),
+                origin: worktree.origin,
+                branch: worktree.branch,
+                handle: c.inner,
+            });
         }
-        let Some((_, _, first)) = routes.first() else {
+        let Some(first) = routes.first() else {
             return Ok(None);
         };
         Ok(Some(Self {
-            inner: first.clone(),
+            inner: first.handle.clone(),
             checkouts: Arc::new(routes),
             configured: false,
             locks,
@@ -387,8 +400,9 @@ impl CloudMapState {
     /// Both gates read the same `worktree` row, so this costs one query.
     ///
     /// Serving checkouts with none configured ([`Self::serving`]), a write
-    /// goes to the one for its project and branch, `main` when it names
-    /// none, as python reads it; one naming no project is `Missing`.
+    /// goes to the one for its project and branch, its repository's default
+    /// branch when it names none (`main` until one is recorded); one naming
+    /// no project is `Missing`.
     pub async fn project_check(
         &self,
         project_id: Option<&str>,
@@ -422,7 +436,8 @@ impl CloudMapState {
         })
     }
 
-    /// The checkout of `project_id` on `branch`, `main` when it names none.
+    /// The checkout of `project_id` on `branch`, its default branch when it
+    /// names none.
     async fn checkout_for(
         &self,
         project_id: Option<&str>,
@@ -433,17 +448,16 @@ impl CloudMapState {
         };
         let branch = branch
             .map(str::trim)
-            .filter(|b| !b.is_empty() && *b != "HEAD")
-            .unwrap_or("main");
+            .filter(|b| !b.is_empty() && *b != "HEAD");
         let mut known = false;
-        for (origin, on, handle) in self.checkouts.iter() {
-            if !origin_matches(origin, project) {
+        for route in self.checkouts.iter() {
+            if !origin_matches(&route.origin, project) {
                 continue;
             }
             known = true;
-            if branch_matches(on, branch) {
+            if branch_matches(&route.branch, branch.unwrap_or(&route.default_branch)) {
                 return Ok(ProjectCheck::Serve(Self {
-                    inner: handle.clone(),
+                    inner: route.handle.clone(),
                     checkouts: self.checkouts.clone(),
                     configured: true,
                     locks: self.locks.clone(),
@@ -463,7 +477,8 @@ impl CloudMapState {
     ///
     /// Otherwise the worktree whose origin is `auth_project` on
     /// `cloud_server` (or the checked-out worktree's origin, without
-    /// `auth_project`), on `branch`, or `main` without one. `HEAD` names no
+    /// `auth_project`), on `branch`, or without one its repository's default
+    /// branch (`main` until one is recorded). `HEAD` names no
     /// branch, as in [`crate::routes`]'s cache keys. A known origin without
     /// that branch reads as having no records; an origin the database has no
     /// worktree for is proxied to python. `dev_mode` always reads the
@@ -483,9 +498,14 @@ impl CloudMapState {
             return Ok(ReadTarget::Read(None));
         }
         let origin = match (project, self.configured) {
-            // only the projects of the checkouts served: the rest, private
-            // ones among them, are python's to authorize
-            (Some(p), false) if !self.checkouts.iter().any(|(o, _, _)| origin_matches(o, p)) => {
+            // only the projects of the checkouts served: the rest have none
+            // here
+            (Some(p), false)
+                if !self
+                    .checkouts
+                    .iter()
+                    .any(|route| origin_matches(&route.origin, p)) =>
+            {
                 return Ok(ReadTarget::Proxy)
             }
             (Some(p), _) => format!(
@@ -502,11 +522,12 @@ impl CloudMapState {
             origin: Some(origin),
             branch: None,
         };
-        if self.inner.worktrees(&of_origin).await?.is_empty() {
+        let found = self.inner.worktrees(&of_origin).await?;
+        let Some(any) = found.first() else {
             return Ok(ReadTarget::Proxy);
-        }
+        };
         Ok(ReadTarget::Read(Some(WorktreeFilter {
-            branch: Some(branch.unwrap_or("main").to_string()),
+            branch: Some(branch.unwrap_or(any.default_branch()).to_string()),
             ..of_origin
         })))
     }

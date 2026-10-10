@@ -5,5 +5,8 @@ CREATE TABLE repository (
     -- Whether it's public: 'public', 'private', or NULL until something
     -- finds out. Records from a private repository aren't served to
     -- requests that haven't been checked for access to it.
-    visibility    TEXT    CHECK (visibility IN ('public', 'private'))
+    visibility    TEXT    CHECK (visibility IN ('public', 'private')),
+    -- The branch its remote's HEAD names, or NULL until something finds
+    -- out: what a request naming no branch means.
+    default_branch TEXT
 );

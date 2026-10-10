@@ -150,3 +150,75 @@ async fn only_a_private_repository_is_not_public_or_unknown() {
     })
     .await;
 }
+
+/// The worktree of `repo`'s `main` branch.
+async fn main_of(db: &Db, repo: &Path) -> unfurl_git_sync::Worktree {
+    let filter = WorktreeFilter {
+        origin: Some(origin(repo)),
+        branch: Some("main".into()),
+    };
+    db.worktrees(&filter).await.expect("worktrees").remove(0)
+}
+
+/// A repository's default branch, like its visibility, is the
+/// repository's: unknown, so `main`, until recorded; and recording one
+/// leaves the other as it was.
+#[tokio::test]
+async fn a_default_branch_is_recorded_beside_visibility() {
+    each_backend(async |db: &Db, _, [repo, _]| {
+        let w = main_of(db, repo).await;
+        assert_eq!(
+            (w.default_branch.as_deref(), w.default_branch()),
+            (None, "main")
+        );
+
+        db.set_visibility(&origin(repo), Some(PRIVATE))
+            .await
+            .expect("set");
+        db.set_default_branch(&format!("{}/", origin(repo)), Some("trunk"))
+            .await
+            .expect("set");
+        let w = main_of(db, repo).await;
+        assert_eq!(w.default_branch(), "trunk");
+        assert_eq!(w.visibility.as_deref(), Some(PRIVATE), "kept");
+
+        db.set_visibility(&origin(repo), Some(PUBLIC))
+            .await
+            .expect("set");
+        assert_eq!(main_of(db, repo).await.default_branch(), "trunk", "kept");
+    })
+    .await;
+}
+
+/// The default branch a clone recorded for its remote, from
+/// `refs/remotes/origin/HEAD`; none where nothing was recorded.
+#[test]
+fn a_clones_default_branch_is_its_remotes_head() {
+    use unfurl_git_sync::git::{open_repo, remote_default_branch};
+    let run = |dir: &Path, args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "{out:?}");
+    };
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let upstream = tmp.path().join("upstream");
+    std::fs::create_dir(&upstream).expect("mkdir");
+    run(&upstream, &["init", "-q", "-b", "trunk"]);
+    run(&upstream, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    run(
+        tmp.path(),
+        &["clone", "-q", upstream.to_str().unwrap(), "clone"],
+    );
+    let clone = open_repo(&tmp.path().join("clone")).expect("open");
+    assert_eq!(
+        remote_default_branch(&clone, "origin")
+            .expect("read")
+            .as_deref(),
+        Some("trunk")
+    );
+    let bare = open_repo(&upstream).expect("open");
+    assert_eq!(remote_default_branch(&bare, "origin").expect("read"), None);
+}

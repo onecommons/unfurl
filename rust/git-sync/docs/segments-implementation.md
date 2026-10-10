@@ -249,17 +249,21 @@ advances and sweeps it.
 **Clone mode (the server, built).** A server given a database and a clone
 root but no checkout (`--clone-root`, which `unfurl serve` sets) makes
 the checkouts from the database: for each worktree whose origin is a
-project on the cloud server, a clone of its branch where python puts one
-for a request with no credentials, `public/<project>/<branch>`, or a
-fast-forward of the one there, under python's lock file. One that can't
-be fast-forwarded, with commits the remote lacks, is served as it is. A
-worktree that can't be cloned (a private project, an exported branch the
-remote lacks, a remote that doesn't answer in five minutes) is logged
-and left to python, and so is any project with no checkout here: python
-checks a request's credentials, which this server doesn't. Each checkout
+project on the cloud server, a clone of its branch where python puts one,
+`public/<project>/<branch>` anonymously or, for a private project, with
+its users' most recent grant under `private/`, or a fast-forward of the
+one there, under python's lock file. One that can't be fast-forwarded,
+with commits the remote lacks, is served as it is. A worktree that can't
+be cloned (an exported branch the remote lacks, a private project no
+grant opens and no checkout of, a remote that doesn't answer in five
+minutes) is logged and left to python, and so is any project with no
+checkout here; the gateway has checked each request's access to its
+project either way. Each checkout
 is opened and scanned with `recover_missing`, since a new clone is where
 commits the database made go missing, and writes are routed to the
-checkout of their project and branch (`main` when they name none). Reads
+checkout of their project and branch (when they name none, the
+repository's default branch, which the clone records in `repository`, or
+`main` until it has). Reads
 go through any of them, as they read the database. Python's server
 pulls, writes and clears in the same clones, so git work in one -- the
 startup pull and scan, finishing exports, a write's commit -- holds its
