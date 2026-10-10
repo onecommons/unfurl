@@ -61,9 +61,17 @@ The plan has two scopes:
   backed up with the rest of the application's state.
 - **The Python server** runs the most code that untrusted content reaches:
   TOSCA blueprints (in safe mode), templates, YAML, clones of user
-  repositories. It is the process most likely to be compromised. The
-  baseline still gives it credentials in memory; hardening (§2.5) doesn't.
-- **The Rust server** is smaller and parses only HTTP and JSON. It holds the
+  repositories. Short of being compromised, it can be a **confused
+  deputy**: content it handles (a YAML include, a template's file lookup, a
+  symlink in a repository, which is why clones disable symlinks) can lead it
+  to read a file and hand the contents back, in a response, an export or a
+  commit. Any file its user can read is exposed that way, including
+  `/proc/self/environ` and, for a process of the same user,
+  `/proc/<pid>/environ` and `/proc/<pid>/mem`. The baseline still gives it
+  credentials in memory; hardening (§2.5) doesn't.
+- **The Rust server** is smaller and parses only HTTP and JSON, but git-sync
+  in it scans users' repositories, so it is a deputy too: its reads of a
+  checkout mustn't follow a symlink out of it (unverified). It holds the
   key that decrypts grants. Its compromise is out of scope (as GitLab's
   application server holding `db_key_base` is for GitLab).
 - **TLS** protects every connection that leaves the host.
@@ -79,7 +87,7 @@ The plan has two scopes:
 | T2 | Credentials at rest on disk | The hosted server's blueprint and dependency clones keep plain URLs (`transient_url_credentials`), but its project clones embed credentials on purpose (`_clone_repo`, `set_url_credentials`), and its other clones' fetches take the token from them; older clones keep the tokens they were made with | Remote URLs are plain; credentials reach git per command | — |
 | T3 | One user's credentials used for another's action | Each queued write is committed as its own author, but a batch is pushed once, with its *first* item's credentials (`queue::consolidate`); a `private/` clone holds whichever user's token cloned it, and pulls with it for everyone. Tyk has checked that every writer may write and every reader may read, so no one gains access they lack; what's left is that GitLab records the first writer as the pusher, and enforces protected branches by the first writer's role | Accepted: a push per user would cost a push per writer in every batch window | — |
 | T4 | Requests that reach the server without passing through Tyk (defence in depth) | Python checks the secret on every request it receives (`before_request` hook, `serve.py`); the Rust server checks it only on a write it queues, whose replay authenticates with the server's own secret. With Python bound to localhost (the server images), what the Rust server answers by itself skips the check: cache hits served from Redis, and the cloudmap endpoints served from the git-sync database | Deferred (§2.2): a NetworkPolicy letting only Tyk reach the servers covers it | — |
-| T5 | A compromised Python process | It sees every user's token in every request, and every token stored in the checkouts' `.git/config` | It sees the tokens of the requests and batches it handles, in memory; none are stored for it to find | It sees grant IDs only: usable only through the local proxy, within their scope, until they expire |
+| T5 | A compromised Python process, or one led by content to read a file (a confused deputy) | It sees every user's token in every request, and every token stored in the checkouts' `.git/config`; it can read its environment (the Redis and database passwords, the API secret) | It sees the tokens of the requests and batches it handles, in memory; none are stored for it to find. But in one container as one user it can read the grant key file and the Rust server's `/proc/<pid>/environ` and memory, so every stored grant | The grant key isn't in its filesystem (§2.5), and it sees grant IDs only: usable only through the local proxy, within their scope, until they expire |
 | T6 | Ambient credentials sent somewhere unintended | Startup clones (`clone.rs`) inherit the server's whole git environment and config (only `GIT_TERMINAL_PROMPT=0` is set); Python's clones follow `.gitmodules` URLs, which a repository's content controls (`recurse_submodules=True`) | Git runs with no ambient credentials and `GIT_ALLOW_PROTOCOL=https` | The proxy adds credentials only for a grant's own host and project |
 
 Out of scope: a compromised Rust server process (or, with hardening, the
@@ -269,8 +277,14 @@ container.
 - Git LFS isn't covered. If the repositories use it, its batch API needs
   routes of its own.
 
-**Two users in the container**, so Python can't read what the Rust server
-holds:
+**Separate the Rust server from Python**, so Python, compromised or led
+by content to read a file, can't reach the grant key or the Rust server's
+memory. In Kubernetes, the simplest form is **two containers in the pod**,
+from the same image with different commands: the key secret is mounted only
+in the Rust server's, each runs as its own user without root, the pod's
+shared `localhost` connects them as now, and the checkouts are on a shared
+volume with a common `fsGroup` (and, as below, group-writable). Without
+Kubernetes, **two users in the container**:
 
 | User | Runs | Can read |
 |---|---|---|
@@ -282,7 +296,12 @@ holds:
   setgid directories), and `safe.directory` for both users, which git
   otherwise refuses for a repository another user owns.
 - Linux keeps `unfurl` out of `unfurl-git`'s memory, its `/proc/<pid>/environ`
-  and its files.
+  and its files. Starting both users needs root, which Kubernetes' restricted
+  Pod Security standard forbids; two containers don't.
+
+Either way, Python's environment should hold only what Python needs: the
+Redis and database passwords and the API secret it reads from
+`/proc/self/environ` are better passed as files.
 
 Requests reaching Python directly (`unfurl serve` without Redis, or
 `UNFURL_RUST_SERVER=0`) keep today's behaviour, since no grant header
