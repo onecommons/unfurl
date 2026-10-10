@@ -31,6 +31,8 @@ fn test_config(prefix: &str) -> Config {
         redis_db: 0,
         cache_key_prefix: format!("test_{}::", prefix),
         secret: String::new(),
+        grant_key_file: None,
+        grant_ttl_days: 30,
         proxy_timeout_secs: 10,
         redis_timeout_secs: 5,
         package_digest: String::new(),
@@ -70,6 +72,7 @@ async fn fixture(
         client: reqwest::Client::new(),
         redis: Some(conn.clone()),
         cloudmap: None,
+        grants: None,
     };
     Some((build_router(state, None), conn, config))
 }

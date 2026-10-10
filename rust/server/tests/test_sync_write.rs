@@ -76,6 +76,7 @@ async fn sync_write_forwards_client_headers() {
         client: reqwest::Client::new(),
         redis: None,
         cloudmap: None,
+        grants: None,
     };
     let app = build_router(state, None);
 

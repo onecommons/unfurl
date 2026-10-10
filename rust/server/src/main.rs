@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 use unfurl_server::config::{Config, LogStyle, ScanAbortLevel};
+use unfurl_server::grants::GrantStore;
 use unfurl_server::{cloudmap, queue, AppState};
 
 /// Points out the options that a skipped scan makes inert, and the
@@ -384,6 +385,33 @@ async fn serve(app: axum::Router, config: &Config) {
     }
 }
 
+/// The store queued writes keep credentials in, with its expired grants
+/// deleted hourly; or, with a loud warning, none.
+async fn open_grants(config: &Config) -> Option<Arc<GrantStore>> {
+    let store = match GrantStore::from_config(config).await {
+        Ok(store) => Arc::new(store),
+        Err(reason) => {
+            tracing::warn!(
+                reason = reason.as_str(),
+                "NO GRANT STORE: queued writes will store users' git credentials in Redis"
+            );
+            return None;
+        }
+    };
+    tracing::info!("grant store opened");
+    let sweeper = store.clone();
+    tokio::spawn(async move {
+        let mut hourly = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            hourly.tick().await;
+            if let Err(e) = sweeper.sweep().await {
+                tracing::warn!(error = %e, "failed to delete expired grants");
+            }
+        }
+    });
+    Some(store)
+}
+
 #[tokio::main]
 async fn main() {
     // Parsed before the subscriber exists so `--log-style` reaches it:
@@ -401,11 +429,18 @@ async fn main() {
         config.cache_key_prefix,
     );
 
+    let redis = connect_redis(&config).await;
+    // without Redis nothing is queued, so nothing needs a grant
+    let grants = match redis {
+        Some(_) => open_grants(&config).await,
+        None => None,
+    };
     let state = AppState {
         config: Arc::new(config.clone()),
-        redis: connect_redis(&config).await,
+        redis,
         client: build_http_client(&config),
         cloudmap: open_cloudmap(&config).await,
+        grants,
     };
 
     let cors = match config.cors_layer() {

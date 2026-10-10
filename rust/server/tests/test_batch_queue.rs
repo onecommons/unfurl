@@ -37,6 +37,8 @@ fn test_config(prefix: &str, batch_window_secs: f64) -> Config {
         redis_db: 0,
         cache_key_prefix: format!("test_{}::", prefix),
         secret: String::new(),
+        grant_key_file: None,
+        grant_ttl_days: 30,
         proxy_timeout_secs: 10,
         redis_timeout_secs: 5,
         package_digest: String::new(),
@@ -1359,6 +1361,7 @@ async fn export_with_queueid(
         client: reqwest::Client::new(),
         redis: Some(conn),
         cloudmap: None,
+        grants: None,
     };
     let uri = format!(
         "/export?auth_project={}&branch=main&latest_commit={}&queueid={}",
@@ -1398,6 +1401,7 @@ async fn a_queueid_without_a_branch_is_refused() {
         client: reqwest::Client::new(),
         redis: Some(conn),
         cloudmap: None,
+        grants: None,
     };
     let res = build_router(state, None)
         .oneshot(
@@ -1912,6 +1916,7 @@ async fn queue_write(
         client: reqwest::Client::new(),
         redis: Some(conn),
         cloudmap: None,
+        grants: None,
     };
     let body = json!({
         "patch": [{"__typename": "DeploymentTemplate", "name": "t"}],

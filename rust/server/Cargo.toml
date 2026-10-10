@@ -53,6 +53,10 @@ serde_with = "3"
 validator = { version = "0.20", features = ["derive"] }
 axum-extra = { version = "0.12", features = ["query"] }
 tokio-stream = "0.1.19"
+aes-gcm = "0.10"
+sha2 = "0.10"
+base64 = "0.22"
+hmac = "0.12"
 
 [dev-dependencies]
 serde-saphyr = "1.1.0"

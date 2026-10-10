@@ -32,6 +32,7 @@ fn state(config: Config) -> AppState {
         client: reqwest::Client::new(),
         redis: None,
         cloudmap: None,
+        grants: None,
     }
 }
 

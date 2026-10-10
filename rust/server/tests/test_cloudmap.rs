@@ -142,6 +142,8 @@ fn default_config() -> Config {
         redis_db: 0,
         cache_key_prefix: "test::".into(),
         secret: String::new(),
+        grant_key_file: None,
+        grant_ttl_days: 30,
         proxy_timeout_secs: 1,
         redis_timeout_secs: 1,
         package_digest: String::new(),
@@ -288,6 +290,7 @@ fn make_state(cm: CloudMapState) -> AppState {
         client: reqwest::Client::new(),
         redis: None,
         cloudmap: Some(cm),
+        grants: None,
     }
 }
 
@@ -1125,6 +1128,7 @@ async fn post_proxies_when_cloudmap_unconfigured() {
         client: reqwest::Client::new(),
         redis: None,
         cloudmap: None,
+        grants: None,
     };
     let app = router(state);
     let body = serde_json::json!({});

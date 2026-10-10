@@ -121,6 +121,15 @@ pub struct Config {
     #[arg(long, env = "UNFURL_SERVE_SECRET", default_value = "")]
     pub secret: String,
 
+    /// The file holding the key grants are encrypted with: 32 bytes, or
+    /// their base64. Without it, queued writes store their credentials.
+    #[arg(long, env = "UNFURL_GRANT_KEY_FILE")]
+    pub grant_key_file: Option<String>,
+
+    /// Days a grant lasts after the last request that brought its token.
+    #[arg(long, env = "UNFURL_GRANT_TTL_DAYS", default_value_t = 30)]
+    pub grant_ttl_days: u64,
+
     /// Timeout in seconds for proxied HTTP requests to the Python backend.
     /// 0 means no timeout. Default: 120 seconds.
     #[arg(long, env = "UNFURL_PROXY_TIMEOUT_SECS", default_value_t = 120)]
@@ -509,6 +518,8 @@ mod tests {
             redis_db: db,
             cache_key_prefix: "ufsv::".into(),
             secret: String::new(),
+            grant_key_file: None,
+            grant_ttl_days: 30,
             proxy_timeout_secs: 120,
             redis_timeout_secs: 5,
             package_digest: String::new(),

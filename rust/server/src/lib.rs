@@ -6,6 +6,7 @@ pub mod cache;
 pub mod clone;
 pub mod cloudmap;
 pub mod config;
+pub mod grants;
 pub mod patch;
 pub mod proxy;
 pub mod queue;
@@ -29,6 +30,8 @@ pub struct AppState {
     pub client: reqwest::Client,
     pub redis: Option<redis::aio::MultiplexedConnection>,
     pub cloudmap: Option<cloudmap::CloudMapState>,
+    /// The grant store, when configured (`docs/credentials.md` §2.1).
+    pub grants: Option<Arc<grants::GrantStore>>,
 }
 
 /// Value of the `Server` response header on responses this proxy produces

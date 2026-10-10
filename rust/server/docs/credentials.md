@@ -99,12 +99,12 @@ the project *token*, which keeps opening all of a project's variables.
 
 ### 2.1 Grants
 
-A grant is a credential the Rust server holds for a user, for one host
-and project:
+A grant is a credential the Rust server holds for a user, for one
+repository:
 
 ```text
-grant: id (random, 128-bit) · user · host · project · scopes · token (encrypted)
-       · key_id · token_sha256 · created_at · last_used_at · expires_at
+grant: id (random, 128-bit) · user · origin · scopes · token (encrypted)
+       · key_id · token_digest · created_at · last_used_at · expires_at
 grant_key: key_id · check (an HMAC of a fixed string under the key)
 ```
 
@@ -112,9 +112,10 @@ grant_key: key_id · check (an HMAC of a fixed string under the key)
   queues: the `X-Git-Credentials` header; `username`/`private_token`/`password`
   in the body; the userinfo of `blueprint_url`; the `private_token`
   parameter of `cloud_vars_url` (a project token). `user` is the
-  `X-Unfurl-Username` the gateway sets, `project` the request's
-  `auth_project`, and `host` that of `UNFURL_CLOUD_SERVER`, or of
-  `blueprint_url` for its own credentials.
+  `X-Unfurl-Username` the gateway sets, and `origin` the repository as
+  `worktree.origin` spells it (`unfurl.cloud/org/project`): the request's
+  `auth_project` on `UNFURL_CLOUD_SERVER`, or `blueprint_url` for its own
+  credentials. So the grant for a worktree's remote is an exact match.
 - **Not checked with GitLab.** The gateway has checked the caller, and
   GitLab enforces the token's scopes, expiry and revocation whenever it is
   used, so a grant can do no more than its token. A revoked token fails the
@@ -126,17 +127,22 @@ grant_key: key_id · check (an HMAC of a fixed string under the key)
   built without Postgres), with the token encrypted with AES-256-GCM: a
   random nonce per token, stored with the ciphertext, and the grant ID as
   associated data, so a ciphertext can't be moved to another row. The key
-  is 32 random bytes, base64-encoded, in the file `UNFURL_GRANT_KEY_FILE`,
-  the counterpart of GitLab's `db_key_base`. The database rather than Redis
+  is 32 random bytes, raw or base64-encoded (a Kubernetes secret mounted as
+  a file holds the decoded value), in the file `UNFURL_GRANT_KEY_FILE`, the
+  counterpart of GitLab's `db_key_base`. A grant is found by
+  `token_digest`, an HMAC of the token under the same key, so, as GitLab's
+  rule asks of compare-only values, a dump of the table can't be checked
+  against guesses. The database rather than Redis
   because grants must outlive a Redis flush or eviction (GitLab's cache
   instance evicts by LRU), and because this is where GitLab keeps the same
   kind of credential.
-- **The table is in git-sync's migrations**, so the shared database has one
-  migrator, but the server owns it: git-sync never reads it, and git-sync's
-  own pulls and pushes take credentials from their caller, per call, as
-  `GIT_CONFIG_*` entries (§2.3).
-- **Cached per process**, with a bounded size, by `token_sha256` →
-  `(grant id, expires_at)`, so the hot path, a request bringing a token
+- **git-sync stores grants** (its migrations and `Db` methods), with their
+  tokens as opaque bytes: it never holds the key. The server encrypts and
+  decrypts, and git-sync's own pulls and pushes take credentials from their
+  caller, per call, as `GIT_CONFIG_*` entries (§2.3), as git keeps a
+  remote while a credential helper keeps its secret.
+- **Cached per process**, with a bounded size, by `(token_digest, origin)`
+  → `(grant id, expires_at)`, so the hot path, a request bringing a token
   already seen, is a map lookup. The database is written for a new token,
   and to extend `expires_at` at most once an hour.
 - **Expired grants are deleted** periodically
@@ -290,8 +296,8 @@ environment.
 
 **Phase 1: grants, and a queue that stores none (§2.1, 2.2, 2.4).** In
 order, each standing on its own:
-1. The grant table (git-sync's migrations) and the server's grant store:
-   key, encryption, create, look up, expire.
+1. The grant table and its queries (git-sync) and the server's grant
+   store: key, encryption, create, look up, expire.
 2. Queued writes name a grant for `X-Git-Credentials`, and the worker
    restores it on replay.
 3. Batches partitioned by credential.
