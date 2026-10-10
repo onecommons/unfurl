@@ -31,9 +31,13 @@ import shutil
 import subprocess
 import time
 import traceback
+import secrets
 import signal
+import threading
+from contextlib import contextmanager
 from typing import (
     Dict,
+    Generator,
     Iterable,
     List,
     NamedTuple,
@@ -526,8 +530,12 @@ def _get_managed_project_repo_dir(
 ) -> str:
     base = "public"
     if args:
+        # any credential: a write with a token alone would otherwise commit
+        # and push in the clone of anonymous readers, the rust server's
         if (
             "username" in args
+            or "private_token" in args
+            or "password" in args
             or "visibility" in args
             and args["visibility"] != "public"
         ):
@@ -596,6 +604,78 @@ def _clone_repo(
 _cache_inflight_sleep_duration = 0.2
 # should match request timeout
 _cache_inflight_timeout = 120
+
+
+def _git_lock_key(working_dir: str) -> str:
+    """The cache key that serializes git work in the clone at
+    ``working_dir``, which the rust server takes too."""
+    return "_git_lock::" + os.path.realpath(working_dir)
+
+
+_git_locks_held = threading.local()
+
+# Delete a git lock only if its holder is still the one releasing it.
+_RELEASE_GIT_LOCK = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
+
+
+def _held_git_locks() -> Dict[str, int]:
+    """The git lock keys this thread holds, with the token each holds it by."""
+    if not hasattr(_git_locks_held, "keys"):
+        _git_locks_held.keys = {}
+    return _git_locks_held.keys
+
+
+def _take_git_lock(cache: Cache, key: str) -> bool:
+    """Take the git lock ``key`` if no one holds it: whether this thread
+    holds it now. One it holds already is taken again."""
+    held = _held_git_locks()
+    if key in held:
+        return True
+    # unique to this holder
+    token = secrets.randbits(63)
+    if not cache.add(key, token, timeout=_cache_inflight_timeout):
+        return False
+    held[key] = token
+    return True
+
+
+def _release_git_lock(cache: Cache, key: str) -> None:
+    """Give up the git lock ``key``, unless it lapsed and another took it."""
+    token = _held_git_locks().pop(key, None)
+    backend = getattr(cache, "cache", cache)
+    redis = getattr(backend, "_write_client", None)
+    if redis is None or token is None:
+        cache.delete(key)  # in this process alone
+        return
+    # as the cache stored it: older cachelibs pickle ints too
+    serializer = getattr(backend, "serializer", None)
+    stored = serializer.dumps(token) if serializer else str(token).encode()
+    redis.eval(_RELEASE_GIT_LOCK, 1, getattr(backend, "key_prefix", "") + key, stored)
+
+
+@contextmanager
+def git_lock(cache: Optional[Cache], working_dir: str) -> Generator[None, None, None]:
+    """Hold the git lock on the clone at ``working_dir``, waiting up to
+    ``_cache_inflight_timeout`` for it, or not at all if this thread holds
+    it already, or there's no ``cache`` to share it in."""
+    key = _git_lock_key(working_dir)
+    if cache is None or key in _held_git_locks():
+        yield
+        return
+    start = time.time()
+    while not _take_git_lock(cache, key):
+        if time.time() - start > _cache_inflight_timeout:
+            raise UnfurlError(f"timed out waiting for git work in {working_dir}")
+        time.sleep(_cache_inflight_sleep_duration)
+    try:
+        yield
+    finally:
+        _release_git_lock(cache, key)
 
 
 @dataclass
@@ -878,11 +958,8 @@ class CacheEntry:
                     self._cleanup()
 
         branch = self.branch or DEFAULT_BRANCH
-        repo_key = (
-            self.project_id
-            + ":pull:"
-            + _get_project_repo_dir(self.project_id, branch, self.args)
-        )
+        repo_dir = _get_project_repo_dir(self.project_id, branch, self.args)
+        repo_key = self.project_id + ":pull:" + repo_dir
         # the last pull's time and outcome
         val = cache.get(repo_key)
         if val:
@@ -907,8 +984,10 @@ class CacheEntry:
         # Claim the pull atomically: two requests that both found the pull
         # stale would otherwise both pull into one working tree. Not under
         # the project's key prefix, which a failed pull clears.
-        lock_key = "_pull_lock::" + repo_key
-        if not cache.add(lock_key, os.getpid(), timeout=_cache_inflight_timeout):
+        lock_key = _git_lock_key(repo_dir)
+        # one this thread holds already is released by whoever took it
+        nested = lock_key in _held_git_locks()
+        if not _take_git_lock(cache, lock_key):
             return self._wait_for_pull(cache, repo_key, lock_key)
         try:
             if not self.repo:
@@ -961,7 +1040,8 @@ class CacheEntry:
             cache.set(repo_key, (time.time(), "failed"))
             raise
         finally:
-            cache.delete(lock_key)
+            if not nested:
+                _release_git_lock(cache, lock_key)
 
     def _wait_for_pull(self, cache: Cache, repo_key: str, lock_key: str) -> Repo:
         """Wait for the pull another request holds ``lock_key`` for, and
@@ -2082,28 +2162,42 @@ def _remove_clones(
     project_dir: str, force: bool = False
 ) -> Tuple[List[str], List[Tuple[str, str]]]:
     """Remove the clones under ``project_dir``, but for any with unpushed
-    work, which a clone made again wouldn't have, unless ``force``: the
-    clones removed, and those kept with why."""
+    work, which a clone made again wouldn't have, unless ``force``, and any
+    whose git lock another holds: the clones removed, and those kept with
+    why."""
     clones: List[str] = []
     for root, dirs, files in os.walk(project_dir):
         if ".git" in dirs or ".git" in files:
             dirs[:] = []  # a clone's own subdirectories aren't clones
             clones.append(root)
+    cache = assert_not_none(get_cache())
+    # those this thread held already stay held, by whoever took them
+    nested = set(_held_git_locks())
+    locked: List[str] = []
     kept = []
-    for clone in clones:
-        reason = None if force else _unpushed_work(clone)
-        if reason:
-            logger.warning("clear_project: keeping %s: %s", clone, reason)
-            kept.append((clone, reason))
-    if not kept:
-        logger.info("clear_project: removing %s", project_dir)
-        rmtree(project_dir, logger)
-        return clones, []
-    removed = [c for c in clones if c not in dict(kept)]
-    for clone in removed:
-        logger.info("clear_project: removing %s", clone)
-        rmtree(clone, logger)
-    return removed, kept
+    try:
+        for clone in clones:
+            if _take_git_lock(cache, _git_lock_key(clone)):
+                locked.append(clone)
+                reason = None if force else _unpushed_work(clone)
+            else:
+                reason = "in use: git work is in progress in it"
+            if reason:
+                logger.warning("clear_project: keeping %s: %s", clone, reason)
+                kept.append((clone, reason))
+        if not kept:
+            logger.info("clear_project: removing %s", project_dir)
+            rmtree(project_dir, logger)
+            return clones, []
+        removed = [c for c in clones if c not in dict(kept)]
+        for clone in removed:
+            logger.info("clear_project: removing %s", clone)
+            rmtree(clone, logger)
+        return removed, kept
+    finally:
+        for clone in locked:
+            if _git_lock_key(clone) not in nested:
+                _release_git_lock(cache, _git_lock_key(clone))
 
 
 def _clear_project(

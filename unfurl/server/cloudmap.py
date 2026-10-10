@@ -57,7 +57,9 @@ from .serve import (
     create_error_response,
     get_project_id,
     get_project_id_or_abort,
+    get_cache,
     get_project_url,
+    git_lock,
     serving_local_path,
     _get_project_repo_dir,
 )
@@ -1183,8 +1185,6 @@ def _apply_cloudmap_sections(
 
     ``keep_applied`` is for records whose ``metadata.discovery.applied`` the
     caller has already maintained, as for ``unfurl.server.keep_applied``."""
-    from .cache import load_yaml_from_cache
-
     # Resolve the on-disk path and the GitRepo for `_commit_and_push` first, so a
     # `cloudmap_path` that doesn't exist yet can be told apart from a load failure.
     cache_entry = CacheEntry(
@@ -1196,6 +1196,39 @@ def _apply_cloudmap_sections(
         return create_error_response(
             "INTERNAL_ERROR", "cloudmap repository not available"
         )
+    # the rust server may serve this clone, and render and commit there
+    with git_lock(get_cache(), repo.working_dir):
+        return _write_cloudmap_sections(
+            repo,
+            project_id,
+            branch,
+            cloudmap_path,
+            body_sections,
+            commit_requested,
+            latest_commit,
+            username,
+            password,
+            commit_msg,
+            keep_applied,
+        )
+
+
+def _write_cloudmap_sections(
+    repo: GitRepo,
+    project_id: str,
+    branch: str,
+    cloudmap_path: str,
+    body_sections: Dict[str, Dict[str, Any]],
+    commit_requested: Optional[bool],
+    latest_commit: Optional[str],
+    username: str,
+    password: str,
+    commit_msg: str,
+    keep_applied: bool,
+) -> ResponseReturnValue:
+    """:func:`_apply_cloudmap_sections`, holding the git lock on ``repo``."""
+    from .cache import load_yaml_from_cache
+
     full_path = os.path.join(repo.working_dir, cloudmap_path)
     starting_revision = repo.revision
 

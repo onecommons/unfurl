@@ -12,6 +12,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 use unfurl_server::config::{Config, LogStyle, ScanAbortLevel};
+use unfurl_server::gitlock::GitLocks;
 use unfurl_server::grants::GrantStore;
 use unfurl_server::{cloudmap, queue, AppState};
 
@@ -188,7 +189,10 @@ fn build_http_client(config: &Config) -> reqwest::Client {
 /// Optional cloudmap fast-path: when both cloudmap_repo and
 /// cloudmap_db_url are set, open a SyncedRepo and serve GET /cloudmap
 /// locally; otherwise it falls through to the proxy.
-async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
+async fn open_cloudmap(
+    config: &Config,
+    locks: Option<GitLocks>,
+) -> Option<cloudmap::CloudMapState> {
     let (repo, db_url) = match (
         config.cloudmap_repo.as_deref(),
         config.cloudmap_db_url.as_deref(),
@@ -205,7 +209,7 @@ async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
             return None;
         }
         (None, Some(db_url)) if config.clone_root.is_some() => {
-            return open_clones(config, db_url).await;
+            return open_clones(config, db_url, locks).await;
         }
         (None, Some(_)) => {
             tracing::warn!(
@@ -218,14 +222,10 @@ async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
     };
     tracing::info!("opening cloudmap repo at {} (db={})", repo, db_url);
     let scan = scan_options(config, db_url, config.cloudmap_recover);
-    match cloudmap::CloudMapState::open(repo, db_url, scan).await {
-        Ok((cm, outcome)) => {
-            if outcome.is_some_and(|o| report_scan(&o, config.scan_abort_level)) {
-                std::process::exit(1);
-            }
-            cm.finish_exports().await;
-            Some(cm)
-        }
+    let accept = |o: &unfurl_git_sync::SyncOutcome| !report_scan(o, config.scan_abort_level);
+    match cloudmap::CloudMapState::open_locked(repo, db_url, scan, accept, locks.as_ref()).await {
+        Ok(Some(cm)) => Some(cm),
+        Ok(None) => std::process::exit(1),
         Err(e) => {
             tracing::error!(
                 error = format!(
@@ -245,7 +245,11 @@ async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
 /// checkout can't be made or opened is logged and left to python. Records
 /// a missing commit made are saved to a branch: a new clone is where
 /// that happens.
-async fn open_clones(config: &Config, db_url: &str) -> Option<cloudmap::CloudMapState> {
+async fn open_clones(
+    config: &Config,
+    db_url: &str,
+    locks: Option<GitLocks>,
+) -> Option<cloudmap::CloudMapState> {
     let root = std::path::Path::new(config.clone_root.as_deref()?);
     let db = or_exit(
         cloudmap::db_config(db_url),
@@ -257,13 +261,15 @@ async fn open_clones(config: &Config, db_url: &str) -> Option<cloudmap::CloudMap
         db_url
     );
     let scan = scan_options(config, db_url, true);
-    let checkouts = unfurl_server::clone::prepare(&db, root, &config.cloud_server).await;
+    let checkouts =
+        unfurl_server::clone::prepare(&db, root, &config.cloud_server, locks.as_ref()).await;
     let served = unfurl_server::clone::serve(
         checkouts,
         db_url,
         scan,
         |outcome| !report_scan(outcome, config.scan_abort_level),
         |e, path| open_hint(e, path, config, true),
+        locks,
     )
     .await;
     or_exit(served, "failed to serve the cloudmap checkouts")
@@ -438,11 +444,15 @@ async fn main() {
         None => None,
     };
     let redis = connect_redis(&config, grants.clone()).await;
+    // python works in the same clones; without Redis, it shares none
+    let locks = redis
+        .clone()
+        .map(|conn| GitLocks::new(conn, &config.cache_key_prefix));
     let state = AppState {
         config: Arc::new(config.clone()),
         redis,
         client: build_http_client(&config),
-        cloudmap: open_cloudmap(&config).await,
+        cloudmap: open_cloudmap(&config, locks).await,
         grants,
     };
 

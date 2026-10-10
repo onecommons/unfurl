@@ -27,8 +27,10 @@ use unfurl_git_sync::{
     TxnMeta, WorktreeFilter,
 };
 
+use crate::gitlock::{self, GitLock, GitLocks};
 use crate::proxy;
 use axum::extract::FromRequest;
+use std::time::Duration;
 
 use crate::routes::{ValidatedJson, ValidatedQuery, ValidatedRepeatedQuery};
 use crate::unfurl_types;
@@ -159,7 +161,16 @@ pub struct CloudMapState {
     /// Whether `inner` is a configured checkout, which serves a request
     /// naming no project or branch.
     configured: bool,
+    /// The locks git work in a checkout holds, shared with python; `None`
+    /// without Redis, where no other process works in it.
+    locks: Option<GitLocks>,
+    /// How long a write waits for its checkout's git lock before it's
+    /// refused.
+    commit_wait: Duration,
 }
+
+/// How long a write waits for its checkout's git lock before it's refused.
+const COMMIT_WAIT: Duration = Duration::from_secs(30);
 
 /// The database `db_url` names: anything starting with `postgres://` or
 /// `postgresql://` is Postgres (only when the `unfurl-git-sync/postgres`
@@ -218,6 +229,29 @@ impl CloudMapState {
         Ok((Self::from_synced(synced), outcome))
     }
 
+    /// [`Self::open`] the checkout at `repo_path`, holding its git lock from
+    /// `locks` while it's scanned and, if `accept` takes the scan, its
+    /// unfinished exports are finished: `None` if it doesn't.
+    pub async fn open_locked(
+        repo_path: &str,
+        db_url: &str,
+        scan: Option<ScanOptions>,
+        accept: impl Fn(&unfurl_git_sync::SyncOutcome) -> bool,
+        locks: Option<&GitLocks>,
+    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        let lock = gitlock::hold(locks, std::path::Path::new(repo_path), gitlock::TTL).await?;
+        let opened = match Self::open(repo_path, db_url, scan).await {
+            Ok((cm, outcome)) if outcome.as_ref().is_none_or(&accept) => {
+                cm.finish_exports().await;
+                Ok(Some(cm.with_locks(locks.cloned())))
+            }
+            Ok(_) => Ok(None),
+            Err(e) => Err(e),
+        };
+        gitlock::release(lock).await;
+        opened
+    }
+
     /// Finish the exports a failure in an earlier run left unfinished,
     /// before anything else writes. One that can't be is left, and
     /// logged: its records stay in its branch's draft.
@@ -245,6 +279,7 @@ impl CloudMapState {
     /// their projects alone. `None` with none.
     pub async fn serving(
         checkouts: Vec<CloudMapState>,
+        locks: Option<GitLocks>,
     ) -> Result<Option<Self>, unfurl_git_sync::Error> {
         let mut routes = Vec::new();
         for c in checkouts {
@@ -258,6 +293,8 @@ impl CloudMapState {
             inner: first.clone(),
             checkouts: Arc::new(routes),
             configured: false,
+            locks,
+            commit_wait: COMMIT_WAIT,
         }))
     }
 
@@ -280,7 +317,37 @@ impl CloudMapState {
             inner: Arc::new(synced),
             checkouts: Arc::new(Vec::new()),
             configured: true,
+            locks: None,
+            commit_wait: COMMIT_WAIT,
         }
+    }
+
+    /// This state, taking `locks` around its git work.
+    pub fn with_locks(mut self, locks: Option<GitLocks>) -> Self {
+        self.locks = locks;
+        self
+    }
+
+    /// This state, with a write waiting `wait` for its checkout's git lock.
+    pub fn with_commit_wait(mut self, wait: Duration) -> Self {
+        self.commit_wait = wait;
+        self
+    }
+
+    /// Take the git lock on this state's checkout, waiting up to `wait`:
+    /// `Ok(None)` without locks, `Err` if it's still held then. A lock that
+    /// can't be read is logged, and not taken.
+    pub async fn lock_git(&self, wait: Duration) -> Result<Option<GitLock>, String> {
+        if self.locks.is_none() {
+            return Ok(None);
+        }
+        let dir = self
+            .inner
+            .get_working_dir()
+            .await
+            .map_err(|e| e.to_string())?
+            .repo_path;
+        gitlock::hold(self.locks.as_ref(), &dir, wait).await
     }
 
     /// Flush every in-flight record to its file and commit the result,
@@ -379,6 +446,8 @@ impl CloudMapState {
                     inner: handle.clone(),
                     checkouts: self.checkouts.clone(),
                     configured: true,
+                    locks: self.locks.clone(),
+                    commit_wait: self.commit_wait,
                 }));
             }
         }
@@ -1829,17 +1898,8 @@ async fn post_cloudmap_apply(
         message: Some(commit_msg.clone()),
     };
 
-    let result = apply_writes(cm, body, atomic, meta).await?;
-    // A body carrying no records is legitimate here — it means "commit whatever
-    // is already staged". `commit_repository` is itself a no-op returning None
-    // when nothing is dirty, so there's no separate emptiness check to make.
-    let committed = if commit_requested {
-        cm.commit(&commit_msg)
-            .await
-            .map_err(|e| WriteError::Internal(format!("commit_repository: {e}")))?
-    } else {
-        None
-    };
+    let commit = commit_requested.then_some(commit_msg.as_str());
+    let (result, committed) = apply_and_commit(cm, body, atomic, meta, commit).await?;
     // `commit` reports where the repository is now, matching the python
     // handlers: the commit just made, or the unchanged HEAD when this request
     // only staged records (the client's OCC token for staged writes is
@@ -1976,6 +2036,10 @@ impl From<WriteError> for ApiError {
                     body: json!({"code": "INTERNAL_ERROR", "message": msg}),
                 }
             }
+            WriteError::Busy(msg) => Self {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                body: json!({"code": "SERVICE_UNAVAILABLE", "message": msg}),
+            },
         }
     }
 }
@@ -2003,6 +2067,8 @@ enum WriteError {
         failed: Vec<FailedJson>,
     },
     Internal(String),
+    /// Another holds the checkout's git lock -- 503, to retry.
+    Busy(String),
 }
 
 /// Per-record failure detail surfaced in the 409 response body.
@@ -2024,6 +2090,38 @@ struct WriteOutcome {
 /// to [`SyncedRepo::apply_batch`], then map the outcome → either a
 /// success [`WriteOutcome`] or a [`WriteError::Conflict`] carrying the
 /// per-record applied/failed lists.
+/// [`apply_writes`], then the commit `commit` gives the message of, if
+/// any, holding the checkout's git lock across both: refused before
+/// anything is applied if another holds it.
+async fn apply_and_commit(
+    cm: &CloudMapState,
+    body: unfurl_types::PostCloudmapRequest,
+    atomic: bool,
+    meta: TxnMeta,
+    commit: Option<&str>,
+) -> Result<(WriteOutcome, Option<String>), WriteError> {
+    let Some(message) = commit else {
+        return Ok((apply_writes(cm, body, atomic, meta).await?, None));
+    };
+    let lock = cm
+        .lock_git(cm.commit_wait)
+        .await
+        .map_err(WriteError::Busy)?;
+    let applied = apply_writes(cm, body, atomic, meta).await;
+    // A body carrying no records is legitimate here — it means "commit whatever
+    // is already staged". `commit_repository` is itself a no-op returning None
+    // when nothing is dirty, so there's no separate emptiness check to make.
+    let committed = match &applied {
+        Ok(_) => cm
+            .commit(message)
+            .await
+            .map_err(|e| WriteError::Internal(format!("commit_repository: {e}"))),
+        Err(_) => Ok(None),
+    };
+    gitlock::release(lock).await;
+    Ok((applied?, committed?))
+}
+
 async fn apply_writes(
     cm: &CloudMapState,
     body: unfurl_types::PostCloudmapRequest,

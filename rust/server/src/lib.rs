@@ -6,6 +6,7 @@ pub mod cache;
 pub mod clone;
 pub mod cloudmap;
 pub mod config;
+pub mod gitlock;
 pub mod grants;
 pub mod patch;
 pub mod proxy;

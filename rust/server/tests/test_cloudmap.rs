@@ -3465,7 +3465,7 @@ async fn writes_go_to_the_checkout_of_their_project() {
         .iter()
         .map(|(s, _)| CloudMapState::from_synced(s.clone()))
         .collect();
-    let cm = CloudMapState::serving(each)
+    let cm = CloudMapState::serving(each, None)
         .await
         .expect("serving")
         .expect("checkouts");
@@ -3519,7 +3519,7 @@ async fn writes_go_to_the_checkout_of_their_project() {
 async fn a_project_not_served_is_left_to_python() {
     let (_, checkouts, _db) = two_worktrees().await;
     let only = vec![CloudMapState::from_synced(checkouts[0].0.clone())];
-    let cm = CloudMapState::serving(only)
+    let cm = CloudMapState::serving(only, None)
         .await
         .expect("serving")
         .expect("checkouts");
@@ -3539,4 +3539,126 @@ async fn a_project_not_served_is_left_to_python() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "the project served still reads");
+}
+
+/// A write that commits waits for its checkout's git lock, held as python
+/// holds it while it pulls or writes in the clone, and commits once it's
+/// released; it lets the lock go after. Needs `UNFURL_TEST_REDIS_URL`.
+#[tokio::test]
+async fn a_commit_waits_for_its_checkouts_git_lock() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use unfurl_server::gitlock::GitLocks;
+    let Some(url) = std::env::var("UNFURL_TEST_REDIS_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+    else {
+        eprintln!("skip: UNFURL_TEST_REDIS_URL not set");
+        return;
+    };
+    let mut conn = redis::Client::open(url.as_str())
+        .expect("redis url")
+        .get_multiplexed_async_connection()
+        .await
+        .expect("connect");
+    let prefix = format!("test-commit-lock-{}:", std::process::id());
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let cm = cm.with_locks(Some(GitLocks::new(conn.clone(), &prefix)));
+    let before = head_oid(tmp.path());
+    let key = format!(
+        "{prefix}_git_lock::{}",
+        tmp.path().canonicalize().expect("real").display()
+    );
+    let _: () = redis::cmd("SET")
+        .arg(&key)
+        .arg(1)
+        .arg("PX")
+        .arg(10_000)
+        .query_async(&mut conn)
+        .await
+        .expect("set");
+    let released = Arc::new(AtomicBool::new(false));
+    let (flag, mut holder, held) = (released.clone(), conn.clone(), key.clone());
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        flag.store(true, Ordering::SeqCst);
+        let _: () = redis::AsyncCommands::del(&mut holder, &held)
+            .await
+            .expect("del");
+    });
+
+    let (status, response) = post_json(
+        router(make_state(cm)),
+        serde_json::json!({
+            "commit": true,
+            "repositories": { "git://unfurl.cloud/onecommons/std.git": { "name": "after the lock" } },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    assert!(
+        released.load(Ordering::SeqCst),
+        "committed while the lock was held"
+    );
+    assert_ne!(head_oid(tmp.path()), before);
+    let left: bool = redis::AsyncCommands::exists(&mut conn, &key)
+        .await
+        .expect("exists");
+    assert!(!left, "the lock is let go");
+}
+
+/// A write that commits, refused for a git lock held past its wait, gets
+/// 503 and applies nothing. Needs `UNFURL_TEST_REDIS_URL`.
+#[tokio::test]
+async fn a_commit_refused_for_its_git_lock_applies_nothing() {
+    use unfurl_server::gitlock::GitLocks;
+    let Some(url) = std::env::var("UNFURL_TEST_REDIS_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+    else {
+        eprintln!("skip: UNFURL_TEST_REDIS_URL not set");
+        return;
+    };
+    let mut conn = redis::Client::open(url.as_str())
+        .expect("redis url")
+        .get_multiplexed_async_connection()
+        .await
+        .expect("connect");
+    let prefix = format!("test-busy-lock-{}:", std::process::id());
+    let (cm, synced, tmp) = open_two_file_state().await;
+    let cm = cm
+        .with_locks(Some(GitLocks::new(conn.clone(), &prefix)))
+        .with_commit_wait(std::time::Duration::from_millis(300));
+    let before = head_oid(tmp.path());
+    let key = format!(
+        "{prefix}_git_lock::{}",
+        tmp.path().canonicalize().expect("real").display()
+    );
+    let _: () = redis::cmd("SET")
+        .arg(&key)
+        .arg(1)
+        .arg("PX")
+        .arg(10_000)
+        .query_async(&mut conn)
+        .await
+        .expect("set");
+
+    let record = "git://unfurl.cloud/onecommons/refused.git";
+    let (status, response) = post_json(
+        router(make_state(cm)),
+        serde_json::json!({
+            "commit": true,
+            "repositories": { record: { "name": "refused" } },
+        }),
+    )
+    .await;
+    let _: () = redis::AsyncCommands::del(&mut conn, &key)
+        .await
+        .expect("del");
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{response:?}");
+    assert_eq!(head_oid(tmp.path()), before);
+    let got = synced
+        .get_record("cloudmap.yaml", "/repositories", record)
+        .await
+        .expect("get");
+    assert!(got.is_none(), "applied: {got:?}");
 }

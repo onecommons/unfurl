@@ -260,7 +260,12 @@ checks a request's credentials, which this server doesn't. Each checkout
 is opened and scanned with `recover_missing`, since a new clone is where
 commits the database made go missing, and writes are routed to the
 checkout of their project and branch (`main` when they name none). Reads
-go through any of them, as they read the database.
+go through any of them, as they read the database. Python's server
+pulls, writes and clears in the same clones, so git work in one -- the
+startup pull and scan, finishing exports, a write's commit -- holds its
+git lock, the Redis key python holds around its own
+(`_git_lock::<real path>`), renewed while it's held; a write waits 30
+seconds for it, then gets 503.
 
 ### A branch switch under an open handle
 

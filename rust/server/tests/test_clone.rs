@@ -98,7 +98,7 @@ impl World {
     }
 
     async fn prepare(&self) -> Vec<Checkout> {
-        prepare(&self.db, &self.root(), &self.server()).await
+        prepare(&self.db, &self.root(), &self.server(), None).await
     }
 
     /// A commit on the server's `main`, made from the seed checkout.
@@ -241,7 +241,7 @@ async fn a_private_project_is_left_to_python() {
 #[tokio::test]
 async fn a_worktree_on_another_server_is_left_out() {
     let world = World::new().await;
-    let got = prepare(&world.db, &world.root(), "https://elsewhere.example").await;
+    let got = prepare(&world.db, &world.root(), "https://elsewhere.example", None).await;
     assert!(got.is_empty());
     assert!(!world.root().exists());
 }
@@ -272,6 +272,7 @@ async fn several_clones_open_on_one_database() {
         Some(ScanOptions::default()),
         |_| true,
         |_, _| String::new(),
+        None,
     )
     .await
     .expect("serving")
@@ -316,6 +317,7 @@ async fn a_checkout_that_fails_is_left_out_of_the_rest() {
         // the first checkout's scan is refused
         |_| scans.fetch_add(1, Ordering::SeqCst) > 0,
         |_, _| String::new(),
+        None,
     )
     .await
     .expect("serving")
@@ -336,4 +338,147 @@ async fn a_checkout_that_fails_is_left_out_of_the_rest() {
             c.project
         );
     }
+}
+
+/// Startup's clone waits for the checkout's git lock, held as python
+/// holds it while it clones there, and clones once it's released. Needs
+/// `UNFURL_TEST_REDIS_URL`.
+#[tokio::test]
+async fn a_clone_waits_for_its_git_lock() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use unfurl_server::gitlock::GitLocks;
+    let Some(url) = std::env::var("UNFURL_TEST_REDIS_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+    else {
+        eprintln!("skip: UNFURL_TEST_REDIS_URL not set");
+        return;
+    };
+    let mut conn = redis::Client::open(url.as_str())
+        .expect("redis url")
+        .get_multiplexed_async_connection()
+        .await
+        .expect("connect");
+    let world = World::new().await;
+    let prefix = format!("test-clone-lock-{}:", std::process::id());
+    std::fs::create_dir_all(world.root()).expect("mkdir");
+    let root = world.root().canonicalize().expect("real");
+    let key = format!(
+        "{prefix}_git_lock::{}",
+        root.join("public/org/proj/main").display()
+    );
+    let _: () = redis::cmd("SET")
+        .arg(&key)
+        .arg(1)
+        .arg("PX")
+        .arg(10_000)
+        .query_async(&mut conn)
+        .await
+        .expect("set");
+    let released = Arc::new(AtomicBool::new(false));
+    let (flag, mut holder, held) = (released.clone(), conn.clone(), key.clone());
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        flag.store(true, Ordering::SeqCst);
+        let _: () = redis::AsyncCommands::del(&mut holder, &held)
+            .await
+            .expect("del");
+    });
+
+    let locks = GitLocks::new(conn.clone(), &prefix);
+    let got = prepare(&world.db, &world.root(), &world.server(), Some(&locks)).await;
+    assert_eq!(got.len(), 1);
+    assert!(
+        released.load(Ordering::SeqCst),
+        "cloned while the lock was held"
+    );
+    let left: bool = redis::AsyncCommands::exists(&mut conn, &key)
+        .await
+        .expect("exists");
+    assert!(!left, "the lock is let go");
+}
+
+/// Startup's scan of a checkout, and its finishing the exports left
+/// unfinished, wait for the checkout's git lock, held as python holds it
+/// while it pulls or writes there. Needs `UNFURL_TEST_REDIS_URL`.
+#[tokio::test]
+async fn a_scan_waits_for_its_git_lock() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use unfurl_server::gitlock::GitLocks;
+    let Some(url) = std::env::var("UNFURL_TEST_REDIS_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+    else {
+        eprintln!("skip: UNFURL_TEST_REDIS_URL not set");
+        return;
+    };
+    let mut conn = redis::Client::open(url.as_str())
+        .expect("redis url")
+        .get_multiplexed_async_connection()
+        .await
+        .expect("connect");
+    let world = World::new().await;
+    let checkouts = world.prepare().await;
+    let prefix = format!("test-scan-lock-{}:", std::process::id());
+    let key = format!(
+        "{prefix}_git_lock::{}",
+        world.public().canonicalize().expect("real").display()
+    );
+    let _: () = redis::cmd("SET")
+        .arg(&key)
+        .arg(1)
+        .arg("PX")
+        .arg(10_000)
+        .query_async(&mut conn)
+        .await
+        .expect("set");
+    let released = Arc::new(AtomicBool::new(false));
+    let (flag, mut holder, held) = (released.clone(), conn.clone(), key.clone());
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        flag.store(true, Ordering::SeqCst);
+        let _: () = redis::AsyncCommands::del(&mut holder, &held)
+            .await
+            .expect("del");
+    });
+
+    let DbConfig::Sqlite { url } = &world.db else {
+        unreachable!()
+    };
+    let cm = serve(
+        checkouts,
+        url,
+        Some(ScanOptions::default()),
+        |_| true,
+        |_, _| String::new(),
+        Some(GitLocks::new(conn.clone(), &prefix)),
+    )
+    .await
+    .expect("serve")
+    .expect("served");
+    assert!(
+        released.load(Ordering::SeqCst),
+        "scanned while the lock was held"
+    );
+    let left: bool = redis::AsyncCommands::exists(&mut conn, &key)
+        .await
+        .expect("exists");
+    assert!(!left, "the lock is let go");
+
+    // the state served takes it too, for its writes' commits
+    let _: () = redis::cmd("SET")
+        .arg(&key)
+        .arg(1)
+        .arg("PX")
+        .arg(10_000)
+        .query_async(&mut conn)
+        .await
+        .expect("set");
+    let busy = cm.lock_git(std::time::Duration::from_millis(300)).await;
+    let _: () = redis::AsyncCommands::del(&mut conn, &key)
+        .await
+        .expect("del");
+    assert!(busy.is_err(), "the served state's commits take no lock");
 }

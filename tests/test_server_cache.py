@@ -540,7 +540,10 @@ def _remote(tmp_path):
 def clone_root(monkeypatch, tmp_path):
     monkeypatch.setitem(server.app.config, "UNFURL_CLONE_ROOT", str(tmp_path / "clones"))
     monkeypatch.setitem(server.app.config, "UNFURL_CLOUD_SERVER", "https://unfurl.cloud")
-    monkeypatch.setattr(server, "get_cache", lambda: object())
+    from cachelib import SimpleCache
+
+    cache = SimpleCache()
+    monkeypatch.setattr(server, "get_cache", lambda: cache)
     monkeypatch.setattr(server, "clear_cache", lambda cache, prefix: [])
     return tmp_path
 
@@ -630,6 +633,114 @@ def test_a_failed_pull_removes_only_its_own_clean_clone(clone_root):
         assert os.path.isdir(other)
 
 
+def test_clear_project_keeps_a_clone_in_use(clone_root):
+    """A clone whose git lock another holds -- a pull, a write, or the rust
+    server's commit in progress -- isn't removed from under it."""
+    remote = _remote(clone_root)
+    with server.app.app_context():
+        busy = server._get_project_repo_dir("org/proj", "busy", {})
+        _git(clone_root, "clone", "-q", str(remote), busy)
+        cache = server.get_cache()
+        cache.add(server._git_lock_key(busy), 1)
+
+        got = server._clear_project("org/proj")
+        assert [(k["path"], k["reason"]) for k in got["kept"]] == [
+            ("public/org/proj/busy", "in use: git work is in progress in it")
+        ]
+        assert os.path.isdir(busy)
+        assert cache.get(server._git_lock_key(busy)) == 1, "not released"
+
+
+def test_a_cloudmap_write_holds_its_clones_git_lock(clone_root, monkeypatch):
+    """A cloudmap write writes and commits in a clone the rust server may
+    serve, so holds the clone's git lock while it does."""
+    from unfurl.server import cloudmap
+
+    remote = _remote(clone_root)
+    with server.app.app_context():
+        main = server._get_project_repo_dir("org/proj", "main", {})
+        _git(clone_root, "clone", "-q", str(remote), main)
+    cache = server.get_cache()
+    monkeypatch.setattr(cloudmap, "get_cache", lambda: cache)
+    held = []
+
+    def write(repo, *args):
+        held.append(cache.get(server._git_lock_key(repo.working_dir)))
+        return {"commit": None, "applied": []}
+
+    monkeypatch.setattr(cloudmap, "_write_cloudmap_sections", write)
+    with server.app.app_context():
+        cloudmap._apply_cloudmap_sections(
+            "org/proj", "main", "cloudmap.yaml", {}, None, None, "", "", "msg"
+        )
+    assert len(held) == 1 and held[0] is not None
+    assert cache.get(server._git_lock_key(main)) is None, "released"
+
+
+def test_a_pull_under_its_own_git_lock_goes_ahead(clone_root, monkeypatch):
+    """A pull made while the same request holds the clone's git lock, as a
+    cloudmap write's reading the cloudmap may, pulls instead of waiting on
+    itself; the lock stays held for the write."""
+    remote = _remote(clone_root)
+    with server.app.app_context():
+        main = server._get_project_repo_dir("org/proj", "main", {})
+        _git(clone_root, "clone", "-q", str(remote), main)
+    monkeypatch.setattr(server, "_cache_inflight_timeout", 1)
+    pulls = []
+    monkeypatch.setattr(
+        server, "pull", lambda repo, branch, shallow_since=None: pulls.append(branch) or "pulled"
+    )
+    cache = server.get_cache()
+    with server.app.app_context():
+        with server.git_lock(cache, main):
+            entry = server.CacheEntry("org/proj", "main", "cloudmap.yaml", "load_yaml")
+            entry.pull(cache)
+            assert cache.get(server._git_lock_key(main)) is not None
+    assert pulls == ["main"]
+    assert cache.get(server._git_lock_key(main)) is None
+
+
+def test_a_request_with_a_credential_gets_a_private_clone(clone_root):
+    """Any credential, a token alone included, puts a request's clone under
+    private/: a write's commit and push there would otherwise land in the
+    clone anonymous readers -- and the rust server -- use."""
+    root = server.app.config["UNFURL_CLONE_ROOT"]
+    with server.app.app_context():
+        for args in [{"username": "u"}, {"private_token": "t"}, {"password": "p"}]:
+            path = server._get_managed_project_repo_dir("org/proj", "main", args)
+            assert os.path.relpath(path, root) == "private/org/proj/main", args
+        path = server._get_managed_project_repo_dir("org/proj", "main", {})
+        assert os.path.relpath(path, root) == "public/org/proj/main"
+
+
+@pytest.mark.skipif(
+    not os.getenv("UNFURL_TEST_REDIS_URL"), reason="needs UNFURL_TEST_REDIS_URL"
+)
+def test_a_git_lock_taken_over_isnt_released(monkeypatch, tmp_path):
+    """A git lock that lapsed while its holder worked, and another took,
+    isn't released by the first: only its own."""
+    from flask_caching import Cache
+
+    cache = Cache(
+        config={
+            "CACHE_TYPE": "RedisCache",
+            "CACHE_REDIS_URL": os.environ["UNFURL_TEST_REDIS_URL"],
+            "CACHE_KEY_PREFIX": f"test-gitlock-{os.getpid()}-{time.time_ns()}::",
+        }
+    )
+    cache.init_app(server.app)
+    key = server._git_lock_key(str(tmp_path))
+    assert server._take_git_lock(cache, key)
+    cache.set(key, 1)  # it lapsed, and another took it
+    server._release_git_lock(cache, key)
+    assert cache.get(key) == 1, "another's lock released"
+    cache.delete(key)
+
+    assert server._take_git_lock(cache, key)
+    server._release_git_lock(cache, key)
+    assert cache.get(key) is None, "its own lock not released"
+
+
 def test_concurrent_pulls_pull_once(clone_root, monkeypatch):
     """Two requests that find a checkout's pull stale at once: one pulls,
     the other waits for it and takes what it left, rather than both
@@ -657,7 +768,7 @@ def test_concurrent_pulls_pull_once(clone_root, monkeypatch):
     class RacingCache(SimpleCache):
         def get(self, key):
             value = super().get(key)
-            if ":pull:" in key and not key.startswith("_pull_lock") and not getattr(seen, "once", False):
+            if ":pull:" in key and not getattr(seen, "once", False):
                 seen.once = True
                 both_read.wait(timeout=5)
             return value

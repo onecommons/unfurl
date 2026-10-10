@@ -14,6 +14,7 @@ use std::time::Duration;
 use unfurl_git_sync::{Db, DbConfig, Worktree, WorktreeFilter};
 
 use crate::cloudmap::CloudMapState;
+use crate::gitlock::{self, GitLocks};
 
 /// A checkout ready to open: worktree `project` on `branch`, at `path`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,7 +31,12 @@ pub struct Checkout {
 /// (an exported one), one python is cloning or pulling, or a remote that
 /// doesn't answer in time. A checkout that can't be brought up, diverged
 /// by commits the remote hasn't got, is served as it is.
-pub async fn prepare(db: &DbConfig, clone_root: &Path, cloud_server: &str) -> Vec<Checkout> {
+pub async fn prepare(
+    db: &DbConfig,
+    clone_root: &Path,
+    cloud_server: &str,
+    locks: Option<&GitLocks>,
+) -> Vec<Checkout> {
     let worktrees = match Db::connect(db).await {
         Ok(db) => db.worktrees(&WorktreeFilter::default()).await,
         Err(e) => Err(e),
@@ -45,6 +51,14 @@ pub async fn prepare(db: &DbConfig, clone_root: &Path, cloud_server: &str) -> Ve
             return Vec::new();
         }
     };
+    if locks.is_some() {
+        // python must resolve its UNFURL_CLONE_ROOT to the same path, or
+        // the two servers lock different keys
+        tracing::info!(
+            root = %gitlock::real_path(clone_root).display(),
+            "git locks shared with python are keyed under"
+        );
+    }
     let mut ready = Vec::new();
     for w in worktrees {
         let Some(project) = project_of(&w, cloud_server) else {
@@ -64,7 +78,7 @@ pub async fn prepare(db: &DbConfig, clone_root: &Path, cloud_server: &str) -> Ve
             cloud_server.trim_end_matches('/'),
             checkout.project
         );
-        match update(&checkout, &url).await {
+        match update(&checkout, &url, locks).await {
             Ok(()) => ready.push(checkout),
             Err(e) => tracing::warn!(
                 project = checkout.project.as_str(),
@@ -87,20 +101,18 @@ pub async fn serve(
     scan: Option<unfurl_git_sync::ScanOptions>,
     accept: impl Fn(&unfurl_git_sync::SyncOutcome) -> bool,
     hint: impl Fn(&(dyn std::error::Error + 'static), &str) -> String,
+    locks: Option<GitLocks>,
 ) -> Result<Option<CloudMapState>, unfurl_git_sync::Error> {
     let mut open = Vec::new();
     for checkout in checkouts {
         let path = checkout.path.to_string_lossy();
-        match CloudMapState::open(&path, db_url, scan).await {
-            Ok((_, Some(outcome))) if !accept(&outcome) => tracing::error!(
+        match CloudMapState::open_locked(&path, db_url, scan, &accept, locks.as_ref()).await {
+            Ok(None) => tracing::error!(
                 project = checkout.project.as_str(),
                 branch = checkout.branch.as_str(),
                 "this cloudmap checkout isn't served"
             ),
-            Ok((cm, _)) => {
-                cm.finish_exports().await;
-                open.push(cm);
-            }
+            Ok(Some(cm)) => open.push(cm),
             Err(e) => tracing::error!(
                 project = checkout.project.as_str(),
                 branch = checkout.branch.as_str(),
@@ -109,7 +121,7 @@ pub async fn serve(
             ),
         }
     }
-    CloudMapState::serving(open).await
+    CloudMapState::serving(open, locks).await
 }
 
 /// Worktree `w`'s project on `cloud_server`: its origin with the server's
@@ -123,9 +135,17 @@ fn project_of(w: &Worktree, cloud_server: &str) -> Option<String> {
 /// Clone `url`'s branch to the checkout, or fast-forward the one there,
 /// holding its lock as python does: created exclusively, with this
 /// process's pid in it.
-async fn update(checkout: &Checkout, url: &str) -> Result<(), String> {
+async fn update(checkout: &Checkout, url: &str, locks: Option<&GitLocks>) -> Result<(), String> {
     let parent = checkout.path.parent().unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let git_lock = gitlock::hold(locks, &checkout.path, gitlock::TTL).await?;
+    let updated = update_locked(checkout, url).await;
+    gitlock::release(git_lock).await;
+    updated
+}
+
+/// [`update`], holding the checkout's git lock.
+async fn update_locked(checkout: &Checkout, url: &str) -> Result<(), String> {
     let lock = lock_path(&checkout.path);
     let held = std::fs::OpenOptions::new()
         .write(true)
