@@ -1957,8 +1957,11 @@ def test_get_cloudmap_types(mocker):
             # Create a mock CacheEntry (we just need something to pass in)
             mock_cache_entry = Mock()
 
-            # Call the function
-            err, types = get_cloudmap_types("test_project", mock_cache_entry, True)
+            # Call the function, as a request handler would
+            from unfurl.server.serve import app
+
+            with app.app_context():
+                err, types = get_cloudmap_types("test_project", mock_cache_entry, True)
 
             # Verify load_yaml_from_cache was called correctly
             mock_load_yaml.assert_called_once_with(

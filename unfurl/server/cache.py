@@ -17,7 +17,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 import copy
 import os
 
-from ..cloudmap import CloudMapDB, EntitySchema
+from ..cloudmap import CloudMapDB, EntitySchema, CloudMap
 from ..tosca_plugins.cloudmap_defs import CloudMapView
 from ..logs import getLogger
 from ..graphql import ImportDef, ResourceType, ResourceTypesByName
@@ -141,8 +141,7 @@ def get_cloudmap_proxy(
     inbound request's auth headers with every request it makes; one to an
     upstream server sends the credentials configured for it instead.
     """
-    if not has_app_context():
-        return None
+    assert has_app_context(), "This function must be called within a Flask app context"
     from ..cloudmap.proxy import CloudMapProxy
 
     # CloudMapProxy preserves query params from base_url on every request.
@@ -158,8 +157,7 @@ def get_cloudmap_proxy(
         local_env = current_app.config.get("UNFURL_LOCAL_ENV")
         if project_id or local_env is None:
             return None
-        from ..cloudmap import CloudMap
-
+        # returns None if not configured
         return CloudMap.server_proxy(local_env, "cloudmap", extra, logger)
     if extra:
         parsed = urlparse(syncing_url)

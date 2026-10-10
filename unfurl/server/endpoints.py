@@ -1202,6 +1202,8 @@ def _get_commit_msg(body, default_msg):
         body.pop("private_token", None)
         body.pop("password", None)
         body.pop("cloud_vars_url", None)
+        if body.get("blueprint_url"):
+            body["blueprint_url"] = sanitize_url(body["blueprint_url"])
         msg += "\n" + json.dumps(body, indent=2)
     return msg
 

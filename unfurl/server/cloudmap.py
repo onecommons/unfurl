@@ -1301,7 +1301,7 @@ def _apply_cloudmap_sections(
         starting_revision,
         project_id,
         branch,
-        batched=True,
+        batched=True,  # no push
         author=_get_author(request),
     )
     if commit_err:
