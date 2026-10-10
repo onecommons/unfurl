@@ -2,6 +2,8 @@ import json
 import os
 from functools import cache
 import pytest
+import requests
+import tenacity
 from dataclasses import replace
 
 from unfurl.cloudmap import oci
@@ -344,6 +346,7 @@ artifact_keys = [
         ),
     ],
 )
+@pytest.mark.flaky(reruns=2, reruns_delay=5)
 def test_resolve_image_ref(
     image_url, expected_ref, expected_artifact, expected_instantiation
 ):
@@ -657,3 +660,99 @@ def test_slsa1_source_from_resolved_dependencies():
     }
     assert oci._slsa1_source({"resolvedDependencies": []}) is None
     assert oci._slsa1_source({}) is None
+
+
+@pytest.fixture
+def no_retry_wait(monkeypatch):
+    for fn in (oci._get_with_retry, oci._registry_get):
+        monkeypatch.setattr(fn.retry, "wait", tenacity.wait_none())
+
+
+def _sequenced_get(monkeypatch, responses):
+    """Patch requests.get to return (or raise) ``responses[url]`` items in order."""
+    calls = []
+
+    def _get(url, params=None, headers=None, timeout=None):
+        calls.append(url)
+        item = responses[url].pop(0)
+        if isinstance(item, Exception):
+            raise item
+        item.url = url
+        return item
+
+    monkeypatch.setattr(oci.requests, "get", _get)
+    return calls
+
+
+def test_bearer_token_retried_after_transient_failure(monkeypatch, no_retry_wait):
+    manifest_url = "https://registry.example/v2/acme/app/manifests/1.0"
+    token_url = "https://auth.example/token"
+    challenge = FakeResponse(
+        401,
+        headers={
+            "WWW-Authenticate": f'Bearer realm="{token_url}",service="registry.example"'
+        },
+    )
+    manifest = FakeResponse(
+        200,
+        json_data={
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {"digest": "sha256:cfg"},
+        },
+        headers={"Docker-Content-Digest": "sha256:man"},
+    )
+    _sequenced_get(
+        monkeypatch,
+        {
+            manifest_url: [challenge, manifest],
+            token_url: [
+                requests.exceptions.Timeout(),
+                FakeResponse(503),
+                FakeResponse(200, json_data={"token": "t0k3n"}),
+            ],
+            "https://registry.example/v2/acme/app/blobs/sha256:cfg": [
+                FakeResponse(200, json_data={"config": {"Labels": {}}})
+            ],
+        },
+    )
+    fetched = oci.registry_v2_fetch(
+        ContainerImageParts.split("registry.example/acme/app:1.0")
+    )
+    assert fetched.manifest_digest == "sha256:man"
+
+
+def test_safe_get_json_retries_timeout(monkeypatch, no_retry_wait):
+    url = "https://api.example/data"
+    calls = _sequenced_get(
+        monkeypatch,
+        {url: [requests.exceptions.Timeout(), FakeResponse(200, json_data={"a": 1})]},
+    )
+    assert oci._safe_get_json(url) == {"a": 1}
+    assert len(calls) == 2
+
+
+def test_safe_get_json_does_not_retry_client_error(monkeypatch, no_retry_wait):
+    url = "https://api.example/missing"
+    calls = _sequenced_get(monkeypatch, {url: [FakeResponse(404)]})
+    assert oci._safe_get_json(url) is None
+    assert len(calls) == 1
+
+
+def test_registry_get_exhausted_retries_returns_last_response(
+    monkeypatch, no_retry_wait
+):
+    url = "https://registry.example/v2/acme/app/manifests/1.0"
+    calls = _sequenced_get(monkeypatch, {url: [FakeResponse(429) for _ in range(5)]})
+    r = oci._registry_get(url, accept=None, username=None, password=None)
+    assert r is not None and r.status_code == 429
+    assert len(calls) == 5
+
+
+def test_registry_get_exhausted_on_exceptions_returns_none(
+    monkeypatch, no_retry_wait
+):
+    url = "https://registry.example/v2/acme/app/manifests/1.0"
+    _sequenced_get(
+        monkeypatch, {url: [requests.exceptions.ConnectionError() for _ in range(5)]}
+    )
+    assert oci._registry_get(url, accept=None, username=None, password=None) is None

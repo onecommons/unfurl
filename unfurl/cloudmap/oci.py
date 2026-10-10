@@ -24,10 +24,12 @@ from functools import cache
 from typing import (
     Any,
     Dict,
+    Mapping,
     NamedTuple,
     Optional,
     Tuple,
     List,
+    Union,
 )
 import base64
 import json
@@ -35,6 +37,7 @@ import logging
 import requests
 
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception,
     retry_if_result,
@@ -295,13 +298,35 @@ def _is_retryable_exception(exc: BaseException) -> bool:
     )
 
 
+def _is_retryable_response(resp: Optional[requests.Response]) -> bool:
+    if resp is None:
+        return True
+    if resp.status_code == 429:
+        return True
+    if 500 <= resp.status_code < 600:
+        return True
+    return False
+
+
 @retry(
-    retry=retry_if_exception(_is_retryable_exception),
+    retry=(
+        retry_if_exception(_is_retryable_exception)
+        | retry_if_result(_is_retryable_response)
+    ),
     stop=stop_after_attempt(4),
     wait=wait_exponential_jitter(initial=0.3, max=4.0),
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
+def _get_with_retry(
+    url: str,
+    params: Optional[Mapping[str, Union[str, int]]],
+    headers: Optional[Mapping[str, str]],
+    timeout: int,
+) -> requests.Response:
+    return requests.get(url, params=params, headers=headers, timeout=timeout)
+
+
 def _safe_get_json(
     url: str,
     params: Optional[dict] = None,
@@ -309,10 +334,14 @@ def _safe_get_json(
     timeout: int = DEFAULT_TIMEOUT,
 ) -> Optional[Any]:
     try:
-        r = requests.get(url, params=params, headers=headers, timeout=timeout)
-        r.raise_for_status()
-        return r.json()
+        r = _get_with_retry(url, params, headers, timeout)
     except Exception:
+        return None
+    if not r.ok:
+        return None
+    try:
+        return r.json()
+    except ValueError:
         return None
 
 
@@ -394,22 +423,25 @@ def _get_bearer_token(
         headers["Authorization"] = _basic_auth_header(username, password)
 
     try:
-        r = requests.get(realm, params=params, headers=headers, timeout=timeout)
-        r.raise_for_status()
-        data = r.json()
-        return data.get("token") or data.get("access_token")
+        r = _get_with_retry(realm, params, headers, timeout)
     except Exception:
         return None
+    if not r.ok:
+        return None
+    try:
+        data = r.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data.get("token") or data.get("access_token")
 
 
-def _is_retryable_response(resp: Optional[requests.Response]) -> bool:
-    if resp is None:
-        return True
-    if resp.status_code == 429:
-        return True
-    if 500 <= resp.status_code < 600:
-        return True
-    return False
+def _last_response(retry_state: RetryCallState) -> Optional[requests.Response]:
+    outcome = retry_state.outcome
+    if outcome is None or outcome.failed:
+        return None
+    return outcome.result()
 
 
 @retry(
@@ -420,7 +452,7 @@ def _is_retryable_response(resp: Optional[requests.Response]) -> bool:
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=0.5, max=8.0),
     before_sleep=before_sleep_log(logger, logging.WARNING),
-    reraise=False,
+    retry_error_callback=_last_response,
 )
 def _registry_get(
     url: str,
