@@ -551,7 +551,10 @@ struct PartitionKey {
 struct BatchRequest {
     /// Endpoint path without leading `/` (e.g. `"create_provider"`).
     endpoint: String,
-    /// The original request body.
+    /// The request's `X-Unfurl-User`, the author of its commit: a batch's
+    /// own headers are its first request's.
+    author: Option<String>,
+    /// The original request body, less any `author` of the client's own.
     #[serde(flatten)]
     body: JsonValue,
 }
@@ -802,9 +805,14 @@ fn consolidate(project_id: &str, items: Vec<QueueItem>) -> Vec<(PartitionedBatch
             .to_string();
         let queueid = extract_queueid(body);
 
+        let mut body = body.clone();
+        if let Some(fields) = body.as_object_mut() {
+            fields.remove("author");
+        }
         let req = BatchRequest {
             endpoint: endpoint_name(&item.endpoint).to_string(),
-            body: body.clone(),
+            author: item.headers.get("x-unfurl-user").cloned(),
+            body,
         };
 
         if let Some(idx) = groups.iter().position(|(k, _, _)| k == &key) {
@@ -1096,6 +1104,45 @@ pub(crate) async fn get_redis_time(conn: &mut redis::aio::MultiplexedConnection)
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Each request in a batch carries its own author, and a client can't
+    /// name one in its body.
+    #[test]
+    fn each_batched_request_carries_its_own_author() {
+        let item = |user: Option<&str>, body: JsonValue| QueueItem {
+            endpoint: "/update_ensemble".into(),
+            body,
+            headers: user
+                .map(|u| HashMap::from([("x-unfurl-user".to_string(), u.to_string())]))
+                .unwrap_or_default(),
+            grant: None,
+        };
+        let body = json!({"branch": "main", "latest_commit": "c1", "patch": []});
+        let mut spoofed = body.clone();
+        spoofed["author"] = json!("Mallory <m@example.com>");
+        let items = vec![
+            item(Some("Alice <a@example.com>"), body.clone()),
+            item(Some("Bob <b@example.com>"), spoofed.clone()),
+            item(None, spoofed),
+        ];
+        let batches = consolidate("p", items);
+        assert_eq!(batches.len(), 1);
+        let sent = serde_json::to_value(&batches[0].0).unwrap();
+        let authors: Vec<&JsonValue> = sent["requests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| &r["author"])
+            .collect();
+        assert_eq!(
+            authors,
+            [
+                &json!("Alice <a@example.com>"),
+                &json!("Bob <b@example.com>"),
+                &JsonValue::Null
+            ]
+        );
+    }
 
     #[test]
     fn test_consolidate_single_item() {

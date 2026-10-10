@@ -77,8 +77,8 @@ The plan has two scopes:
 |---|---|---|---|---|
 | T1 | Credentials at rest in Redis: memory, RDB/AOF files, replicas, backups | With a grant store, queued items name a grant in place of `X-Git-Credentials`; without one, they keep the header. Bodies carry `private_token`, `blueprint_url`'s token and `cloud_vars_url`'s, and a batch is replayed with its first item's credentials | Queued items hold grant IDs and plain bodies, no credentials | — |
 | T2 | Credentials at rest on disk | The hosted server's blueprint and dependency clones keep plain URLs (`transient_url_credentials`), but its project clones embed credentials on purpose (`_clone_repo`, `set_url_credentials`), and its other clones' fetches take the token from them; older clones keep the tokens they were made with | Remote URLs are plain; credentials reach git per command | — |
-| T3 | One user's credentials used for another's action | A batch is forwarded with its *first* item's headers (`queue::consolidate`), so a later item is committed and pushed with the first writer's token; a `private/` clone holds whichever user's token cloned it, and pulls with it for everyone. Tyk has checked that every writer may write and every reader may read, so no one gains access they lack; what's left is that GitLab records the first writer as the pusher, and enforces protected branches by the first writer's role | Batches are split by grant, so each user's writes are pushed with their own token | — |
-| T4 | Requests that reach the server without passing through Tyk (defence in depth) | Python checks the secret on every request it receives (`before_request` hook, `serve.py`); the Rust server checks it only on a write it queues, whose replay authenticates with the server's own secret. With Python bound to localhost (the server images), what the Rust server answers by itself skips the check: cache hits served from Redis, and the cloudmap endpoints served from the git-sync database | The Rust server checks the secret on every request, as Python does (CORS preflights exempt) | — |
+| T3 | One user's credentials used for another's action | Each queued write is committed as its own author, but a batch is pushed once, with its *first* item's credentials (`queue::consolidate`); a `private/` clone holds whichever user's token cloned it, and pulls with it for everyone. Tyk has checked that every writer may write and every reader may read, so no one gains access they lack; what's left is that GitLab records the first writer as the pusher, and enforces protected branches by the first writer's role | Accepted: a push per user would cost a push per writer in every batch window | — |
+| T4 | Requests that reach the server without passing through Tyk (defence in depth) | Python checks the secret on every request it receives (`before_request` hook, `serve.py`); the Rust server checks it only on a write it queues, whose replay authenticates with the server's own secret. With Python bound to localhost (the server images), what the Rust server answers by itself skips the check: cache hits served from Redis, and the cloudmap endpoints served from the git-sync database | Deferred (§2.2): a NetworkPolicy letting only Tyk reach the servers covers it | — |
 | T5 | A compromised Python process | It sees every user's token in every request, and every token stored in the checkouts' `.git/config` | It sees the tokens of the requests and batches it handles, in memory; none are stored for it to find | It sees grant IDs only: usable only through the local proxy, within their scope, until they expire |
 | T6 | Ambient credentials sent somewhere unintended | Startup clones (`clone.rs`) inherit the server's whole git environment and config (only `GIT_TERMINAL_PROMPT=0` is set); Python's clones follow `.gitmodules` URLs, which a repository's content controls (`recurse_submodules=True`) | Git runs with no ambient credentials and `GIT_ALLOW_PROTOCOL=https` | The proxy adds credentials only for a grant's own host and project |
 
@@ -163,20 +163,22 @@ grant_key: key_id · check (an HMAC of a fixed string under the key)
 
 ### 2.2 The queue
 
-- **Authenticate every request**: the Rust server checks the secret as
-  Python does (Bearer header or `?secret=`, CORS preflights exempt) before it
-  answers, proxies or queues anything, so a cache hit or a cloudmap request it
-  serves by itself is checked too.
+- **Authenticate every request (deferred)**: the Rust server would check
+  the secret as Python does (Bearer header or `?secret=`, CORS preflights
+  exempt) before it answers, proxies or queues anything, so a cache hit or a
+  cloudmap request it serves by itself is checked too. Deferred: Tyk is
+  always in front, deployments set no secret, and a NetworkPolicy letting
+  only Tyk reach the servers covers the same requests, Python's included.
 - **Store a grant ID for `X-Git-Credentials`**, so the stored headers are
   `X-Unfurl-User` and `X-Forwarded-For`, and the item names its grant.
 - **Strip credentials from the stored body**: `username`, `private_token`
   and `password`; the userinfo of `blueprint_url`; the `private_token`
   parameter of `cloud_vars_url`. Each becomes a grant (§2.1), and the stored
   item names its grant ID instead. A queued item holds no token or secret.
-- **Partition batches by credential** as well as project and branch, so
-  each user's writes reach Python, and are pushed, with their own
-  credentials: by grant, or, queueing credentials without grants (§2.1), by
-  a hash of them, never the token itself.
+- **Each request in a batch carries its own author** (its `X-Unfurl-User`,
+  as `author`), which its commit is attributed to; a client's own `author`
+  is replaced. The batch is pushed once, with its first request's
+  credentials (T3).
 - **Items queued before grants**, which name none, replay as they were
   stored.
 - **Restore on replay**: the worker loads and decrypts each batch's grants
@@ -298,13 +300,13 @@ environment.
 order, each standing on its own:
 1. The grant table and its queries (git-sync) and the server's grant
    store: key, encryption, create, look up, expire.
-2. Batches partitioned by credential.
-3. Credentials in the body, `blueprint_url` and `cloud_vars_url` become
+2. Credentials in the body, `blueprint_url` and `cloud_vars_url` become
    grants too.
-4. Work after the request uses grants: the startup clone (`clone.rs`), and
+3. Work after the request uses grants: the startup clone (`clone.rs`), and
    git-sync's pulls and pushes when they land; a grant whose token git
    refuses is deleted.
-5. The Rust server checks the secret on every request (T4).
+
+Deferred: the Rust server checking the secret on every request (T4, §2.2).
 
 This completes the baseline. Until a deployment has a key, its queue
 stores credentials as before (§2.1).
@@ -318,11 +320,9 @@ the key readable only by the latter (§2.5).
 
 - A clone made for one request is pulled for a later one with that later
   request's credentials, not with the token of whoever cloned it (Phase 0).
-- Each user's queued writes are forwarded, and pushed, as that user;
-  concurrent writers to one project and branch make more, smaller batches.
-- A request without a valid API secret is refused by the Rust server, cache
-  hits and cloudmap requests included, and a queued write is refused when
-  queued, not when forwarded.
+- Each queued write is committed as its own author, not the batch's first.
+- A queued write without a valid API secret, when one is set, is refused
+  when queued, not when forwarded.
 - Deployments with Redis need a grant key (a mounted secret) and a
   cloudmap database for Phase 1; without them, the server warns at startup
   and queues credentials as before.
@@ -343,10 +343,9 @@ Each guards an invariant, so each is checked by breaking what it guards
 (AGENTS.md):
 
 - no token in any Redis queue item, header, endpoint or body;
-- a replayed batch reaches Python with its own grant's credentials, and two
-  users' writes in one batch window are forwarded separately;
-- with a secret set, the Rust server refuses a request without it on
-  a cache hit, a cloudmap read and write, and a queued write;
+- a replayed batch reaches Python with its own grant's credentials, and
+  each of its writes is committed as its own author;
+- with a secret set, the Rust server refuses a queued write without it;
 - no token in any clone's `.git/config` after a credentialed clone, and a
   later clone on the same host still authenticates;
 - the stored token is ciphertext, decrypts only with the key, and only in

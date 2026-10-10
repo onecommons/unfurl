@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from base64 import b64decode
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from flask import Response, current_app, jsonify, make_response, request
+from flask import Response, current_app, g, jsonify, make_response, request
 from flask.typing import ResponseReturnValue
 
 from toscaparser.elements.entity_type import Namespace
@@ -154,7 +154,11 @@ def _get_author(request) -> Optional[str]:
     Clients that authenticate the end user themselves can identify them with the
     ``X-Unfurl-User`` header (``"Name <email>"``, a bare name, or a bare email address)
     so the commit is attributed to them instead of to the server's git identity.
+    In a batch, it's the author of the request being applied, which the Rust
+    server recorded from that request's header when it queued it.
     """
+    if "batch_author" in g:
+        return g.batch_author
     return request.headers.get("X-Unfurl-User")
 
 
@@ -881,6 +885,13 @@ def _apply_batch_requests(
             if cred in body and cred not in req_body:
                 req_body[cred] = body[cred]
         last_body = req_body
+        # A batch holds several users' writes, and its own header names only
+        # the first; requests queued before the Rust server recorded each
+        # one's author have none, and keep that header.
+        if "author" in req_body:
+            g.batch_author = req_body.pop("author")
+        else:
+            g.pop("batch_author", None)
         create = endpoint in ("create_ensemble", "create_provider")
         # Caught per request so an exception says which one, like a returned
         # error does. Without this the two carried disjoint halves of the

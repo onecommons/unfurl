@@ -671,6 +671,53 @@ def test_rollback_skipped_when_the_repo_was_already_dirty(tmp_path, started_dirt
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_each_batched_write_is_committed_as_its_author():
+    """A batch holds several users' writes, but its own X-Unfurl-User header
+    is the first one's: each request's author, which the Rust server adds
+    when it queues it, is what its commit is attributed to."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            p, port, last_commit = set_up_deployment(
+                runner, deployment.format("initial"), name="batch-authors"
+            )
+
+            def env_request(name, author):
+                return {
+                    "endpoint": "update_environment",
+                    "patch": [{"name": name, "__typename": "DeploymentEnvironment"}],
+                    "latest_commit": last_commit,
+                    "branch": "main",
+                    "author": author,
+                }
+
+            res = requests.post(
+                f"http://{HOST}:{port}/batch_patch?auth_project=remote",
+                headers={"X-Unfurl-User": "Alice <alice@example.com>"},
+                json={
+                    "branch": "main",
+                    "latest_commit": last_commit,
+                    "requests": [
+                        env_request("staging", "Alice <alice@example.com>"),
+                        env_request("prod", "Bob <bob@example.com>"),
+                    ],
+                },
+            )
+            assert res.status_code == 200, res.text
+            authors = Repo("remote.git").git.log(
+                f"{last_commit}..main", "--reverse", "--format=%an <%ae>"
+            )
+            assert authors.splitlines() == [
+                "Alice <alice@example.com>",
+                "Bob <bob@example.com>",
+            ]
+        finally:
+            _dump_server_logs(p, "batch-authors")
+            if p:
+                _terminate_process(p)
+
+
 def test_batch_patch_rolls_back_a_mid_batch_failure():
     """A batch that fails part way through leaves nothing behind.
 
