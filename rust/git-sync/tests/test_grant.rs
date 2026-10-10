@@ -227,3 +227,20 @@ async fn a_users_other_grants_for_a_repository_are_shortened() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn a_grant_is_deleted_by_id() {
+    each_backend(async |db: &Db| {
+        db.put_grant(&grant("g1", ORIGIN, b"t1", 10, 1000))
+            .await
+            .unwrap();
+        db.put_grant(&grant("g2", ORIGIN, b"t2", 10, 1000))
+            .await
+            .unwrap();
+        assert!(db.delete_grant("g1").await.unwrap());
+        assert!(!db.delete_grant("g1").await.unwrap(), "already gone");
+        assert!(db.grant("g1").await.unwrap().is_none());
+        assert!(db.grant("g2").await.unwrap().is_some());
+    })
+    .await;
+}

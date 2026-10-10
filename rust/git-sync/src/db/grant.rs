@@ -125,6 +125,23 @@ impl Db {
         }))
     }
 
+    /// Delete the grant `id`, as when its credential is refused, returning
+    /// whether there was one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Db`] if the statement fails.
+    pub async fn delete_grant(&self, id: &str) -> Result<bool> {
+        Ok(on_pool!(self, pool => {
+            sqlx::query(sql!(pool, "DELETE FROM credential_grant WHERE id = ?1"))
+                .bind(id)
+                .execute(pool)
+                .await?
+                .rows_affected()
+                > 0
+        }))
+    }
+
     /// Delete the grants expired at `now`, returning how many.
     ///
     /// # Errors
