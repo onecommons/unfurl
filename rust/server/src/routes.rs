@@ -613,24 +613,39 @@ fn filter_forward_headers(headers: &axum::http::HeaderMap) -> HashMap<String, St
 /// What a queued write stores: the headers it keeps and its body, less the
 /// credentials a grant store took into grants, and those grants.
 struct Queued {
+    endpoint: String,
     headers: HashMap<String, String>,
     body: JsonValue,
     grant: Option<String>,
     stashed: Vec<crate::stash::Stashed>,
 }
 
-/// The credentials of a write to be queued taken out into grants, with a
-/// grant store: its `X-Git-Credentials`, and those in `body`, for the
-/// project `project_id` on the cloud server, as the user the gateway
-/// names. A write whose grants can't be stored is refused rather than
-/// queued with its credentials.
-async fn queued_credentials(
+/// A write to be queued, if it may be: with the API secret, since the
+/// worker replays it with the server's own, so this is the only check it
+/// gets; and with its credentials taken out into grants, with a grant
+/// store: its `X-Git-Credentials`, and those in `body`, for the project
+/// `project_id` on the cloud server, as the user the gateway names. A
+/// write whose grants can't be stored is refused rather than queued with
+/// its credentials.
+async fn admit_queued(
     state: &AppState,
     project_id: &str,
     headers: &axum::http::HeaderMap,
+    params: &HashMap<String, String>,
     body: &JsonValue,
 ) -> Result<Queued, Response> {
+    if !has_secret(&state.config.secret, headers, params) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "code": "UNAUTHORIZED",
+                "message": "Please pass the secret as a query parameter or as an Authorization bearer token",
+            })),
+        )
+            .into_response());
+    }
     let mut queued = Queued {
+        endpoint: String::new(),
         headers: filter_forward_headers(headers),
         body: body.clone(),
         grant: None,
@@ -677,6 +692,40 @@ async fn queued_credentials(
                 .into_response())
         }
     }
+}
+
+/// Queue `queued` as `new_queueid`, onto `new_commit` if the queue moved
+/// it there, so the worker sends batch_patch the right values: the
+/// client's answer.
+async fn enqueue_write(
+    conn: &mut redis::aio::MultiplexedConnection,
+    state: &AppState,
+    project_id: &str,
+    queued: Queued,
+    new_queueid: i64,
+    new_commit: Option<String>,
+) -> Response {
+    let mut body = queued.body;
+    if let Some(commit) = &new_commit {
+        body["latest_commit"] = JsonValue::String(commit.clone());
+    }
+    body["queueid"] = json!(new_queueid);
+    let item = QueueItem {
+        endpoint: queued.endpoint,
+        body,
+        headers: queued.headers,
+        grant: queued.grant,
+        stashed: queued.stashed,
+    };
+    if let Err(e) = queue::enqueue(conn, &state.config, project_id, &item).await {
+        tracing::error!("failed to enqueue: {}", e);
+        return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
+    }
+    match new_commit {
+        Some(commit) => Json(json!({"queueid": new_queueid, "commit": commit})),
+        None => Json(json!({"queueid": new_queueid})),
+    }
+    .into_response()
 }
 
 /// Whether the request carries the API secret, as Python's `before_request`
@@ -766,19 +815,7 @@ async fn handle_write(
     let client_queueid = body.get("queueid").and_then(|v| v.as_i64());
     if let Some(queueid) = client_queueid {
         if let Some(ref redis) = state.redis {
-            // The worker replays the write with the server's own secret,
-            // so this is the only check a queued write gets.
-            if !has_secret(&state.config.secret, &headers, &params) {
-                return (
-                    StatusCode::UNAUTHORIZED,
-                    Json(json!({
-                        "code": "UNAUTHORIZED",
-                        "message": "Please pass the secret as a query parameter or as an Authorization bearer token",
-                    })),
-                )
-                    .into_response();
-            }
-            let queued = match queued_credentials(&state, &project_id, &headers, &body).await {
+            let queued = match admit_queued(&state, &project_id, &headers, &params, &body).await {
                 Ok(queued) => queued,
                 Err(response) => return response,
             };
@@ -849,47 +886,37 @@ async fn handle_write(
                         .into_response();
                 }
                 QueueIdResult::Ok { new_queueid } => {
-                    let mut updated_body = queued.body;
-                    updated_body["queueid"] = serde_json::json!(new_queueid);
-                    let item = QueueItem {
+                    let queued = Queued {
                         endpoint: endpoint_uri.path().to_string(),
-                        body: updated_body,
-                        headers: queued.headers,
-                        grant: queued.grant,
-                        stashed: queued.stashed,
+                        ..queued
                     };
-                    if let Err(e) =
-                        queue::enqueue(&mut conn, &state.config, &project_id, &item).await
-                    {
-                        tracing::error!("failed to enqueue: {}", e);
-                        return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
-                    }
-                    return Json(json!({"queueid": new_queueid})).into_response();
+                    return enqueue_write(
+                        &mut conn,
+                        &state,
+                        &project_id,
+                        queued,
+                        new_queueid,
+                        None,
+                    )
+                    .await;
                 }
                 QueueIdResult::NewCommit {
                     new_commit,
                     new_queueid,
                 } => {
-                    // Update the body's latest_commit and queueid before enqueuing
-                    // so the worker sends the correct values to batch_patch.
-                    let mut updated_body = queued.body;
-                    updated_body["latest_commit"] = serde_json::Value::String(new_commit.clone());
-                    updated_body["queueid"] = serde_json::json!(new_queueid);
-                    let item = QueueItem {
+                    let queued = Queued {
                         endpoint: endpoint_uri.path().to_string(),
-                        body: updated_body,
-                        headers: queued.headers,
-                        grant: queued.grant,
-                        stashed: queued.stashed,
+                        ..queued
                     };
-                    if let Err(e) =
-                        queue::enqueue(&mut conn, &state.config, &project_id, &item).await
-                    {
-                        tracing::error!("failed to enqueue: {}", e);
-                        return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
-                    }
-                    return Json(json!({"queueid": new_queueid, "commit": new_commit}))
-                        .into_response();
+                    return enqueue_write(
+                        &mut conn,
+                        &state,
+                        &project_id,
+                        queued,
+                        new_queueid,
+                        Some(new_commit),
+                    )
+                    .await;
                 }
             }
         }
