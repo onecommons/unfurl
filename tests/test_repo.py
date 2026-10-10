@@ -1544,6 +1544,8 @@ def _serve(monkeypatch, auth_git_server, tmp_path, gui=False):
     monkeypatch.setitem(
         config, "UNFURL_CLOUD_SERVER", f"http://127.0.0.1:{auth_git_server.port}/"
     )
+    # hosted, not `unfurl serve <path>` serving a local project
+    monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
     monkeypatch.setitem(config, "UNFURL_CLONE_ROOT", str(tmp_path / "clones"))
     monkeypatch.setitem(config, "UNFURL_LOCAL_PROJECTS", {})
     monkeypatch.setitem(
@@ -1626,6 +1628,7 @@ def test_credentials_set_during_a_request_end_with_it(tmp_path, monkeypatch):
     from unfurl.server import serve
 
     monkeypatch.setitem(serve.app.config, "UNFURL_GUI_MODE", None)
+    monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
     with serve.app.test_request_context():
         serve.app.preprocess_request()
         serve.set_request_credentials("someone", "their-token")
@@ -1660,3 +1663,218 @@ def _git_out(*args, cwd):
     return subprocess.run(
         ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
     ).stdout.strip()
+
+
+def _hostile_git_config(tmp_path, monkeypatch, url):
+    """The host's git config and GIT_* variables, each rewriting ``url`` to
+    somewhere that isn't there."""
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".gitconfig").write_text(
+        f'[url "file:///nonexistent/"]\n\tinsteadOf = {url}\n'
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("GIT_CONFIG_GLOBAL", raising=False)
+    monkeypatch.setenv(
+        "GIT_CONFIG_PARAMETERS", f"'url.file:///nonexistent/.insteadOf'='{url}'"
+    )
+
+
+def test_isolated_git_ignores_the_hosts_configuration(tmp_path, monkeypatch):
+    from unittest.mock import patch
+    from unfurl.repo import Repo as UnfurlRepo, isolate_git
+
+    source = tmp_path / "source"
+    source.mkdir()
+    _git("init", "-q", "-b", "main", cwd=source)
+    _git("commit", "-q", "--allow-empty", "-m", "x", cwd=source)
+    url = f"file://{source}"
+    with patch.dict(os.environ):
+        _hostile_git_config(tmp_path, monkeypatch, url)
+        isolate_git(["file"])
+        repo = UnfurlRepo.create_working_dir(url, str(tmp_path / "clone"))
+        assert repo.revision
+
+
+@pytest.mark.parametrize("url", ["file:///srv/repo.git", "git://127.0.0.1:9/repo.git"])
+def test_isolated_git_uses_only_its_protocols(tmp_path, url):
+    import git as gitpython
+    from unittest.mock import patch
+    from unfurl.repo import isolate_git
+
+    with patch.dict(os.environ):
+        isolate_git(["https", "ssh"])
+        with pytest.raises(gitpython.exc.GitCommandError) as refused:
+            gitpython.cmd.Git().ls_remote(url)
+    assert "not allowed" in refused.value.stderr
+
+
+def test_the_servers_git_allows_https_ssh_and_the_cloud_servers_protocol(monkeypatch):
+    from unittest.mock import patch
+    from unfurl.server import serve
+
+    monkeypatch.setitem(serve.app.config, "UNFURL_CLOUD_SERVER", "/srv/cloud")
+    with patch.dict(os.environ):
+        serve._isolate_git()
+        assert os.environ["GIT_ALLOW_PROTOCOL"] == "https:ssh:file"
+        assert os.environ["GIT_CONFIG_GLOBAL"] == os.devnull
+
+
+def test_a_submodule_on_the_cloud_server_gets_the_requests_credentials(
+    auth_git_server, tmp_path
+):
+    """With git isolated, a private submodule on the same host is fetched
+    with the request's credentials, which no clone stores; one on another
+    protocol isn't fetched at all."""
+    from unittest.mock import patch
+    from unfurl.repo import Repo as UnfurlRepo, isolate_git
+
+    auth_git_server.commit("sub", {"README": "submodule\n"})
+    work = auth_git_server.root / "work" / "super"
+    work.mkdir(parents=True)
+    _git("init", "-q", "-b", "main", cwd=work)
+    sub_url = auth_git_server.url("sub", credentials=True)
+    _git(
+        "-c", "protocol.file.allow=always",
+        "submodule", "add", "-q", sub_url, "sub", cwd=work,
+    )
+    _git("config", "-f", ".gitmodules", "submodule.sub.url", auth_git_server.url("sub"), cwd=work)
+    _git("add", "-A", cwd=work)
+    auth_git_server.commit("super", {"README": "super\n"})
+
+    with patch.dict(os.environ):
+        isolate_git(["http"])
+        dest = tmp_path / "clone"
+        repo = UnfurlRepo.create_working_dir(
+            auth_git_server.url("super"), str(dest), username=USER, password=TOKEN
+        )
+    assert (dest / "sub" / "README").read_text() == "submodule\n"
+    for config in [dest / ".git" / "config", *dest.joinpath(".git", "modules").rglob("config")]:
+        assert quote(TOKEN, safe="") not in config.read_text(), config
+
+
+def test_a_submodule_on_another_protocol_is_refused(
+    auth_git_server, tmp_path, monkeypatch
+):
+    """A file:// submodule would read a repository on the server's own disk,
+    another user's clone say: with git isolated, the clone is refused, even
+    on a host whose git config allows them."""
+    from unittest.mock import patch
+    from unfurl.repo import Repo as UnfurlRepo, isolate_git
+    from unfurl.util import UnfurlError
+
+    secret = tmp_path / "someone-elses"
+    secret.mkdir()
+    _git("init", "-q", "-b", "main", cwd=secret)
+    (secret / "private").write_text("not yours\n")
+    _git("add", "-A", cwd=secret)
+    _git("commit", "-q", "-m", "x", cwd=secret)
+    work = auth_git_server.root / "work" / "super"
+    work.mkdir(parents=True)
+    _git("init", "-q", "-b", "main", cwd=work)
+    _git(
+        "-c", "protocol.file.allow=always",
+        "submodule", "add", "-q", f"file://{secret}", "sub", cwd=work,
+    )
+    _git("add", "-A", cwd=work)
+    auth_git_server.commit("super", {"README": "super\n"})
+
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".gitconfig").write_text('[protocol "file"]\n\tallow = always\n')
+    dest = tmp_path / "clone"
+    with patch.dict(os.environ):
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.delenv("GIT_CONFIG_GLOBAL", raising=False)
+        isolate_git(["http"])
+        with pytest.raises(UnfurlError):
+            UnfurlRepo.create_working_dir(
+                auth_git_server.url("super"), str(dest), username=USER, password=TOKEN
+            )
+    assert not (dest / "sub" / "private").exists()
+
+
+def test_isolated_git_keeps_who_commits(monkeypatch):
+    """The identity the server commits as comes from GIT_* variables
+    (UNFURL_SET_GIT_USER), not the host's git config: isolating keeps it."""
+    from unittest.mock import patch
+    from unfurl.repo import isolate_git
+
+    with patch.dict(os.environ):
+        monkeypatch.setenv("GIT_AUTHOR_NAME", "server")
+        monkeypatch.setenv("GIT_COMMITTER_NAME", "server")
+        isolate_git(["https"])
+        assert os.environ["GIT_AUTHOR_NAME"] == "server"
+        assert os.environ["GIT_COMMITTER_NAME"] == "server"
+
+
+def test_the_servers_git_has_someone_to_commit_as(monkeypatch, tmp_path):
+    """With the host's git config ignored, a server with no
+    UNFURL_SET_GIT_USER still commits, as itself."""
+    from unittest.mock import patch
+    from unfurl.server import serve
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    with patch.dict(os.environ):
+        for name in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME", "EMAIL"):
+            monkeypatch.delenv(name, raising=False)
+        serve._isolate_git()
+        _git_plain("init", "-q", cwd=repo)
+        _git_plain("commit", "-q", "--allow-empty", "-m", "x", cwd=repo)
+        author = _git_out("log", "-1", "--format=%an <%ae>", cwd=repo)
+    assert author.startswith("unfurl unfurl-server-"), author
+
+
+def _git_plain(*args, cwd):
+    """git ``args`` with no identity of the test's own."""
+    import subprocess
+
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+
+@pytest.mark.parametrize(
+    "gui, local_path, hosted",
+    [(False, None, True), (False, ".", False), (True, None, False)],
+    ids=["hosted", "developer", "gui"],
+)
+def test_only_the_hosted_server_is_hosted(monkeypatch, tmp_path, gui, local_path, hosted):
+    """The hosted server's clones keep no credentials and its git ignores the
+    host's; a developer's `unfurl serve <path>` and the local gui keep the
+    user's own."""
+    from unfurl.server import serve
+
+    gui_env = _project_env(tmp_path, "gui") if gui else None
+    monkeypatch.setitem(serve.app.config, "UNFURL_GUI_MODE", gui_env)
+    if local_path:
+        monkeypatch.setenv("UNFURL_SERVE_PATH", local_path)
+    else:
+        monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
+    assert serve._hosted() == hosted
+
+
+def test_the_server_under_gunicorn_isolates_git(tmp_path):
+    """Imported as gunicorn imports it, the server starts, with its git
+    isolated and someone to commit as."""
+    import subprocess
+    import sys
+
+    env = {k: v for k, v in os.environ.items() if k != "UNFURL_SERVE_PATH"}
+    env.update(SERVER_SOFTWARE="gunicorn/test", UNFURL_HOME="")
+    env.pop("GIT_AUTHOR_NAME", None)
+    out = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import os; from unfurl.server import serve; "
+            "print(os.environ.get('GIT_ALLOW_PROTOCOL'), os.environ.get('GIT_CONFIG_GLOBAL'),"
+            " bool(os.environ.get('GIT_AUTHOR_NAME')))",
+        ],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert out.stdout.split()[-3:] == ["https:ssh", os.devnull, "True"], out.stderr[-2000:]

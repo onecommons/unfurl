@@ -105,6 +105,8 @@ from ..repo import (
     GitRepo,
     Repo,
     RepoView,
+    git_protocol,
+    isolate_git,
     normalize_git_url,
     request_credentials,
     request_credentials_for,
@@ -237,10 +239,7 @@ def configure_app(app: APIFlask = app) -> Cache:
 
     git_user_name = os.environ.get("UNFURL_SET_GIT_USER")
     if git_user_name:
-        git_user_full_name = f"{git_user_name} unfurl-server-{semver_prerelease()}+{get_package_digest()}"
-        os.environ["GIT_AUTHOR_NAME"] = git_user_full_name
-        os.environ["GIT_COMMITTER_NAME"] = git_user_full_name
-        os.environ["EMAIL"] = f"{git_user_name}-unfurl-server+noreply@unfurl.cloud"
+        _set_git_user(git_user_name)
 
     if os.environ.get("CACHE_CLEAR_ON_START"):
         prefix = os.environ.get("CACHE_CLEAR_ON_START")
@@ -445,6 +444,26 @@ def get_cache() -> Optional[Cache]:
     return _cache
 
 
+def _set_git_user(git_user_name: str) -> None:
+    """Commit as ``git_user_name``, marked as this server's version."""
+    git_user_full_name = f"{git_user_name} unfurl-server-{semver_prerelease()}+{get_package_digest()}"
+    os.environ["GIT_AUTHOR_NAME"] = git_user_full_name
+    os.environ["GIT_COMMITTER_NAME"] = git_user_full_name
+    os.environ["EMAIL"] = f"{git_user_name}-unfurl-server+noreply@unfurl.cloud"
+
+
+def _isolate_git() -> None:
+    """The server's git, which works on repositories other users name, takes
+    nothing from the host's git configuration, and uses https, ssh and the
+    cloud server's own protocol only."""
+    cloud_server = app.config.get("UNFURL_CLOUD_SERVER") or "https://"
+    isolate_git(["https", "ssh", git_protocol(cloud_server)])
+    # the host's git config no longer names who commits, so unless
+    # UNFURL_SET_GIT_USER did (see configure_app), the server does
+    if "GIT_AUTHOR_NAME" not in os.environ:
+        _set_git_user("unfurl")
+
+
 # SERVER_SOFTWARE will be set if this process is invoked by a front-end http server like apache or gunicorn
 if os.getenv("SERVER_SOFTWARE"):
     _cache = configure_app()
@@ -560,7 +579,7 @@ def _get_project_repo(
         repo = Repo.make_repo(path)
         if not repo:
             return None
-        if _transient_credentials():
+        if _hosted():
             # a clone from before they were transient: its fetches now use
             # each request's
             if isinstance(repo, GitRepo):
@@ -597,7 +616,7 @@ def _clone_repo(
         args.get("username"),
         args.get("private_token", args.get("password")),
     )
-    if _transient_credentials():
+    if _hosted():
         # used for the clone only: later fetches use each request's
         git_url = get_project_url(project_id)
     else:
@@ -1598,10 +1617,12 @@ def hook():
         )
 
 
-def _transient_credentials() -> bool:
-    """Whether the server's clones keep no credentials: on the server, not
-    the local gui, whose clones are the user's own."""
-    return not app.config.get("UNFURL_GUI_MODE")
+def _hosted() -> bool:
+    """Whether this is the hosted server, whose clones and git work on
+    repositories other users name: not the local gui, nor ``unfurl serve
+    <path>`` serving a developer's own project, whose clones and git
+    configuration are the user's own."""
+    return not app.config.get("UNFURL_GUI_MODE") and not serving_local_path()
 
 
 def set_request_credentials(username: str, password: str) -> None:
@@ -1636,7 +1657,7 @@ def _git_credentials(request: Request) -> Optional[Tuple[str, str]]:
 @app.before_request
 def bind_request_credentials() -> None:
     """On the server, its clones and fetches use the request's credentials."""
-    if not _transient_credentials():
+    if not _hosted():
         return
     credentials = _git_credentials(request)
     if credentials:
@@ -2348,7 +2369,7 @@ def _make_readonly_localenv(
             safe_mode=True,
         )
         overrides["UNFURL_SEARCH_ROOT"] = clone_root
-        if not gui_local_env:
+        if _hosted():
             # the hosted server's clones keep no credentials (see LocalEnv)
             overrides["transient_url_credentials"] = True
         if requested_format:
@@ -2712,6 +2733,8 @@ def _safe_mode() -> bool:
 # SERVER_SOFTWARE will be set if this process is invoked by a front-end http server like apache or gunicorn
 if os.getenv("SERVER_SOFTWARE"):
     enter_safe_mode()
+    if _hosted():
+        _isolate_git()
 
 
 # Register the patch and /cloudmap endpoints (decorators on `app` run
@@ -2962,6 +2985,8 @@ def serve(
             logger.warning(
                 f"Serving from a local project that isn't hosted on {app.config['UNFURL_CLOUD_SERVER']}, no connection URL available."
             )
+    if _hosted():
+        _isolate_git()
     enter_safe_mode()
 
     import waitress

@@ -92,7 +92,7 @@ The plan has two scopes:
 | T3 | One user's credentials used for another's action | Each queued write is committed as its own author, but a batch is pushed once, with its *first* item's credentials (`queue::consolidate`); a `private/` clone holds whichever user's token cloned it, and pulls with it for everyone. Tyk has checked that every writer may write and every reader may read, so no one gains access they lack; what's left is that GitLab records the first writer as the pusher, and enforces protected branches by the first writer's role | Accepted: a push per user would cost a push per writer in every batch window | — |
 | T4 | Requests that reach the server without passing through Tyk (defence in depth) | Python checks the secret on every request it receives (`before_request` hook, `serve.py`); the Rust server checks it only on a write it queues, whose replay authenticates with the server's own secret. With Python bound to localhost (the server images), what the Rust server answers by itself skips the check: cache hits served from Redis, and the cloudmap endpoints served from the git-sync database | Deferred (§2.2): a NetworkPolicy letting only Tyk reach the servers covers it | — |
 | T5 | A compromised Python process, or one led by content to read a file (a confused deputy) | It sees every user's token in every request, and every token stored in the checkouts' `.git/config`; it can read its environment (the Redis and database passwords, the API secret) | It sees the tokens of the requests and batches it handles, in memory; none are stored for it to find. But in one container as one user it can read the grant key file and the Rust server's `/proc/<pid>/environ` and memory, so every stored grant | The grant key isn't in its filesystem (§2.5), and it sees grant IDs only: usable only through the local proxy, within their scope, until they expire |
-| T6 | Ambient credentials sent somewhere unintended | Startup clones run git with an emptied environment, no system or global config, and only the cloud server's protocol; Python's clones inherit the server's, and follow `.gitmodules` URLs, which a repository's content controls (`recurse_submodules=True`) | Git runs with no ambient credentials and `GIT_ALLOW_PROTOCOL=https` | The proxy adds credentials only for a grant's own host and project |
+| T6 | Ambient credentials sent somewhere unintended | The server's git, Rust's and Python's, ignores the host's git config and `GIT_*` variables and uses only https, ssh (Python) and the cloud server's protocol; submodules, whose URLs a repository's content controls, get the request's credentials on the cloud server's host only. A URL in a project can still name an internal https address, and an ssh URL gets the server's ssh key | Git runs with no ambient credentials and `GIT_ALLOW_PROTOCOL=https` | The proxy adds credentials only for a grant's own host and project |
 
 Out of scope: a compromised Rust server process (or, with hardening, the
 `unfurl-git` user), root on the host, GitLab itself, and an attacker who can
@@ -237,7 +237,23 @@ Synchronous requests, which are never stored, are forwarded as today.
 - Startup clones run git with an emptied environment (keeping only what
   reaching the server takes: `PATH`, `HOME`, proxies, certificates), no
   global or system config, and `GIT_ALLOW_PROTOCOL` set to the cloud
-  server's protocol alone (T6). Python's clones are still to follow.
+  server's protocol alone (T6).
+- The Python server's git, in server mode, likewise ignores the host's git
+  config and `GIT_*` variables (`isolate_git`), may use https, ssh and the
+  cloud server's protocol only (no `git://`, and no `file` but for a cloud
+  server that is a path), and never prompts, ssh included. Submodules are
+  followed under the same rules, and the request's credentials apply to the
+  cloud server's whole host, so a private submodule there is fetched with
+  them; they go to no other host. The local gui and the command line keep
+  the user's git configuration.
+- Not covered in code, so required of a deployment: an egress network
+  policy letting the server reach only the cloud server, the public
+  internet, Redis and Postgres, since a project's `repositories:` or
+  `.gitmodules` can name any https address, an internal one or a metadata
+  endpoint included; and no ssh key for the server: a project's ssh URLs
+  would get it, opening to every user what it opens. Without one, an ssh
+  URL reaches only a host that serves ssh anonymously and whose host key
+  is already known (ssh runs in batch mode, so trusts no new host).
 
 ### 2.4 Work after the request
 
@@ -334,9 +350,6 @@ arrives.
 
 Each phase stands on its own.
 
-**Phase 0: checkouts without credentials (§2.3)**: Python's clones run git
-as the startup clones do (T6), and don't follow submodules.
-
 **Phase 1: grants, and a queue that stores none (§2.1, 2.2, 2.4).** In
 order, each standing on its own:
 1. The grant table and its queries (git-sync) and the server's grant
@@ -356,6 +369,11 @@ image running Python and the Rust server as `unfurl` and `unfurl-git`, with
 the key readable only by the latter (§2.5).
 
 ## 4. Behaviour changes
+
+- The server's git ignores the host's git configuration, and won't use
+  `git://`, or `file` but for a cloud server that is a path: a project whose
+  `repositories:` or submodules use them doesn't load on the server. A CA
+  bundle set in git config moves to `GIT_SSL_CAINFO`.
 
 - A clone made for one request is pulled for a later one with that later
   request's credentials, not with the token of whoever cloned it (Phase 0).

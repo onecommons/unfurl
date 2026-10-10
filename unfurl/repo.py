@@ -16,6 +16,7 @@ from typing import (
     Mapping,
     NamedTuple,
     Optional,
+    Sequence,
     Tuple,
     Union,
     cast,
@@ -1054,6 +1055,47 @@ class RepoView:
         return name, target_path
 
 
+def git_protocol(url: str) -> str:
+    """The protocol ``url`` uses, as ``GIT_ALLOW_PROTOCOL`` names it."""
+    scheme, sep, _ = url.partition("://")
+    if sep:
+        return scheme.lower()
+    if url.startswith(("/", ".", "~")) or not re.match(r"^[^/]+:", url):
+        return "file"
+    return "ssh"  # scp syntax, user@host:path
+
+
+#: What isolated git keeps of the process's GIT_* variables: TLS settings,
+#: and the identity the process commits as.
+_KEPT_GIT_VARS = (
+    "GIT_SSL_CAINFO",
+    "GIT_SSL_CAPATH",
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+)
+
+
+def isolate_git(protocols: Sequence[str]) -> None:
+    """Have every git command this process runs from now on ignore the host's
+    git configuration -- its system and global config and its ``GIT_*``
+    variables, such as a credential helper or a url rewrite -- use only
+    ``protocols``, and never prompt. For the server, whose git works on
+    repositories other users name."""
+    for name in list(os.environ):
+        if name.startswith("GIT_") and name not in _KEPT_GIT_VARS:
+            del os.environ[name]
+    os.environ.update(
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_ALLOW_PROTOCOL=":".join(dict.fromkeys(protocols)),
+        GIT_TERMINAL_PROMPT="0",
+        # nor ssh: a host key or passphrase prompt fails rather than waits
+        GIT_SSH_COMMAND="ssh -o BatchMode=yes",
+    )
+
+
 #: The credentials of the request being handled, for repositories on the host
 #: they were issued for: ``(that host's url, username, password)``. The server
 #: sets it for one request at a time, so it never lands on a LocalEnv, which
@@ -1076,10 +1118,14 @@ def request_credentials_for(url: str) -> Optional[Tuple[str, str]]:
 
 
 def credentials_config(url: str, username: str, password: str) -> List[Tuple[str, str]]:
-    """The git config, as (key, value) pairs, that makes git connect to ``url``
-    with ``username`` and ``password``: a ``url.<...>.insteadOf`` rewrite, which
-    git applies when it connects and doesn't store. Empty when ``url`` can't
+    """The git config, as (key, value) pairs, that makes git connect to
+    ``url``'s host with ``username`` and ``password``: a ``url.<...>.insteadOf``
+    rewrite, which git applies when it connects and doesn't store. For the
+    whole host, so a submodule there has them too. Empty when ``url`` can't
     carry them."""
+    parts = urlsplit(url)
+    if parts.scheme in ("http", "https") and parts.hostname:
+        url = f"{parts.scheme}://{parts.netloc.rpartition('@')[2]}/"
     # percent-encoded: a raw "@" or ":" would end the credentials early, and
     # `-c` splits at the first "="
     credentialed = add_user_to_url(
