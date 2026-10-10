@@ -161,7 +161,7 @@ async fn update_locked(checkout: &Checkout, url: &str) -> Result<(), String> {
         )
     })?;
     let updated = match checkout.path.exists() {
-        true => pull(&checkout.path).await,
+        true => pull(&checkout.path, url).await,
         false => clone(checkout, url).await,
     };
     let _ = std::fs::remove_file(&lock);
@@ -171,7 +171,8 @@ async fn update_locked(checkout: &Checkout, url: &str) -> Result<(), String> {
 /// Fast-forward the checkout at `path` to its remote, or leave it as it is
 /// where it can't be: its commits the remote lacks are its to keep, as
 /// python's server keeps the cloudmap commits it hasn't pushed.
-async fn pull(path: &Path) -> Result<(), String> {
+async fn pull(path: &Path, url: &str) -> Result<(), String> {
+    let protocol = protocol_of(url);
     if !path.join(".git").exists() {
         return Err(format!(
             "{} is there but isn't a git checkout",
@@ -179,12 +180,12 @@ async fn pull(path: &Path) -> Result<(), String> {
         ));
     }
     // as `clone` does, for a checkout made before it did, or by python
-    git(path, &["config", "core.symlinks", "false"]).await?;
-    if git(path, &["rev-parse", "--is-shallow-repository"]).await? == "true" {
+    git(path, &protocol, &["config", "core.symlinks", "false"]).await?;
+    if git(path, &protocol, &["rev-parse", "--is-shallow-repository"]).await? == "true" {
         // git-sync needs the history a shallow clone of python's lacks
-        git(path, &["fetch", "-q", "--unshallow"]).await?;
+        git(path, &protocol, &["fetch", "-q", "--unshallow"]).await?;
     }
-    if let Err(e) = git(path, &["pull", "-q", "--ff-only"]).await {
+    if let Err(e) = git(path, &protocol, &["pull", "-q", "--ff-only"]).await {
         tracing::warn!(
             path = %path.display(),
             error = e.as_str(),
@@ -201,6 +202,7 @@ async fn clone(checkout: &Checkout, url: &str) -> Result<(), String> {
     // from here, where a relative `path` is
     git(
         Path::new("."),
+        &protocol_of(url),
         &[
             "clone",
             // a committed symlink would otherwise expose a file outside it;
@@ -231,12 +233,58 @@ fn lock_path(path: &Path) -> PathBuf {
 const GIT_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// `git args` in `dir`: its output, or why it failed.
-async fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let run = tokio::process::Command::new("git")
+/// What git keeps of the server's environment: what it needs to reach the
+/// cloud server, through a proxy and with the host's certificates.
+const KEPT_ENV: [&str; 16] = [
+    "PATH",
+    "HOME",
+    "TMPDIR",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "all_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
+    "GIT_SSL_CAINFO",
+    "GIT_SSL_CAPATH",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "CURL_CA_BUNDLE",
+];
+
+/// The protocol `url` uses, as `GIT_ALLOW_PROTOCOL` names it.
+fn protocol_of(url: &str) -> String {
+    match url.split_once("://") {
+        Some((scheme, _)) => scheme.to_ascii_lowercase(),
+        None if url.starts_with('/') || url.starts_with('.') => "file".into(),
+        None => "ssh".into(),
+    }
+}
+
+/// `git args` in `dir`, allowed only `protocol`: its output, or why it
+/// failed. Nothing configured on the host -- its environment, its system
+/// or global git config, such as a credential helper or a url rewrite --
+/// reaches a clone of a user's repository.
+async fn git(dir: &Path, protocol: &str, args: &[&str]) -> Result<String, String> {
+    let mut command = tokio::process::Command::new("git");
+    command.env_clear();
+    for name in KEPT_ENV {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    let run = command
         .args(args)
         .current_dir(dir)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_ALLOW_PROTOCOL", protocol)
         // never wait on a prompt for credentials
         .env("GIT_TERMINAL_PROMPT", "0")
+        // git's messages, for telling a refusal of credentials apart
+        .env("LC_ALL", "C")
         .kill_on_drop(true)
         .output();
     let out = tokio::time::timeout(GIT_TIMEOUT, run)
@@ -266,6 +314,19 @@ mod tests {
             default_file_path: None,
             exporting_from: None,
             visibility: None,
+        }
+    }
+
+    #[test]
+    fn a_urls_protocol_is_as_git_names_it() {
+        for (url, protocol) in [
+            ("https://unfurl.cloud/org/proj.git", "https"),
+            ("HTTP://unfurl.cloud/org/proj.git", "http"),
+            ("file:///srv/org/proj.git", "file"),
+            ("/srv/org/proj.git", "file"),
+            ("git@unfurl.cloud:org/proj.git", "ssh"),
+        ] {
+            assert_eq!(protocol_of(url), protocol, "{url}");
         }
     }
 
