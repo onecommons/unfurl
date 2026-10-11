@@ -403,23 +403,43 @@ config ignored.
    (`serve.py`'s project clones, `localenv.py`'s dependencies,
    `_keep_out_symlinks` for older clones), and a local copy of such a clone
    (`GitRepo.clone`) keeps the setting. This works on every kernel.
-2. **The Rust server reads checkouts only beneath the clone root.**
+2. **The Rust server runs under Landlock** (`run-landlocked --rust-server`).
    Python can still create symlinks, compromised or through Unfurl's own
    `tosca_repositories/<name>` links (`repo.py`), which the Python DSL
    imports through. Landlock's right to create symlinks can't tell a link to
-   a sibling repository from one to the key, so it can't be denied. Instead:
-   - the Rust server's own file reads under the clone root resolve with
-     `openat2` `RESOLVE_BENEATH` (or `cap-std`). A link inside the root
-     works; one out of it is refused by the kernel, on every kernel.
-   - **Landlock in the Rust server, after startup:** once it has read the key
-     and its secrets, it gives up access to the key file and `/proc/self`.
-     Landlock checks the *resolved* path of every open, so this covers what
-     the first point doesn't: gix and the git processes the server starts,
-     which inherit it. It doesn't restrict where a link points, only what a
-     restricted process can reach through one.
+   a sibling repository from one to the key, so it can't be denied. But
+   Landlock checks the *resolved* path of every open, so the rules decide
+   what a link can reach, for the server, gix, and the git processes the
+   server starts, which inherit them.
+   - **The key is passed open.** Path rules can't tell the server's startup
+     read of the key from a later read through a link to it, so no rule
+     grants the key's path. The script opens `UNFURL_GRANT_KEY_FILE` on
+     descriptor 3 while still unrestricted and passes
+     `UNFURL_GRANT_KEY_FD=3` instead; the server reads the key from it
+     before its runtime starts, then closes it, so no git process inherits
+     it. Setting both variables is a startup error.
+   - **The rules are applied before `exec`,** not by the server: Landlock
+     restricts only the calling thread and those it creates afterwards, so
+     restricting from inside, once tokio's workers run, would leave them
+     unrestricted.
+   - **The rules** are Python's (3), without `/proc`: only
+     `/proc/self/cgroup` and `/proc/self/mountinfo` are readable, which Rust's
+     `available_parallelism` reads for the container's CPU quota. They name
+     the files of the server's own pid, so its children can't read even
+     these. `/proc/self/environ`, with the Redis and database passwords, is
+     refused.
+   - **The rules allow the whole clone root,** so a link from one checkout
+     into another still resolves: `public/org/a/main/cloudmap.yaml`
+     pointing at a file under `private/org/b/main/` would be indexed by
+     git-sync as project a's records. Git makes no such links in these
+     checkouts (`core.symlinks=false`, 1), but a compromised Python can.
+     A follow-up: root git-sync's working-tree reads at each checkout
+     (a `cap-std` `Dir`, or `openat2` `RESOLVE_BENEATH` per checkout); a
+     scan never needs to leave its own checkout.
 3. **Python runs under Landlock.** The image's `run-landlocked CMD …`
    execs `CMD` under util-linux's `setpriv` (in the base image), and
-   `server-entrypoint.sh` starts gunicorn through it, never the Rust server.
+   `server-entrypoint.sh` starts gunicorn through it, as it does the Rust
+   server with `--rust-server` (2).
    The restrictions survive the `exec` into gunicorn, and its child
    processes, git among them, inherit them.
    - **Read and execute** only `/usr` (Python and unfurl are in
@@ -455,13 +475,15 @@ config ignored.
    - before a pull or push, it refuses a checkout whose config defines
      filter or diff drivers, includes, `extraHeader` or `insteadOf` rules
      beyond its own.
-On a kernel without Landlock, 2's second point and 3 start with a warning;
-the rest doesn't depend on it.
+On a kernel without Landlock, 2 and 3 start with a warning, and the key is
+still passed on descriptor 3; the rest doesn't depend on it.
 
 **What remains:**
 - a parsing bug in git or gix, exploited through crafted data;
 - a config setting that runs a program but isn't on the override list, used
   in the window between the check in 4 and the command;
+- a symlink from one checkout into another, made by a compromised Python,
+  which git-sync would follow and index under the wrong project (2);
 - Python, compromised, still sees the tokens of the requests it handles
   (§2.5).
 

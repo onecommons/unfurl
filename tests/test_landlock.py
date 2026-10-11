@@ -166,3 +166,66 @@ def test_disabled() -> None:
     )
     assert result.stdout.split() == ["unrestricted"]
     assert result.stderr == ""
+
+
+KEY_FILE = "/run/secrets/grant.key"
+WITH_KEY = f"mkdir -p /run/secrets && echo grantkey > {KEY_FILE} && "
+
+
+def test_rust_server(landlock: None) -> None:
+    result = run(
+        WITH_KEY + "run-landlocked --rust-server sh -c '"
+        'echo "env:${UNFURL_GRANT_KEY_FD:-}:${UNFURL_GRANT_KEY_FILE:-unset}"; '
+        "read k <&3 && echo fd:$k; "
+        f"cat {KEY_FILE} || echo path-denied; "
+        f"ln -s {KEY_FILE} {CLONE_ROOT}/key && cat {CLONE_ROOT}/key || echo symlink-denied; "
+        "true < /proc/self/cgroup && echo cgroup-ok; "
+        "true < /proc/self/mountinfo && echo mountinfo-ok; "
+        "true < /proc/self/environ || echo environ-denied; "
+        "true < /proc/self/mem || echo mem-denied; "
+        f"echo x > {CLONE_ROOT}/f && echo clone-root-ok; "
+        "echo x > /etc/f || echo etc-denied; "
+        "echo x > /unlisted/f || echo unlisted-denied; "
+        'sh -c "echo x > /etc/f || echo child-denied"\'',
+        env={"UNFURL_GRANT_KEY_FILE": KEY_FILE},
+    )
+    assert result.stdout.split() == [
+        "env:3:unset",
+        "fd:grantkey",
+        "path-denied",
+        "symlink-denied",
+        "cgroup-ok",
+        "mountinfo-ok",
+        "environ-denied",
+        "mem-denied",
+        "clone-root-ok",
+        "etc-denied",
+        "unlisted-denied",
+        "child-denied",
+    ], result.stderr
+    assert "warning" not in result.stderr
+
+
+def test_rust_server_unrestricted_gets_the_key_on_fd(tmp_path: Path) -> None:
+    fake = tmp_path / "setpriv"
+    fake.write_text("#!/bin/sh\necho 'setpriv: landlock unsupported' >&2\nexit 1\n")
+    fake.chmod(0o755)
+    read_key = (
+        "run-landlocked --rust-server sh -c '"
+        'echo "env:${UNFURL_GRANT_KEY_FD:-}:${UNFURL_GRANT_KEY_FILE:-unset}"; '
+        "read k <&3 && echo fd:$k'"
+    )
+    expected = ["env:3:unset", "fd:grantkey"]
+    fallback = run(
+        WITH_KEY + "PATH=/fake:$PATH " + read_key,
+        env={"UNFURL_GRANT_KEY_FILE": KEY_FILE},
+        mounts=[f"{tmp_path}:/fake:ro"],
+    )
+    assert fallback.stdout.split() == expected, fallback.stderr
+    assert "running without Landlock" in fallback.stderr
+    disabled = run(
+        WITH_KEY + read_key,
+        env={"UNFURL_GRANT_KEY_FILE": KEY_FILE, "UNFURL_LANDLOCK": "0"},
+    )
+    assert disabled.stdout.split() == expected, disabled.stderr
+    assert disabled.stderr == ""

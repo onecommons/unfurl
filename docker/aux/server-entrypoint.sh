@@ -2,7 +2,7 @@
 # The unfurl server: unfurl-server (Rust) on UNFURL_HOST:UNFURL_PORT, in front
 # of the Python backend (gunicorn) on 127.0.0.1:UNFURL_BACKEND_PORT.
 # UNFURL_RUST_SERVER=0 runs gunicorn alone on UNFURL_HOST:UNFURL_PORT.
-# Arguments are passed to gunicorn, which runs under Landlock (run-landlocked).
+# Arguments are passed to gunicorn. Both run under Landlock (run-landlocked).
 set -euo pipefail
 
 host="${UNFURL_HOST:-0.0.0.0}"
@@ -39,7 +39,7 @@ if [ -n "${UNFURL_CLOUDMAP_REPO:-}" ] && [ -n "${UNFURL_CLOUDMAP_DB_URL:-}" ]; t
 fi
 
 run-landlocked gunicorn -b "127.0.0.1:${backend_port}" -w "${workers}" unfurl.server.serve:app "$@" &
-unfurl-server &
+run-landlocked --rust-server unfurl-server &
 
 # when either exits, exit with its status so the container stops
 wait -n
