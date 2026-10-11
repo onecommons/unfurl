@@ -24,12 +24,6 @@ pub fn open_repo(path: &Path) -> Result<gix::Repository> {
 
 pub use gix::sec::Trust;
 
-/// Open the repository at `path`, trusting its own config to `trust`: see
-/// [`Opener`].
-pub fn open_repo_with(path: &Path, trust: Trust) -> Result<gix::Repository> {
-    Opener::new(path, trust)?.open(path)
-}
-
 /// How a repository is opened. With [`Trust::Reduced`], gix ignores its
 /// config except for its user's name and email, and git-sync reads its
 /// remotes' urls from it, once, as data.
@@ -1458,7 +1452,9 @@ mod trust_tests {
             (Trust::Reduced, None),
             (Trust::Full, Some("touch /tmp/pwned")),
         ] {
-            let repo = open_repo_with(tmp.path(), trust).expect("open");
+            let repo = Opener::new(tmp.path(), trust)
+                .and_then(|o| o.open(tmp.path()))
+                .expect("open");
             assert_eq!(
                 worktree_meta(&repo).expect("meta").origin,
                 "unfurl.cloud/org/proj",

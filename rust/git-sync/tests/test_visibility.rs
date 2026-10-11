@@ -222,3 +222,51 @@ fn a_clones_default_branch_is_its_remotes_head() {
     let bare = open_repo(&upstream).expect("open");
     assert_eq!(remote_default_branch(&bare, "origin").expect("read"), None);
 }
+
+/// Opening a checkout records its repository's default branch, the one
+/// its remote's HEAD named when it was cloned or last fetched from.
+#[tokio::test]
+async fn opening_a_checkout_records_its_default_branch() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let run = |dir: &Path, args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "{out:?}");
+    };
+    let upstream = tmp.path().join("upstream");
+    std::fs::create_dir(&upstream).expect("mkdir");
+    run(&upstream, &["init", "-q", "-b", "trunk"]);
+    std::fs::write(upstream.join("cloudmap.yaml"), "repositories: {}\n").expect("write");
+    run(&upstream, &["add", "."]);
+    run(&upstream, &["commit", "-q", "-m", "first"]);
+    run(
+        tmp.path(),
+        &["clone", "-q", upstream.to_str().unwrap(), "clone"],
+    );
+    let db = DbConfig::Sqlite {
+        url: format!(
+            "sqlite://{}?mode=rwc",
+            tmp.path().join("db.sqlite").display()
+        ),
+    };
+
+    let sync = SyncedRepo::open(
+        tmp.path().join("clone"),
+        db,
+        FormatRegistry::with_builtins(),
+    )
+    .await
+    .expect("open");
+    assert_eq!(
+        sync.get_worktree()
+            .await
+            .expect("worktree")
+            .default_branch
+            .as_deref(),
+        Some("trunk")
+    );
+}

@@ -510,8 +510,9 @@ async fn a_scan_waits_for_its_git_lock() {
     assert!(busy.is_err(), "the served state's commits take no lock");
 }
 
-/// The startup clone records the default branch the project's remote has,
-/// and records it again when the remote's changes.
+/// Opening a checkout the startup clone brought up records the default
+/// branch the project's remote has, and records it again after a pull
+/// finds the remote's changed.
 #[tokio::test]
 async fn the_default_branch_is_recorded() {
     let world = World::new().await;
@@ -527,10 +528,28 @@ async fn the_default_branch_is_recorded() {
             .clone()
     };
 
-    world.prepare().await;
+    let DbConfig::Sqlite { url } = &world.db else {
+        unreachable!()
+    };
+    let open = || async {
+        serve(
+            world.prepare().await,
+            url,
+            Some(ScanOptions::default()),
+            |_| true,
+            |_, _| String::new(),
+            None,
+            unfurl_git_sync::git::Trust::Reduced,
+        )
+        .await
+        .expect("serve")
+        .expect("served")
+    };
+
+    open().await;
     assert_eq!(recorded().await.as_deref(), Some("trunk"));
     git(&bare, &["symbolic-ref", "HEAD", "refs/heads/main"]);
-    world.prepare().await;
+    open().await;
     assert_eq!(recorded().await.as_deref(), Some("main"), "followed");
 }
 

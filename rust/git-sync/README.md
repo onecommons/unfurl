@@ -32,6 +32,17 @@ Postgres via gitoxide and sqlx.
   shared history.
 - **Change feed:** a version watermark lets clients read only what
   changed since their last read, and tells them when to re-read.
+- **Repositories:** facts about a repository rather than one of its
+  branches are kept per origin in the `repository` table, which every
+  worktree of it reads: whether it's public or private
+  (`Db::set_visibility`), and its default branch, which opening a
+  checkout records from its `origin/HEAD` (`Worktree::default_branch()`,
+  `main` until one is recorded).
+- **Untrusted checkouts:** `SyncedRepo::open_with(.., Trust::Reduced)`
+  opens a checkout someone else can write without acting on its own git
+  config: gix ignores it but for the user's name and email, and git-sync
+  reads only its remotes' urls from it, as data (`git::Opener`).
+  `SyncedRepo::open` trusts it fully, as before.
 
 ## Conflicts
 

@@ -276,6 +276,21 @@ impl Candidate<'_> {
     }
 }
 
+/// Record `branch` as the default branch of `origin`, worktree
+/// `worktree_id`'s repository, where it isn't already.
+async fn record_default_branch(
+    db: &Db,
+    worktree_id: i64,
+    origin: &str,
+    branch: &str,
+) -> Result<()> {
+    let recorded = db::worktree::get(db, worktree_id).await?.default_branch;
+    if recorded.as_deref() != Some(branch) {
+        db.set_default_branch(origin, Some(branch)).await?;
+    }
+    Ok(())
+}
+
 impl SyncedRepo {
     /// Open a working tree and a database, returning a [`SyncedRepo`].
     ///
@@ -348,6 +363,7 @@ impl SyncedRepo {
         // per call to keep `Send` guarantees out of long-lived state.
         let repo = opener.open(&repo_path)?;
         let meta = git::worktree_meta(&repo)?;
+        let default_branch = git::remote_default_branch(&repo, "origin")?;
         let head = meta.head_oid.map(|o| o.to_string());
         let worktree_id = crate::fork::open(
             &db,
@@ -359,6 +375,9 @@ impl SyncedRepo {
         )
         .await?;
         let family_id = db::worktree::family_id(&db, worktree_id).await?;
+        if let Some(branch) = default_branch {
+            record_default_branch(&db, worktree_id, &meta.origin, &branch).await?;
+        }
 
         Ok(Self {
             inner: Arc::new(SyncedRepoInner {

@@ -89,7 +89,6 @@ pub async fn prepare(
     let mut ready = Vec::new();
     for w in worktrees {
         if let Some(checkout) = startup.settle(&w).await {
-            startup.record_default(&w, &checkout).await;
             ready.push(checkout);
         }
     }
@@ -207,29 +206,6 @@ impl Startup<'_> {
             path: self.clone_root.join(under).join(project).join(&w.branch),
             project: project.to_string(),
             branch: w.branch.clone(),
-        }
-    }
-
-    /// Record the default branch worktree `w`'s `checkout` found its
-    /// remote has, where it isn't what's recorded.
-    async fn record_default(&self, w: &Worktree, checkout: &Checkout) {
-        let found = unfurl_git_sync::git::open_repo_with(&checkout.path, self.trust)
-            .and_then(|repo| unfurl_git_sync::git::remote_default_branch(&repo, "origin"));
-        let error = match found {
-            Ok(Some(branch)) if w.default_branch.as_deref() != Some(branch.as_str()) => self
-                .db
-                .set_default_branch(&w.origin, Some(&branch))
-                .await
-                .err(),
-            Ok(_) => None,
-            Err(e) => Some(e),
-        };
-        if let Some(e) = error {
-            tracing::warn!(
-                origin = w.origin.as_str(),
-                error = e.to_string().as_str(),
-                "can't record the default branch"
-            );
         }
     }
 
