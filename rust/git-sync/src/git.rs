@@ -22,6 +22,81 @@ pub fn open_repo(path: &Path) -> Result<gix::Repository> {
     gix::open(path).map_err(git_err)
 }
 
+pub use gix::sec::Trust;
+
+/// Open the repository at `path`, trusting its own config to `trust`: see
+/// [`Opener`].
+pub fn open_repo_with(path: &Path, trust: Trust) -> Result<gix::Repository> {
+    Opener::new(path, trust)?.open(path)
+}
+
+/// How a repository is opened. With [`Trust::Reduced`], gix ignores its
+/// config except for its user's name and email, and git-sync reads its
+/// remotes' urls from it, once, as data.
+#[derive(Clone, Debug, Default)]
+pub struct Opener {
+    /// With reduced trust, the values read from the repository's config.
+    reduced: Option<Vec<gix::bstr::BString>>,
+}
+
+impl Opener {
+    /// The opener of the repository at `path` with `trust`.
+    pub fn new(path: &Path, trust: Trust) -> Result<Self> {
+        Ok(match trust {
+            Trust::Full => Opener::default(),
+            Trust::Reduced => Opener {
+                reduced: Some(local_data(&open_reduced(path, Vec::new())?)),
+            },
+        })
+    }
+
+    pub fn open(&self, path: &Path) -> Result<gix::Repository> {
+        match &self.reduced {
+            None => open_repo(path),
+            Some(values) => open_reduced(path, values.clone()),
+        }
+    }
+}
+
+fn open_reduced(path: &Path, overrides: Vec<gix::bstr::BString>) -> Result<gix::Repository> {
+    // filtered by source, not by trust: a `safe.directory` matching the
+    // checkout would raise its trust back to full
+    let options = gix::open::Options::default()
+        .with(Trust::Reduced)
+        .filter_config_section(|meta| meta.source.kind() != gix::config::source::Kind::Repository)
+        .config_overrides(overrides);
+    gix::open_opts(path, options).map_err(git_err)
+}
+
+/// `remote.<name>.url` from `repo`'s own config, as `key=value` overrides:
+/// only for a plain name and a url without control characters, since an
+/// override is config at full trust.
+fn local_data(repo: &gix::Repository) -> Vec<gix::bstr::BString> {
+    use gix::config::Source;
+    let snapshot = repo.config_snapshot();
+    let config = snapshot.plumbing();
+    let local = |section: &gix::config::file::SectionRef<'_>| {
+        matches!(section.meta().source, Source::Local | Source::Worktree)
+    };
+    let mut values = Vec::new();
+    for section in config.sections_by_name("remote").into_iter().flatten() {
+        if let (true, Some(name), Some(url)) = (
+            local(&section),
+            section.header().subsection_name(),
+            section.value("url"),
+        ) {
+            let plain = !name.is_empty()
+                && name
+                    .iter()
+                    .all(|b| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'_');
+            if plain && !url.iter().any(u8::is_ascii_control) {
+                values.push(format!("remote.{name}.url={url}").into());
+            }
+        }
+    }
+    values
+}
+
 /// Reduce a git URL to a stable identity for the repository it names.
 ///
 /// Port of `normalize_git_url_hard` in `unfurl/repo.py` — that is,
@@ -1339,5 +1414,110 @@ mod history_tests {
             vec!["dir/edit.yaml", "dir/gone.yaml", "new/added.yaml"]
         );
         assert!(changed_paths(&repo, &to, &to).unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod trust_tests {
+    use super::*;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "{out:?}");
+    }
+
+    /// A checkout whose own config names its remote and user, and also a
+    /// filter driver and a hooks directory, which run programs.
+    fn checkout() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let d = tmp.path();
+        git(d, &["init", "-q", "-b", "main"]);
+        for (key, value) in [
+            ("remote.origin.url", "https://unfurl.cloud/org/proj.git"),
+            ("user.name", "Local User"),
+            ("user.email", "local@example.com"),
+            ("filter.evil.smudge", "touch /tmp/pwned"),
+            ("core.hooksPath", "/tmp/hooks"),
+        ] {
+            git(d, &["config", key, value]);
+        }
+        tmp
+    }
+
+    /// With reduced trust, a checkout's own config is ignored but for its
+    /// remote's url and its user, so it keeps its identity and commits as
+    /// before; with full trust, all of it is read.
+    #[test]
+    fn reduced_trust_reads_only_a_checkouts_data() {
+        let tmp = checkout();
+        for (trust, drivers) in [
+            (Trust::Reduced, None),
+            (Trust::Full, Some("touch /tmp/pwned")),
+        ] {
+            let repo = open_repo_with(tmp.path(), trust).expect("open");
+            assert_eq!(
+                worktree_meta(&repo).expect("meta").origin,
+                "unfurl.cloud/org/proj",
+                "{trust:?}"
+            );
+            let committer = repo.committer().expect("committer").expect("parsed");
+            assert_eq!(
+                (committer.name.to_string(), committer.email.to_string()),
+                ("Local User".to_string(), "local@example.com".to_string()),
+                "{trust:?}"
+            );
+            // as gix reads them to act on: its filter pipeline, hooks
+            let config = repo.config_snapshot();
+            let program = config
+                .trusted_program("filter.evil.smudge")
+                .expect("read")
+                .map(|p| p.to_string_lossy().to_string());
+            assert_eq!(program.as_deref(), drivers, "{trust:?}");
+            let hooks = config.trusted_path("core.hooksPath").expect("read");
+            assert_eq!(hooks.is_some(), drivers.is_some(), "{trust:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod override_tests {
+    use super::*;
+
+    /// A remote whose name would read as other config when passed back as
+    /// an override, at full trust, isn't passed back.
+    #[test]
+    fn only_a_plain_remote_names_url_is_passed_back() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let d = tmp.path();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(d)
+                .output()
+                .expect("git");
+            assert!(out.status.success(), "{out:?}");
+        };
+        git(&["init", "-q"]);
+        git(&[
+            "config",
+            "remote.origin.url",
+            "https://unfurl.cloud/org/proj.git",
+        ]);
+        git(&[
+            "config",
+            "remote.x.uploadpack=touch /tmp/p #.url",
+            "https://evil.example/x.git",
+        ]);
+        let values = local_data(&open_reduced(d, Vec::new()).expect("open"));
+        assert_eq!(
+            values,
+            vec![gix::bstr::BString::from(
+                "remote.origin.url=https://unfurl.cloud/org/proj.git"
+            )]
+        );
     }
 }

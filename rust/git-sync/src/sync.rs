@@ -94,6 +94,8 @@ pub struct SyncedRepo {
 struct SyncedRepoInner {
     db: Db,
     repo_path: PathBuf,
+    /// How far the repository's own config is trusted.
+    opener: git::Opener,
     /// Shared with [`SyncedRepo::sibling`]'s handles.
     formats: Arc<FormatRegistry>,
     worktree_id: i64,
@@ -321,13 +323,30 @@ impl SyncedRepo {
         db: DbConfig,
         formats: FormatRegistry,
     ) -> Result<Self> {
+        Self::open_with(working_dir, db, formats, git::Trust::Full).await
+    }
+
+    /// [`Self::open`], trusting the repository's own config to `trust`:
+    /// with [`git::Trust::Reduced`], it's ignored but for its remotes' urls
+    /// and its user's name and email (see [`git::Opener`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::open`].
+    pub async fn open_with(
+        working_dir: impl AsRef<Path>,
+        db: DbConfig,
+        formats: FormatRegistry,
+        trust: git::Trust,
+    ) -> Result<Self> {
         let repo_path = working_dir.as_ref().to_path_buf();
         let db = Db::connect(&db).await?;
+        let opener = git::Opener::new(&repo_path, trust)?;
 
         // Inspect the repo once at open time to get origin/branch, and to
         // place a new worktree in its family, which consumes it: we re-open
         // per call to keep `Send` guarantees out of long-lived state.
-        let repo = git::open_repo(&repo_path)?;
+        let repo = opener.open(&repo_path)?;
         let meta = git::worktree_meta(&repo)?;
         let head = meta.head_oid.map(|o| o.to_string());
         let worktree_id = crate::fork::open(
@@ -345,6 +364,7 @@ impl SyncedRepo {
             inner: Arc::new(SyncedRepoInner {
                 db,
                 repo_path,
+                opener,
                 formats: Arc::new(formats),
                 worktree_id,
                 family_id,
@@ -355,7 +375,7 @@ impl SyncedRepo {
     }
 
     pub(crate) fn repo(&self) -> Result<gix::Repository> {
-        git::open_repo(&self.inner.repo_path)
+        self.inner.opener.open(&self.inner.repo_path)
     }
 
     /// The id of the worktree this handle is bound to.
@@ -386,6 +406,7 @@ impl SyncedRepo {
             inner: Arc::new(SyncedRepoInner {
                 db: self.inner.db.clone(),
                 repo_path: self.inner.repo_path.clone(),
+                opener: self.inner.opener.clone(),
                 formats: Arc::clone(&self.inner.formats),
                 worktree_id,
                 family_id: self.inner.family_id,

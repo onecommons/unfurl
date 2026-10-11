@@ -426,7 +426,10 @@ config ignored.
    logs a warning and starts gunicorn without them. This limits what a
    compromised Python can reach, not what it can leave in the checkouts.
 4. **The Rust server distrusts the checkouts' config:**
-   - git-sync opens them with gix `Trust::Reduced`;
+   - git-sync opens them with gix `Trust::Reduced`, keeping only their
+     remotes' urls (for a plain remote name); gix still reads their
+     `user.name` and `user.email`, so a local writer can choose the
+     author name on the server's commits, though nothing more;
    - every git command the server runs overrides `core.hooksPath=/dev/null`,
      `core.fsmonitor=false`, `credential.helper=`, `http.sslVerify=true` and
      `http.proxy=`;

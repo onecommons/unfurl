@@ -31,6 +31,7 @@ use crate::gitlock::{self, GitLock, GitLocks};
 use crate::proxy;
 use axum::extract::FromRequest;
 use std::time::Duration;
+use unfurl_git_sync::git::Trust;
 
 use crate::routes::{ValidatedJson, ValidatedQuery, ValidatedRepeatedQuery};
 use crate::unfurl_types;
@@ -223,10 +224,24 @@ impl CloudMapState {
         (Self, Option<unfurl_git_sync::SyncOutcome>),
         Box<dyn std::error::Error + Send + Sync>,
     > {
+        Self::open_trusting(repo_path, db_url, scan, Trust::Full).await
+    }
+
+    /// [`Self::open`], trusting the checkout's own git config to `trust`
+    /// (see [`unfurl_git_sync::git::Opener`]).
+    pub async fn open_trusting(
+        repo_path: &str,
+        db_url: &str,
+        scan: Option<ScanOptions>,
+        trust: Trust,
+    ) -> Result<
+        (Self, Option<unfurl_git_sync::SyncOutcome>),
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let db_cfg = db_config(db_url)?;
 
         let registry = FormatRegistry::with_builtins();
-        let synced = SyncedRepo::open(repo_path, db_cfg, registry).await?;
+        let synced = SyncedRepo::open_with(repo_path, db_cfg, registry, trust).await?;
         // Returned rather than dropped: the caller decides what a schema
         // violation means for startup, and nothing else ever sees this
         // scan's report.
@@ -237,18 +252,19 @@ impl CloudMapState {
         Ok((Self::from_synced(synced), outcome))
     }
 
-    /// [`Self::open`] the checkout at `repo_path`, holding its git lock from
-    /// `locks` while it's scanned and, if `accept` takes the scan, its
-    /// unfinished exports are finished: `None` if it doesn't.
+    /// [`Self::open_trusting`] the checkout at `repo_path`, holding its git
+    /// lock from `locks` while it's scanned and, if `accept` takes the
+    /// scan, its unfinished exports are finished: `None` if it doesn't.
     pub async fn open_locked(
         repo_path: &str,
         db_url: &str,
         scan: Option<ScanOptions>,
         accept: impl Fn(&unfurl_git_sync::SyncOutcome) -> bool,
         locks: Option<&GitLocks>,
+        trust: Trust,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         let lock = gitlock::hold(locks, std::path::Path::new(repo_path), gitlock::TTL).await?;
-        let opened = match Self::open(repo_path, db_url, scan).await {
+        let opened = match Self::open_trusting(repo_path, db_url, scan, trust).await {
             Ok((cm, outcome)) if outcome.as_ref().is_none_or(&accept) => {
                 cm.finish_exports().await;
                 Ok(Some(cm.with_locks(locks.cloned())))

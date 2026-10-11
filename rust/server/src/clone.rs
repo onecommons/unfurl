@@ -11,6 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use unfurl_git_sync::git::Trust;
 use unfurl_git_sync::model::{PRIVATE, PUBLIC};
 use unfurl_git_sync::{Db, DbConfig, Worktree, WorktreeFilter};
 
@@ -46,6 +47,7 @@ pub async fn prepare(
     cloud_server: &str,
     locks: Option<&GitLocks>,
     grants: Option<&GrantStore>,
+    trust: Trust,
 ) -> Vec<Checkout> {
     let db = match Db::connect(db).await {
         Ok(db) => db,
@@ -82,6 +84,7 @@ pub async fn prepare(
         cloud_server,
         locks,
         grants,
+        trust,
     };
     let mut ready = Vec::new();
     for w in worktrees {
@@ -100,6 +103,7 @@ struct Startup<'a> {
     cloud_server: &'a str,
     locks: Option<&'a GitLocks>,
     grants: Option<&'a GrantStore>,
+    trust: Trust,
 }
 
 /// How many of a private repository's grants are tried before it's left
@@ -120,7 +124,14 @@ impl Startup<'_> {
         let url = format!("{}/{project}.git", self.cloud_server.trim_end_matches('/'));
         if w.visibility.as_deref() != Some(PRIVATE) {
             let checkout = self.checkout(w, &project, "public");
-            match update(&checkout, &url, self.locks, &Access::anonymous(&url)).await {
+            match update(
+                &checkout,
+                &url,
+                self.locks,
+                &Access::anonymous(&url).trusting(self.trust),
+            )
+            .await
+            {
                 Ok(()) => {
                     if w.visibility.is_none() {
                         self.mark(&w.origin, PUBLIC).await;
@@ -164,7 +175,7 @@ impl Startup<'_> {
                     return None;
                 }
             };
-            let access = Access::with(url, &credentials);
+            let access = Access::with(url, &credentials).trusting(self.trust);
             match update(&checkout, url, self.locks, &access).await {
                 Ok(()) => return Some(checkout),
                 Err(e) if refused(&e) => {
@@ -202,7 +213,7 @@ impl Startup<'_> {
     /// Record the default branch worktree `w`'s `checkout` found its
     /// remote has, where it isn't what's recorded.
     async fn record_default(&self, w: &Worktree, checkout: &Checkout) {
-        let found = unfurl_git_sync::git::open_repo(&checkout.path)
+        let found = unfurl_git_sync::git::open_repo_with(&checkout.path, self.trust)
             .and_then(|repo| unfurl_git_sync::git::remote_default_branch(&repo, "origin"));
         let error = match found {
             Ok(Some(branch)) if w.default_branch.as_deref() != Some(branch.as_str()) => self
@@ -266,6 +277,8 @@ fn refused(error: &str) -> bool {
 struct Access {
     protocol: String,
     env: Vec<(String, String)>,
+    /// How far the checkout's own git config is trusted.
+    trust: Trust,
 }
 
 impl Access {
@@ -273,7 +286,13 @@ impl Access {
         Access {
             protocol: protocol_of(url),
             env: Vec::new(),
+            trust: Trust::Full,
         }
+    }
+
+    fn trusting(mut self, trust: Trust) -> Self {
+        self.trust = trust;
+        self
     }
 
     /// `credentials` for `url`'s whole host: a `url.<...>.insteadOf`
@@ -314,11 +333,13 @@ pub async fn serve(
     accept: impl Fn(&unfurl_git_sync::SyncOutcome) -> bool,
     hint: impl Fn(&(dyn std::error::Error + 'static), &str) -> String,
     locks: Option<GitLocks>,
+    trust: Trust,
 ) -> Result<Option<CloudMapState>, unfurl_git_sync::Error> {
     let mut open = Vec::new();
     for checkout in checkouts {
         let path = checkout.path.to_string_lossy();
-        match CloudMapState::open_locked(&path, db_url, scan, &accept, locks.as_ref()).await {
+        match CloudMapState::open_locked(&path, db_url, scan, &accept, locks.as_ref(), trust).await
+        {
             Ok(None) => tracing::error!(
                 project = checkout.project.as_str(),
                 branch = checkout.branch.as_str(),
@@ -395,6 +416,9 @@ async fn pull(path: &Path, access: &Access) -> Result<(), String> {
             "{} is there but isn't a git checkout",
             path.display()
         ));
+    }
+    if access.trust == Trust::Reduced {
+        refuse_untrusted_config(path, access).await?;
     }
     // as `clone` does, for a checkout made before it did, or by python
     git(path, access, &["config", "core.symlinks", "false"]).await?;
@@ -482,6 +506,81 @@ const KEPT_ENV: [&str; 16] = [
     "CURL_CA_BUNDLE",
 ];
 
+/// What every git command overrides in a checkout's own config, when it
+/// isn't trusted: what runs a program, or sends a credential elsewhere.
+const DISTRUSTED: [&str; 14] = [
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "credential.helper=",
+    "-c",
+    "http.sslVerify=true",
+    "-c",
+    "http.proxy=",
+    // the clone leaves submodules out; a pull mustn't bring them
+    "-c",
+    "submodule.recurse=false",
+    "-c",
+    "fetch.recurseSubmodules=false",
+];
+
+/// Refuse the checkout at `path` if it redirects git, by its own config
+/// (local or per worktree) in a way an override can't undo, or by files:
+/// a `.git` file pointing elsewhere, alternate object stores.
+async fn refuse_untrusted_config(path: &Path, access: &Access) -> Result<(), String> {
+    let refuse = |what: &str| Err(format!("{}: {what}, which isn't trusted", path.display()));
+    let git_dir = path.join(".git");
+    if !git_dir.is_dir() {
+        return refuse(".git isn't a directory");
+    }
+    for alternates in ["alternates", "http-alternates"] {
+        let file = git_dir.join("objects/info").join(alternates);
+        if std::fs::metadata(&file).is_ok_and(|m| m.len() > 0) {
+            return refuse(&format!("it has objects/info/{alternates}"));
+        }
+    }
+    let listed = git(
+        path,
+        access,
+        &["config", "--name-only", "--list", "--show-scope"],
+    )
+    .await?;
+    // ours come from the command line; the rest are the checkout's own
+    let own = listed
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .filter(|(scope, _)| *scope != "command");
+    match own.map(|(_, name)| name).find(|name| untrusted(name)) {
+        Some(name) => refuse(&format!("its git config sets {name}")),
+        None => Ok(()),
+    }
+}
+
+/// Whether config key `name`, as `git config --name-only` lists it, is
+/// one [`refuse_untrusted_config`] refuses.
+fn untrusted(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    // any http setting: a url-specific one wins over the overrides
+    ["filter.", "diff.", "include.", "includeif.", "http."]
+        .iter()
+        .any(|section| name.starts_with(section))
+        || (name.starts_with("url.")
+            && (name.ends_with(".insteadof") || name.ends_with(".pushinsteadof")))
+        || (name.starts_with("remote.")
+            && [".proxy", ".uploadpack", ".receivepack", ".vcs"]
+                .iter()
+                .any(|key| name.ends_with(key)))
+        || [
+            "core.worktree",
+            "core.askpass",
+            "core.sshcommand",
+            "core.gitproxy",
+        ]
+        .contains(&name.as_str())
+}
+
 /// `text` with any credentials in a url's userinfo taken out.
 fn redact(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -518,6 +617,10 @@ fn protocol_of(url: &str) -> String {
 /// or global git config, such as a credential helper or a url rewrite --
 /// reaches a clone of a user's repository.
 async fn git(dir: &Path, access: &Access, args: &[&str]) -> Result<String, String> {
+    let distrusted: &[&str] = match access.trust {
+        Trust::Reduced => &DISTRUSTED,
+        _ => &[],
+    };
     let mut command = tokio::process::Command::new("git");
     command.env_clear();
     for name in KEPT_ENV {
@@ -526,6 +629,7 @@ async fn git(dir: &Path, access: &Access, args: &[&str]) -> Result<String, Strin
         }
     }
     let run = command
+        .args(distrusted)
         .args(args)
         .current_dir(dir)
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -556,6 +660,40 @@ async fn git(dir: &Path, access: &Access, args: &[&str]) -> Result<String, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn config_that_redirects_git_is_untrusted() {
+        for name in [
+            "filter.lfs.smudge",
+            "diff.evil.textconv",
+            "include.path",
+            "includeIf.gitdir:/x/.path",
+            "http.https://h/.extraHeader",
+            "url.https://evil/.insteadOf",
+            "url.https://evil/.pushInsteadOf",
+            "core.worktree",
+            "http.https://unfurl.cloud/.proxy",
+            "http.sslCAInfo",
+            "http.curloptResolve",
+            "core.askPass",
+            "core.sshCommand",
+            "remote.origin.proxy",
+            "remote.origin.uploadpack",
+        ] {
+            assert!(untrusted(name), "{name}");
+        }
+        for name in [
+            "remote.origin.url",
+            "remote.origin.fetch",
+            "user.name",
+            "core.symlinks",
+            "core.bare",
+            "branch.main.remote",
+            "remote.origin.pushurl",
+        ] {
+            assert!(!untrusted(name), "{name}");
+        }
+    }
 
     fn worktree(origin: &str) -> Worktree {
         Worktree {

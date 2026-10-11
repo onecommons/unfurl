@@ -121,11 +121,18 @@ impl World {
     }
 
     async fn prepare(&self, grants: Option<&GrantStore>) -> Vec<PathBuf> {
-        prepare(&self.db, &self.root(), &self.server.base, None, grants)
-            .await
-            .into_iter()
-            .map(|c| c.path)
-            .collect()
+        prepare(
+            &self.db,
+            &self.root(),
+            &self.server.base,
+            None,
+            grants,
+            unfurl_git_sync::git::Trust::Reduced,
+        )
+        .await
+        .into_iter()
+        .map(|c| c.path)
+        .collect()
     }
 
     async fn visibility(&self) -> Option<String> {

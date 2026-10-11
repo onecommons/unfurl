@@ -228,7 +228,17 @@ async fn open_cloudmap(
     tracing::info!("opening cloudmap repo at {} (db={})", repo, db_url);
     let scan = scan_options(config, db_url, config.cloudmap_recover);
     let accept = |o: &unfurl_git_sync::SyncOutcome| !report_scan(o, config.scan_abort_level);
-    match cloudmap::CloudMapState::open_locked(repo, db_url, scan, accept, locks.as_ref()).await {
+    match cloudmap::CloudMapState::open_locked(
+        repo,
+        db_url,
+        scan,
+        accept,
+        locks.as_ref(),
+        // the operator's own checkout, not one a clone root shares
+        unfurl_git_sync::git::Trust::Full,
+    )
+    .await
+    {
         Ok(Some(cm)) => Some(cm),
         Ok(None) => std::process::exit(1),
         Err(e) => {
@@ -267,9 +277,15 @@ async fn open_clones(
         db_url
     );
     let scan = scan_options(config, db_url, true);
-    let checkouts =
-        unfurl_server::clone::prepare(&db, root, &config.cloud_server, locks.as_ref(), grants)
-            .await;
+    let checkouts = unfurl_server::clone::prepare(
+        &db,
+        root,
+        &config.cloud_server,
+        locks.as_ref(),
+        grants,
+        config.checkout_trust(),
+    )
+    .await;
     let served = unfurl_server::clone::serve(
         checkouts,
         db_url,
@@ -277,6 +293,7 @@ async fn open_clones(
         |outcome| !report_scan(outcome, config.scan_abort_level),
         |e, path| open_hint(e, path, config, true),
         locks,
+        config.checkout_trust(),
     )
     .await;
     or_exit(served, "failed to serve the cloudmap checkouts")

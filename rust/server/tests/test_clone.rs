@@ -98,7 +98,15 @@ impl World {
     }
 
     async fn prepare(&self) -> Vec<Checkout> {
-        prepare(&self.db, &self.root(), &self.server(), None, None).await
+        prepare(
+            &self.db,
+            &self.root(),
+            &self.server(),
+            None,
+            None,
+            unfurl_git_sync::git::Trust::Reduced,
+        )
+        .await
     }
 
     /// A commit on the server's `main`, made from the seed checkout.
@@ -247,6 +255,7 @@ async fn a_worktree_on_another_server_is_left_out() {
         "https://elsewhere.example",
         None,
         None,
+        unfurl_git_sync::git::Trust::Reduced,
     )
     .await;
     assert!(got.is_empty());
@@ -280,6 +289,7 @@ async fn several_clones_open_on_one_database() {
         |_| true,
         |_, _| String::new(),
         None,
+        unfurl_git_sync::git::Trust::Reduced,
     )
     .await
     .expect("serving")
@@ -325,6 +335,7 @@ async fn a_checkout_that_fails_is_left_out_of_the_rest() {
         |_| scans.fetch_add(1, Ordering::SeqCst) > 0,
         |_, _| String::new(),
         None,
+        unfurl_git_sync::git::Trust::Reduced,
     )
     .await
     .expect("serving")
@@ -400,6 +411,7 @@ async fn a_clone_waits_for_its_git_lock() {
         &world.server(),
         Some(&locks),
         None,
+        unfurl_git_sync::git::Trust::Reduced,
     )
     .await;
     assert_eq!(got.len(), 1);
@@ -468,6 +480,7 @@ async fn a_scan_waits_for_its_git_lock() {
         |_| true,
         |_, _| String::new(),
         Some(GitLocks::new(conn.clone(), &prefix)),
+        unfurl_git_sync::git::Trust::Reduced,
     )
     .await
     .expect("serve")
@@ -519,4 +532,127 @@ async fn the_default_branch_is_recorded() {
     git(&bare, &["symbolic-ref", "HEAD", "refs/heads/main"]);
     world.prepare().await;
     assert_eq!(recorded().await.as_deref(), Some("main"), "followed");
+}
+
+impl World {
+    async fn prepare_trusting(&self, trust: unfurl_git_sync::git::Trust) -> Vec<Checkout> {
+        prepare(&self.db, &self.root(), &self.server(), None, None, trust).await
+    }
+}
+
+/// A hook a checkout's own config points at, left there by another writer
+/// of the clone root, doesn't run on the startup pull unless the
+/// checkouts are trusted.
+#[tokio::test]
+async fn a_checkouts_hooks_run_only_when_trusted() {
+    use unfurl_git_sync::git::Trust;
+    for (trust, runs) in [(Trust::Reduced, false), (Trust::Full, true)] {
+        let world = World::new().await;
+        world.prepare().await;
+        let hooks = world.tmp.path().join("hooks");
+        let ran = world.tmp.path().join("ran");
+        std::fs::create_dir(&hooks).expect("mkdir");
+        let hook = hooks.join("post-merge");
+        std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", ran.display())).expect("write");
+        std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .expect("chmod");
+        git(
+            &world.public(),
+            &["config", "core.hooksPath", hooks.to_str().unwrap()],
+        );
+        world.push_upstream("later");
+
+        assert_eq!(world.prepare_trusting(trust).await.len(), 1, "{trust:?}");
+        assert!(world.public().join("later").exists(), "pulled ({trust:?})");
+        assert_eq!(ran.exists(), runs, "{trust:?}");
+    }
+}
+
+/// A checkout whose own config redirects git, which no override undoes, is
+/// left out unless the checkouts are trusted.
+#[tokio::test]
+async fn a_checkout_redirected_by_its_config_is_left_out_unless_trusted() {
+    use unfurl_git_sync::git::Trust;
+    for (key, value) in [
+        (
+            "url.https://evil.example/.insteadOf",
+            "https://unfurl.cloud/",
+        ),
+        ("filter.evil.smudge", "cat"),
+        ("http.https://unfurl.cloud/.extraHeader", "X-Evil: 1"),
+    ] {
+        for (trust, served) in [(Trust::Reduced, 0), (Trust::Full, 1)] {
+            let world = World::new().await;
+            world.prepare().await;
+            git(&world.public(), &["config", key, value]);
+            assert_eq!(
+                world.prepare_trusting(trust).await.len(),
+                served,
+                "{key} ({trust:?})"
+            );
+        }
+    }
+}
+
+/// What leaves a checkout redirected, in a test.
+type Redirect = fn(&World);
+
+/// A checkout redirected otherwise than by a plain config key -- a
+/// url-specific http setting, a setting in its worktree config, a `.git`
+/// file pointing elsewhere, alternate object stores -- is left out too
+/// unless the checkouts are trusted.
+#[tokio::test]
+async fn a_checkout_redirected_otherwise_is_left_out_unless_trusted() {
+    use unfurl_git_sync::git::Trust;
+    let cases: [(&str, Redirect); 4] = [
+        ("http.<url>.proxy", |w| {
+            git(
+                &w.public(),
+                &[
+                    "config",
+                    "http.https://unfurl.cloud/.proxy",
+                    "http://127.0.0.1:9",
+                ],
+            );
+        }),
+        ("config.worktree", |w| {
+            git(
+                &w.public(),
+                &["config", "extensions.worktreeConfig", "true"],
+            );
+            git(
+                &w.public(),
+                &["config", "--worktree", "filter.evil.smudge", "cat"],
+            );
+        }),
+        (".git file", |w| {
+            let elsewhere = w.tmp.path().join("elsewhere.git");
+            std::fs::rename(w.public().join(".git"), &elsewhere).expect("move");
+            std::fs::write(
+                w.public().join(".git"),
+                format!("gitdir: {}\n", elsewhere.display()),
+            )
+            .expect("write");
+        }),
+        ("alternates", |w| {
+            let other = w.tmp.path().join("server/org/proj.git/objects");
+            std::fs::write(
+                w.public().join(".git/objects/info/alternates"),
+                format!("{}\n", other.display()),
+            )
+            .expect("write");
+        }),
+    ];
+    for (case, redirect) in cases {
+        for (trust, served) in [(Trust::Reduced, 0), (Trust::Full, 1)] {
+            let world = World::new().await;
+            world.prepare().await;
+            redirect(&world);
+            assert_eq!(
+                world.prepare_trusting(trust).await.len(),
+                served,
+                "{case} ({trust:?})"
+            );
+        }
+    }
 }

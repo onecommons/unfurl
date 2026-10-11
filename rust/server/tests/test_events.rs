@@ -48,6 +48,7 @@ fn test_config(prefix: &str) -> Config {
         cloud_server: "https://unfurl.cloud".into(),
         cloudmap_force: false,
         cloudmap_recover: false,
+        trust_checkouts: false,
         cloudmap_skip_scan: false,
         scan_abort_level: unfurl_server::config::ScanAbortLevel::Report,
         log_style: None,

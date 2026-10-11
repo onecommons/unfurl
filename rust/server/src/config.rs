@@ -279,6 +279,15 @@ pub struct Config {
     #[arg(long, env = "UNFURL_CLOUDMAP_RECOVER")]
     pub cloudmap_recover: bool,
 
+    /// Trust the own git config of the checkouts under `clone_root`, which
+    /// python writes too: without it, git-sync ignores it, and the server's
+    /// git commands override what could run a program or reach a credential
+    /// and refuse a checkout that redirects git (`docs/credentials.md`
+    /// §2.6). A configured `cloudmap_repo`, and a server serving a local
+    /// path, are trusted anyway.
+    #[arg(long, env = "UNFURL_TRUST_CHECKOUTS")]
+    pub trust_checkouts: bool,
+
     /// Serve whatever the index already holds instead of scanning the
     /// working tree at startup.
     ///
@@ -347,6 +356,15 @@ impl Config {
     /// answered out of another project's repository.
     pub fn dev_mode(&self) -> bool {
         self.local.as_deref().is_some_and(|p| !p.is_empty())
+    }
+
+    /// How far the checkouts' own git config is trusted: see
+    /// [`Self::trust_checkouts`].
+    pub fn checkout_trust(&self) -> unfurl_git_sync::git::Trust {
+        match self.trust_checkouts || self.dev_mode() {
+            true => unfurl_git_sync::git::Trust::Full,
+            false => unfurl_git_sync::git::Trust::Reduced,
+        }
     }
 
     /// Resolved backend URL (falls back to `http://{host}:{port+1}`).
@@ -571,6 +589,7 @@ mod tests {
             cloud_server: "https://unfurl.cloud".into(),
             cloudmap_force: false,
             cloudmap_recover: false,
+            trust_checkouts: false,
             cloudmap_skip_scan: false,
             scan_abort_level: ScanAbortLevel::Report,
             log_style: None,
@@ -661,6 +680,18 @@ mod local_mode_tests {
             argv.push(p);
         }
         Config::parse_from(argv)
+    }
+
+    #[test]
+    fn checkouts_are_trusted_with_the_flag_or_a_local_path() {
+        use unfurl_git_sync::git::Trust;
+        assert_eq!(config_with_local(None).checkout_trust(), Trust::Reduced);
+        assert_eq!(
+            config_with_local(Some("/some/checkout")).checkout_trust(),
+            Trust::Full
+        );
+        let flagged = Config::parse_from(["unfurl-server", "--trust-checkouts"]);
+        assert_eq!(flagged.checkout_trust(), Trust::Full);
     }
 
     #[test]
