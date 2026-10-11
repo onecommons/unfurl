@@ -1624,10 +1624,23 @@ class GitRepo(Repo):
                 raise e
 
     def clone(self, newPath: str) -> "GitRepo":
+        """A clone of this working directory at ``newPath``, checking out no
+        symlinks if this one doesn't."""
+        symlinks = self.repo.config_reader().get_value("core", "symlinks", True)
+        env = (
+            None
+            if symlinks
+            else git_config_env([("core.symlinks", "false")], os.environ)
+        )
         # note: repo.clone uses bare path, which breaks submodule path resolution
         cloned = git.Repo.clone_from(
-            self.working_dir, os.path.abspath(newPath), recurse_submodules=True
+            self.working_dir,
+            os.path.abspath(newPath),
+            env=env,
+            recurse_submodules=True,
         )
+        if not symlinks:
+            cloned.git.config("core.symlinks", "false")
         Repo.ignore_dir(newPath)
         return GitRepo(cloned)
 

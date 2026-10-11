@@ -1483,6 +1483,23 @@ def test_an_untrusted_projects_clones_check_out_no_symlinks(
         assert os.path.islink(path) != safe_mode, name
 
 
+
+def test_a_local_copy_of_a_clone_without_symlinks_has_none(tmp_path):
+    """Copying a working directory, as cloning a local project does, keeps
+    its ``core.symlinks=false``."""
+    source = tmp_path / "source"
+    source.mkdir()
+    _git("init", "-q", "-b", "main", cwd=source)
+    os.symlink("/etc/hosts", source / "link")
+    _git("add", "-A", cwd=source)
+    _git("commit", "-q", "-m", "commit", cwd=source)
+    for symlinks in (True, False):
+        _git("config", "core.symlinks", str(symlinks).lower(), cwd=source)
+        copy = GitRepo(Repo(source)).clone(str(tmp_path / f"copy-{symlinks}"))
+        assert os.path.islink(os.path.join(copy.working_dir, "link")) == symlinks
+        if not symlinks:
+            assert copy.repo.git.config("core.symlinks") == "false"
+
 def test_a_clone_made_before_safe_mode_stops_checking_out_symlinks(
     auth_git_server, tmp_path
 ):
