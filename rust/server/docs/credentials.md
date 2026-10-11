@@ -328,12 +328,19 @@ container.
 
 **Separate the Rust server from Python**, so Python, compromised or led
 by content to read a file, can't reach the grant key or the Rust server's
-memory. In Kubernetes, the simplest form is **two containers in the pod**,
-from the same image with different commands: the key secret is mounted only
-in the Rust server's, each runs as its own user without root, the pod's
-shared `localhost` connects them as now, and the checkouts are on a shared
-volume with a common `fsGroup` (and, as below, group-writable). Without
-Kubernetes, **two users in the container**:
+memory. In Kubernetes, the layout chosen is **three containers in the pod**:
+- nginx (unprivileged image, config from a ConfigMap) on `:5000`;
+- `unfurl-server` on `127.0.0.1:5002`, the only container that mounts the
+  grant key;
+- gunicorn on `127.0.0.1:5001`.
+
+The Rust and Python containers come from the same image with different
+commands. They share one non-root uid and the checkouts on a shared volume,
+and the pod's shared `localhost` connects them as now. Separate uids would
+need the shared-checkout support below, and add little: the key is protected
+by the mount, and §2.6 covers what a writer of the shared checkouts can do.
+The deployment design is in the `unfurl_server` blueprint's `k8s-design.md`.
+Without Kubernetes, **two users in the container**:
 
 | User | Runs | Can read |
 |---|---|---|
@@ -355,6 +362,89 @@ Redis and database passwords and the API secret it reads from
 Requests reaching Python directly (`unfurl serve` without Redis, or
 `UNFURL_RUST_SERVER=0`) keep today's behaviour, since no grant header
 arrives.
+
+### 2.6 The shared checkouts
+
+Keeping the key out of Python's container stops a bug in Python that can
+only *read* files (path traversal, template injection). It does not stop an
+attacker who can run code in Python. Both servers read and write the same
+checkouts, so that attacker can leave something there that the Rust server
+acts on later, inside its own container, where the key is:
+
+- **git config and hooks** that run programs: `.git/hooks`,
+  `core.hooksPath`, `core.fsmonitor`, `credential.helper`, filter and diff
+  drivers, `include.path`, in `.git/config` or `config.worktree`;
+- **git config that leaks credentials** without running anything:
+  `http.proxy` with `http.sslVerify=false`, `http.<url>.extraHeader`,
+  `url.<x>.insteadOf`;
+- **redirections:** a `.git` file (`gitdir:`), `core.worktree`,
+  `objects/info/alternates`;
+- **symlinks** out of the clone root, e.g. `cloudmap.yaml` pointing at the
+  key file or `/proc/self/environ`, which the Rust server would follow when it
+  reads and serves the file;
+- **malformed git data** that triggers a parsing bug in git or gix.
+
+A clone never brings any of the git items from the remote. `.git/config` and
+hooks are written by the local client, so these are only a local writer's
+tools. Tracked files that a clone does bring (`.gitattributes`,
+`.gitmodules`) only name drivers or submodules. They take effect through
+local config, or through the submodule limits in §2.3.
+
+git has no switch for ignoring a repository's own config. `safe.directory`
+refuses a repository another user owns, but it's all or nothing, and it
+doesn't apply here: both containers share a uid, and ownership wouldn't stop
+writes to a group-writable `.git/config` anyway. gix does have such a
+switch: a repository opened with `Trust::Reduced` has its repository-local
+config ignored.
+
+**Mitigations, in order:**
+1. **Python's checkouts never contain symlinks.** In safe mode, which the
+   server runs in, clones are made with `core.symlinks=false`
+   (`serve.py`'s project clones, `localenv.py`'s dependencies,
+   `_keep_out_symlinks` for older clones), and a local copy of such a clone
+   (`GitRepo.clone`) keeps the setting. This works on every kernel.
+2. **The Rust server reads checkouts only beneath the clone root.**
+   Python can still create symlinks, compromised or through Unfurl's own
+   `tosca_repositories/<name>` links (`repo.py`), which the Python DSL
+   imports through. Landlock's right to create symlinks can't tell a link to
+   a sibling repository from one to the key, so it can't be denied. Instead:
+   - the Rust server's own file reads under the clone root resolve with
+     `openat2` `RESOLVE_BENEATH` (or `cap-std`). A link inside the root
+     works; one out of it is refused by the kernel, on every kernel.
+   - **Landlock in the Rust server, after startup:** once it has read the key
+     and its secrets, it gives up access to the key file and `/proc/self`.
+     Landlock checks the *resolved* path of every open, so this covers what
+     the first point doesn't: gix and the git processes the server starts,
+     which inherit it. It doesn't restrict where a link points, only what a
+     restricted process can reach through one.
+3. **Python runs under Landlock.** Its container starts gunicorn through
+   util-linux's `setpriv --landlock-access fs --landlock-rule … -- gunicorn
+   …`, which is in the base image: reads of the system and Python paths,
+   writes only to the clone root, `/tmp` and its cache. The restrictions
+   survive the `exec` into gunicorn, and its child processes inherit them.
+   On a kernel without Landlock, where `setpriv` fails, the startup script
+   logs a warning and starts gunicorn without them. This limits what a
+   compromised Python can reach, not what it can leave in the checkouts.
+4. **The Rust server distrusts the checkouts' config:**
+   - git-sync opens them with gix `Trust::Reduced`;
+   - every git command the server runs overrides `core.hooksPath=/dev/null`,
+     `core.fsmonitor=false`, `credential.helper=`, `http.sslVerify=true` and
+     `http.proxy=`;
+   - before a pull or push, it refuses a checkout whose config defines
+     filter or diff drivers, includes, `extraHeader` or `insteadOf` rules
+     beyond its own.
+On a kernel without Landlock, 2's second point and 3 start with a warning;
+the rest doesn't depend on it.
+
+**What remains:**
+- a parsing bug in git or gix, exploited through crafted data;
+- a config setting that runs a program but isn't on the override list, used
+  in the window between the check in 3 and the command;
+- Python, compromised, still sees the tokens of the requests it handles
+  (§2.5).
+
+Moving more of the server's git command-line work to gix shrinks the second
+item.
 
 ## 3. Rollout
 
