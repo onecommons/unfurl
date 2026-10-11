@@ -20,6 +20,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --pr
     rm -rf /unfurl ~/.cargo ~/.rustup
 
 COPY --chmod=0755 docker/aux/server-entrypoint.sh /usr/local/bin/server-entrypoint.sh
+COPY --chmod=0755 docker/aux/run-landlocked /usr/local/bin/run-landlocked
 
 USER unfurl:unfurl
 

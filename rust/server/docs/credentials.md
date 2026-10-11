@@ -417,14 +417,33 @@ config ignored.
      the first point doesn't: gix and the git processes the server starts,
      which inherit it. It doesn't restrict where a link points, only what a
      restricted process can reach through one.
-3. **Python runs under Landlock.** Its container starts gunicorn through
-   util-linux's `setpriv --landlock-access fs --landlock-rule … -- gunicorn
-   …`, which is in the base image: reads of the system and Python paths,
-   writes only to the clone root, `/tmp` and its cache. The restrictions
-   survive the `exec` into gunicorn, and its child processes inherit them.
-   On a kernel without Landlock, where `setpriv` fails, the startup script
-   logs a warning and starts gunicorn without them. This limits what a
-   compromised Python can reach, not what it can leave in the checkouts.
+3. **Python runs under Landlock.** The image's `run-landlocked CMD …`
+   execs `CMD` under util-linux's `setpriv` (in the base image), and
+   `server-entrypoint.sh` starts gunicorn through it, never the Rust server.
+   The restrictions survive the `exec` into gunicorn, and its child
+   processes, git among them, inherit them.
+   - **Read and execute** only `/usr` (Python and unfurl are in
+     `/usr/local`), `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc`, `/opt`,
+     `/proc`, `/dev` and `/sys`. The grant key must live outside these,
+     e.g. under `/run/secrets`; the script warns if `UNFURL_GRANT_KEY_FILE`
+     is under one of them or a writable path.
+   - **Read and write**, but not execute: `UNFURL_CLONE_ROOT`, `TMPDIR`
+     (or `/tmp`), `UNFURL_TMPDIR`, and each entry of the colon-separated
+     `UNFURL_LANDLOCK_RW` (e.g. a `FileSystemCache`'s `CACHE_DIR`); and
+     writes to `/dev/null`. Paths that don't exist are skipped. `$HOME` is
+     neither: the script points ansible's temp dir and the `XDG_CACHE_HOME`
+     cache at `TMPDIR`.
+   - Landlock also stops the sandboxed process from reading
+     `/proc/<pid>/environ` or `/proc/<pid>/mem` of a process outside its
+     domain, even with the same uid: in the single-container image, the Rust
+     server's.
+   - `UNFURL_LANDLOCK=0` turns it off. Where `setpriv` or the kernel can't
+     apply the rules (without the `truncate` right, Linux before 6.2, it
+     retries without it), the script logs a warning and runs gunicorn
+     without them.
+
+   This limits what a compromised Python can reach, not what it can leave
+   in the checkouts.
 4. **The Rust server distrusts the checkouts' config:**
    - git-sync opens them with gix `Trust::Reduced`, keeping only their
      remotes' urls (for a plain remote name); gix still reads their
@@ -442,7 +461,7 @@ the rest doesn't depend on it.
 **What remains:**
 - a parsing bug in git or gix, exploited through crafted data;
 - a config setting that runs a program but isn't on the override list, used
-  in the window between the check in 3 and the command;
+  in the window between the check in 4 and the command;
 - Python, compromised, still sees the tokens of the requests it handles
   (§2.5).
 

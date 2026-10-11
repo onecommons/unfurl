@@ -1,0 +1,63 @@
+#!/bin/sh
+# Usage: run-landlocked CMD [ARGS...]
+# Execs CMD under Landlock: it and its children can read and execute only the
+# system and Python paths below, and write only to the clone root, the temp
+# directories and the colon-separated UNFURL_LANDLOCK_RW. UNFURL_LANDLOCK=0
+# runs CMD unrestricted, as does a kernel or setpriv without Landlock, with a
+# warning.
+set -fu
+
+if [ "${UNFURL_LANDLOCK:-}" = "0" ]; then
+    exec "$@"
+fi
+
+tmp="${TMPDIR:-/tmp}"
+# by default in $HOME: ansible's temp dir, which it creates on import, and
+# stevedore's entry point cache
+export ANSIBLE_LOCAL_TEMP="${ANSIBLE_LOCAL_TEMP:-$tmp/ansible}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$tmp/cache}"
+
+ro_paths="/usr:/bin:/sbin:/lib:/lib64:/etc:/opt:/proc:/dev:/sys"
+rw_paths="${UNFURL_CLONE_ROOT:-}:$tmp:${UNFURL_TMPDIR:-}:${UNFURL_LANDLOCK_RW:-}"
+ro="execute,read-file,read-dir"
+rw_base="read-file,read-dir,write-file,remove-dir,remove-file,make-dir,make-reg,make-sym,refer"
+# splits the path lists
+IFS=:
+
+if [ -z "${UNFURL_CLONE_ROOT:-}" ]; then
+    echo "run-landlocked: warning: UNFURL_CLONE_ROOT isn't set, so no clone root is writable" >&2
+else
+    # a path that doesn't exist yet can't be granted, nor created once restricted
+    mkdir -p "$UNFURL_CLONE_ROOT"
+fi
+
+# landlocked EXEC -- CMD...: setpriv with the rules, run by EXEC ("exec" or "command")
+landlocked() {
+    run=$1
+    shift
+    for p in $ro_paths; do
+        if [ -e "$p" ]; then set -- --landlock-rule "path-beneath:$ro:$p" "$@"; fi
+    done
+    for p in $rw_paths; do
+        if [ -n "$p" ] && [ -e "$p" ]; then set -- --landlock-rule "path-beneath:$rw:$p" "$@"; fi
+    done
+    $run setpriv --landlock-access fs --landlock-rule path-beneath:write-file:/dev/null "$@"
+}
+
+if [ -n "${UNFURL_GRANT_KEY_FILE:-}" ]; then
+    key=$(readlink -f "$UNFURL_GRANT_KEY_FILE" || echo "$UNFURL_GRANT_KEY_FILE")
+    for p in $ro_paths $rw_paths; do
+        case "$key" in
+        "$p"/*) [ -z "$p" ] || echo "run-landlocked: warning: UNFURL_GRANT_KEY_FILE is readable under $p" >&2 ;;
+        esac
+    done
+fi
+
+# truncate needs Landlock ABI 3 (Linux 6.2)
+for rw in "$rw_base,truncate" "$rw_base"; do
+    if err=$(landlocked command -- true 2>&1); then
+        landlocked exec -- "$@"
+    fi
+done
+echo "run-landlocked: warning: running without Landlock: $err" >&2
+exec "$@"
