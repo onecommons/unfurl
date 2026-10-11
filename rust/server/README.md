@@ -24,6 +24,8 @@ Pass `--help` for the canonical list. The most-used knobs:
 | Proxy timeout (integer seconds, `0` = none) | `--proxy-timeout-secs` | `UNFURL_PROXY_TIMEOUT_SECS` | `120` |
 | Max request body bytes | `--max-body-bytes` | `UNFURL_MAX_BODY_BYTES` | `10485760` (10 MiB) |
 | Shared internal-auth secret | `--secret` | `UNFURL_SECRET` | (empty) |
+| Grant key file (32 bytes, or their base64) | `--grant-key-file` | `UNFURL_GRANT_KEY_FILE` | (unset — queued writes store credentials) |
+| Inherited descriptor to read the grant key from, then close; excludes the file | `--grant-key-fd` | `UNFURL_GRANT_KEY_FD` | (unset) |
 | Package digest for ETags | `--package-digest` | `UNFURL_PACKAGE_DIGEST` | (empty) |
 | Allowed CORS origins | `--cors-origins` | `UNFURL_SERVE_CORS` | (unset — no CORS layer) |
 | Log file (else stderr) | — | `UNFURL_LOGFILE` | (unset) |

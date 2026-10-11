@@ -126,6 +126,11 @@ pub struct Config {
     #[arg(long, env = "UNFURL_GRANT_KEY_FILE")]
     pub grant_key_file: Option<String>,
 
+    /// An inherited descriptor to read the grant key from, as from
+    /// `--grant-key-file`, closed once read.
+    #[arg(long, env = "UNFURL_GRANT_KEY_FD", conflicts_with = "grant_key_file")]
+    pub grant_key_fd: Option<i32>,
+
     /// Days a grant lasts after the last request that brought its token.
     #[arg(long, env = "UNFURL_GRANT_TTL_DAYS", default_value_t = 30)]
     pub grant_ttl_days: u64,
@@ -573,6 +578,7 @@ mod tests {
             cache_key_prefix: "ufsv::".into(),
             secret: String::new(),
             grant_key_file: None,
+            grant_key_fd: None,
             grant_ttl_days: 30,
             proxy_timeout_secs: 120,
             redis_timeout_secs: 5,

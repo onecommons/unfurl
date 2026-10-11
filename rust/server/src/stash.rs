@@ -243,7 +243,7 @@ mod tests {
             "--grant-key-file",
             key.to_str().unwrap(),
         ]);
-        GrantStore::from_config(&config).await.unwrap()
+        GrantStore::from_config(&config, None).await.unwrap()
     }
 
     const ORIGIN: &str = "https://unfurl.cloud/org/proj";

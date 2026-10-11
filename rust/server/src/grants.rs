@@ -11,6 +11,9 @@ use base64::Engine;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::Read;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -76,14 +79,45 @@ impl GrantKey {
     /// The key in `path`, as 32 bytes or their base64: a Kubernetes secret
     /// mounted as a file holds its decoded value.
     pub fn from_file(path: &Path) -> Result<Self, GrantError> {
-        let error = |e: &dyn std::fmt::Display| GrantError::Key(format!("{}: {e}", path.display()));
-        let contents = std::fs::read(path).map_err(|e| error(&e))?;
+        let contents =
+            std::fs::read(path).map_err(|e| GrantError::Key(format!("{}: {e}", path.display())))?;
+        Self::from_contents(&contents, &path.display())
+    }
+
+    /// The key read from `fd`, as [`GrantKey::from_file`] reads a file;
+    /// `fd` is closed.
+    pub fn from_fd(fd: OwnedFd) -> Result<Self, GrantError> {
+        let source = format!("descriptor {}", fd.as_raw_fd());
+        let mut contents = Vec::new();
+        File::from(fd)
+            .read_to_end(&mut contents)
+            .map_err(|e| GrantError::Key(format!("{source}: {e}")))?;
+        Self::from_contents(&contents, &source)
+    }
+
+    /// The key read from the inherited descriptor `fd`, which is closed;
+    /// an error if it isn't open.
+    ///
+    /// # Safety
+    ///
+    /// If `fd` is open, nothing else in the process may own it.
+    pub unsafe fn from_inherited_fd(fd: RawFd) -> Result<Self, GrantError> {
+        // SAFETY: F_GETFD only reads the descriptor's flags
+        if unsafe { libc::fcntl(fd, libc::F_GETFD) } == -1 {
+            let e = std::io::Error::last_os_error();
+            return Err(GrantError::Key(format!("descriptor {fd}: {e}")));
+        }
+        // SAFETY: fd is open, and the caller guarantees nothing else owns it
+        Self::from_fd(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+
+    fn from_contents(contents: &[u8], source: &dyn std::fmt::Display) -> Result<Self, GrantError> {
         if contents.len() == 32 {
-            return Self::from_bytes(&contents);
+            return Self::from_bytes(contents);
         }
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(contents.trim_ascii())
-            .map_err(|e| error(&e))?;
+            .map_err(|e| GrantError::Key(format!("{source}: {e}")))?;
         Self::from_bytes(&bytes)
     }
 
@@ -214,17 +248,26 @@ impl GrantStore {
         })
     }
 
-    /// The store `config` configures, or why there is none.
-    pub async fn from_config(config: &crate::config::Config) -> Result<Self, String> {
+    /// The store `config` configures, or why there is none. `inherited` is
+    /// the key read from `UNFURL_GRANT_KEY_FD`, if set.
+    pub async fn from_config(
+        config: &crate::config::Config,
+        inherited: Option<Result<GrantKey, GrantError>>,
+    ) -> Result<Self, String> {
         let db_url = config
             .cloudmap_db_url
             .as_deref()
             .ok_or("UNFURL_CLOUDMAP_DB_URL isn't set")?;
-        let key_file = config
-            .grant_key_file
-            .as_deref()
-            .ok_or("UNFURL_GRANT_KEY_FILE isn't set")?;
-        let key = GrantKey::from_file(Path::new(key_file)).map_err(|e| e.to_string())?;
+        let key = match inherited {
+            Some(key) => key,
+            None => GrantKey::from_file(Path::new(
+                config
+                    .grant_key_file
+                    .as_deref()
+                    .ok_or("neither UNFURL_GRANT_KEY_FILE nor UNFURL_GRANT_KEY_FD is set")?,
+            )),
+        }
+        .map_err(|e| e.to_string())?;
         let db = Db::connect(&crate::cloudmap::db_config(db_url)?)
             .await
             .map_err(|e| format!("grant database: {e}"))?;
@@ -502,7 +545,7 @@ mod tests {
         let open = |args: &[&str]| {
             let config =
                 crate::config::Config::parse_from(["unfurl-server"].iter().chain(args).copied());
-            async move { GrantStore::from_config(&config).await.map(|_| ()) }
+            async move { GrantStore::from_config(&config, None).await.map(|_| ()) }
         };
         let key_arg = key.to_str().unwrap();
         let no_db = open(&["--grant-key-file", key_arg]).await;
@@ -623,6 +666,48 @@ mod tests {
             .unwrap();
         assert_ne!(again, id, "the cache handed out the forgotten grant");
         assert!(store.token_at(&again, 2).await.unwrap().is_some());
+    }
+
+    /// An inherited descriptor gives the key as a file does, and is closed
+    /// once read, so no git process inherits it.
+    #[test]
+    fn the_key_is_read_from_an_inherited_descriptor_then_closed() {
+        use std::io::Write;
+        use std::os::fd::IntoRawFd;
+        use std::os::unix::net::UnixStream;
+        let (mut peer, ours) = UnixStream::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        peer.write_all(&[7u8; 32]).unwrap();
+        peer.shutdown(std::net::Shutdown::Write).unwrap();
+        // SAFETY: into_raw_fd gave up the only owner
+        let key = unsafe { GrantKey::from_inherited_fd(ours.into_raw_fd()) }.unwrap();
+        assert_eq!(key.id(), GrantKey::from_bytes(&[7; 32]).unwrap().id());
+        assert_eq!(peer.read(&mut [0; 1]).unwrap(), 0, "our end is still open");
+
+        // SAFETY: a descriptor this high isn't open
+        let closed = unsafe { GrantKey::from_inherited_fd(1_000_000) }.unwrap_err();
+        assert!(
+            closed
+                .to_string()
+                .contains("descriptor 1000000: Bad file descriptor"),
+            "{closed}"
+        );
+    }
+
+    #[test]
+    fn the_key_comes_from_a_file_or_a_descriptor_not_both() {
+        use clap::Parser;
+        let both = crate::config::Config::try_parse_from([
+            "unfurl-server",
+            "--grant-key-file",
+            "key",
+            "--grant-key-fd",
+            "3",
+        ]);
+        assert_eq!(
+            both.unwrap_err().kind(),
+            clap::error::ErrorKind::ArgumentConflict
+        );
     }
 
     #[test]

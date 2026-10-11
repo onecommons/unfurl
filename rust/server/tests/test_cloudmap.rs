@@ -143,6 +143,7 @@ fn default_config() -> Config {
         cache_key_prefix: "test::".into(),
         secret: String::new(),
         grant_key_file: None,
+        grant_key_fd: None,
         grant_ttl_days: 30,
         proxy_timeout_secs: 1,
         redis_timeout_secs: 1,

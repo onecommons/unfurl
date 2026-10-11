@@ -4891,6 +4891,7 @@ dependencies = [
  "clap",
  "hmac",
  "http",
+ "libc",
  "oas3-gen-support",
  "once_cell",
  "redis",

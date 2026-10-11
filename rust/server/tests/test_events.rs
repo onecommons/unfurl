@@ -32,6 +32,7 @@ fn test_config(prefix: &str) -> Config {
         cache_key_prefix: format!("test_{}::", prefix),
         secret: String::new(),
         grant_key_file: None,
+        grant_key_fd: None,
         grant_ttl_days: 30,
         proxy_timeout_secs: 10,
         redis_timeout_secs: 5,

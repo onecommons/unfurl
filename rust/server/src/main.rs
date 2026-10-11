@@ -13,7 +13,7 @@ use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 use unfurl_server::config::{Config, LogStyle, ScanAbortLevel};
 use unfurl_server::gitlock::GitLocks;
-use unfurl_server::grants::GrantStore;
+use unfurl_server::grants::{GrantError, GrantKey, GrantStore};
 use unfurl_server::{cloudmap, queue, AppState};
 
 /// Points out the options that a skipped scan makes inert, and the
@@ -420,8 +420,11 @@ async fn serve(app: axum::Router, config: &Config) {
 
 /// The store queued writes keep credentials in, with its expired grants
 /// deleted hourly; or, with a loud warning, none.
-async fn open_grants(config: &Config) -> Option<Arc<GrantStore>> {
-    let store = match GrantStore::from_config(config).await {
+async fn open_grants(
+    config: &Config,
+    key: Option<Result<GrantKey, GrantError>>,
+) -> Option<Arc<GrantStore>> {
+    let store = match GrantStore::from_config(config, key).await {
         Ok(store) => Arc::new(store),
         Err(reason) => {
             tracing::warn!(
@@ -445,12 +448,21 @@ async fn open_grants(config: &Config) -> Option<Arc<GrantStore>> {
     Some(store)
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     // Parsed before the subscriber exists so `--log-style` reaches it:
     // reading the env var alone left the flag inert. Clap reports its own
     // argument errors, so nothing is lost by logging slightly later.
     let config = Config::parse();
+    // SAFETY: the process has opened no descriptors yet (the runtime and the
+    // log file come later), so one that is open was inherited and is unowned
+    let grant_key = config
+        .grant_key_fd
+        .map(|fd| unsafe { GrantKey::from_inherited_fd(fd) });
+    run(config, grant_key);
+}
+
+#[tokio::main]
+async fn run(config: Config, grant_key: Option<Result<GrantKey, GrantError>>) {
     init_tracing(&config);
 
     tracing::info!(
@@ -462,9 +474,16 @@ async fn main() {
         config.cache_key_prefix,
     );
 
+    if let (Some(fd), Some(Ok(key))) = (config.grant_key_fd, &grant_key) {
+        tracing::info!(
+            fd,
+            key_id = key.id(),
+            "read the grant key from its descriptor"
+        );
+    }
     // without Redis nothing is queued, so nothing needs a grant
     let grants = match config.effective_redis_url() {
-        Some(_) => open_grants(&config).await,
+        Some(_) => open_grants(&config, grant_key).await,
         None => None,
     };
     let redis = connect_redis(&config, grants.clone()).await;
