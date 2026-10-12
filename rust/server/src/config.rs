@@ -293,6 +293,18 @@ pub struct Config {
     #[arg(long, env = "UNFURL_TRUST_CHECKOUTS")]
     pub trust_checkouts: bool,
 
+    /// How many seconds since a clone was last pulled a cached response
+    /// made at its HEAD may be served for a request naming no
+    /// `latest_commit`: python's setting, read the same way. 0 serves none,
+    /// -1 any.
+    #[arg(
+        long,
+        env = "CACHE_DEFAULT_PULL_TIMEOUT",
+        default_value_t = 120,
+        allow_negative_numbers = true
+    )]
+    pub pull_timeout: i64,
+
     /// With a clone root, a cloudmap repository a request naming no
     /// project reads, as `<project>[#branch]` (its default branch without
     /// one): cloned at startup like those the database tracks. Repeatable,
@@ -649,6 +661,7 @@ mod tests {
             cloudmap_force: false,
             cloudmap_recover: false,
             trust_checkouts: false,
+            pull_timeout: 120,
             default_cloudmaps: Vec::new(),
             cloudmap_skip_scan: false,
             scan_abort_level: ScanAbortLevel::Report,

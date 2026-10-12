@@ -21,15 +21,12 @@ pub async fn try_cache(
     conn: &mut redis::aio::MultiplexedConnection,
     key: &str,
     latest_commit: Option<&str>,
+    staleness: &Staleness,
     timeout_secs: u64,
     package_digest: &str,
 ) -> Option<(JsonValue, String)> {
     tracing::info!("try_cache: key={} latest_commit={:?}", key, latest_commit);
-    if latest_commit.is_none() {
-        tracing::info!("cache ignored - no latest_commit");
-        // TODO check pull cache if stale pulls are ok (CACHE_DEFAULT_PULL_TIMEOUT is set)
-        return None;
-    }
+    let expected = expected_commit(conn, latest_commit, staleness).await?;
     if latest_commit.is_some_and(|s| s.ends_with("-dirty")) {
         tracing::info!("cache bypassed - dirty commit: {:?}", latest_commit);
         return None;
@@ -79,12 +76,100 @@ pub async fn try_cache(
         &raw[..]
     };
     let (json_val, etag, has_deps) =
-        deserialize_cache_value(payload, latest_commit, key, package_digest)?;
+        deserialize_cache_value(payload, expected.as_deref(), key, package_digest)?;
     if has_deps {
         tracing::info!("cache ignored - deps not empty: {}", key);
         return None;
     }
     Some((json_val, etag))
+}
+
+/// How fresh a cached entry must be when the request names no
+/// `latest_commit` to match: python's `stale_pull_age`
+/// (`CacheEntry.get_or_set`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Staleness {
+    /// Not cached: python pulls and regenerates it (`stale_pull_age` 0).
+    Never,
+    /// Whatever is cached (`stale_pull_age` -1).
+    Any,
+    /// What was made at the HEAD of the clone at `clone`, if python's
+    /// record at `pull_key` says it was pulled within `secs`.
+    Within {
+        secs: u64,
+        pull_key: String,
+        clone: std::path::PathBuf,
+    },
+}
+
+/// The commit a cached entry must have been made at: `latest_commit`, or
+/// without one as `staleness` decides; `None` not to serve one, and
+/// `Some(None)` to serve whatever is cached.
+async fn expected_commit(
+    conn: &mut redis::aio::MultiplexedConnection,
+    latest_commit: Option<&str>,
+    staleness: &Staleness,
+) -> Option<Option<String>> {
+    match (latest_commit, staleness) {
+        (Some(commit), _) => Some(Some(commit.to_string())),
+        (None, Staleness::Never) => {
+            tracing::info!("cache ignored - no latest_commit");
+            None
+        }
+        (None, Staleness::Any) => Some(None),
+        (
+            None,
+            Staleness::Within {
+                secs,
+                pull_key,
+                clone,
+            },
+        ) => Some(Some(pulled_head(conn, pull_key, *secs, clone).await?)),
+    }
+}
+
+/// The HEAD of the clone at `clone`, if python's pull record at
+/// `pull_key`, `(time, outcome)`, says it was pulled within `secs`, or
+/// is one python doesn't pull (`detached`, `proxied`).
+async fn pulled_head(
+    conn: &mut redis::aio::MultiplexedConnection,
+    pull_key: &str,
+    secs: u64,
+    clone: &std::path::Path,
+) -> Option<String> {
+    let raw: Option<Vec<u8>> = conn.get(pull_key).await.ok()?;
+    let raw = raw?;
+    let payload = raw.strip_prefix(b"!").unwrap_or(&raw);
+    let record = serde_pickle::value_from_slice(payload, DeOptions::new()).ok()?;
+    let (when, outcome) = pull_record(&record)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs_f64();
+    let unpulled = matches!(outcome.as_str(), "detached" | "proxied");
+    if !unpulled && now - when > secs as f64 {
+        tracing::info!("cache ignored - last pull of {} is stale", clone.display());
+        return None;
+    }
+    // Only its HEAD is read, so nothing in its config is acted on. Without
+    // the git lock: python may be pulling, but a ref reads whole, and a HEAD
+    // read just before the pull moves it only leaves the entry unserved.
+    let repo = unfurl_git_sync::git::open_repo(clone).ok()?;
+    repo.head_id().ok().map(|id| id.to_string())
+}
+
+/// Python's pull record: its time and outcome.
+fn pull_record(record: &serde_pickle::Value) -> Option<(f64, String)> {
+    let items = match record {
+        serde_pickle::Value::Tuple(v) | serde_pickle::Value::List(v) => v,
+        _ => return None,
+    };
+    let when = match items.first()? {
+        serde_pickle::Value::F64(t) => *t,
+        serde_pickle::Value::I64(t) => *t as f64,
+        _ => return None,
+    };
+    Some((when, pickle_string(items.get(1)?)?))
 }
 
 /// Deserialize the pickled CacheValue tuple and validate it.
@@ -311,6 +396,127 @@ mod tests {
     // "onecommons/project-templates/application-blueprint:main:ensemble-template.yaml:blueprint"
     const DEPLOYMENT_PKL: &[u8] = include_bytes!("../tests/fixtures/deployment.pkl");
     const BLUEPRINT_PKL: &[u8] = include_bytes!("../tests/fixtures/blueprint.pkl");
+
+    /// Python's pull record `(1791000000.5, "pulled")`, as cachelib's
+    /// `RedisSerializer` stores it.
+    const PYTHON_PULL_RECORD: &str =
+        "2180059515000000000000004741dab01f702000008c0670756c6c65649486942e";
+
+    #[test]
+    fn a_python_pull_record_is_read() {
+        let raw: Vec<u8> = (0..PYTHON_PULL_RECORD.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&PYTHON_PULL_RECORD[i..i + 2], 16).unwrap())
+            .collect();
+        let payload = raw.strip_prefix(b"!").unwrap();
+        let record = serde_pickle::value_from_slice(payload, DeOptions::new()).expect("pickle");
+        assert_eq!(
+            pull_record(&record),
+            Some((1791000000.5, "pulled".to_string()))
+        );
+    }
+
+    /// A cached entry with no `latest_commit` to match is served as
+    /// python's `stale_pull_age` would: whatever is cached for `Any`, none
+    /// for `Never`, and for `Within` only one made at the clone's HEAD,
+    /// when python's record says the clone was pulled recently enough.
+    /// Needs `UNFURL_TEST_REDIS_URL`.
+    #[tokio::test]
+    async fn a_cached_entry_without_latest_commit_follows_the_pull_record() {
+        use serde_pickle::{SerOptions, Value};
+        let Some(url) = std::env::var("UNFURL_TEST_REDIS_URL")
+            .ok()
+            .filter(|u| !u.is_empty())
+        else {
+            eprintln!("skip: UNFURL_TEST_REDIS_URL not set");
+            return;
+        };
+        let mut conn = redis::Client::open(url.as_str())
+            .expect("url")
+            .get_multiplexed_async_connection()
+            .await
+            .expect("connect");
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(args)
+                .current_dir(tmp.path())
+                .output()
+                .expect("git");
+            assert!(out.status.success(), "{out:?}");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        git(&["init", "-q"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "first"]);
+        let head = git(&["rev-parse", "HEAD"]);
+        let prefix = format!("test-stale-{}-{}:", std::process::id(), line!());
+        let (key, pull_key) = (format!("{prefix}export"), format!("{prefix}pull"));
+        let pickled = |value: Value| {
+            let mut raw = b"!".to_vec();
+            raw.extend(serde_pickle::value_to_vec(&value, SerOptions::new()).expect("pickle"));
+            raw
+        };
+        let entry = |made_at: &str| {
+            pickled(Value::Tuple(vec![
+                Value::Dict(Default::default()),
+                Value::String("abc".into()),
+                Value::String(made_at.into()),
+                Value::Dict(Default::default()),
+                Value::I64(0),
+            ]))
+        };
+        let pulled_ago = |secs: f64| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs_f64();
+            pickled(Value::Tuple(vec![
+                Value::F64(now - secs),
+                Value::String("pulled".into()),
+            ]))
+        };
+        let within = Staleness::Within {
+            secs: 120,
+            pull_key: pull_key.clone(),
+            clone: tmp.path().to_path_buf(),
+        };
+        let served = |staleness: Staleness, made_at: &str, pulled: Vec<u8>| {
+            let (key, pull_key) = (key.clone(), pull_key.clone());
+            let (entry, mut conn) = (entry(made_at), conn.clone());
+            async move {
+                let _: () = conn.set(&key, entry).await.unwrap();
+                let _: () = conn.set(&pull_key, pulled).await.unwrap();
+                try_cache(&mut conn, &key, None, &staleness, 0, "")
+                    .await
+                    .is_some()
+            }
+        };
+
+        assert!(
+            served(within.clone(), &head, pulled_ago(5.0)).await,
+            "fresh, at HEAD"
+        );
+        assert!(
+            !served(within.clone(), "0123", pulled_ago(5.0)).await,
+            "not at HEAD"
+        );
+        assert!(
+            !served(within.clone(), &head, pulled_ago(500.0)).await,
+            "pull too old"
+        );
+        assert!(
+            served(Staleness::Any, "0123", pulled_ago(500.0)).await,
+            "stale=ok"
+        );
+        assert!(
+            !served(Staleness::Never, &head, pulled_ago(5.0)).await,
+            "stale=never"
+        );
+        let _: () = redis::AsyncCommands::del(&mut conn, &[&key, &pull_key])
+            .await
+            .unwrap();
+    }
 
     fn strip_cachelib(raw: &[u8]) -> &[u8] {
         if raw.first() == Some(&b'!') {

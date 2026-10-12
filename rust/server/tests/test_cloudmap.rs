@@ -161,6 +161,7 @@ fn default_config() -> Config {
         cloudmap_force: false,
         cloudmap_recover: false,
         trust_checkouts: false,
+        pull_timeout: 120,
         default_cloudmaps: Vec::new(),
         cloudmap_skip_scan: false,
         scan_abort_level: unfurl_server::config::ScanAbortLevel::Report,

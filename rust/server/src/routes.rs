@@ -143,6 +143,82 @@ enum CacheOutcome {
     Proxied(Response),
 }
 
+/// The value of `name` in `req`'s query, as python's `request.args`
+/// reads it.
+fn query_value(req: &Request, name: &str) -> Option<String> {
+    let query = req.uri().query()?;
+    url::form_urlencoded::parse(query.as_bytes())
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value.into_owned())
+}
+
+/// How fresh a cached export must be for `req`, naming `project` and
+/// `branch`, with no `latest_commit`: as python's `_export` decides from
+/// `stale` and `CACHE_DEFAULT_PULL_TIMEOUT`, against the clone python
+/// keeps for the request (`_get_managed_project_repo_dir`).
+fn staleness(
+    config: &crate::config::Config,
+    req: &Request,
+    project: Option<&str>,
+    branch: Option<&str>,
+) -> cache::Staleness {
+    let age = match query_value(req, "stale").as_deref() {
+        Some("ok") => -1,
+        Some("never") => 0,
+        _ => config.pull_timeout,
+    };
+    match age {
+        0 => cache::Staleness::Never,
+        age if age < 0 => cache::Staleness::Any,
+        secs => match pulled_clone(config, req, project, branch) {
+            Some((pull_key, clone)) => cache::Staleness::Within {
+                secs: secs as u64,
+                pull_key,
+                clone,
+            },
+            None => cache::Staleness::Never,
+        },
+    }
+}
+
+/// The clone python keeps for `req` of `project` on `branch`, and the key
+/// of its pull record; none where python would use another (a local
+/// project, a server serving a local path) or there's no clone root.
+fn pulled_clone(
+    config: &crate::config::Config,
+    req: &Request,
+    project: Option<&str>,
+    branch: Option<&str>,
+) -> Option<(String, std::path::PathBuf)> {
+    let (project, branch) = (non_empty(project)?, non_empty(branch)?);
+    if config.dev_mode() || project.starts_with("local:") {
+        return None;
+    }
+    // from the request: never a path out of the clone root
+    if !(relative(project) && relative(branch)) {
+        return None;
+    }
+    let credentialed = req.headers().contains_key("x-git-credentials")
+        || ["username", "private_token", "password"]
+            .iter()
+            .any(|name| query_value(req, name).is_some())
+        || query_value(req, "visibility").is_some_and(|v| v != "public");
+    let base = if credentialed { "private" } else { "public" };
+    let clone = std::path::Path::new(config.clone_root.as_deref()?)
+        .join(base)
+        .join(project)
+        .join(branch);
+    let dir = clone.to_string_lossy().trim_end_matches('/').to_string();
+    let pull_key = format!("{}{project}:pull:{dir}", config.cache_key_prefix);
+    Some((pull_key, clone))
+}
+
+/// Whether `path` names somewhere beneath where it's joined: no empty,
+/// `.` or `..` component, and not absolute.
+fn relative(path: &str) -> bool {
+    path.split('/').all(|part| !matches!(part, "" | "." | ".."))
+}
+
 /// Shared logic for cache-aware GET handlers.
 ///
 /// `key` is what [`export_cache_key`] or [`types_cache_key`] made of this
@@ -171,6 +247,8 @@ async fn handle_cached_get(
     latest_commit: Option<String>,
     branch: Option<String>,
 ) -> CacheOutcome {
+    let project = query_value(&req, "auth_project");
+    let staleness = staleness(&state.config, &req, project.as_deref(), branch.as_deref());
     match key {
         // Nothing to look up: the request names no project, or no particular
         // branch, so every candidate key would be a guess. Python resolves
@@ -183,6 +261,7 @@ async fn handle_cached_get(
                     &mut conn,
                     &key,
                     latest_commit.as_deref(),
+                    &staleness,
                     state.config.redis_timeout_secs,
                     &state.config.package_digest,
                 )
@@ -1482,6 +1561,88 @@ fn ensure_leading_slash(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The clone and pull record python keeps for an export, and how stale
+    /// a cached one may be, as `_export` and `_get_managed_project_repo_dir`
+    /// decide them.
+    #[test]
+    fn staleness_follows_python() {
+        use crate::cache::Staleness;
+        use clap::Parser;
+        let config = |extra: &[&str]| {
+            let mut argv = vec!["unfurl-server", "--clone-root", "/clones"];
+            argv.extend_from_slice(extra);
+            crate::config::Config::parse_from(argv)
+        };
+        let request = |query: &str, credentials: bool| {
+            let mut req = Request::builder().uri(format!("/export?{query}"));
+            if credentials {
+                req = req.header("X-Git-Credentials", "dTpw");
+            }
+            req.body(Body::empty()).unwrap()
+        };
+        let staleness = |config: &crate::config::Config, query: &str, credentials: bool| {
+            let req = request(query, credentials);
+            super::staleness(config, &req, Some("org/proj"), Some("main"))
+        };
+        let within = |base: &str| Staleness::Within {
+            secs: 120,
+            pull_key: format!("ufsv::org/proj:pull:/clones/{base}/org/proj/main"),
+            clone: std::path::PathBuf::from(format!("/clones/{base}/org/proj/main")),
+        };
+
+        let default = config(&[]);
+        assert_eq!(staleness(&default, "", false), within("public"));
+        assert_eq!(staleness(&default, "", true), within("private"));
+        assert_eq!(
+            staleness(&default, "private_token=t", false),
+            within("private")
+        );
+        assert_eq!(
+            staleness(&default, "visibility=private", false),
+            within("private")
+        );
+        assert_eq!(staleness(&default, "stale=ok", false), Staleness::Any);
+        assert_eq!(staleness(&default, "stale=never", false), Staleness::Never);
+        assert_eq!(
+            staleness(&config(&["--pull-timeout", "0"]), "", false),
+            Staleness::Never
+        );
+        assert_eq!(
+            staleness(&config(&["--pull-timeout", "-1"]), "", false),
+            Staleness::Any
+        );
+        assert_eq!(
+            staleness(&config(&["--local", "/here"]), "", false),
+            Staleness::Never
+        );
+        let rootless = crate::config::Config::parse_from(["unfurl-server"]);
+        assert_eq!(staleness(&rootless, "", false), Staleness::Never);
+        // a branch or project from the request is never a path out of the root
+        for (project, branch) in [
+            ("org/proj", "../../etc"),
+            ("org/proj", "/etc"),
+            ("org/proj", "a//b"),
+            ("../org", "main"),
+            ("org/./proj", "main"),
+        ] {
+            let req = request("", false);
+            assert_eq!(
+                super::staleness(&default, &req, Some(project), Some(branch)),
+                Staleness::Never,
+                "{project} {branch}"
+            );
+        }
+        let req = request("", false);
+        assert_eq!(
+            super::staleness(&default, &req, Some("org/proj"), Some("feature/x")),
+            Staleness::Within {
+                secs: 120,
+                pull_key: "ufsv::org/proj:pull:/clones/public/org/proj/feature/x".into(),
+                clone: "/clones/public/org/proj/feature/x".into(),
+            }
+        );
+    }
 
     fn parse_query_pairs(uri: &axum::http::Uri) -> Vec<(String, String)> {
         uri.query()
