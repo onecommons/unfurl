@@ -42,6 +42,7 @@ from typing import (
     MutableMapping,
     MutableSequence,
     Optional,
+    Set,
     Type,
     TypeVar,
     Union,
@@ -106,6 +107,8 @@ def import_module(module_name: str) -> types.ModuleType:
 
 _N = TypeVar("_N", bound=tosca.Namespace)
 
+_warned_edited_yaml: Set[str] = set()
+
 
 def is_python_file_newer(yaml_contents: str, path: str) -> Optional[str]:
     yaml_path = Path(path)
@@ -118,6 +121,17 @@ def is_python_file_newer(yaml_contents: str, path: str) -> Optional[str]:
         return ""  # skip if yaml file is newer
     # only overwrite if the yaml file wasn't modified by another process
     if not WritePolicy.ok_to_modify_auto_generated(yaml_contents, path):
+        abs_path = os.path.abspath(path)
+        if abs_path not in _warned_edited_yaml:
+            _warned_edited_yaml.add(abs_path)
+            logger.warning(
+                'Using %s, which was edited after it was generated from %s; the newer %s is ignored. '
+                'Delete %s or change its header to "overwrite ok" to regenerate it.',
+                path,
+                python_path.name,
+                python_path,
+                yaml_path.name,
+            )
         return None
     return str(python_path)
 
