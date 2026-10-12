@@ -1,6 +1,8 @@
 import unittest
 import os
 import pickle
+import yaml
+import pytest
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
 from unfurl.support import Status, ContainerImage, ContainerImageParts
@@ -194,3 +196,99 @@ def test_environment():
     )
     env = jobs[0].rootResource.find_instance("container1").attributes['container']['environment']
     assert env == {'FOO': '1', 'BAR': '1', 'PASSWORD': 'test'}
+
+
+init_manifest = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+      - repository: unfurl
+        file: configurators/templates/docker.yaml
+    topology_template:
+      node_templates:
+        app:
+          type: unfurl.nodes.Container.Application.Docker
+          properties:
+            name: app
+            container:
+              image: busybox
+              network_mode: bridge
+            init_containers:
+              - image: busybox
+                command: ["sh", "-c", "echo init > /data/ready"]
+                environment:
+                  GREETING: hello
+                volumes:
+                  - /var/app/data:/data
+              - container_name: second
+                image: alpine
+                network_mode: host
+"""
+
+
+def test_init_containers_playbook():
+    """Init containers render as tasks that run to completion before the app's container."""
+    runner = Runner(YamlManifest(init_manifest))
+    job = runner.static_plan()
+    ready, not_ready, errors = job.render()
+    assert not errors and not not_ready
+    configure_task = next(
+        request.task for request in ready if request.task.configSpec.operation == "configure"
+    )
+    playbook_text = Path(configure_task.rendered[-1]).read_text()
+    playbook = yaml.safe_load(playbook_text)
+    fixture_path = Path(__file__).parent / "fixtures" / "docker_init_playbook.yaml"
+    try:
+        assert playbook == yaml.safe_load(fixture_path.read_text()), playbook_text
+    except (AssertionError, FileNotFoundError):
+        fixture_path.write_text(playbook_text)
+        raise
+
+
+def _render_configure_playbook(manifest_src: str, operation: str = "configure"):
+    runner = Runner(YamlManifest(manifest_src))
+    if operation == "configure":
+        job = runner.static_plan()
+    else:
+        job = runner.static_plan(JobOptions(workflow="run", instance="app", operation=operation))
+    ready, not_ready, errors = job.render()
+    configure_task = next(
+        (request.task for request in ready if request.task.configSpec.operation == operation),
+        None,
+    )
+    return configure_task, not_ready, errors
+
+
+@pytest.mark.parametrize("operation", ["stop", "delete"])
+def test_init_containers_only_on_start(operation):
+    """Stopping or deleting the container doesn't run its init containers."""
+    task, not_ready, errors = _render_configure_playbook(init_manifest, operation)
+    assert task and not errors and not not_ready
+    playbook = yaml.safe_load(Path(task.rendered[-1]).read_text())
+    assert [list(t)[0] for t in playbook[0]["tasks"]] == [
+        "set_fact",
+        "community.docker.docker_container",
+    ]
+
+
+def test_init_containers_absent():
+    """Without init containers the playbook has only the app's tasks."""
+    task, not_ready, errors = _render_configure_playbook(
+        init_manifest.split("            init_containers:")[0]
+    )
+    assert task and not errors and not not_ready
+    playbook = yaml.safe_load(Path(task.rendered[-1]).read_text())
+    assert [list(t)[0] for t in playbook[0]["tasks"]] == [
+        "set_fact",
+        "community.docker.docker_container",
+    ]
+
+
+def test_init_containers_reject_ports(caplog):
+    task, not_ready, errors = _render_configure_playbook(
+        init_manifest.replace("network_mode: host", "ports: ['80:80']")
+    )
+    assert not task and errors
+    assert "init containers can not publish ports" in caplog.text

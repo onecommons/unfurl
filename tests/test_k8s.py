@@ -9,11 +9,14 @@ import subprocess
 from shutil import which
 import pytest
 import time
+import yaml
+from pathlib import Path
 
 from unfurl.job import JobOptions, Runner
 from unfurl.runtime import Status
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.configurators.k8s import get_kubectl_args
+from unfurl.result import serialize_value
 
 from .utils import lifecycle, Step, init_project, run_job_cmd
 from click.testing import CliRunner
@@ -383,3 +386,103 @@ def test_kompose_ingress():
             assert "foo.com.mymetadata:" in ingress
             assert re.search(r"""annotations:\s+"kubernetes.io/ingress.class": "nginx"\n""", ingress) is not None, ingress
             assert re.search(r"""spec:\s+tls:""", ingress) is not None, ingress
+
+
+KOMPOSE_INIT = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        app:
+          type: tosca:Root
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation: Kompose
+                  inputs:
+                    service_name: app
+                    container:
+                      image: wordpress:6
+                      volumes:
+                        - /var/app/data/html:/var/www/html
+                        - /var/app/data/uploads:/uploads:ro
+                    init_containers:
+                      - image: busybox
+                        entrypoint: ["sh", "-c"]
+                        command: ["echo hello > /html/ready"]
+                        user: "33:33"
+                        environment:
+                          GREETING: hello
+                          UNSET:
+                        volumes:
+                          - /var/app/data/html:/html
+                          - /var/app/data/uploads:/uploads:ro
+                      - container_name: second
+                        image: alpine
+                        command: sleep 1  # split like compose does
+"""
+
+
+def _render_kompose(manifest_src: str):
+    runner = Runner(YamlManifest(manifest_src))
+    job = runner.static_plan()
+    ready, not_ready, errors = job.render()
+    return [request.task for request in ready], errors
+
+
+@pytest.mark.skipif(
+    not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
+)
+def test_kompose_init_containers():
+    """Init containers become the workload's initContainers, sharing the app's volumes."""
+    tasks, errors = _render_kompose(KOMPOSE_INIT)
+    assert tasks and not errors
+    definitions = tasks[0].target.attributes["definitions"]
+    pod_spec = definitions["app-deployment"]["spec"]["template"]["spec"]
+    init_containers = json.loads(json.dumps(serialize_value(pod_spec["initContainers"])))
+    fixture_path = Path(__file__).parent / "fixtures" / "kompose_init_containers.yaml"
+    try:
+        assert init_containers == yaml.safe_load(fixture_path.read_text())
+    except (AssertionError, FileNotFoundError):
+        fixture_path.write_text(yaml.safe_dump(init_containers, sort_keys=False))
+        raise
+    # the mounts refer to the volumes kompose generated for the app
+    assert {m["name"] for m in init_containers[0]["volumeMounts"]} == {
+        v["name"] for v in pod_spec["volumes"]
+    }
+
+
+@pytest.mark.skipif(
+    not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
+)
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        (("- /var/app/data/html:/html", "- /var/app/other:/other"), "must also be mounted by the container"),
+        (("image: alpine", "image: alpine\n                        ports: ['80:80']"), "can not publish ports"),
+    ],
+)
+def test_kompose_init_containers_errors(change, message, caplog):
+    tasks, errors = _render_kompose(KOMPOSE_INIT.replace(*change))
+    assert not tasks and errors
+    assert message in caplog.text
+
+
+@pytest.mark.skipif(
+    not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
+)
+def test_kompose_without_init_containers():
+    tasks, errors = _render_kompose(KOMPOSE_INIT.split("                    init_containers:")[0])
+    assert tasks and not errors
+    definitions = tasks[0].target.attributes["definitions"]
+    assert "initContainers" not in definitions["app-deployment"]["spec"]["template"]["spec"]
+
+
+def test_kompose_container_without_image(caplog):
+    unnamed = KOMPOSE_INIT.replace("service_name: app", "").replace("image: wordpress:6", "")
+    tasks, errors = _render_kompose(unnamed)
+    assert not tasks and errors
+    assert "does not specify a container image" in caplog.text

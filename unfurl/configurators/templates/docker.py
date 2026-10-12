@@ -56,6 +56,9 @@ class unfurl_nodes_Container_Application_Docker(tosca.nodes.Root):
     """The name of the container"""
 
     container: Union["unfurl_datatypes_DockerContainer", None] = None
+    init_containers: Union[List["unfurl_datatypes_DockerContainer"], None] = None
+    """Containers to run to completion, in order, each time before the container is started."""
+
     container_image: str = Eval(
         {
             "eval": {
@@ -93,6 +96,22 @@ class unfurl_nodes_Container_Application_Docker(tosca.nodes.Root):
      username: "<% SELF.registry_user %>"
      password: "<% SELF.registry_password %>"
      registry_url: "<% SELF.registry_url %>"
+{% endif %}
+{% if inputs.state == 'started' and SELF.init_containers is defined %}
+{% for init in SELF.init_containers or [] %}
+{% if init.get('ports') or init.get('expose') %}<% init_ports_not_allowed | mandatory('init containers can not publish ports') %>{% endif %}
+- community.docker.docker_container:
+    name: "<% init.get('container_name') or SELF.name ~ '-init-' ~ loop.index0 %>"
+    state: started
+    detach: false # fail if the container exits with an error
+    cleanup: true
+    env: <% (init.get('environment') or {}) | map_value | dict2items | rejectattr("value", "none") | list | items2dict | to_json %>
+    <<: <% init | map_value | dict2items | rejectattr("key", "equalto" , "container_name") | rejectattr("key", "equalto" , "environment") | rejectattr("key", "equalto" , "pull_policy") | list | items2dict | to_json %>
+    {%if SELF.container is defined and SELF.container.get('network_mode') and not init.get('network_mode') %}
+    network_mode: "<% SELF.container.network_mode %>"
+    {%endif%}
+  when: not ansible_check_mode
+{% endfor %}
 {% endif %}
 - set_fact:
     image_path: "<% SELF.container_image %>"
@@ -158,6 +177,22 @@ readyState:
      password: "<% SELF.registry_password %>"
      registry_url: "<% SELF.registry_url %>"
 {% endif %}
+{% if inputs.state == 'started' and SELF.init_containers is defined %}
+{% for init in SELF.init_containers or [] %}
+{% if init.get('ports') or init.get('expose') %}<% init_ports_not_allowed | mandatory('init containers can not publish ports') %>{% endif %}
+- community.docker.docker_container:
+    name: "<% init.get('container_name') or SELF.name ~ '-init-' ~ loop.index0 %>"
+    state: started
+    detach: false # fail if the container exits with an error
+    cleanup: true
+    env: <% (init.get('environment') or {}) | map_value | dict2items | rejectattr("value", "none") | list | items2dict | to_json %>
+    <<: <% init | map_value | dict2items | rejectattr("key", "equalto" , "container_name") | rejectattr("key", "equalto" , "environment") | rejectattr("key", "equalto" , "pull_policy") | list | items2dict | to_json %>
+    {%if SELF.container is defined and SELF.container.get('network_mode') and not init.get('network_mode') %}
+    network_mode: "<% SELF.container.network_mode %>"
+    {%endif%}
+  when: not ansible_check_mode
+{% endfor %}
+{% endif %}
 - set_fact:
     image_path: "<% SELF.container_image %>"
 - community.docker.docker_container:
@@ -219,6 +254,22 @@ readyState:
      username: "<% SELF.registry_user %>"
      password: "<% SELF.registry_password %>"
      registry_url: "<% SELF.registry_url %>"
+{% endif %}
+{% if inputs.state == 'started' and SELF.init_containers is defined %}
+{% for init in SELF.init_containers or [] %}
+{% if init.get('ports') or init.get('expose') %}<% init_ports_not_allowed | mandatory('init containers can not publish ports') %>{% endif %}
+- community.docker.docker_container:
+    name: "<% init.get('container_name') or SELF.name ~ '-init-' ~ loop.index0 %>"
+    state: started
+    detach: false # fail if the container exits with an error
+    cleanup: true
+    env: <% (init.get('environment') or {}) | map_value | dict2items | rejectattr("value", "none") | list | items2dict | to_json %>
+    <<: <% init | map_value | dict2items | rejectattr("key", "equalto" , "container_name") | rejectattr("key", "equalto" , "environment") | rejectattr("key", "equalto" , "pull_policy") | list | items2dict | to_json %>
+    {%if SELF.container is defined and SELF.container.get('network_mode') and not init.get('network_mode') %}
+    network_mode: "<% SELF.container.network_mode %>"
+    {%endif%}
+  when: not ansible_check_mode
+{% endfor %}
 {% endif %}
 - set_fact:
     image_path: "<% SELF.container_image %>"
@@ -282,6 +333,22 @@ readyState:
      password: "<% SELF.registry_password %>"
      registry_url: "<% SELF.registry_url %>"
 {% endif %}
+{% if inputs.state == 'started' and SELF.init_containers is defined %}
+{% for init in SELF.init_containers or [] %}
+{% if init.get('ports') or init.get('expose') %}<% init_ports_not_allowed | mandatory('init containers can not publish ports') %>{% endif %}
+- community.docker.docker_container:
+    name: "<% init.get('container_name') or SELF.name ~ '-init-' ~ loop.index0 %>"
+    state: started
+    detach: false # fail if the container exits with an error
+    cleanup: true
+    env: <% (init.get('environment') or {}) | map_value | dict2items | rejectattr("value", "none") | list | items2dict | to_json %>
+    <<: <% init | map_value | dict2items | rejectattr("key", "equalto" , "container_name") | rejectattr("key", "equalto" , "environment") | rejectattr("key", "equalto" , "pull_policy") | list | items2dict | to_json %>
+    {%if SELF.container is defined and SELF.container.get('network_mode') and not init.get('network_mode') %}
+    network_mode: "<% SELF.container.network_mode %>"
+    {%endif%}
+  when: not ansible_check_mode
+{% endfor %}
+{% endif %}
 - set_fact:
     image_path: "<% SELF.container_image %>"
 - community.docker.docker_container:
@@ -343,6 +410,22 @@ readyState:
      username: "<% SELF.registry_user %>"
      password: "<% SELF.registry_password %>"
      registry_url: "<% SELF.registry_url %>"
+{% endif %}
+{% if inputs.state == 'started' and SELF.init_containers is defined %}
+{% for init in SELF.init_containers or [] %}
+{% if init.get('ports') or init.get('expose') %}<% init_ports_not_allowed | mandatory('init containers can not publish ports') %>{% endif %}
+- community.docker.docker_container:
+    name: "<% init.get('container_name') or SELF.name ~ '-init-' ~ loop.index0 %>"
+    state: started
+    detach: false # fail if the container exits with an error
+    cleanup: true
+    env: <% (init.get('environment') or {}) | map_value | dict2items | rejectattr("value", "none") | list | items2dict | to_json %>
+    <<: <% init | map_value | dict2items | rejectattr("key", "equalto" , "container_name") | rejectattr("key", "equalto" , "environment") | rejectattr("key", "equalto" , "pull_policy") | list | items2dict | to_json %>
+    {%if SELF.container is defined and SELF.container.get('network_mode') and not init.get('network_mode') %}
+    network_mode: "<% SELF.container.network_mode %>"
+    {%endif%}
+  when: not ansible_check_mode
+{% endfor %}
 {% endif %}
 - set_fact:
     image_path: "<% SELF.container_image %>"

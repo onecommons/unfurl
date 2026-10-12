@@ -1,0 +1,38 @@
+- tasks:
+  - community.docker.docker_container:
+      image: busybox
+      command:
+      - sh
+      - -c
+      - echo init > /data/ready
+      volumes:
+      - /var/app/data:/data
+      name: app-init-0
+      state: started
+      detach: false
+      cleanup: true
+      env:
+        GREETING: hello
+      network_mode: bridge
+    when: not ansible_check_mode
+  - community.docker.docker_container:
+      image: alpine
+      network_mode: host
+      name: second
+      state: started
+      detach: false
+      cleanup: true
+      env: {}
+    when: not ansible_check_mode
+  - set_fact:
+      image_path: busybox
+  - community.docker.docker_container:
+      image: '{{ image_path }}'
+      network_mode: bridge
+      name: app
+      state: started
+      env: {}
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  environment: {}

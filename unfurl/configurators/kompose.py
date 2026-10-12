@@ -31,11 +31,12 @@
               ingress_extras: {} # merge into ingress record
               env: {} # merged with container.environment
               overlays: {} # merged with resources
+              init_containers: [] # run to completion before the container, as the pod's initContainers
 Note overlays and extras won't be in the rendered kompose files but applied when createing the kubernetes resources to deploy
 
 """
 
-from typing import cast, Union, Optional, TYPE_CHECKING, Dict, Any
+from typing import cast, Union, Optional, TYPE_CHECKING, Dict, Any, List, Tuple
 from toscaparser.elements.portspectype import PortSpec
 from ..tosca_plugins.functions import to_dns_label
 from ..result import serialize_value
@@ -52,6 +53,7 @@ from ..support import ContainerImage
 from ..runtime import EntityInstance
 import os
 import os.path
+import shlex
 from pathlib import Path
 
 
@@ -84,6 +86,9 @@ class KomposeInputs(ShellInputs):
       use that string as the host name in the ingress record.
     :param ingress_extras: Additional configuration for the ingress record.
     :param env: A dictionary of environment variables to add to the container.
+    :param init_containers: Containers (in the same format as ``container``) to run to completion,
+      in order, before the container starts. They are added to the workload as ``initContainers``
+      and can only mount volumes that ``container`` also mounts.
     """
     files: Union[None, Dict[str, Dict[str, Any]]] = None
     container: Union[None, "unfurl_datatypes_DockerContainer"] = None
@@ -98,6 +103,7 @@ class KomposeInputs(ShellInputs):
     ingress_extras: Union[None, Dict[str, Any]] = None
     overlays: Union[None, Dict[str, Dict[str, Any]]] = None
     env: Union[None, Dict[str, str]] = None
+    init_containers: Union[None, List["unfurl_datatypes_DockerContainer"]] = None
 
 def _get_service(compose: dict, service_name: Optional[str] = None) -> dict:
     if service_name:
@@ -121,12 +127,13 @@ def render_compose(
     if image:
         service["image"] = image
     else:
-        image = service["image"]
+        image = service.get("image", "")
     if env:
         service.setdefault("environment", {}).update(env)
     if not service_name:
-        service_name = container.get("container_name", ContainerImage.split(image)[0])
-    assert service_name
+        service_name = container.get("container_name") or ContainerImage.split(image)[0]
+    # without an image the service may be unnamed; KomposeConfigurator._validate rejects it
+    assert service_name or not image
     # service names are more constrained than generic kubernetes labels, treat as dns host name
     # the max is 63 but give kompose some room to append to the name
     return dict(services={cast(str, to_dns_label(service_name, max=NAMEMAX)): service})
@@ -288,11 +295,21 @@ class KomposeConfigurator(ShellConfigurator):
             task.logger.debug("setting extras to:\n%s", extras)
         if not self._handle_result(task, result, cwd.cwd):
             raise UnfurlTaskError(task, "kompose convert failed")
-        definitions = self.save_definitions(task, output_dir, extras)
+        init_containers = task.inputs.get_copy("init_containers") or []
+        definitions = self.save_definitions(
+            task, output_dir, extras, init_containers, main_service.get("volumes") or []
+        )
         task.target.attributes["definitions"] = definitions
         return definitions
 
-    def save_definitions(self, task, out_path, extras):
+    def save_definitions(
+        self,
+        task,
+        out_path,
+        extras,
+        init_containers: Optional[List[dict]] = None,
+        volumes: Optional[List[str]] = None,
+    ):
         files = os.listdir(out_path)
         # add each file as a Unfurl k8s resource so unfurl can manage them (in particular, delete them)
         task.logger.verbose(
@@ -300,7 +317,7 @@ class KomposeConfigurator(ShellConfigurator):
         )
         return {
             Path(filename).stem: _load_resource_file(
-                task, out_path, filename, extras
+                task, out_path, filename, extras, init_containers, volumes
             )
             for filename in files
         }
@@ -353,11 +370,97 @@ def configure_inputs(kind, timeout):
     return inputs
 
 
-def _load_resource_file(task, out_path, filename, extras: Dict[str, Any]):
+WORKLOAD_KINDS = ("Deployment", "StatefulSet", "DaemonSet")
+
+
+def _split_volume(task: TaskView, volume: Any) -> Tuple[str, str, bool]:
+    if not isinstance(volume, str) or volume.count(":") not in (1, 2):
+        raise UnfurlTaskError(task, f'unsupported volume for an init container: "{volume}"')
+    source, target, *mode = volume.split(":")
+    return source, target, mode == ["ro"]
+
+
+def _render_init_containers(
+    task: TaskView, init_containers: List[dict], volumes: List[str], pod_spec: dict
+) -> List[dict]:
+    """Convert compose-style container specs to Kubernetes initContainers that share the pod's volumes."""
+    mount_names = {
+        mount["mountPath"]: mount["name"]
+        for mount in pod_spec["containers"][0].get("volumeMounts") or []
+    }
+    claims = {}
+    for volume in volumes:
+        if isinstance(volume, str) and volume.count(":") in (1, 2):
+            source, target, _ = _split_volume(task, volume)
+            if target in mount_names:
+                claims[source] = mount_names[target]
+    rendered = []
+    for index, init in enumerate(init_containers):
+        if init.get("ports") or init.get("expose"):
+            raise UnfurlTaskError(task, "init containers can not publish ports")
+        if not init.get("image"):
+            raise UnfurlTaskError(task, "init containers must specify an image")
+        container: Dict[str, Any] = dict(
+            name=to_dns_label(init.get("container_name") or f"init-{index}"),
+            image=init["image"],
+        )
+        if init.get("entrypoint"):
+            container["command"] = list(init["entrypoint"])
+        command = init.get("command")
+        if command:
+            container["args"] = shlex.split(command) if isinstance(command, str) else list(command)
+        env = init.get("environment") or {}
+        if env:
+            container["env"] = [
+                dict(name=name, value=str(value))
+                for name, value in env.items()
+                if value is not None
+            ]
+        if init.get("user"):
+            uid, _, gid = str(init["user"]).partition(":")
+            if not uid.isdigit() or (gid and not gid.isdigit()):
+                raise UnfurlTaskError(
+                    task, f'init container user must be numeric on Kubernetes: "{init["user"]}"'
+                )
+            context = dict(runAsUser=int(uid))
+            if gid:
+                context["runAsGroup"] = int(gid)
+            container["securityContext"] = context
+        mounts = []
+        for volume in init.get("volumes") or []:
+            source, target, read_only = _split_volume(task, volume)
+            if source not in claims:
+                raise UnfurlTaskError(
+                    task,
+                    f'init container volume "{volume}" must also be mounted by the container on Kubernetes',
+                )
+            mount: Dict[str, Any] = dict(mountPath=target, name=claims[source])
+            if read_only:
+                mount["readOnly"] = True
+            mounts.append(mount)
+        if mounts:
+            container["volumeMounts"] = mounts
+        rendered.append(container)
+    return rendered
+
+
+def _load_resource_file(
+    task,
+    out_path,
+    filename,
+    extras: Dict[str, Any],
+    init_containers: Optional[List[dict]] = None,
+    volumes: Optional[List[str]] = None,
+):
     with open(Path(out_path) / filename) as f:
         definition_str = f.read()
     definition = yaml.load(definition_str)
     assert isinstance(definition, dict)
+    if init_containers and definition["kind"] in WORKLOAD_KINDS:
+        pod_spec = definition["spec"]["template"]["spec"]
+        pod_spec["initContainers"] = _render_init_containers(
+            task, init_containers, volumes or [], pod_spec
+        )
     if extras and definition["kind"] in extras:
         definition = cast(dict, merge_dicts(definition, extras[definition["kind"]]))
     annotations = task.inputs.get("annotations")

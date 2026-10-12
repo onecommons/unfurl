@@ -279,6 +279,7 @@ Enhancements to make connection more flexible and intuitive to use. See the [con
 
 * **kompose configurator**
   - Add ``overlays`` input parameter for customizing generated kubernetes resources
+  - Add ``init_containers`` input parameter, rendered as the workload's ``initContainers``. They can only mount volumes the container also mounts.
   - Add ``UNFURL_KOMPOSE_TIMEOUT`` environment variable to override the default resource creation timeout (in seconds).
 
 * **helm installer**
@@ -288,6 +289,7 @@ Enhancements to make connection more flexible and intuitive to use. See the [con
 #### Miscellaneous Improvements
 
 * Add support for Python 3.14
+* Add ``init_containers`` property to ``unfurl.nodes.Container.Application.Docker``: containers that are run to completion, in order, each time before the container is started.
 * Update asdf to v0.15.0 (the last version implemented with bash)
 * Update documentation and examples in too many ways to list here.
 * **Job:** 

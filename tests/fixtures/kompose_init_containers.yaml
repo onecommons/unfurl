@@ -1,0 +1,24 @@
+- name: init-0
+  image: busybox
+  command:
+  - sh
+  - -c
+  args:
+  - echo hello > /html/ready
+  env:
+  - name: GREETING
+    value: hello
+  securityContext:
+    runAsUser: 33
+    runAsGroup: 33
+  volumeMounts:
+  - mountPath: /html
+    name: app-claim0
+  - mountPath: /uploads
+    name: app-claim1
+    readOnly: true
+- name: second
+  image: alpine
+  args:
+  - sleep
+  - '1'
