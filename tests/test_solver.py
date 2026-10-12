@@ -117,6 +117,73 @@ def test_convert():
         assert tosca_to_rust(prop)
 
 
+def _tv(v, type_name=None) -> ToscaValue:
+    if isinstance(v, dict):
+        sv = SimpleValue.map(v={k: _tv(x) for k, x in v.items()})
+    elif isinstance(v, list):
+        sv = SimpleValue.list(v=[_tv(x) for x in v])
+    elif isinstance(v, int):
+        sv = SimpleValue.integer(v=v)
+    else:
+        sv = SimpleValue.string(v=v)
+    return ToscaValue(sv, type_name)
+
+
+def _convert_any(value) -> ToscaValue:
+    return tosca_to_rust(Property("p", value, dict(type="any")))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"a": 1, "b": 2},
+        ["a", "b"],
+        {"x": {"a": "1"}, "y": {"b": "2"}},
+        [{"name": "a", "image": "x"}, {"name": "b", "image": "y"}],
+        {"outer": [[1, 2], [3]]},
+        {},
+        [],
+        "s",
+        1,
+    ],
+)
+def test_convert_any_homogeneous(value):
+    assert _convert_any(value) == _tv(value, "any")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"a": 1, "b": "x"},
+        {"nodeSelector": {"a": "b"}, "containers": [{"name": "x"}]},
+        ["s", {"k": "v"}, 3, [1]],
+        {
+            "StatefulSet": {
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "nodeSelector": {"pool": "web"},
+                            "containers": [{"resources": {"limits": {"cpu": "1"}}}],
+                        }
+                    }
+                }
+            }
+        },
+    ],
+)
+def test_convert_any_mixed(value):
+    assert _convert_any(value) == _tv(value, "any")
+
+
+def test_convert_declared_entry_schema():
+    prop = Property(
+        "p", {"a": {"k": 1}, "b": "x"}, dict(type="map", entry_schema=dict(type="any"))
+    )
+    assert tosca_to_rust(prop) == ToscaValue(
+        SimpleValue.map({"a": _tv({"k": 1}, "any"), "b": _tv("x", "any")})
+    )
+
+
 def test_simple_value_float():
     """SimpleValue.float round-trips through Python and supports value equality + ordering."""
     a = ToscaValue(SimpleValue.float(v=1.5))

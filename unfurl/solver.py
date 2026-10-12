@@ -89,7 +89,7 @@ def include_value(v):
     return v is not None and not has_function(v)
 
 
-def tosca_to_rust(prop: Property) -> ToscaValue:
+def tosca_to_rust(prop: Property, deduced: bool = False) -> ToscaValue:
     value = prop.value
     assert value is not None, (
         f"nulls should be omitted from solver {prop.schema.schema}"
@@ -122,6 +122,7 @@ def tosca_to_rust(prop: Property) -> ToscaValue:
                 ctor, any_schema_dict = deduce_type(value)
                 tosca_type = any_schema_dict["type"]
                 schema = Schema(prop.name, any_schema_dict)
+                deduced = True
             elif entity:  # find simple type from complex type
                 # use a TOSCA datatype
                 if entity.datatype.value_type:  # its a simple value type
@@ -137,6 +138,13 @@ def tosca_to_rust(prop: Property) -> ToscaValue:
             else:
                 assert False, tosca_type
         assert ctor, f"no ctor for {tosca_type}"
+
+        def entry_schema(v) -> dict:
+            # deduce_type only looks at the first entry, so mixed entries need their own
+            if deduced:
+                return deduce_type(v)[1] or schema.entry_schema
+            return schema.entry_schema
+
         if tosca_type == "range":
             upper = (
                 sys.maxsize if value[1] == "UNBOUNDED" else value[1]
@@ -147,7 +155,8 @@ def tosca_to_rust(prop: Property) -> ToscaValue:
                 schema.schema["entry_schema"] = dict(type="any")
             filtered = [
                 tosca_to_rust(
-                    Property(prop.name, v, schema.entry_schema, prop.custom_def)
+                    Property(prop.name, v, entry_schema(v), prop.custom_def),
+                    deduced,
                 )
                 for v in value
                 if include_value(v)
@@ -163,7 +172,8 @@ def tosca_to_rust(prop: Property) -> ToscaValue:
                 ctor(
                     {
                         k: tosca_to_rust(
-                            Property(prop.name, v, schema.entry_schema, prop.custom_def)
+                            Property(prop.name, v, entry_schema(v), prop.custom_def),
+                            deduced,
                         )
                         for k, v in value.items()
                         if include_value(v)
