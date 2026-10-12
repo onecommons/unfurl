@@ -8,8 +8,9 @@ import pytest
 import unfurl
 import tosca
 from tosca import List, Size, MB, EvalData, operation
-from unfurl.eval import Ref
-from unfurl.job import JobOptions
+from unfurl.eval import Ref, RefContext, UnfurlEvalError
+from unfurl.job import JobOptions, Runner
+from unfurl.yamlmanifest import YamlManifest
 from unfurl.logs import is_sensitive, getLogger
 from unfurl.result import serialize_value
 from unfurl.support import Status
@@ -886,3 +887,210 @@ node_types:
     finally:
         for name in (pkg_name, f"{pkg_name}.b", f"{pkg_name}.c"):
             sys.modules.pop(name, None)
+
+
+
+def raise_type_error() -> str:
+    raise TypeError("computed type error")
+
+
+def raise_key_error() -> str:
+    raise KeyError("computed key error")
+
+
+computed_error_manifest = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      Source:
+        derived_from: tosca.nodes.Root
+        properties:
+          prop:
+            type: string
+            required: false
+    topology_template:
+      node_templates:
+        source:
+          type: Source
+          properties:
+            prop:
+              eval:
+                computed: tests.test_dsl_integration:%s
+        consumer:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation: Template
+                  inputs:
+                    run:
+                      eval: %s
+                    done:
+                      outputs:
+                        out:
+                          eval: $inputs::run
+"""
+
+
+@pytest.mark.parametrize(
+    "func,message",
+    [
+        ("raise_type_error", "computed type error"),
+        ("raise_key_error", "computed key error"),
+    ],
+)
+def test_computed_error_fails_render(
+    func: str, message: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    manifest = YamlManifest(computed_error_manifest % (func, "::source::prop"))
+    job = Runner(manifest).run(JobOptions(skip_save=True))
+    assert job and job.status == Status.error
+    render_errors = [
+        r.exc_info[1]
+        for r in caplog.records
+        if "Configurator render failed" in r.getMessage() and r.exc_info
+    ]
+    assert len(render_errors) == 1
+    assert str(render_errors[0]).startswith("error evaluating computed: ")
+    assert message in str(render_errors[0])
+
+
+def test_missing_key_evaluates_to_none() -> None:
+    manifest = YamlManifest(
+        computed_error_manifest % ("raise_type_error", "::source::no_such_prop")
+    )
+    job = Runner(manifest).run(JobOptions(skip_save=True))
+    assert job
+    (task,) = job.workDone.values()
+    assert task.target.name == "consumer"
+    assert task.result.success
+    assert task.outputs == {"out": None}
+
+
+not_found_manifest = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      Box:
+        derived_from: tosca.nodes.Root
+        capabilities:
+          host:
+            type: tosca.capabilities.Compute
+      Probe:
+        derived_from: tosca.nodes.Root
+        requirements:
+          - host:
+              node: Box
+              relationship: tosca.relationships.HostedOn
+              occurrences: [0, 1]
+        properties:
+          port:
+            type: integer
+            default: 80
+          m:
+            type: map
+            default: {a: 1}
+          tags:
+            type: list
+            default: [web]
+          opt:
+            type: string
+            required: false
+          opt_size:
+            type: scalar-unit.size
+            required: false
+          opt_list:
+            type: list
+            required: false
+          value:
+            type: any
+            required: false
+    topology_template:
+      node_templates:
+        box:
+          type: Box
+        other:
+          type: Probe
+        probe:
+          type: Probe
+          requirements:
+            - host: box
+          properties:
+            value: %(expr)s
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation: Template
+                  inputs:
+                    run: %(expr)s
+                    done:
+                      outputs:
+                        out: {eval: $inputs::run}
+"""
+
+get_property_not_found = [
+    "{eval: {get_property: [SELF, undefined_prop]}}",
+    "{eval: {get_property: [no_such_node, port]}}",
+    "{eval: {get_property: [SELF, m, no_such_key]}}",
+    "{eval: {get_property: [SELF, tags, 5]}}",
+    "{eval: {get_property: [HOST, port]}}",
+]
+
+
+def _resolve_probe_value(expr: str) -> list:
+    manifest = YamlManifest(not_found_manifest % dict(expr=expr))
+    Runner(manifest).static_plan()
+    root = manifest.rootResource
+    assert root and root.imports is not None
+    other = root.find_resource("other")
+    root.imports.add_import("secret", other)
+    root.imports.add_import("local", other)
+    return Ref("::probe::value").resolve(RefContext(root))
+
+
+@pytest.mark.parametrize(
+    "expr",
+    get_property_not_found
+    + [
+        "{eval: {get_attribute: [SELF, m, no_such_key]}}",
+        "{eval: {get_attribute: [no_such_node, m]}}",
+        "{eval: {get_property: [other, opt]}}",
+        "{eval: {get_env: NO_SUCH_ENV_VAR}}",
+        "{eval: {secret: no_such_secret}}",
+        "{eval: {local: no_such_local}}",
+        "{eval: {get_artifact: [SELF, no_such_artifact]}}",
+        "{eval: {to_label: {eval: '.::no_such'}}}",
+        "{eval: {and: ['.::no_such', 1]}}",
+        "{eval: {token: ['host', ':', 1]}}",
+        "{eval: {scalar: {eval: '::other::opt_size'}}}",
+        "{eval: {scalar_value: {eval: '::other::opt_size'}, unit: GB}}",
+    ],
+)
+def test_not_found_evaluates_to_none(expr: str) -> None:
+    assert _resolve_probe_value(expr) == [None]
+
+
+def test_foreach_over_missing_is_empty() -> None:
+    assert _resolve_probe_value(
+        "{eval: {foreach: [{eval: '::other::opt_list'}, '$item']}}"
+    ) == _resolve_probe_value("{eval: {foreach: [[], '$item']}}")
+
+
+@pytest.mark.parametrize("expr", get_property_not_found)
+def test_get_property_not_found_operation_input(expr: str) -> None:
+    manifest = YamlManifest(not_found_manifest % dict(expr=expr))
+    job = Runner(manifest).run(JobOptions(skip_save=True))
+    assert job and job.status == Status.ok
+    (task,) = [t for t in job.workDone.values() if t.target.name == "probe"]
+    assert task.outputs == {"out": None}
+
+
+def test_operator_on_missing_value_fails() -> None:
+    with pytest.raises(UnfurlEvalError, match="error evaluating gt"):
+        _resolve_probe_value("{eval: {gt: [{eval: '::other::opt'}, 5]}}")

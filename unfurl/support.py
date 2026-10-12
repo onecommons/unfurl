@@ -824,7 +824,11 @@ def token(args, ctx):
      [ get_attribute: [ my_server, data_endpoint, ip_address ], ':', 1 ]
     """
     args = map_value(args, ctx)
-    return args[0].split(args[1])[args[2]]
+    tokens = args[0].split(args[1])
+    index = args[2]
+    if not -len(tokens) <= index < len(tokens):
+        return None
+    return tokens[index]
 
 
 set_eval_func("token", token, True, True)
@@ -841,7 +845,24 @@ def get_tosca_property(args, ctx):
     else:
         tosca_tpl = ctx.currentResource.root.template.toscaEntityTemplate
         node_template = ctx.currentResource.template.toscaEntityTemplate
-    return get_function(tosca_tpl, node_template, {"get_property": args}).result()
+    if ExceptionCollector.collecting:
+        # validation is collecting errors, so a not-found is reported there and evaluates to None
+        return get_function(tosca_tpl, node_template, {"get_property": args}).result()
+
+    # tosca-parser reports a missing node, property, key or index via ExceptionCollector,
+    # which raises unless it's collecting, so collect them here and evaluate to None
+    saved = ExceptionCollector.exceptions[:], ExceptionCollector.near
+    ExceptionCollector.start()
+    try:
+        value = get_function(tosca_tpl, node_template, {"get_property": args}).result()
+        reported = ExceptionCollector.exceptions[:]
+    finally:
+        ExceptionCollector.stop()
+        ExceptionCollector.exceptions[:], ExceptionCollector.near = saved
+    for error in reported:
+        if not isinstance(error, KeyError):
+            raise error
+    return None if reported else value
 
 
 set_eval_func("get_property", get_tosca_property, True, True)

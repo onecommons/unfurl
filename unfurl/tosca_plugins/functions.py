@@ -46,7 +46,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 if safe_mode():
 
-    def eval_func(func: F) -> F:
+    def eval_func(func: F, none_if_missing: bool = False) -> F:
         def wrapped(*args, **kwargs):
             kwargs[func.__name__] = list(args)
             return EvalData({"eval": kwargs})
@@ -56,7 +56,9 @@ else:
     from ..eval import map_value, set_eval_func
     from tosca import global_state
 
-    def eval_func(func: F) -> F:
+    def eval_func(func: F, none_if_missing: bool = False) -> F:
+        """If ``none_if_missing`` is set, the eval function returns None when its argument evaluates to nothing."""
+
         def wrapped(*args, **kwargs):
             if global_state_mode() == "runtime":
                 ctx = global_state_context()
@@ -75,7 +77,10 @@ else:
             def _eval_func(arg, ctx):
                 kw = ctx.kw.copy()
                 kw.pop(ctx.currentFunc or func.__name__, None)
-                return func(*map_value(arg, ctx, as_list=True), **map_value(kw, ctx))
+                args = map_value(arg, ctx, as_list=True)
+                if none_if_missing and not args:
+                    return None
+                return func(*args, **map_value(kw, ctx))
 
             set_eval_func(
                 func.__name__,
@@ -87,9 +92,9 @@ else:
         return cast(F, wrapped)
 
 
-scalar = eval_func(tosca.scalar)
+scalar = eval_func(tosca.scalar, none_if_missing=True)
 
-scalar_value = eval_func(tosca.scalar_value)
+scalar_value = eval_func(tosca.scalar_value, none_if_missing=True)
 
 
 def _digest(arg: str, case: str, digest: Optional[str] = None) -> str:

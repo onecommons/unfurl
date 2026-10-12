@@ -781,6 +781,8 @@ def for_each(
 def for_each_func(args, ctx: RefContext) -> List[Result]:
     results, foreach = args
     results = map_value(results, ctx)
+    if results is None:
+        results = []
     if isinstance(results, MutableSequence):
         return _for_each(foreach, results, ctx)
     else:
@@ -959,7 +961,13 @@ def eval_ref(
                     raise UnfurlEvalError(
                         f"unexpected '{unexpected}' found, did you intend it for the parent?"
                     )
-                val = func(args, ctx)
+                try:
+                    val = func(args, ctx)
+                except (KeyError, IndexError, TypeError, ValueError) as e:
+                    # lookup() treats these as a missing key, so they'd be silently swallowed
+                    raise UnfurlEvalError(
+                        f"error evaluating {key}", saveStack=True
+                    ) from e
                 if key == "q":
                     if isinstance(val, Result):
                         return [val]
