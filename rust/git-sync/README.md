@@ -127,6 +127,11 @@ rows](docs/branch-segments.md#411-conflicts).
 - `default = []` — SQLite is always compiled in.
 - `sqlite` — (no-op; SQLite is always available).
 - `postgres` — opt in to a Postgres backend.
+  With it, `db::provision(app_url, app_password, &admin)` creates the
+  role and database `app_url` names, connected as the admin, before
+  `Db::connect` migrates as the role: a role that exists has its
+  password set, sent as a SCRAM-SHA-256 verifier, unless it is
+  privileged, and a database that exists is left as it is.
 
 ## Status
 

@@ -4840,8 +4840,11 @@ name = "unfurl-git-sync"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "chrono",
+ "getrandom 0.4.2",
  "gix",
+ "hmac",
  "json5",
  "proptest",
  "regress 0.10.5",
@@ -4850,6 +4853,7 @@ dependencies = [
  "serde-saphyr",
  "serde_json",
  "serde_path_to_error",
+ "sha2",
  "sqlx",
  "tempfile",
  "thiserror 1.0.69",

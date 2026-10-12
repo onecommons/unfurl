@@ -204,7 +204,14 @@ mod bench;
 pub mod commit;
 pub mod file;
 pub mod grant;
+#[cfg(feature = "postgres")]
+mod provision;
 pub mod record;
+#[cfg(feature = "postgres")]
+mod scram;
+
+#[cfg(feature = "postgres")]
+pub use provision::{provision, Admin, DatabaseState, Outcome, RoleChange};
 pub(crate) mod store;
 pub(crate) mod tables;
 pub mod worktree;

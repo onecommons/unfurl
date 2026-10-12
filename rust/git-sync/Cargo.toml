@@ -20,7 +20,13 @@ path = "src/lib.rs"
 # SQLite support is always compiled in (it's the simple default backend).
 # Postgres is opt-in via this feature flag.
 default = []
-postgres = ["sqlx/postgres"]
+postgres = [
+    "sqlx/postgres",
+    "dep:base64",
+    "dep:getrandom",
+    "dep:hmac",
+    "dep:sha2",
+]
 # Compatibility alias so callers can still write `--features sqlite` —
 # SQLite is always built in, this is a no-op flag.
 sqlite = []
@@ -53,6 +59,10 @@ regress = "0.10"
 json5 = "1.3.1"
 unfurl-merge = { version = "0.1.0", path = "../merge" }
 serde_path_to_error = "0.1.20"
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+base64 = { version = "0.22", optional = true }
+getrandom = { version = "0.4", optional = true }
 
 [build-dependencies]
 # Generates Rust types from `unfurl/cloudmap/cloudmap-schema.json` so
