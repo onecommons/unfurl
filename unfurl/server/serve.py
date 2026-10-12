@@ -1065,6 +1065,10 @@ class CacheEntry:
                     action = "proxied"
                 elif repo.remote:
                     logger.info(f"pulling repo for {repo_key}")
+                    # before the fetch: after it, a remote's rewritten
+                    # history leaves commits on no remote-tracking branch
+                    # that were never this clone's
+                    ahead = _commits_ahead(repo.working_dir)
                     try:
                         action = pull(repo, branch, shallow_since)
                     except Exception:
@@ -1076,7 +1080,7 @@ class CacheEntry:
                             # we don't delete the repo in local developer mode
                             _clear_project(self.project_id)
                             action = "detached"
-                        elif _unpushed_work(repo.working_dir):
+                        elif _unpushed_work(repo.working_dir, ahead):
                             # a clone made again wouldn't have it: serve
                             # this one as it is, and pull again later
                             logger.warning(
@@ -1086,7 +1090,11 @@ class CacheEntry:
                             )
                             action = "diverged"
                         else:
-                            _clear_project(self.project_id, repo.working_dir)
+                            # it holds nothing unpushed, by the count made
+                            # before the fetch, which clearing can't repeat
+                            _clear_project(
+                                self.project_id, repo.working_dir, force=True
+                            )
                             repo = None
                 else:
                     action = "detached"
@@ -2263,18 +2271,31 @@ def clear_project(query: ClearProjectQuery) -> ResponseReturnValue:
     return _clear_project(project_id, force=query.force)
 
 
-def _unpushed_work(path: str) -> Optional[str]:
+def _commits_ahead(path: str) -> Union[int, str]:
+    """How many commits the clone at ``path`` has that no remote-tracking
+    branch does, or why that can't be told."""
+    try:
+        return int(git.Repo(path).git.rev_list("HEAD", "--not", "--remotes", "--count"))
+    except Exception as e:
+        logger.warning("can't count the unpushed commits of %s", path, exc_info=True)
+        return f"can't tell: {e}"
+
+
+def _unpushed_work(path: str, ahead: Union[int, str, None] = None) -> Optional[str]:
     """The work the clone at ``path`` holds that its remote lacks, as a
     cloudmap write leaves: uncommitted changes, or commits no
-    remote-tracking branch has. None if there's none."""
+    remote-tracking branch has -- ``ahead``, counted before a fetch, if
+    given. None if there's none."""
     try:
-        repo = git.Repo(path)
-        if repo.is_dirty(untracked_files=True):
+        if git.Repo(path).is_dirty(untracked_files=True):
             return "uncommitted changes"
-        ahead = int(repo.git.rev_list("HEAD", "--not", "--remotes", "--count"))
     except Exception as e:
         logger.warning("can't tell whether %s has unpushed work", path, exc_info=True)
         return f"can't tell: {e}"
+    if ahead is None:
+        ahead = _commits_ahead(path)
+    if isinstance(ahead, str):
+        return ahead
     if ahead:
         return f"{ahead} commit{'s' if ahead > 1 else ''} not pushed"
     return None

@@ -633,6 +633,27 @@ def test_a_failed_pull_removes_only_its_own_clean_clone(clone_root):
         assert os.path.isdir(other)
 
 
+def test_a_clone_of_a_rewritten_remote_isnt_kept_as_diverged(clone_root):
+    """A clean clone whose remote's history was rewritten holds no work
+    the remote lacks, though its old commits are on no remote-tracking
+    branch after the fetch: it's removed to be cloned again."""
+    from cachelib import SimpleCache
+
+    remote = _remote(clone_root)
+    with server.app.app_context():
+        main = server._get_project_repo_dir("org/proj", "main", {})
+        _git(clone_root, "clone", "-q", str(remote), main)
+        (remote / "cloudmap.yaml").write_text("repositories: {}\n# rewritten\n")
+        _git(remote, "commit", "-q", "--amend", "-am", "rewritten")
+
+        entry = server.CacheEntry(
+            "org/proj", "main", "cloudmap.yaml", "load_yaml", do_clone=False
+        )
+        with pytest.raises(Exception):
+            entry.pull(SimpleCache())
+        assert not os.path.exists(main)
+
+
 def test_clear_project_keeps_a_clone_in_use(clone_root):
     """A clone whose git lock another holds -- a pull, a write, or the rust
     server's commit in progress -- isn't removed from under it."""
