@@ -63,6 +63,7 @@ fn test_config(prefix: &str, batch_window_secs: f64) -> Config {
         log_style: None,
         local: None,
         cors_origins: None,
+        command: None,
     }
 }
 

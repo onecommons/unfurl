@@ -354,6 +354,48 @@ pub struct Config {
     /// answer preflights identically however this one was started.
     #[arg(long = "cors-origins", env = "UNFURL_SERVE_CORS")]
     pub cors_origins: Option<String>,
+
+    /// Run a one-off command instead of the server.
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+/// One-off commands that run and exit instead of serving.
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum Command {
+    /// Create the role and database `UNFURL_CLOUDMAP_DB_URL` names, or set
+    /// the role's password if it exists, connected as an admin role.
+    CreateDatabase(CreateDatabase),
+}
+
+/// Arguments of [`Command::CreateDatabase`], besides `cloudmap_db_url`.
+#[derive(clap::Args, Clone)]
+pub struct CreateDatabase {
+    /// The password to give the role `UNFURL_CLOUDMAP_DB_URL` names;
+    /// required.
+    #[arg(long, env = "PGPASSWORD", hide_env_values = true)]
+    pub app_password: Option<String>,
+
+    /// The role to connect as to create the role and database.
+    #[arg(long, env = "UNFURL_DB_ADMIN_USER")]
+    pub admin_user: String,
+
+    /// The admin role's password.
+    #[arg(long, env = "UNFURL_DB_ADMIN_PASSWORD", hide_env_values = true)]
+    pub admin_password: String,
+
+    /// The database to connect to as the admin role.
+    #[arg(long, env = "UNFURL_DB_ADMIN_DATABASE", default_value = "postgres")]
+    pub admin_database: String,
+}
+
+impl std::fmt::Debug for CreateDatabase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateDatabase")
+            .field("admin_user", &self.admin_user)
+            .field("admin_database", &self.admin_database)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Config {
@@ -613,6 +655,7 @@ mod tests {
             log_style: None,
             local: None,
             cors_origins: None,
+            command: None,
         }
     }
 

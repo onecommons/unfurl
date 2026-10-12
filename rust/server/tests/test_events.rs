@@ -56,6 +56,7 @@ fn test_config(prefix: &str) -> Config {
         log_style: None,
         local: None,
         cors_origins: None,
+        command: None,
     }
 }
 

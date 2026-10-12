@@ -73,6 +73,28 @@ without `auth_project`) on `branch`, `main` without one: with no records
 when that origin has no such branch, and by Python when the database has
 no worktree for the origin at all.
 
+**Creating the Postgres database:** `unfurl-server create-database`
+creates the role and database `UNFURL_CLOUDMAP_DB_URL` names and exits,
+0 on success. Connected as the admin role to the same host and port, it
+creates the role with `LOGIN` and the app password, or sets the password
+of a role that exists, then creates the database owned by it unless it
+exists; a database owned by another role is left alone, with a warning.
+It creates no tables: the server does when it connects. The password is
+sent as a SCRAM-SHA-256 verifier, never in plaintext. A URL with a
+password, or whose user is the admin role, is refused, as is an existing
+role that is a superuser or can create roles or databases, replicate, or
+bypass row-level security. Pass the passwords
+in the environment: flags show in `ps`. The work is
+`unfurl_git_sync::db::provision`'s.
+
+| Setting | CLI flag | Env var |
+|---|---|---|
+| The app's URL, without a password: its user is the role, its path the database | `--cloudmap-db-url` (before the subcommand) | `UNFURL_CLOUDMAP_DB_URL` |
+| The role's password, which the server also reads to connect | `--app-password` | `PGPASSWORD` |
+| Admin role | `--admin-user` | `UNFURL_DB_ADMIN_USER` |
+| Admin role's password | `--admin-password` | `UNFURL_DB_ADMIN_PASSWORD` |
+| Database to connect to as the admin, for services that restrict `postgres` | `--admin-database` | `UNFURL_DB_ADMIN_DATABASE` (default `postgres`) |
+
 The startup scan validates every record against the cloudmap schema,
 reports what it refused, and summarises it in one line.
 `--scan-abort-level` decides whether that also stops the server coming

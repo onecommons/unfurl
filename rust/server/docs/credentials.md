@@ -340,6 +340,18 @@ and the pod's shared `localhost` connects them as now. Separate uids would
 need the shared-checkout support below, and add little: the key is protected
 by the mount, and §2.6 covers what a writer of the shared checkouts can do.
 The deployment design is in the `unfurl_server` blueprint's `k8s-design.md`.
+
+An init container, `unfurl-server create-database`, creates the cloudmap
+database and its role before the server starts, connected as the Postgres
+admin. It alone receives the admin Secret; the server connects as the role.
+The role's password is sent as a SCRAM-SHA-256 verifier, not as text, and
+is set again on every start, so rotating the Secret takes effect on the
+next rollout. The verifier is still sensitive: it allows offline guessing
+of the password, and its ServerKey impersonating the server to clients,
+so avoid DDL logging on that server. An existing role that is a superuser
+or can create roles or databases is refused rather than given the
+password.
+
 Without Kubernetes, **two users in the container**:
 
 | User | Runs | Can read |

@@ -11,7 +11,7 @@ use std::io::IsTerminal;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
-use unfurl_server::config::{Config, LogStyle, ScanAbortLevel};
+use unfurl_server::config::{Command, Config, CreateDatabase, LogStyle, ScanAbortLevel};
 use unfurl_server::gitlock::GitLocks;
 use unfurl_server::grants::{GrantError, GrantKey, GrantStore};
 use unfurl_server::{cloudmap, queue, AppState};
@@ -460,12 +460,62 @@ fn main() {
     // reading the env var alone left the flag inert. Clap reports its own
     // argument errors, so nothing is lost by logging slightly later.
     let config = Config::parse();
+    if let Some(Command::CreateDatabase(args)) = &config.command {
+        init_tracing(&config);
+        std::process::exit(create_database(&config, args));
+    }
     // SAFETY: the process has opened no descriptors yet (the runtime and the
     // log file come later), so one that is open was inherited and is unowned
     let grant_key = config
         .grant_key_fd
         .map(|fd| unsafe { GrantKey::from_inherited_fd(fd) });
     run(config, grant_key);
+}
+
+/// Runs `create-database`, returning the exit status.
+fn create_database(config: &Config, args: &CreateDatabase) -> i32 {
+    let Some(url) = config.cloudmap_db_url.as_deref() else {
+        tracing::error!("create-database needs UNFURL_CLOUDMAP_DB_URL");
+        return 1;
+    };
+    let Some(app_password) = args.app_password.as_deref() else {
+        tracing::error!("PGPASSWORD is required: the role's password (or --app-password)");
+        return 1;
+    };
+    match create_database_on(url, app_password, args) {
+        Ok(()) => 0,
+        Err(e) => {
+            tracing::error!("create-database failed: {e}");
+            1
+        }
+    }
+}
+
+#[cfg(feature = "postgres")]
+fn create_database_on(url: &str, app_password: &str, args: &CreateDatabase) -> Result<(), String> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let admin = unfurl_git_sync::db::Admin {
+        user: &args.admin_user,
+        password: &args.admin_password,
+        database: &args.admin_database,
+    };
+    let provision = unfurl_git_sync::db::provision(url, app_password, &admin);
+    runtime
+        .block_on(provision)
+        .map(drop)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(feature = "postgres"))]
+fn create_database_on(
+    _url: &str,
+    _app_password: &str,
+    _args: &CreateDatabase,
+) -> Result<(), String> {
+    Err("this unfurl-server was built without postgres support".into())
 }
 
 #[tokio::main]

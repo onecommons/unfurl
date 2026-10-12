@@ -170,6 +170,7 @@ fn default_config() -> Config {
         // check. The auth_project tests below build a strict config instead.
         local: Some("/tmp/checkout".into()),
         cors_origins: None,
+        command: None,
     }
 }
 
