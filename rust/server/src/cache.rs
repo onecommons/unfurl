@@ -137,17 +137,12 @@ async fn pulled_head(
     secs: u64,
     clone: &std::path::Path,
 ) -> Option<String> {
-    let raw: Option<Vec<u8>> = conn.get(pull_key).await.ok()?;
-    let raw = raw?;
-    let payload = raw.strip_prefix(b"!").unwrap_or(&raw);
-    let record = serde_pickle::value_from_slice(payload, DeOptions::new()).ok()?;
-    let (when, outcome) = pull_record(&record)?;
+    let (when, outcome) = pull_record_at(conn, pull_key).await?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
         .as_secs_f64();
-    let unpulled = matches!(outcome.as_str(), "detached" | "proxied");
-    if !unpulled && now - when > secs as f64 {
+    if !unpulled(&outcome) && now - when > secs as f64 {
         tracing::info!("cache ignored - last pull of {} is stale", clone.display());
         return None;
     }
@@ -156,6 +151,38 @@ async fn pulled_head(
     // read just before the pull moves it only leaves the entry unserved.
     let repo = unfurl_git_sync::git::open_repo(clone).ok()?;
     repo.head_id().ok().map(|id| id.to_string())
+}
+
+/// Whether a pull record's `outcome` is of a clone python never pulls.
+pub(crate) fn unpulled(outcome: &str) -> bool {
+    matches!(outcome, "detached" | "proxied")
+}
+
+/// The key of python's pull record of `project`'s clone at `dir`.
+pub(crate) fn pull_key(prefix: &str, project: &str, dir: &std::path::Path) -> String {
+    let dir = dir.to_string_lossy();
+    format!("{prefix}{project}:pull:{}", dir.trim_end_matches('/'))
+}
+
+/// Python's pull record at `key`, `(time, outcome)`.
+pub(crate) async fn pull_record_at(
+    conn: &mut redis::aio::MultiplexedConnection,
+    key: &str,
+) -> Option<(f64, String)> {
+    let raw: Option<Vec<u8>> = conn.get(key).await.ok()?;
+    let raw = raw?;
+    let payload = raw.strip_prefix(b"!").unwrap_or(&raw);
+    let record = serde_pickle::value_from_slice(payload, DeOptions::new()).ok()?;
+    pull_record(&record)
+}
+
+/// A pull record, `(when, outcome)`, as python's cachelib stores one.
+pub(crate) fn pickled_pull_record(when: f64, outcome: &str) -> Vec<u8> {
+    use serde_pickle::{SerOptions, Value};
+    let record = Value::Tuple(vec![Value::F64(when), Value::String(outcome.to_string())]);
+    let mut raw = b"!".to_vec();
+    raw.extend(serde_pickle::value_to_vec(&record, SerOptions::new()).expect("a tuple pickles"));
+    raw
 }
 
 /// Python's pull record: its time and outcome.
@@ -413,6 +440,21 @@ mod tests {
         assert_eq!(
             pull_record(&record),
             Some((1791000000.5, "pulled".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_pull_record_is_written_as_python_reads_it() {
+        let raw = pickled_pull_record(1791000000.5, "pulled");
+        let payload = raw.strip_prefix(b"!").expect("cachelib's marker");
+        let record = serde_pickle::value_from_slice(payload, DeOptions::new()).expect("pickle");
+        assert_eq!(
+            pull_record(&record),
+            Some((1791000000.5, "pulled".to_string()))
+        );
+        assert!(
+            matches!(record, serde_pickle::Value::Tuple(_)),
+            "{record:?}"
         );
     }
 

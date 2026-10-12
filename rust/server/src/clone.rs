@@ -27,6 +27,9 @@ pub struct Checkout {
     pub branch: String,
     /// Whether it's a default cloudmap: read by a request naming no project.
     pub default_cloudmap: bool,
+    /// How bringing it up ended, as python's pull record names it; `None`
+    /// where its remote couldn't be reached and it's served as it is.
+    pub pulled: Option<&'static str>,
 }
 
 /// A checkout of each worktree in the database `db` whose origin is a
@@ -161,6 +164,9 @@ pub struct Cloner {
 pub struct RequestAccess {
     pub private: bool,
     pub credentials: Option<Credentials>,
+    /// The cloud server's user making it (`X-Unfurl-Username`), whom a
+    /// grant of its credentials is for.
+    pub username: String,
 }
 
 impl Cloner {
@@ -239,9 +245,10 @@ impl Cloner {
             }
         };
         Some(Wanted {
+            worktree: known.iter().find(|w| w.branch == branch).map(|w| w.id),
+            visibility: known.iter().find_map(|w| w.visibility.clone()),
             origin,
             branch,
-            visibility: known.iter().find_map(|w| w.visibility.clone()),
             default_cloudmap: false,
         })
     }
@@ -254,6 +261,19 @@ impl Cloner {
             locks: self.locks.as_ref(),
             grants: self.grants.as_deref(),
             trust: self.trust,
+        }
+    }
+
+    /// Keep the credentials of `access`, which brought up `project`'s
+    /// checkout, as a grant, for its later pulls, as a queued write's are.
+    async fn keep_grant(&self, project: &str, access: &RequestAccess) {
+        let (Some(grants), Some(credentials)) = (&self.grants, &access.credentials) else {
+            return;
+        };
+        let origin = format!("{}/{project}", self.cloud_server.trim_end_matches('/'));
+        let token = crate::grants::credentials(&credentials.user, &credentials.secret);
+        if let Err(e) = grants.grant(&access.username, &origin, &token, "").await {
+            tracing::warn!(project, error = %e, "can't keep a request's credentials as a grant");
         }
     }
 
@@ -278,14 +298,13 @@ impl Cloner {
         mut wanted: Wanted,
         project: &str,
         access: &RequestAccess,
-    ) -> Option<CloudMapState> {
+    ) -> Option<(CloudMapState, Option<&'static str>)> {
         let startup = self.startup();
         let checkout = match access.private {
             true => {
                 let url = format!("{}/{project}.git", self.cloud_server.trim_end_matches('/'));
-                startup
-                    .settle_with(&wanted, project, &self.access(&url, access))
-                    .await?
+                let access = self.access(&url, access);
+                startup.settle_with(&wanted, project, &access).await?
             }
             false => startup.settle(&mut wanted).await?,
         };
@@ -303,14 +322,19 @@ impl Cloner {
             self.trust,
         )
         .await;
-        opened.unwrap_or_else(|e| {
+        let opened = opened.unwrap_or_else(|e| {
             tracing::warn!(
                 project,
                 error = e.to_string().as_str(),
                 "can't open a checkout brought up for a request"
             );
             None
-        })
+        })?;
+        // only credentials git took, for a checkout served
+        if access.private && checkout.pulled.is_some() {
+            self.keep_grant(project, access).await;
+        }
+        Some((opened, checkout.pulled))
     }
 }
 
@@ -321,6 +345,8 @@ pub(crate) struct Wanted {
     pub(crate) branch: String,
     visibility: Option<String>,
     default_cloudmap: bool,
+    /// Its row in the database, if it has one.
+    worktree: Option<i64>,
 }
 
 impl Wanted {
@@ -330,6 +356,7 @@ impl Wanted {
             branch: w.branch.clone(),
             visibility: w.visibility.clone(),
             default_cloudmap: false,
+            worktree: Some(w.id),
         }
     }
 }
@@ -377,19 +404,22 @@ impl Startup<'_> {
         };
         let url = format!("{}/{project}.git", self.cloud_server.trim_end_matches('/'));
         if w.visibility.as_deref() != Some(PRIVATE) {
-            let checkout = self.checkout(w, &project, "public");
+            let mut checkout = self.checkout(w, &project, "public");
             match update(
                 &checkout,
                 &url,
                 self.locks,
                 &Access::anonymous(&url).trusting(self.trust),
+                self.uncommitted(w).await,
             )
             .await
             {
-                Ok(()) => {
-                    if w.visibility.is_none() {
+                Ok(pulled) => {
+                    // only what the remote answered says it's public
+                    if w.visibility.is_none() && pulled.is_some() {
                         self.mark(&w.origin, PUBLIC).await;
                     }
+                    checkout.pulled = pulled;
                     return Some(checkout);
                 }
                 Err(e) if refused(&e) => {
@@ -403,7 +433,9 @@ impl Startup<'_> {
             }
         }
         let private = self.checkout(w, &project, "private");
-        if let Some(checkout) = self.settle_private(private.clone(), &w.origin, &url).await {
+        let uncommitted = self.uncommitted(w).await;
+        let settled = self.settle_private(private.clone(), &w.origin, &url, uncommitted);
+        if let Some(checkout) = settled.await {
             return Some(checkout);
         }
         // until a grant opens it, a checkout already here serves as it is:
@@ -421,6 +453,7 @@ impl Startup<'_> {
         checkout: Checkout,
         origin: &str,
         url: &str,
+        uncommitted: bool,
     ) -> Option<Checkout> {
         let grants = self.grants?;
         for _ in 0..GRANTS_TRIED {
@@ -433,8 +466,8 @@ impl Startup<'_> {
                 }
             };
             let access = Access::with(url, &credentials).trusting(self.trust);
-            match update(&checkout, url, self.locks, &access).await {
-                Ok(()) => return Some(checkout),
+            match update(&checkout, url, self.locks, &access, uncommitted).await {
+                Ok(pulled) => return Some(Checkout { pulled, ..checkout }),
                 Err(e) if refused(&e) => {
                     tracing::info!(
                         grant = credentials.grant.as_str(),
@@ -459,12 +492,22 @@ impl Startup<'_> {
         None
     }
 
+    /// Whether the database holds work `w`'s commits don't; where it
+    /// can't tell, as if it did.
+    async fn uncommitted(&self, w: &Wanted) -> bool {
+        match w.worktree {
+            Some(id) => self.db.has_uncommitted(id).await.unwrap_or(true),
+            None => false,
+        }
+    }
+
     fn checkout(&self, w: &Wanted, project: &str, under: &str) -> Checkout {
         Checkout {
             path: self.clone_root.join(under).join(project).join(&w.branch),
             project: project.to_string(),
             branch: w.branch.clone(),
             default_cloudmap: w.default_cloudmap,
+            pulled: None,
         }
     }
 
@@ -473,8 +516,16 @@ impl Startup<'_> {
     async fn settle_with(&self, w: &Wanted, project: &str, access: &Access) -> Option<Checkout> {
         let url = format!("{}/{project}.git", self.cloud_server.trim_end_matches('/'));
         let checkout = self.checkout(w, project, "private");
-        match update(&checkout, &url, self.locks, access).await {
-            Ok(()) => Some(checkout),
+        match update(
+            &checkout,
+            &url,
+            self.locks,
+            access,
+            self.uncommitted(w).await,
+        )
+        .await
+        {
+            Ok(pulled) => Some(Checkout { pulled, ..checkout }),
             Err(e) => {
                 left_out(&checkout, &e);
                 None
@@ -514,6 +565,7 @@ impl Startup<'_> {
             {
                 Some(w) => w.default_cloudmap = true,
                 None => wanted.push(Wanted {
+                    worktree: known.iter().find(|w| w.branch == branch).map(|w| w.id),
                     origin,
                     branch,
                     visibility,
@@ -693,32 +745,66 @@ pub async fn serve(
 
 /// The project on `cloud_server` of a worktree of `origin`: its origin with the server's
 /// host, as the database normalizes both, taken off.
-fn project_of(origin: &str, cloud_server: &str) -> Option<String> {
+pub(crate) fn project_of(origin: &str, cloud_server: &str) -> Option<String> {
     let host = unfurl_git_sync::git::normalize_git_url_hard(cloud_server);
     let project = origin.strip_prefix(&format!("{host}/"))?;
     (!project.is_empty()).then(|| project.to_string())
 }
 
-/// Clone `url`'s branch to the checkout, or fast-forward the one there,
-/// holding its lock as python does: created exclusively, with this
-/// process's pid in it.
+/// Clone `url`'s branch to the checkout, or bring the one there up to its
+/// remote as [`refresh`] does, holding its git lock and python's lock
+/// file; a checkout its remote can't be reached for is served as it is.
+/// `uncommitted` is whether the database holds work its commits don't.
+/// How it ended, as python's pull record names it, or `None` where the
+/// remote couldn't be reached.
 async fn update(
     checkout: &Checkout,
     url: &str,
     locks: Option<&GitLocks>,
     access: &Access,
-) -> Result<(), String> {
+    uncommitted: bool,
+) -> Result<Option<&'static str>, String> {
     let parent = checkout.path.parent().unwrap_or(Path::new("."));
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let git_lock = gitlock::hold(locks, &checkout.path, gitlock::TTL).await?;
-    let updated = update_locked(checkout, url, access).await;
+    let updated = holding_lock_file(&checkout.path, async {
+        if !checkout.path.exists() {
+            return clone(checkout, url, access).await.map(|()| Some("cloned"));
+        }
+        let r = Refresh {
+            path: &checkout.path,
+            url,
+            reclone: true,
+            branch: &checkout.branch,
+            credentials: None,
+            trust: access.trust,
+            uncommitted,
+        };
+        match refresh_with(&r, access).await {
+            Ok((refreshed, _)) => Ok(Some(refreshed.outcome())),
+            Err(RefreshError::Remote(e)) if !refused(&e) => {
+                tracing::warn!(
+                    path = %checkout.path.display(),
+                    error = e.as_str(),
+                    "can't reach this cloudmap checkout's remote; serving it as it is"
+                );
+                Ok(None)
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    })
+    .await;
     gitlock::release(git_lock).await;
-    updated
+    updated?
 }
 
-/// [`update`], holding the checkout's git lock.
-async fn update_locked(checkout: &Checkout, url: &str, access: &Access) -> Result<(), String> {
-    let lock = lock_path(&checkout.path);
+/// `work`, holding the lock file python's `lock_file` holds while it
+/// clones `path`: created exclusively, with this process's pid in it.
+async fn holding_lock_file<R>(
+    path: &Path,
+    work: impl std::future::Future<Output = R>,
+) -> Result<R, String> {
+    let lock = lock_path(path);
     let held = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -732,53 +818,316 @@ async fn update_locked(checkout: &Checkout, url: &str, access: &Access) -> Resul
             lock.display()
         )
     })?;
-    let updated = match checkout.path.exists() {
-        true => pull(&checkout.path, access).await,
-        false => clone(checkout, url, access).await,
-    };
-    let _ = std::fs::remove_file(&lock);
-    updated
+    // removed however `work` ends, dropped unfinished included
+    let _held = LockFile(lock);
+    Ok(work.await)
 }
 
-/// Fast-forward the checkout at `path` to its remote, or leave it as it is
-/// where it can't be: its commits the remote lacks are its to keep, as
-/// python's server keeps the cloudmap commits it hasn't pushed. A remote
-/// refusing its credentials, or the lack of them, is an error.
-async fn pull(path: &Path, access: &Access) -> Result<(), String> {
-    if !path.join(".git").exists() {
-        return Err(format!(
-            "{} is there but isn't a git checkout",
-            path.display()
-        ));
+/// Whether a directory below `dir` is a checkout.
+fn holds_checkouts(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()) && e.file_name() != ".git")
+        .any(|e| e.path().join(".git").exists() || holds_checkouts(&e.path()))
+}
+
+/// A lock file this process created, removed when dropped.
+struct LockFile(PathBuf);
+
+impl Drop for LockFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// What a refresh did to a checkout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refreshed {
+    /// Fast-forwarded to its remote, or already there.
+    Pulled,
+    /// Reset to its remote, which it couldn't fast-forward to and held no
+    /// work the remote lacks.
+    Reset,
+    /// Moved aside, broken, and cloned again.
+    Recloned,
+    /// Left as it is: it can't fast-forward to its remote, and holds work
+    /// the remote lacks.
+    Diverged,
+    /// On no branch with an upstream: nothing to pull.
+    Detached,
+}
+
+impl Refreshed {
+    /// The outcome python's pull record names it by.
+    pub fn outcome(self) -> &'static str {
+        match self {
+            Refreshed::Pulled | Refreshed::Reset => "pulled",
+            Refreshed::Recloned => "cloned",
+            Refreshed::Diverged => "diverged",
+            Refreshed::Detached => "detached",
+        }
+    }
+}
+
+/// A checkout to refresh and how to reach its remote.
+pub struct Refresh<'a> {
+    pub path: &'a Path,
+    /// What its credentials are for: its project's url.
+    pub url: &'a str,
+    /// Cloned again from `url` when broken; never if false.
+    pub reclone: bool,
+    pub branch: &'a str,
+    pub credentials: Option<&'a Credentials>,
+    pub trust: Trust,
+    /// Whether the database holds work its commits don't.
+    pub uncommitted: bool,
+}
+
+/// Why a refresh failed.
+#[derive(Debug)]
+pub enum RefreshError {
+    /// Its own git config is refused: it isn't served.
+    Untrusted(String),
+    /// Its remote couldn't be reached, or refused its credentials.
+    Remote(String),
+    /// Git failed in it, or it couldn't be cloned again.
+    Local(String),
+}
+
+impl std::fmt::Display for RefreshError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RefreshError::Untrusted(e) | RefreshError::Remote(e) | RefreshError::Local(e) => {
+                f.write_str(e)
+            }
+        }
+    }
+}
+
+impl RefreshError {
+    /// Whether its remote refused its credentials, or the lack of them.
+    pub fn refused(&self) -> bool {
+        matches!(self, RefreshError::Remote(e) if refused(e))
+    }
+}
+
+/// Bring the checkout up to its remote, holding its git lock: fast-forward
+/// it; failing that, reset it to its remote if it holds no work the
+/// remote lacks, or leave it diverged; a broken one is moved aside and
+/// cloned again. With whether its HEAD moved.
+pub async fn refresh(r: &Refresh<'_>) -> Result<(Refreshed, bool), RefreshError> {
+    let access = match r.credentials {
+        Some(credentials) => Access::with(r.url, credentials),
+        None => Access::anonymous(r.url),
+    }
+    .trusting(r.trust);
+    holding_lock_file(r.path, refresh_with(r, &access))
+        .await
+        .map_err(RefreshError::Local)?
+}
+
+/// [`refresh`], reaching its remote with `access`.
+async fn refresh_with(r: &Refresh<'_>, access: &Access) -> Result<(Refreshed, bool), RefreshError> {
+    if !r.path.join(".git").exists() {
+        return reclone(r, access, "it isn't a git checkout").await;
     }
     if access.trust == Trust::Reduced {
-        refuse_untrusted_config(path, access).await?;
+        refuse_untrusted_config(r.path, access)
+            .await
+            .map_err(RefreshError::Untrusted)?;
     }
+    if let Some(why) = unreadable(r.path, access).await {
+        return reclone(r, access, &why).await;
+    }
+    let head = async || {
+        git(r.path, access, &["rev-parse", "HEAD"])
+            .await
+            .map_err(RefreshError::Local)
+    };
+    let before = head().await?;
+    let refreshed = fast_forward(r, access).await?;
+    Ok((refreshed, before != head().await?))
+}
+
+/// Why git can't read the checkout at `path`, if it can't.
+async fn unreadable(path: &Path, access: &Access) -> Option<String> {
+    for args in [
+        &["rev-parse", "--verify", "HEAD"][..],
+        &["status", "--porcelain"],
+    ] {
+        if let Err(e) = git(path, access, args).await {
+            return Some(e);
+        }
+    }
+    None
+}
+
+/// The broken checkout moved aside, if it's there, and cloned again, if
+/// it may be.
+async fn reclone(
+    r: &Refresh<'_>,
+    access: &Access,
+    why: &str,
+) -> Result<(Refreshed, bool), RefreshError> {
+    if !r.reclone {
+        let broken = format!("{} is broken: {why}", r.path.display());
+        return Err(RefreshError::Local(broken));
+    }
+    if r.path.exists() {
+        move_aside(r.path, why)?;
+    }
+    let checkout = Checkout {
+        path: r.path.to_path_buf(),
+        project: String::new(),
+        branch: r.branch.to_string(),
+        default_cloudmap: false,
+        pulled: None,
+    };
+    if let Err(e) = clone(&checkout, r.url, access).await {
+        tracing::error!(
+            checkout = %r.path.display(),
+            error = e.as_str(),
+            "a broken cloudmap checkout couldn't be cloned again; \
+             tried again after the pull timeout"
+        );
+        return Err(match refused(&e) {
+            true => RefreshError::Remote(e),
+            false => RefreshError::Local(e),
+        });
+    }
+    Ok((Refreshed::Recloned, true))
+}
+
+/// Move the broken checkout at `path` to `<path>.broken-<unix time>`,
+/// unless it holds other checkouts: those of branches named below its own,
+/// which aren't its to move.
+fn move_aside(path: &Path, why: &str) -> Result<(), RefreshError> {
+    if holds_checkouts(path) {
+        let display = path.display();
+        return Err(RefreshError::Local(format!(
+            "{display} is broken ({why}), and holds other checkouts: not moved aside"
+        )));
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let mut aside = path.as_os_str().to_owned();
+    aside.push(format!(".broken-{stamp}"));
+    let aside = PathBuf::from(aside);
+    std::fs::rename(path, &aside).map_err(|e| {
+        let display = path.display();
+        RefreshError::Local(format!(
+            "{display} is broken ({why}) and can't be moved aside: {e}"
+        ))
+    })?;
+    tracing::error!(
+        checkout = %path.display(),
+        moved_to = %aside.display(),
+        why,
+        "a broken cloudmap checkout was moved aside; cloning it again"
+    );
+    Ok(())
+}
+
+/// Fetch the checkout's remote and fast-forward to its upstream; failing
+/// that, reset to it if the checkout holds no work it lacks.
+async fn fast_forward(r: &Refresh<'_>, access: &Access) -> Result<Refreshed, RefreshError> {
+    let local = async |args: &[&str]| git(r.path, access, args).await.map_err(RefreshError::Local);
     // as `clone` does, for a checkout made before it did, or by python
-    git(path, access, &["config", "core.symlinks", "false"]).await?;
-    if git(path, access, &["rev-parse", "--is-shallow-repository"]).await? == "true" {
-        // git-sync needs the history a shallow clone of python's lacks
-        git(path, access, &["fetch", "-q", "--unshallow"]).await?;
-    }
-    // keeps origin/HEAD, the default branch, current (git 2.48 and later)
-    let pull = [
+    local(&["config", "core.symlinks", "false"]).await?;
+    let mut fetch = vec![
         "-c",
         "remote.origin.followRemoteHEAD=always",
-        "pull",
+        "fetch",
         "-q",
-        "--ff-only",
+        "origin",
     ];
-    if let Err(e) = git(path, access, &pull).await {
-        if refused(&e) {
-            return Err(e);
-        }
-        tracing::warn!(
-            path = %path.display(),
-            error = e.as_str(),
-            "can't fast-forward this cloudmap checkout; serving it as it is"
-        );
+    if local(&["rev-parse", "--is-shallow-repository"]).await? == "true" {
+        // git-sync needs the history a shallow clone of python's lacks
+        fetch.push("--unshallow");
     }
-    Ok(())
+    // before the fetch: after it, a remote's rewritten history leaves
+    // commits on no remote-tracking branch that were never this checkout's
+    let ahead = git(
+        r.path,
+        access,
+        &["rev-list", "HEAD", "--not", "--remotes", "--count"],
+    )
+    .await;
+    git(r.path, access, &fetch)
+        .await
+        .map_err(RefreshError::Remote)?;
+    let upstream = ["rev-parse", "--verify", "-q", "@{upstream}"];
+    if git(r.path, access, &upstream).await.is_err() {
+        return Ok(Refreshed::Detached);
+    }
+    let Err(e) = git(r.path, access, &["merge", "-q", "--ff-only", "@{upstream}"]).await else {
+        return Ok(Refreshed::Pulled);
+    };
+    if let Some(work) = unpushed(r, access, ahead).await {
+        tracing::warn!(
+            checkout = %r.path.display(),
+            work = work.as_str(),
+            error = e.as_str(),
+            "can't fast-forward this cloudmap checkout, which holds work its remote lacks; \
+             serving it as it is"
+        );
+        return Ok(Refreshed::Diverged);
+    }
+    local(&["reset", "-q", "--hard", "@{upstream}"]).await?;
+    tracing::warn!(
+        checkout = %r.path.display(),
+        error = e.as_str(),
+        "can't fast-forward this cloudmap checkout, which holds no work its remote lacks; \
+         reset to its remote"
+    );
+    Ok(Refreshed::Reset)
+}
+
+/// The work the checkout holds that its remote lacks, as python's
+/// `_unpushed_work` tells, but for `ahead`, its commits on no
+/// remote-tracking branch before the fetch; and records the database
+/// hasn't committed.
+async fn unpushed(
+    r: &Refresh<'_>,
+    access: &Access,
+    ahead: Result<String, String>,
+) -> Option<String> {
+    if r.uncommitted {
+        return Some("records not yet committed".to_string());
+    }
+    // every untracked file, whatever the checkout's own config says to show
+    let status = ["status", "--porcelain", "--untracked-files=all"];
+    match git(r.path, access, &status).await {
+        Ok(changes) if !changes.is_empty() => return Some("uncommitted changes".to_string()),
+        Ok(_) => {}
+        Err(e) => return Some(format!("can't tell: {e}")),
+    }
+    match ahead {
+        Ok(n) if n == "0" => None,
+        Ok(n) => Some(format!("{n} commits not pushed")),
+        Err(e) => Some(format!("can't tell: {e}")),
+    }
+}
+
+/// Whether `name` is a commit's hex id, or an abbreviation of one.
+pub fn commit_id(name: &str) -> bool {
+    (4..=64).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Whether the checkout at `path` has `commit`, a [`commit_id`].
+pub async fn has_commit(path: &Path, commit: &str, trust: Trust) -> bool {
+    if !commit_id(commit) {
+        return false;
+    }
+    let access = Access::anonymous("file:///").trusting(trust);
+    let object = format!("{commit}^{{commit}}");
+    git(path, &access, &["cat-file", "-e", &object])
+        .await
+        .is_ok()
 }
 
 /// Clone `url`'s branch to the checkout. No submodules: git-sync reads
@@ -1008,6 +1357,18 @@ async fn git(dir: &Path, access: &Access, args: &[&str]) -> Result<String, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The lock file goes with its work, however that ends: dropped
+    /// unfinished, as a request a client gave up on is.
+    #[tokio::test]
+    async fn a_lock_file_goes_when_its_work_is_dropped() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("checkout");
+        let held = holding_lock_file(&path, std::future::pending::<()>());
+        let dropped = tokio::time::timeout(std::time::Duration::from_millis(50), held).await;
+        assert!(dropped.is_err(), "still working when dropped");
+        assert!(!lock_path(&path).exists());
+    }
 
     #[test]
     fn a_default_cloudmap_names_a_project_and_maybe_a_branch() {

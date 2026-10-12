@@ -323,6 +323,39 @@ async fn open_clones(
     Some(served.with_cloner(cloner))
 }
 
+/// `cm`, pulling the checkouts it serves as python pulls its clones,
+/// recording each pull in python's cache at `redis`; never a local path
+/// served in dev mode, which python doesn't pull either.
+fn freshened(
+    cm: cloudmap::CloudMapState,
+    config: &Config,
+    redis: Option<redis::aio::MultiplexedConnection>,
+    locks: Option<GitLocks>,
+    grants: Option<Arc<GrantStore>>,
+) -> cloudmap::CloudMapState {
+    if config.dev_mode() {
+        return cm;
+    }
+    let settings = unfurl_server::fresh::Settings {
+        timeout: config.pull_timeout,
+        cache_key_prefix: config.cache_key_prefix.clone(),
+        cloud_server: config.cloud_server.clone(),
+        clone_root: config.clone_root.as_ref().map(std::path::PathBuf::from),
+        grants,
+        locks,
+        trust: match config.cloudmap_repo {
+            // the operator's own checkout, as it was opened
+            Some(_) => unfurl_git_sync::git::Trust::Full,
+            None => config.checkout_trust(),
+        },
+    };
+    let abort_level = config.scan_abort_level;
+    let accept = move |outcome: &unfurl_git_sync::SyncOutcome| !report_scan(outcome, abort_level);
+    cm.with_freshener(unfurl_server::fresh::Freshener::new(
+        redis, settings, accept,
+    ))
+}
+
 /// `result`'s value, or, logging `what` failed, the process's end.
 fn or_exit<T, E: std::fmt::Display>(result: Result<T, E>, what: &str) -> T {
     result.unwrap_or_else(|e| {
@@ -565,11 +598,14 @@ async fn run(config: Config, grant_key: Option<Result<GrantKey, GrantError>>) {
     let locks = redis
         .clone()
         .map(|conn| GitLocks::new(conn, &config.cache_key_prefix));
+    let cloudmap = open_cloudmap(&config, locks.clone(), grants.clone())
+        .await
+        .map(|cm| freshened(cm, &config, redis.clone(), locks, grants.clone()));
     let state = AppState {
         config: Arc::new(config.clone()),
         redis,
         client: build_http_client(&config),
-        cloudmap: open_cloudmap(&config, locks, grants.clone()).await,
+        cloudmap,
         grants,
     };
 

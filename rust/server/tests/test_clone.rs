@@ -132,6 +132,7 @@ async fn a_worktree_with_no_checkout_is_cloned() {
             project: "org/proj".into(),
             branch: "main".into(),
             default_cloudmap: false,
+            pulled: Some("cloned"),
         }]
     );
     assert!(world.public().join("cloudmap.yaml").exists());
@@ -265,13 +266,23 @@ async fn a_worktree_on_another_server_is_left_out() {
     assert!(!world.root().exists());
 }
 
-/// A directory where the checkout goes that isn't one: left out, rather
-/// than pulled into.
+/// A directory where the checkout goes that isn't one: moved aside, not
+/// pulled into or deleted, and the checkout cloned.
 #[tokio::test]
-async fn a_directory_that_isnt_a_checkout_is_left_out() {
+async fn a_directory_that_isnt_a_checkout_is_moved_aside() {
     let world = World::new().await;
     std::fs::create_dir_all(world.public()).expect("mkdir");
-    assert!(world.prepare().await.is_empty());
+    std::fs::write(world.public().join("mine"), "mine").expect("write");
+    assert_eq!(world.prepare().await.len(), 1);
+    assert!(world.public().join(".git").exists());
+    let parent = world.public().parent().unwrap().to_path_buf();
+    let aside: Vec<_> = std::fs::read_dir(&parent)
+        .expect("read")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("main.broken-"))
+        .collect();
+    assert_eq!(aside.len(), 1, "moved aside");
+    assert!(aside[0].path().join("mine").exists());
 }
 
 /// Two projects, each cloned and opened against the one database, as
@@ -299,7 +310,7 @@ async fn several_clones_open_on_one_database() {
     .expect("checkouts");
     for c in &checkouts {
         let check = cm
-            .project_check(Some(&c.project), None, false, &Default::default())
+            .project_check(Some(&c.project), None, false, &Default::default(), None)
             .await
             .expect("check");
         let ProjectCheck::Serve(target) = check else {
@@ -329,6 +340,7 @@ async fn a_checkout_that_fails_is_left_out_of_the_rest() {
         project: "org/nowhere".into(),
         branch: "main".into(),
         default_cloudmap: false,
+        pulled: None,
     });
     let scans = AtomicUsize::new(0);
     let cm = serve(
@@ -350,7 +362,7 @@ async fn a_checkout_that_fails_is_left_out_of_the_rest() {
         (&checkouts[2], false),
     ] {
         let check = cm
-            .project_check(Some(&c.project), None, false, &Default::default())
+            .project_check(Some(&c.project), None, false, &Default::default(), None)
             .await
             .expect("check");
         assert_eq!(
@@ -784,7 +796,14 @@ async fn a_default_cloudmap_is_cloned_and_read_without_a_project() {
         .find(|(_, origin, branch)| origin.ends_with("/org/default") && branch == "trunk")
         .expect("a worktree row for the default cloudmap's checkout");
     let read = cm
-        .resolve_read(None, None, false, &world.server(), &Default::default())
+        .resolve_read(
+            None,
+            None,
+            false,
+            &world.server(),
+            &Default::default(),
+            None,
+        )
         .await
         .expect("resolve");
     let ReadTarget::Read(Some(filter)) = read else {
@@ -869,6 +888,75 @@ impl World {
         );
         served.with_cloner(cloner)
     }
+
+    /// [`Self::serve_with_cloner`], pulling what it serves when its last
+    /// pull is `timeout` seconds old.
+    async fn serve_fresh(&self, timeout: i64) -> unfurl_server::cloudmap::CloudMapState {
+        let settings = unfurl_server::fresh::Settings {
+            timeout,
+            cache_key_prefix: "test:".into(),
+            cloud_server: self.server(),
+            clone_root: Some(self.root()),
+            grants: None,
+            locks: None,
+            trust: unfurl_git_sync::git::Trust::Reduced,
+        };
+        let fresh = unfurl_server::fresh::Freshener::new(None, settings, |_| true);
+        self.serve_with_cloner().await.with_freshener(fresh)
+    }
+
+    /// Rewrite the server's `main` to a commit unrelated to its history.
+    fn rewrite_upstream(&self) -> String {
+        let seed = self.tmp.path().join("seed/org/proj");
+        git(&seed, &["checkout", "-q", "--orphan", "rewritten"]);
+        std::fs::write(
+            seed.join("cloudmap.yaml"),
+            "repositories: {}\n# rewritten\n",
+        )
+        .expect("write");
+        git(&seed, &["add", "."]);
+        git(&seed, &["commit", "-q", "-m", "rewritten"]);
+        git(&seed, &["push", "-q", "-f", "origin", "rewritten:main"]);
+        git(&seed, &["rev-parse", "HEAD"])
+    }
+}
+
+/// `cm`, serving `org/proj`'s checkout for a request with no credentials
+/// and `latest_commit`.
+async fn serve_proj(
+    cm: &unfurl_server::cloudmap::CloudMapState,
+    latest_commit: Option<&str>,
+) -> unfurl_server::cloudmap::CloudMapState {
+    let check = cm
+        .project_check(
+            Some("org/proj"),
+            None,
+            false,
+            &Default::default(),
+            latest_commit,
+        )
+        .await
+        .expect("check");
+    let ProjectCheck::Serve(served) = check else {
+        panic!("not served");
+    };
+    served
+}
+
+/// The HEAD `cm`'s database records for the checkout it serves.
+async fn head(cm: &unfurl_server::cloudmap::CloudMapState) -> String {
+    cm.head_commit().await.expect("head").expect("a commit")
+}
+
+/// Wait for `done` to hold, up to ten seconds.
+async fn eventually(mut done: impl AsyncFnMut() -> bool) -> bool {
+    for _ in 0..200 {
+        if done().await {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    false
 }
 
 /// A write, and a read, naming a project with no checkout bring one up --
@@ -883,7 +971,7 @@ async fn a_request_for_a_project_with_no_checkout_brings_one_up() {
     assert_eq!(cm.served().len(), 1);
 
     let check = cm
-        .project_check(Some("org/other"), None, false, &Default::default())
+        .project_check(Some("org/other"), None, false, &Default::default(), None)
         .await
         .expect("check");
     assert!(matches!(check, ProjectCheck::Serve(_)));
@@ -899,6 +987,7 @@ async fn a_request_for_a_project_with_no_checkout_brings_one_up() {
             false,
             &world.server(),
             &Default::default(),
+            None,
         )
         .await
         .expect("resolve");
@@ -915,8 +1004,8 @@ async fn concurrent_first_requests_bring_a_checkout_up_once() {
     let cm = world.serve_with_cloner().await;
     let anonymous = Default::default();
     let (a, b) = tokio::join!(
-        cm.project_check(Some("org/other"), None, false, &anonymous),
-        cm.project_check(Some("org/other"), None, false, &anonymous),
+        cm.project_check(Some("org/other"), None, false, &anonymous, None),
+        cm.project_check(Some("org/other"), None, false, &anonymous, None),
     );
     assert!(matches!(a.expect("a"), ProjectCheck::Serve(_)));
     assert!(matches!(b.expect("b"), ProjectCheck::Serve(_)));
@@ -937,7 +1026,7 @@ async fn a_hostile_project_or_branch_isnt_brought_up() {
         ("org/x", Some("/etc")),
     ] {
         let check = cm
-            .project_check(Some(project), branch, false, &Default::default())
+            .project_check(Some(project), branch, false, &Default::default(), None)
             .await
             .expect("check");
         assert!(
@@ -962,7 +1051,7 @@ async fn no_gate_outlives_its_bring_up() {
         ("org/nope", Some("b")),
     ] {
         let _ = cm
-            .project_check(Some(project), branch, false, &anonymous)
+            .project_check(Some(project), branch, false, &anonymous, None)
             .await;
     }
     assert_eq!(cm.gates_kept(), 0);
@@ -979,9 +1068,10 @@ async fn a_private_request_without_a_secret_clones_under_private() {
     let private = unfurl_server::clone::RequestAccess {
         private: true,
         credentials: None,
+        ..Default::default()
     };
     let check = cm
-        .project_check(Some("org/other"), None, false, &private)
+        .project_check(Some("org/other"), None, false, &private, None)
         .await
         .expect("check");
     assert!(matches!(check, ProjectCheck::Serve(_)));
@@ -1000,7 +1090,13 @@ async fn a_new_branch_of_a_served_project_is_brought_up() {
     );
     let cm = world.serve_with_cloner().await;
     let check = cm
-        .project_check(Some("org/proj"), Some("dev"), false, &Default::default())
+        .project_check(
+            Some("org/proj"),
+            Some("dev"),
+            false,
+            &Default::default(),
+            None,
+        )
         .await
         .expect("check");
     assert!(matches!(check, ProjectCheck::Serve(_)));
@@ -1026,9 +1122,508 @@ async fn a_checkout_whose_scan_is_refused_isnt_served() {
     );
     let cm = served.with_cloner(cloner);
     let check = cm
-        .project_check(Some("org/other"), None, false, &Default::default())
+        .project_check(Some("org/other"), None, false, &Default::default(), None)
         .await
         .expect("check");
     assert!(!matches!(check, ProjectCheck::Serve(_)));
     assert_eq!(cm.served().len(), 1);
+}
+
+/// A request finding its checkout's last pull too old is served at once,
+/// and the checkout is pulled in the background and rescanned.
+#[tokio::test]
+async fn a_stale_checkout_is_pulled_in_the_background() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(0).await;
+    let new = world.push_upstream("later");
+    let served = serve_proj(&cm, None).await;
+    assert!(eventually(async || head(&served).await == new).await);
+    assert_eq!(cm.pulls_started(), 1);
+}
+
+/// A checkout pulled within the timeout isn't pulled again.
+#[tokio::test]
+async fn a_checkout_pulled_recently_isnt_pulled_again() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(3600).await;
+    let first = world.push_upstream("later");
+    // never pulled by this server: pulled now
+    let served = serve_proj(&cm, None).await;
+    assert!(eventually(async || head(&served).await == first).await);
+    world.push_upstream("later still");
+    serve_proj(&cm, None).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(cm.pulls_started(), 1);
+    assert_eq!(head(&served).await, first);
+}
+
+/// A request naming a commit its checkout lacks has it pulled first,
+/// however recent the last pull.
+#[tokio::test]
+async fn a_request_naming_a_missing_commit_is_pulled_first() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(3600).await;
+    let first = world.push_upstream("first");
+    let served = serve_proj(&cm, None).await;
+    // the background pull done, and recorded
+    assert!(eventually(async || head(&served).await == first).await);
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let new = world.push_upstream("later");
+    let served = serve_proj(&cm, Some(&new)).await;
+    assert_eq!(head(&served).await, new);
+    // one it has, or one dirty, isn't pulled for
+    let pulls = cm.pulls_started();
+    serve_proj(&cm, Some(&format!("{new}-dirty"))).await;
+    assert_eq!(cm.pulls_started(), pulls);
+}
+
+/// Requests finding a checkout stale together pull it once.
+#[tokio::test]
+async fn concurrent_stale_requests_pull_once() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(3600).await;
+    world.push_upstream("later");
+    let (a, b) = tokio::join!(serve_proj(&cm, None), serve_proj(&cm, None));
+    drop((a, b));
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(cm.pulls_started(), 1);
+}
+
+/// A checkout that can't fast-forward to its remote, rewritten upstream,
+/// is reset to it when it holds no work the remote lacks.
+#[tokio::test]
+async fn a_checkout_with_nothing_unpushed_is_reset_to_a_rewritten_remote() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(0).await;
+    let rewritten = world.rewrite_upstream();
+    let served = serve_proj(&cm, None).await;
+    assert!(eventually(async || head(&served).await == rewritten).await);
+}
+
+/// One holding a commit its remote lacks is left as it is.
+#[tokio::test]
+async fn a_checkout_with_unpushed_work_is_left_diverged() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(0).await;
+    std::fs::write(world.public().join("mine.txt"), "mine").expect("write");
+    git(&world.public(), &["add", "."]);
+    git(&world.public(), &["commit", "-q", "-m", "mine"]);
+    let mine = git(&world.public(), &["rev-parse", "HEAD"]);
+    world.rewrite_upstream();
+    serve_proj(&cm, None).await;
+    assert!(eventually(async || cm.pulls_started() == 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), mine);
+}
+
+/// A broken checkout is moved aside, not deleted, and cloned again.
+#[tokio::test]
+async fn a_broken_checkout_is_moved_aside_and_cloned_again() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(0).await;
+    let upstream = world.push_upstream("later");
+    std::fs::remove_file(world.public().join(".git/HEAD")).expect("break it");
+    let served = serve_proj(&cm, None).await;
+    assert!(eventually(async || head(&served).await == upstream).await);
+    let parent = world.public().parent().unwrap().to_path_buf();
+    let aside: Vec<_> = std::fs::read_dir(&parent)
+        .expect("read")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("main.broken-"))
+        .collect();
+    assert_eq!(aside.len(), 1, "moved aside");
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), upstream);
+}
+
+/// A checkout whose remote can't be reached is served as it is, kept,
+/// and not pulled again until the timeout.
+#[tokio::test]
+async fn a_checkout_whose_remote_fails_is_kept() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(3600).await;
+    let before = git(&world.public(), &["rev-parse", "HEAD"]);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    std::fs::rename(&bare, bare.with_extension("gone")).expect("hide");
+    serve_proj(&cm, None).await;
+    assert!(eventually(async || cm.pulls_started() == 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), before);
+    serve_proj(&cm, None).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(cm.pulls_started(), 1, "not again until the timeout");
+}
+
+/// A checkout brought up for a request isn't pulled again at once.
+#[tokio::test]
+async fn a_checkout_brought_up_isnt_pulled_again() {
+    let world = World::new().await;
+    world.host("org/other", "main");
+    let cm = world.serve_fresh(3600).await;
+    for _ in 0..2 {
+        cm.project_check(Some("org/other"), None, false, &Default::default(), None)
+            .await
+            .expect("check");
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(cm.pulls_started(), 0);
+}
+
+/// A read finding its project's checkout stale has it pulled too, and one
+/// naming no project the default cloudmaps.
+#[tokio::test]
+async fn a_read_pulls_what_it_reads() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(0).await;
+    let new = world.push_upstream("later");
+    cm.resolve_read(
+        Some("org/proj"),
+        None,
+        false,
+        &world.server(),
+        &Default::default(),
+        None,
+    )
+    .await
+    .expect("read");
+    assert!(eventually(async || head(&cm).await == new).await);
+}
+
+/// The pull record is kept in python's cache, where python reads it: under
+/// its key for the clone, as cachelib stores a `(time, outcome)` tuple.
+/// Needs `UNFURL_TEST_REDIS_URL`.
+#[tokio::test]
+async fn the_pull_record_is_pythons() {
+    use redis::AsyncCommands;
+    let Some(url) = std::env::var("UNFURL_TEST_REDIS_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+    else {
+        eprintln!("skip: UNFURL_TEST_REDIS_URL not set");
+        return;
+    };
+    let mut conn = redis::Client::open(url.as_str())
+        .expect("url")
+        .get_multiplexed_async_connection()
+        .await
+        .expect("connect");
+    let world = World::new().await;
+    let prefix = format!("test-fresh-{}:", std::process::id());
+    let settings = unfurl_server::fresh::Settings {
+        timeout: 3600,
+        cache_key_prefix: prefix.clone(),
+        cloud_server: world.server(),
+        clone_root: Some(world.root()),
+        grants: None,
+        locks: None,
+        trust: unfurl_git_sync::git::Trust::Reduced,
+    };
+    let fresh = unfurl_server::fresh::Freshener::new(Some(conn.clone()), settings, |_| true);
+    let cm = world.serve_with_cloner().await.with_freshener(fresh);
+    serve_proj(&cm, None).await;
+    let key = format!("{prefix}org/proj:pull:{}", world.public().display());
+    let mut raw: Option<Vec<u8>> = None;
+    for _ in 0..200 {
+        raw = conn.get(&key).await.expect("get");
+        if raw.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let _: () = conn.del(&key).await.expect("del");
+    let raw = raw.expect("a pull record");
+    let payload = raw.strip_prefix(b"!").expect("cachelib's marker");
+    let record = serde_pickle::value_from_slice(payload, Default::default()).expect("record");
+    let serde_pickle::Value::Tuple(items) = record else {
+        panic!("{record:?}");
+    };
+    assert!(matches!(items[0], serde_pickle::Value::F64(_)), "{items:?}");
+    assert_eq!(items[1], serde_pickle::Value::String("pulled".into()));
+}
+
+/// A pull waiting on the git lock, which python holds to pull the same
+/// clone, doesn't pull again after python has. Needs
+/// `UNFURL_TEST_REDIS_URL`.
+#[tokio::test]
+async fn a_pull_python_made_while_waiting_isnt_made_again() {
+    use redis::AsyncCommands;
+    use serde_pickle::{SerOptions, Value};
+    let Some(url) = std::env::var("UNFURL_TEST_REDIS_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+    else {
+        eprintln!("skip: UNFURL_TEST_REDIS_URL not set");
+        return;
+    };
+    let conn = redis::Client::open(url.as_str())
+        .expect("url")
+        .get_multiplexed_async_connection()
+        .await
+        .expect("connect");
+    let world = World::new().await;
+    let prefix = format!("test-fresh-wait-{}:", std::process::id());
+    let locks = unfurl_server::gitlock::GitLocks::new(conn.clone(), &prefix);
+    let settings = unfurl_server::fresh::Settings {
+        timeout: 3600,
+        cache_key_prefix: prefix.clone(),
+        cloud_server: world.server(),
+        clone_root: Some(world.root()),
+        grants: None,
+        locks: Some(locks.clone()),
+        trust: unfurl_git_sync::git::Trust::Reduced,
+    };
+    let fresh = unfurl_server::fresh::Freshener::new(Some(conn.clone()), settings, |_| true);
+    let cm = world.serve_with_cloner().await.with_freshener(fresh);
+    // python, pulling
+    let held = locks
+        .lock(&world.public(), std::time::Duration::from_secs(5))
+        .await
+        .expect("lock")
+        .expect("held");
+    serve_proj(&cm, None).await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let key = format!("{prefix}org/proj:pull:{}", world.public().display());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    let record = Value::Tuple(vec![Value::F64(now), Value::String("pulled".into())]);
+    let mut raw = b"!".to_vec();
+    raw.extend(serde_pickle::value_to_vec(&record, SerOptions::new()).expect("record"));
+    let _: () = conn.clone().set(&key, raw).await.expect("set");
+    held.release().await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let _: () = conn.clone().del(&key).await.expect("del");
+    assert_eq!(cm.pulls_started(), 0);
+}
+
+/// At startup too, a checkout that can't fast-forward to its rewritten
+/// remote is reset to it when it holds no work the remote lacks.
+#[tokio::test]
+async fn startup_resets_a_checkout_to_a_rewritten_remote() {
+    let world = World::new().await;
+    world.prepare().await;
+    let rewritten = world.rewrite_upstream();
+    world.prepare().await;
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), rewritten);
+}
+
+/// But not one holding records the database hasn't committed.
+#[tokio::test]
+async fn startup_leaves_a_checkout_with_uncommitted_records() {
+    let world = World::new().await;
+    let cm = world.serve_all(world.prepare().await).await;
+    let before = git(&world.public(), &["rev-parse", "HEAD"]);
+    cm.synced()
+        .create_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "git://example.com/mine.git",
+            serde_json::json!({"name": "mine"}),
+            None,
+            false,
+        )
+        .await
+        .expect("create");
+    world.rewrite_upstream();
+    world.prepare().await;
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), before);
+}
+
+/// A refresh refuses a checkout whose own git config it distrusts, rather
+/// than taking it for broken or pulling into it.
+#[tokio::test]
+async fn a_pull_refuses_a_distrusted_config() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(0).await;
+    let before = git(&world.public(), &["rev-parse", "HEAD"]);
+    git(&world.public(), &["config", "filter.x.clean", "false"]);
+    world.push_upstream("later");
+    serve_proj(&cm, None).await;
+    assert!(eventually(async || cm.pulls_started() == 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), before);
+    assert!(world.public().join(".git").exists(), "not moved aside");
+}
+
+/// A checkout whose remote can't be reached at startup is served as it
+/// is.
+#[tokio::test]
+async fn startup_serves_a_checkout_whose_remote_is_down() {
+    let world = World::new().await;
+    world.prepare().await;
+    let bare = world.tmp.path().join("server/org/proj.git");
+    std::fs::rename(&bare, bare.with_extension("gone")).expect("hide");
+    let got = world.prepare().await;
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].path, world.public());
+}
+
+/// A checkout with uncommitted changes in its working tree, even ones its
+/// own config hides from `git status`, isn't reset to a rewritten remote.
+#[tokio::test]
+async fn a_checkout_with_changes_in_its_working_tree_isnt_reset() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(0).await;
+    git(
+        &world.public(),
+        &["config", "status.showUntrackedFiles", "no"],
+    );
+    std::fs::write(world.public().join("mine.txt"), "mine").expect("write");
+    let before = git(&world.public(), &["rev-parse", "HEAD"]);
+    world.rewrite_upstream();
+    serve_proj(&cm, None).await;
+    assert!(eventually(async || cm.pulls_started() == 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), before);
+    assert!(world.public().join("mine.txt").exists());
+}
+
+/// Nor is one whose database holds records not yet committed.
+#[tokio::test]
+async fn a_checkout_with_uncommitted_records_isnt_reset() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(0).await;
+    let before = git(&world.public(), &["rev-parse", "HEAD"]);
+    cm.synced()
+        .create_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "git://example.com/mine.git",
+            serde_json::json!({"name": "mine"}),
+            None,
+            false,
+        )
+        .await
+        .expect("create");
+    world.rewrite_upstream();
+    serve_proj(&cm, None).await;
+    assert!(eventually(async || cm.pulls_started() == 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), before);
+}
+
+/// A request naming a commit its checkout lacks is still served when the
+/// pull for it fails.
+#[tokio::test]
+async fn a_request_whose_pull_fails_is_served() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(3600).await;
+    let bare = world.tmp.path().join("server/org/proj.git");
+    std::fs::rename(&bare, bare.with_extension("gone")).expect("hide");
+    let missing = "0123456789abcdef0123456789abcdef01234567";
+    let served = serve_proj(&cm, Some(missing)).await;
+    assert_eq!(cm.pulls_started(), 1);
+    assert!(!head(&served).await.is_empty());
+}
+
+/// A checkout broken where other branches' checkouts sit below it isn't
+/// moved aside, taking them with it.
+#[tokio::test]
+async fn a_broken_checkout_holding_others_isnt_moved() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(0).await;
+    std::fs::remove_dir_all(world.public().join(".git")).expect("break it");
+    let nested = world.public().join("1.0");
+    git(
+        world.tmp.path(),
+        &[
+            "clone",
+            "-q",
+            &format!("{}/org/proj.git", world.server()),
+            nested.to_str().unwrap(),
+        ],
+    );
+    serve_proj(&cm, None).await;
+    assert!(eventually(async || cm.pulls_started() == 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(nested.join(".git").exists(), "left where it is");
+}
+
+/// The configured checkout is freshened for a read of its own project,
+/// never another's.
+#[tokio::test]
+async fn a_configured_checkout_is_freshened_for_its_own_project_only() {
+    let world = World::new().await;
+    world.prepare().await;
+    let DbConfig::Sqlite { url } = &world.db else {
+        unreachable!()
+    };
+    let (cm, _) = unfurl_server::cloudmap::CloudMapState::open(
+        world.public().to_str().unwrap(),
+        url,
+        Some(ScanOptions::default()),
+    )
+    .await
+    .expect("open");
+    let settings = unfurl_server::fresh::Settings {
+        timeout: 0,
+        cache_key_prefix: "test:".into(),
+        cloud_server: world.server(),
+        clone_root: None,
+        grants: None,
+        locks: None,
+        trust: unfurl_git_sync::git::Trust::Full,
+    };
+    let cm = cm.with_freshener(unfurl_server::fresh::Freshener::new(None, settings, |_| {
+        true
+    }));
+    let read = async |project: &str| {
+        cm.resolve_read(
+            Some(project),
+            None,
+            false,
+            &world.server(),
+            &Default::default(),
+            None,
+        )
+        .await
+        .expect("read");
+    };
+    read("org/other").await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(cm.pulls_started(), 0);
+    read("org/proj").await;
+    assert!(eventually(async || cm.pulls_started() == 1).await);
+}
+
+/// A checkout python's record says it never pulls isn't pulled for a
+/// commit it lacks either. Needs `UNFURL_TEST_REDIS_URL`.
+#[tokio::test]
+async fn a_detached_checkout_isnt_pulled_for_a_missing_commit() {
+    use redis::AsyncCommands;
+    use serde_pickle::{SerOptions, Value};
+    let Some(url) = std::env::var("UNFURL_TEST_REDIS_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+    else {
+        eprintln!("skip: UNFURL_TEST_REDIS_URL not set");
+        return;
+    };
+    let conn = redis::Client::open(url.as_str())
+        .expect("url")
+        .get_multiplexed_async_connection()
+        .await
+        .expect("connect");
+    let world = World::new().await;
+    let prefix = format!("test-fresh-detached-{}:", std::process::id());
+    let settings = unfurl_server::fresh::Settings {
+        timeout: 3600,
+        cache_key_prefix: prefix.clone(),
+        cloud_server: world.server(),
+        clone_root: Some(world.root()),
+        grants: None,
+        locks: None,
+        trust: unfurl_git_sync::git::Trust::Reduced,
+    };
+    let fresh = unfurl_server::fresh::Freshener::new(Some(conn.clone()), settings, |_| true);
+    let cm = world.serve_with_cloner().await.with_freshener(fresh);
+    let key = format!("{prefix}org/proj:pull:{}", world.public().display());
+    let record = Value::Tuple(vec![Value::F64(0.0), Value::String("detached".into())]);
+    let mut raw = b"!".to_vec();
+    raw.extend(serde_pickle::value_to_vec(&record, SerOptions::new()).expect("record"));
+    let _: () = conn.clone().set(&key, raw).await.expect("set");
+    let new = world.push_upstream("later");
+    serve_proj(&cm, Some(&new)).await;
+    let _: () = conn.clone().del(&key).await.expect("del");
+    assert_eq!(cm.pulls_started(), 0);
 }

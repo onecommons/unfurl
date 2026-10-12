@@ -128,6 +128,10 @@ grant_key: key_id · check (an HMAC of a fixed string under the key)
   `worktree.origin` spells it (`unfurl.cloud/org/project`): the request's
   `auth_project` on `UNFURL_CLOUD_SERVER`, or `blueprint_url` for its own
   credentials. So the grant for a worktree's remote is an exact match.
+  And from the credentials of a request that brings up a private
+  project's checkout in clone mode, once git has accepted them, for that
+  checkout's later pulls (§2.6). A pull git refuses a grant for forgets
+  it, as startup does.
 - **Not checked with GitLab.** The gateway has checked the caller, and
   GitLab enforces the token's scopes, expiry and revocation whenever it is
   used, so a grant can do no more than its token. A revoked token fails the

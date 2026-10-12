@@ -355,6 +355,13 @@ impl Db {
     ) -> Result<Vec<crate::model::Worktree>> {
         worktree::matching(self, filter).await
     }
+
+    /// Whether this database holds work worktree `worktree_id`'s commits
+    /// don't: an edit still to be written, or a file taken in but not
+    /// committed.
+    pub async fn has_uncommitted(&self, worktree_id: i64) -> Result<bool> {
+        Ok(!record::list_dirty_files(self, worktree_id).await?.is_empty())
+    }
 }
 
 async fn check_sqlite_version(pool: &sqlx::Pool<sqlx::Sqlite>) -> Result<()> {

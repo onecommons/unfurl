@@ -55,11 +55,11 @@ otherwise `/cloudmap` is proxied to Python):
 |---|---|---|---|
 | Path to a checked-out cloudmap repo | `--cloudmap-repo` | `UNFURL_CLOUDMAP_REPO` | (unset) |
 | Index DB URL (`sqlite::memory:`, `sqlite:///path/to.db`, `postgres://...`) | `--cloudmap-db-url` | `UNFURL_CLOUDMAP_DB_URL` | (unset) |
-| With a DB URL and no repo: clone (or fast-forward) a checkout of every worktree the DB tracks under this directory, in python's `public/<project>/<branch>` layout, and serve them all; a request naming a project or branch with none brings one up, with the request's own credentials if it has them, and one that can't be is left to python; a missing last commit's records are saved to a branch. With Redis, git work in a checkout holds a lock shared with python, keyed by its path, so this must resolve to the same absolute path as python's `UNFURL_CLONE_ROOT` | `--clone-root` | `UNFURL_CLONE_ROOT` | (unset; `unfurl serve` passes its own) |
+| With a DB URL and no repo: clone (or fast-forward) a checkout of every worktree the DB tracks under this directory, in python's `public/<project>/<branch>` layout, and serve them all; a request naming a project or branch with none brings one up, with the request's own credentials if it has them, which are then kept as a grant for its later pulls, and one that can't be is left to python; a missing last commit's records are saved to a branch. With Redis, git work in a checkout holds a lock shared with python, keyed by its path, so this must resolve to the same absolute path as python's `UNFURL_CLONE_ROOT` | `--clone-root` | `UNFURL_CLONE_ROOT` | (unset; `unfurl serve` passes its own) |
 | Working tree wins over in-flight edits on the startup scan, and a missing last commit is rebuilt from HEAD instead of refusing to start | `--cloudmap-force` | `UNFURL_CLOUDMAP_FORCE` | `false` |
 | A missing last commit's records are saved to a branch, `git-sync/recovered-<commit>`, to merge, instead of refusing to start | `--cloudmap-recover` | `UNFURL_CLOUDMAP_RECOVER` | `false` |
 | Trust the own git config of the checkouts under `--clone-root`, which python writes too. Without it, git-sync ignores it but for remote urls, the server's git commands override hooks, fsmonitor, credential helpers and proxies, and a checkout whose config sets filter or diff drivers, includes, extra headers, url rewrites or `core.worktree` isn't pulled or served (`docs/credentials.md` §2.6). A configured `--cloudmap-repo`, and serving a local path, are trusted anyway | `--trust-checkouts` | `UNFURL_TRUST_CHECKOUTS` | `false` |
-| How many seconds since python last pulled a project's clone a cached `/export` or `/types` made at the clone's HEAD may be served for a request naming no `latest_commit` (python's setting, read the same way; `stale=ok` or `stale=never` on the request override it). 0 serves none, -1 any; needs `--clone-root` | `--pull-timeout` | `CACHE_DEFAULT_PULL_TIMEOUT` | `120` |
+| How many seconds since python last pulled a project's clone a cached `/export` or `/types` made at the clone's HEAD may be served for a request naming no `latest_commit` (python's setting, read the same way; `stale=ok` or `stale=never` on the request override it). 0 serves none, -1 any; needs `--clone-root`. Also how old a cloudmap checkout's last pull may be before a request pulls it: see **Freshness** below | `--pull-timeout` | `CACHE_DEFAULT_PULL_TIMEOUT` | `120` |
 | With a clone root: a cloudmap repository a request naming no project reads, as `<project>[#branch]` (its default branch without one). It's cloned at startup like the worktrees the database tracks, or pulled if its checkout is there; such a read spans their worktrees, so it returns no `commit` or `version` and refuses `since_version`. Without one, python's default, the public cloudmap on `main`; if none is served, a read naming no project goes to python | `--default-cloudmap` (repeatable) | `UNFURL_DEFAULT_CLOUDMAPS` (comma-separated) | `onecommons/cloudmap#main` |
 | Serve the index as it stands, without scanning at startup | `--cloudmap-skip-scan` | `UNFURL_CLOUDMAP_SKIP_SCAN` | `false` |
 | Smallest refusal that aborts the startup scan (`report`, `file`, `record`) | `--scan-abort-level` | `UNFURL_SCAN_ABORT_LEVEL` | `report` |
@@ -73,6 +73,46 @@ worktree. Otherwise it is answered from the worktree whose origin is
 without `auth_project`) on `branch`, `main` without one: with no records
 when that origin has no such branch, and by Python when the database has
 no worktree for the origin at all.
+
+**Freshness.** Outside dev mode, a request that a served cloudmap
+checkout answers can pull it first, as python pulls its own clones and
+sharing its record of each pull, `(time, outcome)` at
+`<CACHE_KEY_PREFIX><project>:pull:<checkout directory>` in its cache (in
+this process alone without Redis):
+
+| Request | Last pull | Pull |
+|---|---|---|
+| any | `detached` or `proxied` | none |
+| no `latest_commit` | within `--pull-timeout` seconds | none |
+| no `latest_commit` | older, or none recorded | in the background; the request is served at once |
+| a `latest_commit` the checkout has (a `-dirty` suffix ignored) | any | none |
+| a `latest_commit` it lacks | any | first, then the request is served |
+
+The checkouts pulled are the one a write goes to, the one a read of a
+project reads, and for a read naming no project the default cloudmaps,
+in the background only. One just brought up for a request isn't pulled
+again. `stale=ok` and `stale=never` don't apply, as on python's cloudmap
+reads. A checkout pulls once at a time, with the request's credentials,
+else for a checkout under `private/` its users' most recent grant, else
+none, holding its git lock -- which is how python waits on it -- and if
+its HEAD moved it is rescanned and its unfinished exports finished; a
+scan over `--scan-abort-level` is logged, and the checkout still served.
+How each pull ends:
+
+| What happens | Done | Recorded |
+|---|---|---|
+| It fast-forwards to its upstream | | `pulled` |
+| Its remote can't be reached, or refuses its credentials | served as it is, and pulled again after the timeout | `failed` |
+| It can't fast-forward, holding nothing its remote lacks (its upstream was rewritten) | reset to its upstream | `pulled` |
+| It can't fast-forward, holding work its remote lacks: uncommitted changes, commits on no remote-tracking branch before the fetch, or records the database hasn't committed | served as it is until the work is pushed | `diverged` |
+| It's broken: no longer a git checkout, or one git can't read | under the clone root, moved aside to `<directory>.broken-<unix time>` -- logged as an error -- and cloned again; the configured `--cloudmap-repo` isn't | `cloned` |
+| On no branch with an upstream | none | `detached` |
+
+A grant git refuses is forgotten, so the next pull tries the one before
+it. The startup clone or pull of each checkout brings it up the same
+way, but for one whose remote can't be reached, which is served as it is.
+Python's own pulls differ in one way: one that fails for any reason
+deletes the clone to clone it again, unless it holds unpushed work.
 
 **Creating the Postgres database:** `unfurl-server create-database`
 creates the role and database `UNFURL_CLOUDMAP_DB_URL` names and exits,

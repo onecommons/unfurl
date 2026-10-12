@@ -407,6 +407,17 @@ impl SyncedRepo {
         })
     }
 
+    /// The checkout's directory, as it was opened.
+    pub fn repo_path(&self) -> &Path {
+        &self.inner.repo_path
+    }
+
+    /// Whether the database holds work the checkout's commits don't: an
+    /// edit still to be written, or a file taken in but not committed.
+    pub async fn has_uncommitted(&self) -> Result<bool> {
+        self.db().has_uncommitted(self.worktree_id()).await
+    }
+
     pub(crate) fn repo(&self) -> Result<gix::Repository> {
         self.inner.opener.open(&self.inner.repo_path)
     }

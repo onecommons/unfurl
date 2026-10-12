@@ -252,16 +252,20 @@ the checkouts from the database: for each worktree whose origin is a
 project on the cloud server, a clone of its branch where python puts one,
 `public/<project>/<branch>` anonymously or, for a private project, with
 its users' most recent grant under `private/`, or a fast-forward of the
-one there, under python's lock file. One that can't be fast-forwarded,
-with commits the remote lacks, is served as it is. A worktree that can't
+one there, under python's lock file. One that can't be fast-forwarded is
+reset to its remote if it holds no work the remote lacks, and otherwise
+served as it is; a broken one is moved aside and cloned again. A worktree that can't
 be cloned (an exported branch the remote lacks, a private project no
 grant opens and no checkout of, a remote that doesn't answer in five
 minutes) is logged and left to python. A request naming a project and
 branch with no checkout brings one up the same way, with the request's
-own credentials, under `private/`, if it has them, and its project and
+own credentials, under `private/`, if it has them -- kept as a grant
+for its later pulls -- and its project and
 branch never a path out of the clone root; one that can't be brought up
 is left to python. The gateway has checked each request's access to its
-project either way. Each checkout
+project either way. A served checkout is pulled when a request finds it
+stale by python's pull record, or lacking the request's `latest_commit`,
+and rescanned if its HEAD moved (**Freshness** in the server's README). Each checkout
 is opened and scanned with `recover_missing`, since a new clone is where
 commits the database made go missing, and writes are routed to the
 checkout of their project and branch (when they name none, the

@@ -176,6 +176,8 @@ pub struct CloudMapState {
     /// With none configured, the worktrees a read naming no project reads:
     /// the default cloudmaps'.
     default_cloudmaps: Arc<Vec<i64>>,
+    /// What pulls the checkouts served, as python pulls its clones.
+    fresh: Option<Arc<crate::fresh::Freshener>>,
 }
 
 /// How long a write waits for its checkout's git lock before it's refused.
@@ -217,6 +219,11 @@ pub fn request_access(
     RequestAccess {
         private,
         credentials: request_credentials(headers, query, body),
+        username: headers
+            .get("x-unfurl-username")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string(),
     }
 }
 
@@ -403,6 +410,7 @@ impl CloudMapState {
             locks,
             commit_wait: COMMIT_WAIT,
             default_cloudmaps: Arc::new(Vec::new()),
+            fresh: None,
         }))
     }
 
@@ -429,6 +437,7 @@ impl CloudMapState {
             locks: None,
             commit_wait: COMMIT_WAIT,
             default_cloudmaps: Arc::new(Vec::new()),
+            fresh: None,
         }
     }
 
@@ -513,12 +522,15 @@ impl CloudMapState {
         branch: Option<&str>,
         dev_mode: bool,
         access: &RequestAccess,
+        latest_commit: Option<&str>,
     ) -> Result<ProjectCheck, unfurl_git_sync::Error> {
         if dev_mode {
             return Ok(ProjectCheck::Serve(self.clone()));
         }
         if !self.configured {
-            return self.checkout_for(project_id, branch, access).await;
+            return self
+                .checkout_for(project_id, branch, access, latest_commit)
+                .await;
         }
         let worktree = self.inner.get_worktree().await?;
         // Checked before the project so that a request naming a branch but no
@@ -535,7 +547,10 @@ impl CloudMapState {
             }
         }
         Ok(match project_id.filter(|p| !p.is_empty()) {
-            Some(p) if origin_matches(&worktree.origin, p) => ProjectCheck::Serve(self.clone()),
+            Some(p) if origin_matches(&worktree.origin, p) => {
+                self.freshen(&self.inner, access, latest_commit).await;
+                ProjectCheck::Serve(self.clone())
+            }
             Some(_) => ProjectCheck::OtherProject,
             None => ProjectCheck::Missing,
         })
@@ -549,6 +564,7 @@ impl CloudMapState {
         project_id: Option<&str>,
         branch: Option<&str>,
         access: &RequestAccess,
+        latest_commit: Option<&str>,
     ) -> Result<ProjectCheck, unfurl_git_sync::Error> {
         let Some(project) = project_id.map(str::trim).filter(|p| !p.is_empty()) else {
             return Ok(ProjectCheck::Missing);
@@ -557,7 +573,10 @@ impl CloudMapState {
             .map(str::trim)
             .filter(|b| !b.is_empty() && *b != "HEAD");
         let found = match self.find(project, branch) {
-            Found::Checkout(handle) => return Ok(ProjectCheck::Serve(self.on(handle))),
+            Found::Checkout(handle) => {
+                self.freshen(&handle, access, latest_commit).await;
+                return Ok(ProjectCheck::Serve(self.on(handle)));
+            }
             found => found,
         };
         if let Some(handle) = self.bring_up(project, branch, access).await {
@@ -625,7 +644,7 @@ impl CloudMapState {
         project: &str,
         access: &RequestAccess,
     ) -> Option<Arc<SyncedRepo>> {
-        let opened = cloner.bring_up(wanted, project, access).await?;
+        let (opened, pulled) = cloner.bring_up(wanted, project, access).await?;
         let worktree = opened.inner.get_worktree().await.ok()?;
         let served = ServedCheckout {
             default_branch: worktree.default_branch().to_string(),
@@ -634,6 +653,9 @@ impl CloudMapState {
             handle: opened.inner.clone(),
         };
         self.checkouts.write().expect("checkouts").push(served);
+        if let (Some(fresh), Some(outcome)) = (&self.fresh, pulled) {
+            fresh.record(&opened.inner, outcome).await;
+        }
         Some(opened.inner)
     }
 
@@ -679,6 +701,77 @@ impl CloudMapState {
         self
     }
 
+    /// This state, pulling the checkouts it serves with `fresh`.
+    pub fn with_freshener(mut self, fresh: crate::fresh::Freshener) -> Self {
+        self.fresh = Some(Arc::new(fresh));
+        self
+    }
+
+    /// How many pulls have started.
+    pub fn pulls_started(&self) -> usize {
+        self.fresh.as_ref().map_or(0, |fresh| fresh.pulls_started())
+    }
+
+    /// `handle`, freshened before it serves a request with `access` and
+    /// `latest_commit`.
+    async fn freshen(
+        &self,
+        handle: &Arc<SyncedRepo>,
+        access: &RequestAccess,
+        latest_commit: Option<&str>,
+    ) {
+        if let Some(fresh) = &self.fresh {
+            fresh.freshen(handle, access, latest_commit).await;
+        }
+    }
+
+    /// The checkouts a read of `project` on `branch` is answered from,
+    /// freshened: the configured one, the one served for them, or with
+    /// no project the default cloudmaps.
+    async fn freshen_read(
+        &self,
+        project: Option<&str>,
+        branch: Option<&str>,
+        access: &RequestAccess,
+        latest_commit: Option<&str>,
+    ) {
+        if self.configured {
+            // only for its own project: another's credentials and commits
+            // aren't its
+            let own = match project {
+                Some(p) => self
+                    .inner
+                    .get_worktree()
+                    .await
+                    .is_ok_and(|w| origin_matches(&w.origin, p)),
+                None => true,
+            };
+            if own {
+                self.freshen(&self.inner, access, latest_commit).await;
+            }
+            return;
+        }
+        let handles = match project {
+            Some(p) => match self.find(p, branch) {
+                Found::Checkout(handle) => vec![handle],
+                _ => Vec::new(),
+            },
+            None => {
+                let checkouts = self.checkouts.read().expect("checkouts");
+                checkouts
+                    .iter()
+                    .filter(|c| self.default_cloudmaps.contains(&c.handle.worktree_id()))
+                    .map(|c| c.handle.clone())
+                    .collect()
+            }
+        };
+        for handle in handles {
+            // a commit names one project's
+            let latest_commit = latest_commit.filter(|_| project.is_some());
+            self.freshen(&handle, access, latest_commit).await;
+        }
+    }
+
     /// Which worktrees in the database a read request is answered from:
     /// `Read(None)` for the checked-out one, which a request naming neither
     /// `auth_project` nor `branch` reads.
@@ -698,6 +791,7 @@ impl CloudMapState {
         dev_mode: bool,
         cloud_server: &str,
         access: &RequestAccess,
+        latest_commit: Option<&str>,
     ) -> Result<ReadTarget, unfurl_git_sync::Error> {
         let project = project_id.map(str::trim).filter(|p| !p.is_empty());
         let branch = branch
@@ -706,6 +800,8 @@ impl CloudMapState {
         if dev_mode {
             return Ok(ReadTarget::Read(None));
         }
+        self.freshen_read(project, branch, access, latest_commit)
+            .await;
         let origin = match (project, self.configured) {
             // only the projects of the checkouts served, or brought up now
             (Some(p), false) if !self.readable(p, branch, access).await => {
@@ -813,6 +909,7 @@ async fn serve_or_proxy(
             state.config.dev_mode(),
             &state.config.cloud_server,
             &request_access(req.headers(), req.uri().query(), None),
+            request_field(req.uri().query(), None, "latest_commit").as_deref(),
         )
         .await
     {
@@ -2014,6 +2111,7 @@ pub async fn post_cloudmap_local(
             branch.as_deref(),
             state.config.dev_mode(),
             &access,
+            raw.as_ref().and_then(|v| v.get("latest_commit")?.as_str()),
         )
         .await
     {

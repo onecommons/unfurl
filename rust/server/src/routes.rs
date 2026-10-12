@@ -204,8 +204,7 @@ fn pulled_clone(
         .join(base)
         .join(project)
         .join(branch);
-    let dir = clone.to_string_lossy().trim_end_matches('/').to_string();
-    let pull_key = format!("{}{project}:pull:{dir}", config.cache_key_prefix);
+    let pull_key = cache::pull_key(&config.cache_key_prefix, project, &clone);
     Some((pull_key, clone))
 }
 

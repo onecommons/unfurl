@@ -403,19 +403,21 @@ async fn a_request_with_credentials_brings_up_a_private_project() {
     .await
     .expect("serve")
     .expect("served");
+    let grants = std::sync::Arc::new(world.grants().await);
     let cloner = unfurl_server::clone::Cloner::new(
         cm.synced().db().clone(),
         &world.root(),
         &world.server.base,
         None,
-        None,
+        Some(grants.clone()),
         unfurl_git_sync::git::Trust::Reduced,
         |_| true,
     );
     let cm = cm.with_cloner(cloner);
+    let secret = format!("{}/org/secret", world.server.base);
 
     let without = cm
-        .project_check(Some("org/secret"), None, false, &Default::default())
+        .project_check(Some("org/secret"), None, false, &Default::default(), None)
         .await
         .expect("check");
     assert!(!matches!(without, ProjectCheck::Serve(_)));
@@ -432,7 +434,9 @@ async fn a_request_with_credentials_brings_up_a_private_project() {
             &unfurl_server::clone::RequestAccess {
                 private: true,
                 credentials: Some(credentials),
+                username: "alice".into(),
             },
+            None,
         )
         .await
         .expect("check");
@@ -443,5 +447,268 @@ async fn a_request_with_credentials_brings_up_a_private_project() {
     assert!(
         !config.contains("k@n") && !config.contains("k%40n"),
         "{config}"
+    );
+    // kept as a grant, for its later pulls
+    let kept = grants.latest_credentials(&secret).await.expect("grants");
+    let kept = kept.expect("a grant");
+    assert_eq!((kept.user.as_str(), kept.secret.as_str()), (USER, TOKEN));
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    let grant = world.database().await.latest_grant(&secret, now).await;
+    assert_eq!(grant.expect("grants").expect("a grant").username, "alice");
+}
+
+impl World {
+    /// The checkouts `prepare` makes with `grants`, served and pulled
+    /// whenever a request finds one, with the store's grants too.
+    async fn serve_fresh(
+        &self,
+        grants: Option<std::sync::Arc<GrantStore>>,
+    ) -> unfurl_server::cloudmap::CloudMapState {
+        let checkouts = unfurl_server::clone::prepare(
+            &self.db,
+            &self.root(),
+            &self.server.base,
+            None,
+            grants.as_deref(),
+            unfurl_git_sync::git::Trust::Reduced,
+            &[],
+        )
+        .await;
+        let DbConfig::Sqlite { url } = &self.db else {
+            unreachable!()
+        };
+        let cm = unfurl_server::clone::serve(
+            checkouts,
+            url,
+            Some(ScanOptions::default()),
+            |_| true,
+            |_, _| String::new(),
+            None,
+            unfurl_git_sync::git::Trust::Reduced,
+        )
+        .await
+        .expect("serve")
+        .expect("served");
+        let settings = unfurl_server::fresh::Settings {
+            timeout: 0,
+            cache_key_prefix: "test:".into(),
+            cloud_server: self.server.base.clone(),
+            clone_root: Some(self.root()),
+            grants,
+            locks: None,
+            trust: unfurl_git_sync::git::Trust::Reduced,
+        };
+        cm.with_freshener(unfurl_server::fresh::Freshener::new(None, settings, |_| {
+            true
+        }))
+    }
+
+    /// Whether the private checkout reaches `commit` within ten seconds.
+    async fn pulled_to(&self, commit: &str) -> bool {
+        for _ in 0..200 {
+            // not `git`, which fails a test on a checkout half cloned
+            let head = std::process::Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(self.checkout("private"))
+                .output();
+            if head.is_ok_and(|out| String::from_utf8_lossy(&out.stdout).trim() == commit) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        false
+    }
+}
+
+/// A private checkout a request without credentials finds stale is
+/// pulled with a grant.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stale_private_checkout_is_pulled_with_a_grant() {
+    let world = World::new().await;
+    world.server.make_private("org/proj.git");
+    let grants = std::sync::Arc::new(world.grants().await);
+    world.grant(&grants, USER, TOKEN).await;
+    let cm = world.serve_fresh(Some(grants)).await;
+    let upstream = world.push_upstream("later");
+    cm.project_check(Some("org/proj"), None, false, &Default::default(), None)
+        .await
+        .expect("check");
+    assert!(world.pulled_to(&upstream).await);
+}
+
+/// One a request with credentials finds stale is pulled with them, as
+/// with no grant it couldn't be.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stale_private_checkout_is_pulled_with_the_requests_credentials() {
+    let world = World::new().await;
+    world.server.make_private("org/proj.git");
+    let grants = std::sync::Arc::new(world.grants().await);
+    let grant = world.grant(&grants, USER, TOKEN).await;
+    // brought up with the grant, which is then gone
+    let cm = world.serve_fresh(Some(grants.clone())).await;
+    grants.forget(&grant).await.expect("forget");
+    let upstream = world.push_upstream("later");
+    let credentials = base64::engine::general_purpose::STANDARD.encode(format!("{USER}:{TOKEN}"));
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("x-git-credentials", credentials.parse().unwrap());
+    let access = unfurl_server::cloudmap::request_access(&headers, None, None);
+    let anonymous = Default::default();
+    cm.project_check(Some("org/proj"), None, false, &anonymous, None)
+        .await
+        .expect("check");
+    for _ in 0..200 {
+        if cm.pulls_started() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let head = git(&world.checkout("private"), &["rev-parse", "HEAD"]);
+    assert_ne!(head, upstream, "not without credentials");
+    cm.project_check(Some("org/proj"), None, false, &access, None)
+        .await
+        .expect("check");
+    assert!(world.pulled_to(&upstream).await);
+}
+
+/// A grant git refuses during a pull is forgotten, as at startup, so the
+/// next pull tries the one before it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_grant_refused_during_a_pull_is_forgotten() {
+    let world = World::new().await;
+    world.server.make_private("org/proj.git");
+    let grants = std::sync::Arc::new(world.grants().await);
+    world.grant(&grants, USER, TOKEN).await;
+    let cm = world.serve_fresh(Some(grants.clone())).await;
+    // a later grant, which git refuses
+    world.grant(&grants, USER, "wrong").await;
+    let origin = format!("{}/org/proj.git", world.server.base);
+    let latest = async || {
+        let credentials = grants.latest_credentials(&origin).await.expect("grants");
+        credentials.expect("a grant").secret
+    };
+    assert_eq!(latest().await, "wrong");
+    cm.project_check(Some("org/proj"), None, false, &Default::default(), None)
+        .await
+        .expect("check");
+    let mut forgotten = false;
+    for _ in 0..200 {
+        if latest().await == TOKEN {
+            forgotten = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(forgotten);
+    let upstream = world.push_upstream("later");
+    cm.project_check(Some("org/proj"), None, false, &Default::default(), None)
+        .await
+        .expect("check");
+    assert!(world.pulled_to(&upstream).await);
+}
+
+/// A request's credentials aren't kept as a grant when git never took
+/// them: a checkout already there, whose remote couldn't be reached, is
+/// served as it is.
+#[tokio::test(flavor = "multi_thread")]
+async fn credentials_git_didnt_take_arent_kept() {
+    use unfurl_server::cloudmap::ProjectCheck;
+    let world = World::new().await;
+    // a second project, private, the database doesn't track, with a
+    // checkout there already whose remote can't be reached
+    let served = world.tmp.path().join("served");
+    let bare = served.join("org/secret.git");
+    std::fs::create_dir_all(&bare).expect("mkdir");
+    git(&bare, &["init", "-q", "--bare"]);
+    git(
+        &world.tmp.path().join("seed"),
+        &["push", "-q", bare.to_str().unwrap(), "main"],
+    );
+    let checkout = world.root().join("private/org/secret/main");
+    std::fs::create_dir_all(checkout.parent().unwrap()).expect("mkdir");
+    let url = format!("{}/org/secret.git", world.server.base);
+    git(
+        world.tmp.path(),
+        &["clone", "-q", &url, checkout.to_str().unwrap()],
+    );
+    git(
+        &checkout,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "http://127.0.0.1:1/org/secret.git",
+        ],
+    );
+    world.server.make_private("org/secret.git");
+    let grants = std::sync::Arc::new(world.grants().await);
+    let cm = world.serve_fresh(None).await;
+    let cloner = unfurl_server::clone::Cloner::new(
+        cm.synced().db().clone(),
+        &world.root(),
+        &world.server.base,
+        None,
+        Some(grants.clone()),
+        unfurl_git_sync::git::Trust::Reduced,
+        |_| true,
+    );
+    let cm = cm.with_cloner(cloner);
+    let access = unfurl_server::clone::RequestAccess {
+        private: true,
+        credentials: Some(unfurl_server::grants::Credentials {
+            grant: String::new(),
+            user: USER.into(),
+            secret: TOKEN.into(),
+        }),
+        username: "alice".into(),
+    };
+    let check = cm
+        .project_check(Some("org/secret"), None, false, &access, None)
+        .await
+        .expect("check");
+    assert!(matches!(check, ProjectCheck::Serve(_)), "served as it is");
+    let secret = format!("{}/org/secret", world.server.base);
+    let kept = grants.latest_credentials(&secret).await.expect("grants");
+    assert!(kept.is_none());
+}
+
+/// A grant git refuses while cloning a broken checkout again is forgotten
+/// too, so the next pull tries the one before it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_grant_refused_cloning_a_broken_checkout_again_is_forgotten() {
+    let world = World::new().await;
+    world.server.make_private("org/proj.git");
+    let grants = std::sync::Arc::new(world.grants().await);
+    world.grant(&grants, USER, TOKEN).await;
+    let cm = world.serve_fresh(Some(grants.clone())).await;
+    world.grant(&grants, USER, "wrong").await;
+    std::fs::remove_file(world.checkout("private").join(".git/HEAD")).expect("break it");
+    let origin = format!("{}/org/proj.git", world.server.base);
+    let latest = async || {
+        let credentials = grants.latest_credentials(&origin).await.expect("grants");
+        credentials.expect("a grant").secret
+    };
+    cm.project_check(Some("org/proj"), None, false, &Default::default(), None)
+        .await
+        .expect("check");
+    let mut forgotten = false;
+    for _ in 0..200 {
+        if latest().await == TOKEN {
+            forgotten = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(forgotten);
+    let upstream = world.push_upstream("later");
+    cm.project_check(Some("org/proj"), None, false, &Default::default(), None)
+        .await
+        .expect("check");
+    assert!(
+        world.pulled_to(&upstream).await,
+        "cloned again with the one before"
     );
 }
