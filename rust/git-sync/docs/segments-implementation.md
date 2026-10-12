@@ -256,8 +256,11 @@ one there, under python's lock file. One that can't be fast-forwarded,
 with commits the remote lacks, is served as it is. A worktree that can't
 be cloned (an exported branch the remote lacks, a private project no
 grant opens and no checkout of, a remote that doesn't answer in five
-minutes) is logged and left to python, and so is any project with no
-checkout here; the gateway has checked each request's access to its
+minutes) is logged and left to python. A request naming a project and
+branch with no checkout brings one up the same way, with the request's
+own credentials, under `private/`, if it has them, and its project and
+branch never a path out of the clone root; one that can't be brought up
+is left to python. The gateway has checked each request's access to its
 project either way. Each checkout
 is opened and scanned with `recover_missing`, since a new clone is where
 commits the database made go missing, and writes are routed to the

@@ -195,15 +195,11 @@ fn pulled_clone(
         return None;
     }
     // from the request: never a path out of the clone root
-    if !(relative(project) && relative(branch)) {
+    if !(crate::clone::relative(project) && crate::clone::relative(branch)) {
         return None;
     }
-    let credentialed = req.headers().contains_key("x-git-credentials")
-        || ["username", "private_token", "password"]
-            .iter()
-            .any(|name| query_value(req, name).is_some())
-        || query_value(req, "visibility").is_some_and(|v| v != "public");
-    let base = if credentialed { "private" } else { "public" };
+    let access = crate::cloudmap::request_access(req.headers(), req.uri().query(), None);
+    let base = if access.private { "private" } else { "public" };
     let clone = std::path::Path::new(config.clone_root.as_deref()?)
         .join(base)
         .join(project)
@@ -211,12 +207,6 @@ fn pulled_clone(
     let dir = clone.to_string_lossy().trim_end_matches('/').to_string();
     let pull_key = format!("{}{project}:pull:{dir}", config.cache_key_prefix);
     Some((pull_key, clone))
-}
-
-/// Whether `path` names somewhere beneath where it's joined: no empty,
-/// `.` or `..` component, and not absolute.
-fn relative(path: &str) -> bool {
-    path.split('/').all(|part| !matches!(part, "" | "." | ".."))
 }
 
 /// Shared logic for cache-aware GET handlers.

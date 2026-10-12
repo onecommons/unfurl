@@ -422,7 +422,8 @@ impl SyncedRepo {
         self.inner.family_id
     }
 
-    pub(crate) fn db(&self) -> &Db {
+    /// The database this handle is on, whose pool other handles may share.
+    pub fn db(&self) -> &Db {
         &self.inner.db
     }
 

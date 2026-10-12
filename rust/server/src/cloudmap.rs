@@ -27,6 +27,7 @@ use unfurl_git_sync::{
     TxnMeta, WorktreeFilter,
 };
 
+use crate::clone::{relative, Cloner, RequestAccess};
 use crate::gitlock::{self, GitLock, GitLocks};
 use crate::proxy;
 use axum::extract::FromRequest;
@@ -157,8 +158,12 @@ pub struct CloudMapState {
     /// the configured one, or with none, any.
     inner: Arc<SyncedRepo>,
     /// With none configured, every checkout: a write naming its project
-    /// and branch goes to it, and only their projects are read.
-    checkouts: Arc<Vec<Route>>,
+    /// and branch goes to it, and only their projects are read. One a
+    /// request brings up joins them.
+    checkouts: Arc<std::sync::RwLock<Vec<ServedCheckout>>>,
+    /// With none configured, what brings up a checkout a request names
+    /// that isn't among them.
+    cloner: Option<Arc<Cloner>>,
     /// Whether `inner` is a configured checkout, which serves a request
     /// naming no project or branch.
     configured: bool,
@@ -177,12 +182,76 @@ pub struct CloudMapState {
 const COMMIT_WAIT: Duration = Duration::from_secs(30);
 
 /// A checkout served with none configured, by its worktree.
-struct Route {
+#[derive(Clone)]
+struct ServedCheckout {
     origin: String,
     branch: String,
     /// Its repository's default branch, which a write naming none goes to.
     default_branch: String,
     handle: Arc<SyncedRepo>,
+}
+
+/// Where a request's project and branch stand among the checkouts served.
+enum Found {
+    /// Served by this checkout.
+    Checkout(Arc<SyncedRepo>),
+    /// The project is served, on other branches.
+    OtherBranch,
+    /// The project isn't served.
+    Nothing,
+}
+
+/// How a request may reach its project's repository: [`RequestAccess`]
+/// from its headers, query and `body`.
+pub fn request_access(
+    headers: &axum::http::HeaderMap,
+    query: Option<&str>,
+    body: Option<&Value>,
+) -> RequestAccess {
+    let field = |name: &str| request_field(query, body, name);
+    let private = headers.contains_key("x-git-credentials")
+        || ["username", "private_token", "password"]
+            .iter()
+            .any(|name| field(name).is_some())
+        || field("visibility").is_some_and(|v| v != "public");
+    RequestAccess {
+        private,
+        credentials: request_credentials(headers, query, body),
+    }
+}
+
+/// `name` from `query`, or else `body`, as python's args read it.
+fn request_field(query: Option<&str>, body: Option<&Value>, name: &str) -> Option<String> {
+    let in_query = query.and_then(|q| {
+        url::form_urlencoded::parse(q.as_bytes())
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.into_owned())
+    });
+    in_query.or_else(|| body?.get(name)?.as_str().map(str::to_string))
+}
+
+/// The credentials a request carries for its project: its
+/// `X-Git-Credentials`, or a `username` with a `private_token` or
+/// `password` in its query or `body`, as python reads them.
+fn request_credentials(
+    headers: &axum::http::HeaderMap,
+    query: Option<&str>,
+    body: Option<&Value>,
+) -> Option<crate::grants::Credentials> {
+    let header = headers
+        .get("x-git-credentials")
+        .and_then(|v| v.to_str().ok())
+        .and_then(crate::grants::decode_credentials);
+    let field = |name: &str| request_field(query, body, name);
+    let (user, secret) = header.or_else(|| {
+        let secret = field("private_token").or_else(|| field("password"))?;
+        Some((field("username")?, secret))
+    })?;
+    Some(crate::grants::Credentials {
+        grant: String::new(),
+        user,
+        secret,
+    })
 }
 
 /// The database `db_url` names, connected: every checkout opened on it
@@ -316,7 +385,7 @@ impl CloudMapState {
         let mut routes = Vec::new();
         for c in checkouts {
             let worktree = c.inner.get_worktree().await?;
-            routes.push(Route {
+            routes.push(ServedCheckout {
                 default_branch: worktree.default_branch().to_string(),
                 origin: worktree.origin,
                 branch: worktree.branch,
@@ -328,7 +397,8 @@ impl CloudMapState {
         };
         Ok(Some(Self {
             inner: first.handle.clone(),
-            checkouts: Arc::new(routes),
+            checkouts: Arc::new(std::sync::RwLock::new(routes)),
+            cloner: None,
             configured: false,
             locks,
             commit_wait: COMMIT_WAIT,
@@ -353,7 +423,8 @@ impl CloudMapState {
     pub fn from_synced(synced: SyncedRepo) -> Self {
         Self {
             inner: Arc::new(synced),
-            checkouts: Arc::new(Vec::new()),
+            checkouts: Arc::new(std::sync::RwLock::new(Vec::new())),
+            cloner: None,
             configured: true,
             locks: None,
             commit_wait: COMMIT_WAIT,
@@ -441,12 +512,13 @@ impl CloudMapState {
         project_id: Option<&str>,
         branch: Option<&str>,
         dev_mode: bool,
+        access: &RequestAccess,
     ) -> Result<ProjectCheck, unfurl_git_sync::Error> {
         if dev_mode {
             return Ok(ProjectCheck::Serve(self.clone()));
         }
         if !self.configured {
-            return self.checkout_for(project_id, branch).await;
+            return self.checkout_for(project_id, branch, access).await;
         }
         let worktree = self.inner.get_worktree().await?;
         // Checked before the project so that a request naming a branch but no
@@ -470,11 +542,13 @@ impl CloudMapState {
     }
 
     /// The checkout of `project_id` on `branch`, its default branch when it
-    /// names none.
+    /// names none: one served, or one brought up with the request's
+    /// `credentials`.
     async fn checkout_for(
         &self,
         project_id: Option<&str>,
         branch: Option<&str>,
+        access: &RequestAccess,
     ) -> Result<ProjectCheck, unfurl_git_sync::Error> {
         let Some(project) = project_id.map(str::trim).filter(|p| !p.is_empty()) else {
             return Ok(ProjectCheck::Missing);
@@ -482,27 +556,127 @@ impl CloudMapState {
         let branch = branch
             .map(str::trim)
             .filter(|b| !b.is_empty() && *b != "HEAD");
-        let mut known = false;
-        for route in self.checkouts.iter() {
-            if !origin_matches(&route.origin, project) {
-                continue;
+        let found = match self.find(project, branch) {
+            Found::Checkout(handle) => return Ok(ProjectCheck::Serve(self.on(handle))),
+            found => found,
+        };
+        if let Some(handle) = self.bring_up(project, branch, access).await {
+            return Ok(ProjectCheck::Serve(self.on(handle)));
+        }
+        Ok(match found {
+            Found::OtherBranch => ProjectCheck::OtherBranch,
+            _ => ProjectCheck::OtherProject,
+        })
+    }
+
+    /// Where `project` on `branch` (each one's default branch without
+    /// one) stands among the checkouts served.
+    fn find(&self, project: &str, branch: Option<&str>) -> Found {
+        let checkouts = self.checkouts.read().expect("checkouts");
+        let mut found = Found::Nothing;
+        for c in checkouts
+            .iter()
+            .filter(|c| origin_matches(&c.origin, project))
+        {
+            if branch_matches(&c.branch, branch.unwrap_or(&c.default_branch)) {
+                return Found::Checkout(c.handle.clone());
             }
-            known = true;
-            if branch_matches(&route.branch, branch.unwrap_or(&route.default_branch)) {
-                return Ok(ProjectCheck::Serve(Self {
-                    inner: route.handle.clone(),
-                    checkouts: self.checkouts.clone(),
-                    configured: true,
-                    locks: self.locks.clone(),
-                    commit_wait: self.commit_wait,
-                    default_cloudmaps: self.default_cloudmaps.clone(),
-                }));
+            found = Found::OtherBranch;
+        }
+        found
+    }
+
+    /// A checkout of `project` on `branch` brought up for a request with
+    /// `credentials`, and served from now on; `None` without a cloner or
+    /// where it can't be. One request at a time brings each up.
+    async fn bring_up(
+        &self,
+        project: &str,
+        branch: Option<&str>,
+        access: &RequestAccess,
+    ) -> Option<Arc<SyncedRepo>> {
+        // before anything is kept for it: a path out of the clone root is
+        // never brought up
+        if !relative(project) || branch.is_some_and(|b| !relative(b)) {
+            return None;
+        }
+        let cloner = self.cloner.as_ref()?;
+        let wanted = cloner.wanted(project, branch, access).await?;
+        let branch = wanted.branch.clone();
+        let gate = cloner.gate(project, &branch);
+        let brought = {
+            let _held = gate.lock().await;
+            // another request may have brought it up meanwhile
+            match self.find(project, Some(&branch)) {
+                Found::Checkout(handle) => Some(handle),
+                _ => self.bring_up_now(cloner, wanted, project, access).await,
+            }
+        };
+        drop(gate);
+        cloner.release_gate(project, &branch);
+        brought
+    }
+
+    /// [`Self::bring_up`], holding its gate.
+    async fn bring_up_now(
+        &self,
+        cloner: &Cloner,
+        wanted: crate::clone::Wanted,
+        project: &str,
+        access: &RequestAccess,
+    ) -> Option<Arc<SyncedRepo>> {
+        let opened = cloner.bring_up(wanted, project, access).await?;
+        let worktree = opened.inner.get_worktree().await.ok()?;
+        let served = ServedCheckout {
+            default_branch: worktree.default_branch().to_string(),
+            origin: worktree.origin,
+            branch: worktree.branch,
+            handle: opened.inner.clone(),
+        };
+        self.checkouts.write().expect("checkouts").push(served);
+        Some(opened.inner)
+    }
+
+    /// Whether `project` on `branch` is read here: served, on that branch
+    /// or another, or brought up now for a request with `credentials`.
+    async fn readable(&self, project: &str, branch: Option<&str>, access: &RequestAccess) -> bool {
+        match self.find(project, branch) {
+            Found::Checkout(_) => true,
+            found => {
+                self.bring_up(project, branch, access).await.is_some()
+                    || matches!(found, Found::OtherBranch)
             }
         }
-        Ok(match known {
-            true => ProjectCheck::OtherBranch,
-            false => ProjectCheck::OtherProject,
-        })
+    }
+
+    /// This state, serving the checkout `handle`.
+    fn on(&self, handle: Arc<SyncedRepo>) -> Self {
+        Self {
+            inner: handle,
+            configured: true,
+            ..self.clone()
+        }
+    }
+
+    /// The checkouts served with none configured, as `(origin, branch)`.
+    pub fn served(&self) -> Vec<(String, String)> {
+        let checkouts = self.checkouts.read().expect("checkouts");
+        checkouts
+            .iter()
+            .map(|c| (c.origin.clone(), c.branch.clone()))
+            .collect()
+    }
+
+    /// How many bring-ups are in progress, by the gates kept for them.
+    pub fn gates_kept(&self) -> usize {
+        self.cloner.as_ref().map_or(0, |cloner| cloner.gates_kept())
+    }
+
+    /// This state, bringing up with `cloner` a checkout a request names
+    /// that isn't served.
+    pub fn with_cloner(mut self, cloner: Cloner) -> Self {
+        self.cloner = Some(Arc::new(cloner));
+        self
     }
 
     /// Which worktrees in the database a read request is answered from:
@@ -523,6 +697,7 @@ impl CloudMapState {
         branch: Option<&str>,
         dev_mode: bool,
         cloud_server: &str,
+        access: &RequestAccess,
     ) -> Result<ReadTarget, unfurl_git_sync::Error> {
         let project = project_id.map(str::trim).filter(|p| !p.is_empty());
         let branch = branch
@@ -532,14 +707,8 @@ impl CloudMapState {
             return Ok(ReadTarget::Read(None));
         }
         let origin = match (project, self.configured) {
-            // only the projects of the checkouts served: the rest have none
-            // here
-            (Some(p), false)
-                if !self
-                    .checkouts
-                    .iter()
-                    .any(|route| origin_matches(&route.origin, p)) =>
-            {
+            // only the projects of the checkouts served, or brought up now
+            (Some(p), false) if !self.readable(p, branch, access).await => {
                 return Ok(ReadTarget::Proxy)
             }
             (Some(p), _) => format!(
@@ -643,6 +812,7 @@ async fn serve_or_proxy(
             branch,
             state.config.dev_mode(),
             &state.config.cloud_server,
+            &request_access(req.headers(), req.uri().query(), None),
         )
         .await
     {
@@ -1826,9 +1996,12 @@ pub async fn post_cloudmap_local(
     // is in, so validating it here would answer 422 for a body that is
     // python's to judge. A body that isn't JSON at all names no branch and is
     // left to `ValidatedJson` below to reject.
-    let branch = serde_json::from_slice::<Value>(&bytes)
-        .ok()
+    let raw = serde_json::from_slice::<Value>(&bytes).ok();
+    let branch = raw
+        .as_ref()
         .and_then(|v| v.get("branch")?.as_str().map(str::to_string));
+    // what a checkout brought up for it is cloned with
+    let access = request_access(&parts.headers, parts.uri.query(), raw.as_ref());
 
     // Writes must name the project they target, the same as the python handler
     // (`get_project_id_or_abort`) -- this handler serves one repository and
@@ -1840,6 +2013,7 @@ pub async fn post_cloudmap_local(
             params.auth_project.as_deref(),
             branch.as_deref(),
             state.config.dev_mode(),
+            &access,
         )
         .await
     {
@@ -2554,6 +2728,56 @@ mod tests {
         branch_matches, delete_pointer, merge_deletes, merge_json, origin_matches,
         retry_if_head_moved,
     };
+
+    #[test]
+    fn a_requests_credentials_are_read_as_python_reads_them() {
+        use super::request_credentials;
+        use axum::http::HeaderMap;
+        use serde_json::Value;
+        let read = |headers: &HeaderMap, query: Option<&str>, body: Option<&Value>| {
+            request_credentials(headers, query, body).map(|c| (c.user, c.secret))
+        };
+        let pair = |u: &str, s: &str| Some((u.to_string(), s.to_string()));
+        let mut header = HeaderMap::new();
+        header.insert(
+            "x-git-credentials",
+            crate::grants::credentials("u", "s:t").parse().unwrap(),
+        );
+        assert_eq!(read(&header, None, None), pair("u", "s:t"));
+        let none = HeaderMap::new();
+        assert_eq!(
+            read(&none, Some("username=u&private_token=t"), None),
+            pair("u", "t")
+        );
+        assert_eq!(
+            read(&none, Some("username=u&password=p"), None),
+            pair("u", "p")
+        );
+        let body = serde_json::json!({"username": "u", "private_token": "t"});
+        assert_eq!(read(&none, None, Some(&body)), pair("u", "t"));
+        assert_eq!(read(&none, Some("private_token=t"), None), None, "no user");
+        assert_eq!(read(&none, None, None), None);
+    }
+
+    #[test]
+    fn a_request_with_any_credential_is_private() {
+        use super::request_access;
+        use axum::http::HeaderMap;
+        let private = |query: &str| request_access(&HeaderMap::new(), Some(query), None).private;
+        for query in [
+            "username=u",
+            "private_token=t",
+            "password=p",
+            "visibility=private",
+        ] {
+            assert!(private(query), "{query}");
+        }
+        for query in ["", "visibility=public", "branch=main"] {
+            assert!(!private(query), "{query}");
+        }
+        let body = serde_json::json!({"username": "u"});
+        assert!(request_access(&HeaderMap::new(), None, Some(&body)).private);
+    }
     use std::sync::atomic::{AtomicUsize, Ordering};
     use unfurl_git_sync::Error;
 

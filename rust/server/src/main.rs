@@ -196,7 +196,7 @@ fn build_http_client(config: &Config) -> reqwest::Client {
 async fn open_cloudmap(
     config: &Config,
     locks: Option<GitLocks>,
-    grants: Option<&GrantStore>,
+    grants: Option<Arc<GrantStore>>,
 ) -> Option<cloudmap::CloudMapState> {
     let (repo, db_url) = match (
         config.cloudmap_repo.as_deref(),
@@ -268,7 +268,7 @@ async fn open_clones(
     config: &Config,
     db_url: &str,
     locks: Option<GitLocks>,
-    grants: Option<&GrantStore>,
+    grants: Option<Arc<GrantStore>>,
 ) -> Option<cloudmap::CloudMapState> {
     let root = std::path::Path::new(config.clone_root.as_deref()?);
     let db = or_exit(
@@ -292,7 +292,7 @@ async fn open_clones(
         root,
         &config.cloud_server,
         locks.as_ref(),
-        grants,
+        grants.as_deref(),
         config.checkout_trust(),
         &defaults,
     )
@@ -303,11 +303,24 @@ async fn open_clones(
         scan,
         |outcome| !report_scan(outcome, config.scan_abort_level),
         |e, path| open_hint(e, path, config, true),
-        locks,
+        locks.clone(),
         config.checkout_trust(),
     )
     .await;
-    or_exit(served, "failed to serve the cloudmap checkouts")
+    let served = or_exit(served, "failed to serve the cloudmap checkouts")?;
+    let abort_level = config.scan_abort_level;
+    // a request naming a project or branch none serves brings one up
+    let cloner = unfurl_server::clone::Cloner::new(
+        served.synced().db().clone(),
+        root,
+        &config.cloud_server,
+        locks,
+        grants,
+        config.checkout_trust(),
+        // as startup's: a checkout whose scan it refuses isn't served
+        move |outcome: &unfurl_git_sync::SyncOutcome| !report_scan(outcome, abort_level),
+    );
+    Some(served.with_cloner(cloner))
 }
 
 /// `result`'s value, or, logging `what` failed, the process's end.
@@ -556,7 +569,7 @@ async fn run(config: Config, grant_key: Option<Result<GrantKey, GrantError>>) {
         config: Arc::new(config.clone()),
         redis,
         client: build_http_client(&config),
-        cloudmap: open_cloudmap(&config, locks, grants.as_deref()).await,
+        cloudmap: open_cloudmap(&config, locks, grants.clone()).await,
         grants,
     };
 

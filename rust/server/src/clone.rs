@@ -126,11 +126,199 @@ struct Startup<'a> {
     trust: Trust,
 }
 
+/// Whether `path`, from a request, names somewhere beneath where it's
+/// joined: no empty, `.` or `..` component, and not absolute.
+pub(crate) fn relative(path: &str) -> bool {
+    path.split('/').all(|part| !matches!(part, "" | "." | ".."))
+}
+
+/// A lock for each project and branch, which bringing it up holds.
+type Gates = std::sync::Mutex<
+    std::collections::HashMap<(String, String), std::sync::Arc<tokio::sync::Mutex<()>>>,
+>;
+
+/// What brings up a checkout on demand, for a request naming a project
+/// and branch the server has none of: as [`prepare`] and [`serve`] do at
+/// startup, but with the request's own credentials first.
+pub struct Cloner {
+    db: Db,
+    clone_root: PathBuf,
+    cloud_server: String,
+    locks: Option<GitLocks>,
+    grants: Option<std::sync::Arc<GrantStore>>,
+    trust: Trust,
+    /// Whether a checkout's scan lets it be served, as at startup.
+    accept: Box<dyn Fn(&unfurl_git_sync::SyncOutcome) -> bool + Send + Sync>,
+    /// One at a time per project and branch.
+    gates: Gates,
+}
+
+/// How a request may reach its project's repository, as python decides
+/// it (`_get_managed_project_repo_dir`): with any credential, or a
+/// `visibility` other than public, its clone is under `private/`; with a
+/// user and a secret, those reach git.
+#[derive(Debug, Clone, Default)]
+pub struct RequestAccess {
+    pub private: bool,
+    pub credentials: Option<Credentials>,
+}
+
+impl Cloner {
+    pub fn new(
+        db: Db,
+        clone_root: &Path,
+        cloud_server: &str,
+        locks: Option<GitLocks>,
+        grants: Option<std::sync::Arc<GrantStore>>,
+        trust: Trust,
+        accept: impl Fn(&unfurl_git_sync::SyncOutcome) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        Cloner {
+            db,
+            clone_root: clone_root.to_path_buf(),
+            cloud_server: cloud_server.to_string(),
+            locks,
+            grants,
+            trust,
+            accept: Box::new(accept),
+            gates: Default::default(),
+        }
+    }
+
+    /// The gate a bring-up of `project` on `branch` holds.
+    pub(crate) fn gate(
+        &self,
+        project: &str,
+        branch: &str,
+    ) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+        let key = (project.to_string(), branch.to_string());
+        let mut gates = self.gates.lock().expect("gates");
+        gates.entry(key).or_default().clone()
+    }
+
+    /// Forget the gate of `project` on `branch` if no bring-up holds it.
+    pub(crate) fn release_gate(&self, project: &str, branch: &str) {
+        let key = (project.to_string(), branch.to_string());
+        let mut gates = self.gates.lock().expect("gates");
+        if gates
+            .get(&key)
+            .is_some_and(|gate| std::sync::Arc::strong_count(gate) == 1)
+        {
+            gates.remove(&key);
+        }
+    }
+
+    /// How many gates are kept: one per bring-up in progress.
+    pub fn gates_kept(&self) -> usize {
+        self.gates.lock().expect("gates").len()
+    }
+
+    /// `project` on `branch`, or its default branch, as the database
+    /// knows it, or its remote says with `access`.
+    pub(crate) async fn wanted(
+        &self,
+        project: &str,
+        branch: Option<&str>,
+        access: &RequestAccess,
+    ) -> Option<Wanted> {
+        let startup = self.startup();
+        let host = unfurl_git_sync::git::normalize_git_url_hard(&self.cloud_server);
+        let origin = format!("{host}/{project}");
+        let filter = WorktreeFilter {
+            origin: Some(origin.clone()),
+            ..Default::default()
+        };
+        let known = self.db.worktrees(&filter).await.ok()?;
+        let known: Vec<&Worktree> = known.iter().collect();
+        let branch = match branch {
+            Some(branch) => branch.to_string(),
+            None => {
+                let url = format!("{}/{project}.git", self.cloud_server.trim_end_matches('/'));
+                let access = self.access(&url, access);
+                startup.default_branch_of(project, &known, &access).await
+            }
+        };
+        Some(Wanted {
+            origin,
+            branch,
+            visibility: known.iter().find_map(|w| w.visibility.clone()),
+            default_cloudmap: false,
+        })
+    }
+
+    fn startup(&self) -> Startup<'_> {
+        Startup {
+            db: &self.db,
+            clone_root: &self.clone_root,
+            cloud_server: &self.cloud_server,
+            locks: self.locks.as_ref(),
+            grants: self.grants.as_deref(),
+            trust: self.trust,
+        }
+    }
+
+    /// `access` for git to reach `url` with: the request's credentials,
+    /// if it has them.
+    fn access(&self, url: &str, access: &RequestAccess) -> Access {
+        match &access.credentials {
+            Some(credentials) => Access::with(url, credentials),
+            None => Access::anonymous(url),
+        }
+        .trusting(self.trust)
+    }
+
+    /// A checkout of `wanted`, of `project`, cloned or brought up to its
+    /// remote and opened: for a request with private `access`, under
+    /// `private/` with its credentials, if any; otherwise as the startup
+    /// clone does. Scanned recovering a missing commit's records, as a new
+    /// clone is, whatever startup's options, and served only if its scan
+    /// is accepted.
+    pub(crate) async fn bring_up(
+        &self,
+        mut wanted: Wanted,
+        project: &str,
+        access: &RequestAccess,
+    ) -> Option<CloudMapState> {
+        let startup = self.startup();
+        let checkout = match access.private {
+            true => {
+                let url = format!("{}/{project}.git", self.cloud_server.trim_end_matches('/'));
+                startup
+                    .settle_with(&wanted, project, &self.access(&url, access))
+                    .await?
+            }
+            false => startup.settle(&mut wanted).await?,
+        };
+        let path = checkout.path.to_string_lossy();
+        let scan = Some(unfurl_git_sync::ScanOptions {
+            recover_missing: true,
+            ..Default::default()
+        });
+        let opened = CloudMapState::open_locked(
+            &path,
+            &self.db,
+            scan,
+            &self.accept,
+            self.locks.as_ref(),
+            self.trust,
+        )
+        .await;
+        opened.unwrap_or_else(|e| {
+            tracing::warn!(
+                project,
+                error = e.to_string().as_str(),
+                "can't open a checkout brought up for a request"
+            );
+            None
+        })
+    }
+}
+
 /// A worktree [`prepare`] brings a checkout up for: one the database
-/// tracks, or a default cloudmap.
-struct Wanted {
+/// tracks, a default cloudmap, or one a request names.
+pub(crate) struct Wanted {
     origin: String,
-    branch: String,
+    pub(crate) branch: String,
     visibility: Option<String>,
     default_cloudmap: bool,
 }
@@ -280,6 +468,20 @@ impl Startup<'_> {
         }
     }
 
+    /// Worktree `w`'s checkout, of `project`, cloned or brought up under
+    /// `private/` with a request's `access`.
+    async fn settle_with(&self, w: &Wanted, project: &str, access: &Access) -> Option<Checkout> {
+        let url = format!("{}/{project}.git", self.cloud_server.trim_end_matches('/'));
+        let checkout = self.checkout(w, project, "private");
+        match update(&checkout, &url, self.locks, access).await {
+            Ok(()) => Some(checkout),
+            Err(e) => {
+                left_out(&checkout, &e);
+                None
+            }
+        }
+    }
+
     /// The worktrees to bring checkouts up for: the database's, and the
     /// `default_cloudmaps` it lacks, each default cloudmap marked.
     async fn wanted(
@@ -294,7 +496,16 @@ impl Startup<'_> {
             let known: Vec<&Worktree> = worktrees.iter().filter(|w| w.origin == origin).collect();
             let branch = match &entry.branch {
                 Some(branch) => branch.clone(),
-                None => self.default_branch_of(&entry.project, &known).await,
+                None => {
+                    let url = format!(
+                        "{}/{}.git",
+                        self.cloud_server.trim_end_matches('/'),
+                        entry.project
+                    );
+                    let anonymous = Access::anonymous(&url).trusting(self.trust);
+                    self.default_branch_of(&entry.project, &known, &anonymous)
+                        .await
+                }
             };
             let visibility = known.iter().find_map(|w| w.visibility.clone());
             match wanted
@@ -315,17 +526,21 @@ impl Startup<'_> {
 
     /// `project`'s default branch: as recorded on one of its worktrees
     /// `known`, or its remote's HEAD, or `main`.
-    async fn default_branch_of(&self, project: &str, known: &[&Worktree]) -> String {
+    async fn default_branch_of(
+        &self,
+        project: &str,
+        known: &[&Worktree],
+        access: &Access,
+    ) -> String {
         if let Some(branch) = known.iter().find_map(|w| w.default_branch.clone()) {
             return branch;
         }
         let url = format!("{}/{project}.git", self.cloud_server.trim_end_matches('/'));
-        let access = Access::anonymous(&url).trusting(self.trust);
         // in the clone root: not the server's own directory, see `clone`
         let asked = match std::fs::create_dir_all(self.clone_root) {
             Ok(()) => {
                 let args = ["ls-remote", "--symref", url.as_str(), "HEAD"];
-                git(self.clone_root, &access, &args).await
+                git(self.clone_root, access, &args).await
             }
             Err(e) => Err(e.to_string()),
         };

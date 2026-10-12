@@ -299,7 +299,7 @@ async fn several_clones_open_on_one_database() {
     .expect("checkouts");
     for c in &checkouts {
         let check = cm
-            .project_check(Some(&c.project), None, false)
+            .project_check(Some(&c.project), None, false, &Default::default())
             .await
             .expect("check");
         let ProjectCheck::Serve(target) = check else {
@@ -350,7 +350,7 @@ async fn a_checkout_that_fails_is_left_out_of_the_rest() {
         (&checkouts[2], false),
     ] {
         let check = cm
-            .project_check(Some(&c.project), None, false)
+            .project_check(Some(&c.project), None, false, &Default::default())
             .await
             .expect("check");
         assert_eq!(
@@ -784,7 +784,7 @@ async fn a_default_cloudmap_is_cloned_and_read_without_a_project() {
         .find(|(_, origin, branch)| origin.ends_with("/org/default") && branch == "trunk")
         .expect("a worktree row for the default cloudmap's checkout");
     let read = cm
-        .resolve_read(None, None, false, &world.server())
+        .resolve_read(None, None, false, &world.server(), &Default::default())
         .await
         .expect("resolve");
     let ReadTarget::Read(Some(filter)) = read else {
@@ -852,4 +852,183 @@ async fn a_repository_around_the_clone_root_is_ignored() {
         .map(|c| (c.project.as_str(), c.branch.as_str()))
         .collect();
     assert_eq!(got, [("org/proj", "main"), ("org/default", "trunk")]);
+}
+
+impl World {
+    /// The checkouts startup brings up, served, with a cloner for the rest.
+    async fn serve_with_cloner(&self) -> unfurl_server::cloudmap::CloudMapState {
+        let served = self.serve_all(self.prepare().await).await;
+        let cloner = unfurl_server::clone::Cloner::new(
+            served.synced().db().clone(),
+            &self.root(),
+            &self.server(),
+            None,
+            None,
+            unfurl_git_sync::git::Trust::Reduced,
+            |_| true,
+        );
+        served.with_cloner(cloner)
+    }
+}
+
+/// A write, and a read, naming a project with no checkout bring one up --
+/// cloned and opened, its worktree in the database -- and are served from
+/// it; the rest of the time, as from any checkout.
+#[tokio::test]
+async fn a_request_for_a_project_with_no_checkout_brings_one_up() {
+    use unfurl_server::cloudmap::ReadTarget;
+    let world = World::new().await;
+    world.host("org/other", "main");
+    let cm = world.serve_with_cloner().await;
+    assert_eq!(cm.served().len(), 1);
+
+    let check = cm
+        .project_check(Some("org/other"), None, false, &Default::default())
+        .await
+        .expect("check");
+    assert!(matches!(check, ProjectCheck::Serve(_)));
+    assert!(world.root().join("public/org/other/main/.git").exists());
+    assert_eq!(cm.served().len(), 2);
+
+    // a read first brings one up too
+    world.host("org/read", "main");
+    let read = cm
+        .resolve_read(
+            Some("org/read"),
+            None,
+            false,
+            &world.server(),
+            &Default::default(),
+        )
+        .await
+        .expect("resolve");
+    assert!(matches!(read, ReadTarget::Read(Some(_))), "{read:?}");
+    assert!(world.root().join("public/org/read/main/.git").exists());
+    assert_eq!(cm.served().len(), 3);
+}
+
+/// Two first requests for one project at once bring it up once.
+#[tokio::test]
+async fn concurrent_first_requests_bring_a_checkout_up_once() {
+    let world = World::new().await;
+    world.host("org/other", "main");
+    let cm = world.serve_with_cloner().await;
+    let anonymous = Default::default();
+    let (a, b) = tokio::join!(
+        cm.project_check(Some("org/other"), None, false, &anonymous),
+        cm.project_check(Some("org/other"), None, false, &anonymous),
+    );
+    assert!(matches!(a.expect("a"), ProjectCheck::Serve(_)));
+    assert!(matches!(b.expect("b"), ProjectCheck::Serve(_)));
+    assert_eq!(cm.served().len(), 2);
+}
+
+/// A project or branch from a request that isn't a path beneath the clone
+/// root is never brought up.
+#[tokio::test]
+async fn a_hostile_project_or_branch_isnt_brought_up() {
+    let world = World::new().await;
+    let cm = world.serve_with_cloner().await;
+    // `x/../main` would reach the checkout of org/proj on main
+    for (project, branch) in [
+        ("../org/proj", None),
+        ("org/proj", Some("x/../main")),
+        ("org/proj", Some("../../x")),
+        ("org/x", Some("/etc")),
+    ] {
+        let check = cm
+            .project_check(Some(project), branch, false, &Default::default())
+            .await
+            .expect("check");
+        assert!(
+            !matches!(check, ProjectCheck::Serve(_)),
+            "{project} {branch:?}"
+        );
+    }
+    assert_eq!(cm.served().len(), 1);
+}
+
+/// No gate is kept once a bring-up is done, or for a request never
+/// brought up: what requests name can't grow them.
+#[tokio::test]
+async fn no_gate_outlives_its_bring_up() {
+    let world = World::new().await;
+    world.host("org/other", "main");
+    let cm = world.serve_with_cloner().await;
+    let anonymous = Default::default();
+    for (project, branch) in [
+        ("org/other", None),
+        ("org/proj", Some("../x")),
+        ("org/nope", Some("b")),
+    ] {
+        let _ = cm
+            .project_check(Some(project), branch, false, &anonymous)
+            .await;
+    }
+    assert_eq!(cm.gates_kept(), 0);
+}
+
+/// A request private without a secret -- a user alone, or a visibility
+/// other than public -- has its checkout brought up under private/, as
+/// python puts its clone, anonymously.
+#[tokio::test]
+async fn a_private_request_without_a_secret_clones_under_private() {
+    let world = World::new().await;
+    world.host("org/other", "main");
+    let cm = world.serve_with_cloner().await;
+    let private = unfurl_server::clone::RequestAccess {
+        private: true,
+        credentials: None,
+    };
+    let check = cm
+        .project_check(Some("org/other"), None, false, &private)
+        .await
+        .expect("check");
+    assert!(matches!(check, ProjectCheck::Serve(_)));
+    assert!(world.root().join("private/org/other/main/.git").exists());
+    assert!(!world.root().join("public/org/other").exists());
+}
+
+/// A request naming a branch of a served project that isn't served
+/// brings that branch up.
+#[tokio::test]
+async fn a_new_branch_of_a_served_project_is_brought_up() {
+    let world = World::new().await;
+    git(
+        &world.tmp.path().join("server/org/proj.git"),
+        &["branch", "dev", "main"],
+    );
+    let cm = world.serve_with_cloner().await;
+    let check = cm
+        .project_check(Some("org/proj"), Some("dev"), false, &Default::default())
+        .await
+        .expect("check");
+    assert!(matches!(check, ProjectCheck::Serve(_)));
+    assert!(world.root().join("public/org/proj/dev/.git").exists());
+    assert_eq!(cm.served().len(), 2);
+}
+
+/// A checkout brought up whose scan the server refuses, as at startup,
+/// isn't served.
+#[tokio::test]
+async fn a_checkout_whose_scan_is_refused_isnt_served() {
+    let world = World::new().await;
+    world.host("org/other", "main");
+    let served = world.serve_all(world.prepare().await).await;
+    let cloner = unfurl_server::clone::Cloner::new(
+        served.synced().db().clone(),
+        &world.root(),
+        &world.server(),
+        None,
+        None,
+        unfurl_git_sync::git::Trust::Reduced,
+        |_| false,
+    );
+    let cm = served.with_cloner(cloner);
+    let check = cm
+        .project_check(Some("org/other"), None, false, &Default::default())
+        .await
+        .expect("check");
+    assert!(!matches!(check, ProjectCheck::Serve(_)));
+    assert_eq!(cm.served().len(), 1);
 }

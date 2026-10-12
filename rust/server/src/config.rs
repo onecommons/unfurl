@@ -308,11 +308,13 @@ pub struct Config {
     /// With a clone root, a cloudmap repository a request naming no
     /// project reads, as `<project>[#branch]` (its default branch without
     /// one): cloned at startup like those the database tracks. Repeatable,
-    /// or comma-separated in the environment.
+    /// or comma-separated in the environment. Without any, python's
+    /// default, the public cloudmap on `main`.
     #[arg(
         long = "default-cloudmap",
         env = "UNFURL_DEFAULT_CLOUDMAPS",
-        value_delimiter = ','
+        value_delimiter = ',',
+        default_value = "onecommons/cloudmap#main"
     )]
     pub default_cloudmaps: Vec<String>,
 
@@ -754,6 +756,14 @@ mod local_mode_tests {
             argv.push(p);
         }
         Config::parse_from(argv)
+    }
+
+    #[test]
+    fn the_default_cloudmap_is_pythons_without_one() {
+        let without = Config::parse_from(["unfurl-server"]);
+        assert_eq!(without.default_cloudmaps, ["onecommons/cloudmap#main"]);
+        let with = Config::parse_from(["unfurl-server", "--default-cloudmap", "org/map"]);
+        assert_eq!(with.default_cloudmaps, ["org/map"]);
     }
 
     #[test]

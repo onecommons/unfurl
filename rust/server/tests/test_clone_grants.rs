@@ -359,3 +359,89 @@ async fn a_default_cloudmap_gone_private_isnt_one() {
         [(world.checkout("public"), false)]
     );
 }
+
+/// A request naming a private project with no checkout, carrying its own
+/// credentials, brings one up with them, under private/, with no grant
+/// stored; without credentials, it isn't brought up.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_with_credentials_brings_up_a_private_project() {
+    use unfurl_server::cloudmap::ProjectCheck;
+    let world = World::new().await;
+    // a second project, private, the database doesn't track
+    let served = world.tmp.path().join("served");
+    let bare = served.join("org/secret.git");
+    std::fs::create_dir_all(&bare).expect("mkdir");
+    git(&bare, &["init", "-q", "--bare"]);
+    git(
+        &world.tmp.path().join("seed"),
+        &["push", "-q", bare.to_str().unwrap(), "main"],
+    );
+    world.server.make_private("org/secret.git");
+
+    let checkouts = prepare(
+        &world.db,
+        &world.root(),
+        &world.server.base,
+        None,
+        None,
+        unfurl_git_sync::git::Trust::Reduced,
+        &[],
+    )
+    .await;
+    let DbConfig::Sqlite { url } = &world.db else {
+        unreachable!()
+    };
+    let cm = unfurl_server::clone::serve(
+        checkouts,
+        url,
+        Some(ScanOptions::default()),
+        |_| true,
+        |_, _| String::new(),
+        None,
+        unfurl_git_sync::git::Trust::Reduced,
+    )
+    .await
+    .expect("serve")
+    .expect("served");
+    let cloner = unfurl_server::clone::Cloner::new(
+        cm.synced().db().clone(),
+        &world.root(),
+        &world.server.base,
+        None,
+        None,
+        unfurl_git_sync::git::Trust::Reduced,
+        |_| true,
+    );
+    let cm = cm.with_cloner(cloner);
+
+    let without = cm
+        .project_check(Some("org/secret"), None, false, &Default::default())
+        .await
+        .expect("check");
+    assert!(!matches!(without, ProjectCheck::Serve(_)));
+    let credentials = unfurl_server::grants::Credentials {
+        grant: String::new(),
+        user: USER.into(),
+        secret: TOKEN.into(),
+    };
+    let with = cm
+        .project_check(
+            Some("org/secret"),
+            None,
+            false,
+            &unfurl_server::clone::RequestAccess {
+                private: true,
+                credentials: Some(credentials),
+            },
+        )
+        .await
+        .expect("check");
+    assert!(matches!(with, ProjectCheck::Serve(_)));
+    let checkout = world.root().join("private/org/secret/main");
+    assert!(checkout.join(".git").exists());
+    let config = config_of(&checkout);
+    assert!(
+        !config.contains("k@n") && !config.contains("k%40n"),
+        "{config}"
+    );
+}
