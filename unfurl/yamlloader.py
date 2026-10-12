@@ -89,7 +89,7 @@ from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
 import toscaparser.imports
 import tosca.loader
-from tosca import yaml_path_for
+from tosca import yaml_path_for, python_path_for
 from toscaparser.repositories import Repository
 from toscaparser.elements.interfaces import OperationDef
 
@@ -1373,6 +1373,15 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     if os.path.isfile(cache_yaml_path):
                         original_python_path = path
                         path = cache_yaml_path  # try to use previously converted yaml
+                elif path.endswith(".yaml"):
+                    source_path = python_path_for(Path(path))
+                    if source_path:
+                        # path is a cached conversion, treat it as if it were next to its source
+                        yaml_path = str(source_path.with_suffix(".yaml"))
+                        if os.path.isfile(path):
+                            original_python_path = str(source_path)
+                        else:
+                            path = str(source_path)
             f, cacheable = self._open(path, isFile)
             if f is None:
                 return None, cacheable

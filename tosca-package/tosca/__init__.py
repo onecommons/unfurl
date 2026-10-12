@@ -328,6 +328,16 @@ def yaml_path_for(python_path: Path) -> Path:
     return python_path.parent / stem_yaml
 
 
+def python_path_for(yaml_path: Path) -> Optional[Path]:
+    """Return the Python source path if ``yaml_path`` is in the ``__pycache__`` location used by `yaml_path_for`."""
+    stem_py = yaml_path.stem + ".py"
+    if yaml_path.parent.name == "__pycache__":
+        python_path = yaml_path.parent.parent / stem_py
+        if python_path.is_file():
+            return python_path
+    return None
+
+
 def is_newer_than(output_path, input_path):
     "Is output_path newer than input_path?"
     if not os.path.exists(input_path) or not os.path.exists(output_path):
