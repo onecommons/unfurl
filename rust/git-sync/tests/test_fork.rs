@@ -1039,6 +1039,7 @@ async fn a_cursor_across_families_is_refused() {
     let branch = WorktreeFilter {
         origin: None,
         branch: Some(main_branch(tmp.path())),
+        ids: None,
     };
     let err = one
         .watermark(Some(&branch))
@@ -1158,6 +1159,7 @@ async fn deleting_worktrees_on(tmp: &tempfile::TempDir, config: DbConfig) {
     let origin = WorktreeFilter {
         origin: Some("https://example.com/fork.git".into()),
         branch: None,
+        ids: None,
     };
     let left = again.worktrees(&origin).await.expect("worktrees");
     assert_eq!(left.len(), 1, "{left:?}");

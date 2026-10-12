@@ -2778,6 +2778,7 @@ async fn reads_other_worktrees_in_the_same_database() {
         // any spelling of the url, either form of the branch
         origin: Some("git@unfurl.cloud:org/b".into()),
         branch: Some(format!("refs/heads/{}", b_row.branch)),
+        ids: None,
     };
 
     let ids = |rows: Vec<unfurl_git_sync::Worktree>| rows.iter().map(|w| w.id).collect::<Vec<_>>();

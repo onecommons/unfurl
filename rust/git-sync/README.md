@@ -14,7 +14,9 @@ Postgres via gitoxide and sqlx.
 - **Pluggable formats:** a `DataFormat` trait describes an application
   schema; the cloudmap format ships built in.
 - **Query:** find records by path and json filter, facets, and follow
-  aliases and cross-references between them.
+  aliases and cross-references between them, in one worktree or across
+  several: by origin and branch, or a list of worktree ids
+  (`WorktreeFilter`).
 - **CRUD:** create, update, upsert and delete records, singly or in
   batches, with git commits as optimistic-concurrency tokens.
 - **Write back:** saves edits to the files in place, keeping untouched

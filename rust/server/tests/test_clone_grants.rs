@@ -128,6 +128,7 @@ impl World {
             None,
             grants,
             unfurl_git_sync::git::Trust::Reduced,
+            &[],
         )
         .await
         .into_iter()
@@ -303,5 +304,58 @@ async fn a_grant_that_cant_see_the_project_is_forgotten() {
     assert!(
         grants.token(&lost_access).await.expect("token").is_none(),
         "forgotten"
+    );
+}
+
+impl World {
+    /// The checkouts brought up with `org/proj` a default cloudmap, as
+    /// `(path, default_cloudmap)`.
+    async fn prepare_as_default(&self, grants: Option<&GrantStore>) -> Vec<(PathBuf, bool)> {
+        let defaults =
+            [unfurl_server::clone::DefaultCloudmap::parse("org/proj#main").expect("parse")];
+        prepare(
+            &self.db,
+            &self.root(),
+            &self.server.base,
+            None,
+            grants,
+            unfurl_git_sync::git::Trust::Reduced,
+            &defaults,
+        )
+        .await
+        .into_iter()
+        .map(|c| (c.path, c.default_cloudmap))
+        .collect()
+    }
+}
+
+/// A default cloudmap repository found private when it's cloned -- refused
+/// anonymously, then cloned with a grant -- is served, but not as a default cloudmap: a
+/// request naming no project, which the gateway can't check, doesn't read it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_default_cloudmap_found_private_isnt_one() {
+    let world = World::new().await;
+    world.server.make_private("org/proj.git");
+    let grants = world.grants().await;
+    world.grant(&grants, USER, TOKEN).await;
+    assert_eq!(
+        world.prepare_as_default(Some(&grants)).await,
+        [(world.checkout("private"), false)]
+    );
+}
+
+/// A default cloudmap repository gone private since its public checkout was made
+/// stays served from that checkout, but not as a default cloudmap.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_default_cloudmap_gone_private_isnt_one() {
+    let world = World::new().await;
+    assert_eq!(
+        world.prepare_as_default(None).await,
+        [(world.checkout("public"), true)]
+    );
+    world.server.make_private("org/proj.git");
+    assert_eq!(
+        world.prepare_as_default(None).await,
+        [(world.checkout("public"), false)]
     );
 }

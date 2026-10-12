@@ -46,6 +46,7 @@ async fn visibilities(db: &Db, repo: &Path) -> Vec<(String, Option<String>)> {
     let filter = WorktreeFilter {
         origin: Some(repo.display().to_string()),
         branch: None,
+        ids: None,
     };
     let mut seen: Vec<_> = db
         .worktrees(&filter)
@@ -135,6 +136,7 @@ async fn only_a_private_repository_is_not_public_or_unknown() {
             let filter = WorktreeFilter {
                 origin: Some(origin(repo)),
                 branch: None,
+                ids: None,
             };
             db.worktrees(&filter).await.expect("worktrees")[0].is_public_or_unknown()
         };
@@ -156,6 +158,7 @@ async fn main_of(db: &Db, repo: &Path) -> unfurl_git_sync::Worktree {
     let filter = WorktreeFilter {
         origin: Some(origin(repo)),
         branch: Some("main".into()),
+        ids: None,
     };
     db.worktrees(&filter).await.expect("worktrees").remove(0)
 }
@@ -269,4 +272,61 @@ async fn opening_a_checkout_records_its_default_branch() {
             .as_deref(),
         Some("trunk")
     );
+}
+
+/// A read scoped to a list of worktrees, by id, reads exactly those, on
+/// both backends; an empty list reads none.
+#[tokio::test]
+async fn a_read_scoped_to_worktrees_by_id_reads_only_those() {
+    use unfurl_git_sync::RecordQuery;
+    each_backend(async |db: &Db, config: &DbConfig, [repo, other]| {
+        let mut handles = Vec::new();
+        for (dir, key) in [(repo, "in-a"), (other, "in-b")] {
+            let sync = SyncedRepo::open(dir, config.clone(), FormatRegistry::with_builtins())
+                .await
+                .expect("open");
+            sync.upsert_record(
+                Some("cloudmap.yaml"),
+                "/repositories",
+                key,
+                serde_json::json!({ "name": key }),
+                None,
+                false,
+            )
+            .await
+            .expect("write");
+            handles.push(sync);
+        }
+        let (a, b) = (handles[0].worktree_id(), handles[1].worktree_id());
+        let scoped = |ids: Vec<i64>| WorktreeFilter {
+            ids: Some(ids),
+            ..Default::default()
+        };
+        let found = |ids: Vec<i64>, key: &str| {
+            let query = RecordQuery {
+                key: Some(key.into()),
+                worktrees: Some(scoped(ids)),
+                subtypes: true,
+                ..Default::default()
+            };
+            let reader = handles[0].clone();
+            async move { !reader.find_records(&query).await.expect("find").is_empty() }
+        };
+
+        for key in ["in-a", "in-b"] {
+            assert!(found(vec![a, b], key).await, "{key}");
+            assert!(!found(vec![], key).await, "{key}");
+        }
+        assert!(found(vec![b], "in-b").await);
+        assert!(!found(vec![b], "in-a").await);
+        let scoped_ids: Vec<i64> = db
+            .worktrees(&scoped(vec![b]))
+            .await
+            .expect("worktrees")
+            .iter()
+            .map(|w| w.id)
+            .collect();
+        assert_eq!(scoped_ids, [b]);
+    })
+    .await;
 }

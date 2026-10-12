@@ -81,6 +81,7 @@ async fn a_clone_ignores_the_hosts_git_configuration() {
         None,
         None,
         unfurl_git_sync::git::Trust::Reduced,
+        &[],
     )
     .await;
     assert_eq!(ready.len(), 1, "the clone failed");

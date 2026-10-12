@@ -234,9 +234,25 @@ pub struct WorktreeFilter {
     pub origin: Option<String>,
     /// The branch, with or without `refs/heads/`.
     pub branch: Option<String>,
+    /// Only these worktrees, by id; none for an empty list.
+    pub ids: Option<Vec<i64>>,
 }
 
 impl WorktreeFilter {
+    /// `AND w.id IN (..)` for [`Self::ids`], to append to a `WHERE` on the
+    /// `worktree` table aliased `w`; empty without them. The ids are
+    /// integers, so they're written into the statement as they are.
+    pub(crate) fn ids_sql(filter: Option<&WorktreeFilter>) -> String {
+        match filter.and_then(|f| f.ids.as_deref()) {
+            None => String::new(),
+            Some([]) => " AND 1 = 0".to_string(),
+            Some(ids) => {
+                let ids: Vec<String> = ids.iter().map(i64::to_string).collect();
+                format!(" AND w.id IN ({})", ids.join(", "))
+            }
+        }
+    }
+
     /// `origin` and `branch` as the `worktree` table stores them.
     pub(crate) fn normalized(&self) -> (Option<String>, Option<String>) {
         (

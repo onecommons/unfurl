@@ -135,6 +135,7 @@ async fn reads(db: &Db, cursor: i64) {
         worktrees: Some(WorktreeFilter {
             origin: None,
             branch: Some("main".into()),
+            ids: None,
         }),
         json_queries: vec![tags("tag7")],
         limit: Some(50),

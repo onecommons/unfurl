@@ -325,6 +325,7 @@ impl SqlWorld {
         let filter = WorktreeFilter {
             origin: None,
             branch: Some(branch.clone()),
+            ids: None,
         };
         let rows = self.rt.block_on(self.repos[&w].worktrees(&filter)).unwrap();
         if folded {

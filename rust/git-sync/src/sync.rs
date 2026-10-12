@@ -3417,6 +3417,7 @@ mod race_tests {
         let filter = crate::model::WorktreeFilter {
             origin: None,
             branch: Some(branch.into()),
+            ids: None,
         };
         let rows = sync.worktrees(&filter).await.expect("worktrees");
         rows[0].commit_id.clone()

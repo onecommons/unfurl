@@ -272,6 +272,8 @@ struct WorktreeScope {
     id: Option<i64>,
     origin: Option<String>,
     branch: Option<String>,
+    /// [`WorktreeFilter::ids_sql`].
+    ids: String,
 }
 
 impl WorktreeScope {
@@ -281,6 +283,7 @@ impl WorktreeScope {
                 id: Some(worktree_id),
                 origin: None,
                 branch: None,
+                ids: String::new(),
             },
             Some(f) => {
                 let (origin, branch) = f.normalized();
@@ -288,6 +291,7 @@ impl WorktreeScope {
                     id: None,
                     origin,
                     branch,
+                    ids: WorktreeFilter::ids_sql(Some(f)),
                 }
             }
         }
@@ -303,7 +307,7 @@ async fn reset_version(db: &Db, scope: &WorktreeScope) -> Result<i64> {
            AND (CAST(?2 AS TEXT) IS NULL OR w.origin = ?2) \
            AND (CAST(?3 AS TEXT) IS NULL OR w.branch = ?3)";
     let (reset_version, families): (i64, i64) = on_pool!(db, pool => {
-        sqlx::query_as(sql!(pool, SQL))
+        sqlx::query_as(&crate::db::spell(pool, format!("{SQL}{}", scope.ids)))
             .bind(scope.id)
             .bind(scope.origin.as_deref())
             .bind(scope.branch.as_deref())
@@ -337,7 +341,7 @@ pub(crate) async fn watermark(
            AND (CAST(?3 AS TEXT) IS NULL OR w.branch = ?3)";
     let scope = WorktreeScope::new(worktree_id, filter);
     let (watermark, families): (i64, i64) = on_pool!(db, pool => {
-        sqlx::query_as(sql!(pool, SQL))
+        sqlx::query_as(&crate::db::spell(pool, format!("{SQL}{}", scope.ids)))
             .bind(scope.id)
             .bind(scope.origin.as_deref())
             .bind(scope.branch.as_deref())
@@ -376,7 +380,7 @@ async fn check_since(db: &Db, scope: &WorktreeScope, since: i64) -> Result<()> {
 /// chain and its draft. Worktrees are few, so the `IS NULL OR` tests only
 /// ever scan that table. Postgres can't infer a parameter's type from
 /// `IS NULL`, hence the casts.
-fn views(pg: bool) -> String {
+fn views(pg: bool, ids: &str) -> String {
     let (id, origin, branch) = if pg {
         ("$1::bigint", "$2::text", "$3::text")
     } else {
@@ -384,7 +388,7 @@ fn views(pg: bool) -> String {
     };
     let scope = format!(
         "({id} IS NULL OR w.id = {id}) AND ({origin} IS NULL OR w.origin = {origin}) \
-         AND ({branch} IS NULL OR w.branch = {branch})"
+         AND ({branch} IS NULL OR w.branch = {branch}){ids}"
     );
     format!(
         "(SELECT ws.worktree_id, ws.segment_id FROM worktree_segment ws \
@@ -395,18 +399,18 @@ fn views(pg: bool) -> String {
 
 /// Joined after `FROM record r`: a row for each worktree in scope whose
 /// view holds `r`'s segment, as `v`.
-fn view_join(pg: bool) -> String {
-    format!(" JOIN {} v ON v.segment_id = r.segment_id", views(pg))
+fn view_join(pg: bool, ids: &str) -> String {
+    format!(" JOIN {} v ON v.segment_id = r.segment_id", views(pg, ids))
 }
 
 /// `r` is visible in worktree `v`: nothing in its view supersedes it
 /// (§3.3). The worktree match is in the `WHERE`, so the planner makes it
 /// a hash anti-join.
-fn visible(pg: bool) -> String {
+fn visible(pg: bool, ids: &str) -> String {
     format!(
         "NOT EXISTS (SELECT 1 FROM superseded x JOIN {} vx ON vx.segment_id = x.segment_id \
          WHERE x.record_id = r.id AND vx.worktree_id = v.worktree_id)",
-        views(pg)
+        views(pg, ids)
     )
 }
 
@@ -441,13 +445,14 @@ async fn subtypes(
     names: &[String],
 ) -> Result<Vec<String>> {
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+    let ids = scope.ids.clone();
     match db {
         Db::Sqlite(pool) => {
             let sql = format!(
                 "WITH RECURSIVE {}, sub(name) AS (SELECT value FROM json_each(?5) \
                  UNION SELECT e.child FROM edges e JOIN sub s ON e.parent = s.name) \
                  SELECT name FROM sub ORDER BY name",
-                type_edges_cte_sqlite(4)
+                type_edges_cte_sqlite(4, &ids)
             );
             let names = serde_json::to_string(names).map_err(|e| Error::Other(e.to_string()))?;
             Ok(sqlx::query_scalar(&sql)
@@ -465,7 +470,7 @@ async fn subtypes(
                 "WITH RECURSIVE {}, sub(name) AS (SELECT unnest($5::text[]) \
                  UNION SELECT e.child FROM edges e JOIN sub s ON e.parent = s.name) \
                  SELECT name FROM sub ORDER BY name",
-                type_edges_cte_pg(4)
+                type_edges_cte_pg(4, &ids)
             );
             // planned per call, as in `find_pg`
             Ok(sqlx::query_scalar(&sql)
@@ -485,7 +490,7 @@ async fn subtypes(
 /// record's `extends` list, over the records in the
 /// [`WorktreeScope`] bound as `?1`-`?3` and the file bound as
 /// `?{file_idx}` (NULL for every file).
-fn type_edges_cte_sqlite(file_idx: usize) -> String {
+fn type_edges_cte_sqlite(file_idx: usize, ids: &str) -> String {
     // `typeof(e.key) = 'integer'` keeps array elements only: an object's
     // members have text keys and a scalar's key is NULL.
     format!(
@@ -494,14 +499,14 @@ fn type_edges_cte_sqlite(file_idx: usize) -> String {
          WHERE {} AND r.path = '/types' AND r.deleted = 0 \
          AND r.conflict IS NULL AND (?{file_idx} IS NULL OR r.file_path = ?{file_idx}) \
          AND typeof(e.key) = 'integer' AND e.type = 'text')",
-        view_join(false),
-        visible(false)
+        view_join(false, ids),
+        visible(false, ids)
     )
 }
 
 /// Postgres twin of [`type_edges_cte_sqlite`].
 #[cfg(feature = "postgres")]
-fn type_edges_cte_pg(file_idx: usize) -> String {
+fn type_edges_cte_pg(file_idx: usize, ids: &str) -> String {
     // `jsonb_array_elements` raises on a non-array, hence the CASE.
     format!(
         "edges(child, parent) AS (SELECT r.key, e.value #>> '{{}}' \
@@ -511,8 +516,8 @@ fn type_edges_cte_pg(file_idx: usize) -> String {
          WHERE {} AND r.path = '/types' AND r.deleted = FALSE \
          AND r.conflict IS NULL AND (${file_idx}::text IS NULL OR r.file_path = ${file_idx}) \
          AND jsonb_typeof(e.value) = 'string')",
-        view_join(true),
-        visible(true)
+        view_join(true, ids),
+        visible(true, ids)
     )
 }
 
@@ -694,15 +699,16 @@ async fn find_sqlite(
     worktree_id: i64,
     query: &RecordQuery,
 ) -> Result<Vec<Record>> {
+    let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     let RecordQuery { after, limit, .. } = query;
     let mut sql = String::from(
         "SELECT r.key_id AS id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
          json(r.json) AS json, r.version, r.deleted, r.conflict FROM record r",
     );
-    sql.push_str(&view_join(false));
+    sql.push_str(&view_join(false, &ids));
     sql.push_str(" WHERE ");
-    sql.push_str(&visible(false));
+    sql.push_str(&visible(false, &ids));
     let mut idx: usize = 4;
     push_filter_sql_sqlite(&mut sql, query, &mut idx);
     if after.is_some() {
@@ -872,6 +878,7 @@ async fn find_pg(
     worktree_id: i64,
     query: &RecordQuery,
 ) -> Result<Vec<Record>> {
+    let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     let RecordQuery { after, limit, .. } = query;
     // The page is found from ids and sort keys, then joined to the rest of
@@ -880,9 +887,9 @@ async fn find_pg(
     // SQLite computes it only for the rows the limit keeps, so its arm
     // doesn't need this.
     let mut sql = String::from("SELECT r.id, v.worktree_id FROM record r");
-    sql.push_str(&view_join(true));
+    sql.push_str(&view_join(true, &ids));
     sql.push_str(" WHERE ");
-    sql.push_str(&visible(true));
+    sql.push_str(&visible(true, &ids));
     let mut idx: usize = 4;
     push_filter_sql_pg(&mut sql, query, &mut idx);
     if after.is_some() {
@@ -1015,11 +1022,12 @@ async fn facet_sqlite(
     query: &RecordQuery,
     spec: &FacetSpec,
 ) -> Result<FacetRows> {
+    let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     let mut sql = format!(
         "SELECT COUNT(DISTINCT r.id) FROM record r{} WHERE {}",
-        view_join(false),
-        visible(false)
+        view_join(false, &ids),
+        visible(false, &ids)
     );
     let mut idx: usize = 4;
     push_filter_sql_sqlite(&mut sql, query, &mut idx);
@@ -1100,6 +1108,7 @@ async fn facet_aggregate_sqlite(
     spec: &FacetSpec,
     members: &[FacetPath],
 ) -> Result<Vec<FacetColumnRow>> {
+    let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     use sqlx::Row as _;
     let group = &spec.group;
@@ -1138,7 +1147,7 @@ async fn facet_aggregate_sqlite(
              rollup_pairs(decl, anc) AS MATERIALIZED (\
              SELECT json_quote(decl), json_quote(anc) FROM closure \
              UNION SELECT json_quote(decl), json_quote(decl) FROM closure) ",
-            type_edges_cte_sqlite(fi)
+            type_edges_cte_sqlite(fi, &ids)
         ));
     }
     let mut extracted = format!("SELECT r.id, {} AS g", facet_value_sqlite("jg"));
@@ -1149,13 +1158,13 @@ async fn facet_aggregate_sqlite(
         ));
     }
     extracted.push_str(" FROM record r");
-    extracted.push_str(&view_join(false));
+    extracted.push_str(&view_join(false, &ids));
     extracted.push_str(&format!(" JOIN json_each(r.json, ?{group_idx}) jg"));
     for (i, idx) in member_idx.iter().enumerate() {
         extracted.push_str(&format!(" JOIN json_each(r.json, ?{idx}) j{i}"));
     }
     extracted.push_str(" WHERE ");
-    extracted.push_str(&visible(false));
+    extracted.push_str(&visible(false, &ids));
     extracted.push_str(&where_sql);
     sql.push_str(&facet_cells_sql(group.rollup, members, &extracted));
 
@@ -1207,11 +1216,12 @@ async fn facet_pg(
     query: &RecordQuery,
     spec: &FacetSpec,
 ) -> Result<FacetRows> {
+    let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     let mut sql = format!(
         "SELECT COUNT(DISTINCT r.id) FROM record r{} WHERE {}",
-        view_join(true),
-        visible(true)
+        view_join(true, &ids),
+        visible(true, &ids)
     );
     let mut idx: usize = 4;
     push_filter_sql_pg(&mut sql, query, &mut idx);
@@ -1255,6 +1265,7 @@ async fn facet_aggregate_pg(
     spec: &FacetSpec,
     members: &[FacetPath],
 ) -> Result<Vec<FacetColumnRow>> {
+    let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     use sqlx::Row as _;
     let group = &spec.group;
@@ -1289,7 +1300,7 @@ async fn facet_aggregate_pg(
              rollup_pairs(decl, anc) AS MATERIALIZED (\
              SELECT to_jsonb(decl), to_jsonb(anc) FROM closure \
              UNION SELECT to_jsonb(decl), to_jsonb(decl) FROM closure) ",
-            type_edges_cte_pg(fi)
+            type_edges_cte_pg(fi, &ids)
         ));
     }
     let mut extracted = String::from("SELECT r.id, jg.val AS g");
@@ -1297,13 +1308,13 @@ async fn facet_aggregate_pg(
         extracted.push_str(&format!(", j{i}.val AS u{i}"));
     }
     extracted.push_str(" FROM record r");
-    extracted.push_str(&view_join(true));
+    extracted.push_str(&view_join(true, &ids));
     extracted.push_str(&facet_lateral_pg("jg", group_idx));
     for (i, idx) in member_idx.iter().enumerate() {
         extracted.push_str(&facet_lateral_pg(&format!("j{i}"), *idx));
     }
     extracted.push_str(" WHERE ");
-    extracted.push_str(&visible(true));
+    extracted.push_str(&visible(true, &ids));
     extracted.push_str(&where_sql);
     // A fence: without it the planner joins the rollup pairs first and
     // extracts the members once per bucket instead of once per record.
@@ -1385,13 +1396,14 @@ async fn find_many_sqlite(
     exclude_ids: &[i64],
     since_version: Option<i64>,
 ) -> Result<Vec<Record>> {
+    let ids = scope.ids.clone();
     let mut sql = String::from(
         "SELECT r.key_id AS id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
          json(r.json) AS json, r.version FROM record r",
     );
-    sql.push_str(&view_join(false));
+    sql.push_str(&view_join(false, &ids));
     sql.push_str(" WHERE ");
-    sql.push_str(&visible(false));
+    sql.push_str(&visible(false, &ids));
     sql.push_str(" AND r.deleted = 0 AND r.conflict IS NULL");
     let mut idx: usize = 4;
 
@@ -1466,13 +1478,14 @@ async fn find_many_pg(
     exclude_ids: &[i64],
     since_version: Option<i64>,
 ) -> Result<Vec<Record>> {
+    let ids = scope.ids.clone();
     let mut sql = String::from(
         "SELECT r.key_id AS id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
          r.json::text AS json, r.version FROM record r",
     );
-    sql.push_str(&view_join(true));
+    sql.push_str(&view_join(true, &ids));
     sql.push_str(" WHERE ");
-    sql.push_str(&visible(true));
+    sql.push_str(&visible(true, &ids));
     sql.push_str(" AND r.deleted = FALSE AND r.conflict IS NULL");
     let mut idx: usize = 4;
 

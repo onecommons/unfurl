@@ -45,10 +45,11 @@ pub(crate) async fn matching(
          r.visibility, r.default_branch \
          FROM worktree w LEFT JOIN repository r ON r.origin = w.origin \
          WHERE (CAST(?1 AS TEXT) IS NULL OR w.origin = ?1) \
-           AND (CAST(?2 AS TEXT) IS NULL OR w.branch = ?2) ORDER BY w.id";
+           AND (CAST(?2 AS TEXT) IS NULL OR w.branch = ?2)";
     let (origin, branch) = filter.normalized();
+    let ids = crate::model::WorktreeFilter::ids_sql(Some(filter));
     Ok(on_pool!(db, pool => {
-        sqlx::query_as(sql!(pool, SQL))
+        sqlx::query_as(&crate::db::spell(pool, format!("{SQL}{ids} ORDER BY w.id")))
             .bind(origin)
             .bind(branch)
             .fetch_all(pool)

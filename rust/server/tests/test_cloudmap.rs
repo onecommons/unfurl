@@ -161,6 +161,7 @@ fn default_config() -> Config {
         cloudmap_force: false,
         cloudmap_recover: false,
         trust_checkouts: false,
+        default_cloudmaps: Vec::new(),
         cloudmap_skip_scan: false,
         scan_abort_level: unfurl_server::config::ScanAbortLevel::Report,
         log_style: None,
@@ -3708,4 +3709,71 @@ async fn a_request_naming_no_branch_goes_to_the_default_branch() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(read.to_string().contains("on dev"), "read main: {read}");
+}
+
+/// Serving checkouts with none configured, a read naming no project reads
+/// the default cloudmaps' worktrees, alone, with no `commit` or `version`, and answers
+/// a `since_version`, which names one worktree's, with `RESET`, so the
+/// client reads again whole; with none it's python's.
+#[tokio::test]
+async fn a_read_naming_no_project_reads_the_default_cloudmaps() {
+    let (_, checkouts, _db) = two_worktrees().await;
+    for (handle, key) in [
+        (&checkouts[0].0, "a-default-one"),
+        (&checkouts[1].0, "not-a-default-one"),
+    ] {
+        handle
+            .upsert_record(
+                Some("cloudmap.yaml"),
+                "/repositories",
+                key,
+                serde_json::json!({ "name": key }),
+                None,
+                false,
+            )
+            .await
+            .expect("write");
+    }
+    let each = || {
+        checkouts
+            .iter()
+            .map(|(c, _)| CloudMapState::from_synced(c.clone()))
+            .collect()
+    };
+    let without = CloudMapState::serving(each(), None)
+        .await
+        .expect("serving")
+        .expect("checkouts");
+    let (status, _) = get_json(
+        router(make_strict_state(without)),
+        "/cloudmap?kind=repositories",
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_GATEWAY,
+        "no default cloudmaps: python's"
+    );
+
+    let cm = CloudMapState::serving(each(), None)
+        .await
+        .expect("serving")
+        .expect("checkouts")
+        .with_default_cloudmaps(vec![checkouts[0].0.worktree_id()]);
+    let app = || router(make_strict_state(cm.clone()));
+    let (status, body) = get_json(app(), "/cloudmap?kind=repositories").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let text = body.to_string();
+    assert!(text.contains("a-default-one"), "{text}");
+    assert!(!text.contains("not-a-default-one"), "{text}");
+    assert!(
+        body.get("version").is_none() && body.get("commit").is_none(),
+        "{body}"
+    );
+
+    let (status, body) = get_json(app(), "/cloudmap?kind=repositories&since_version=1").await;
+    assert_eq!(status, StatusCode::CONFLICT, "read again whole: {body}");
+    assert_eq!(body["code"], "RESET", "{body}");
+    let (status, body) = get_json(app(), "/cloudmap/facets?kind=repositories&group_by=name").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
 }

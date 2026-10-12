@@ -25,6 +25,8 @@ pub struct Checkout {
     pub path: PathBuf,
     pub project: String,
     pub branch: String,
+    /// Whether it's a default cloudmap: read by a request naming no project.
+    pub default_cloudmap: bool,
 }
 
 /// A checkout of each worktree in the database `db` whose origin is a
@@ -48,6 +50,7 @@ pub async fn prepare(
     locks: Option<&GitLocks>,
     grants: Option<&GrantStore>,
     trust: Trust,
+    default_cloudmaps: &[DefaultCloudmap],
 ) -> Vec<Checkout> {
     let db = match Db::connect(db).await {
         Ok(db) => db,
@@ -87,12 +90,30 @@ pub async fn prepare(
         trust,
     };
     let mut ready = Vec::new();
-    for w in worktrees {
-        if let Some(checkout) = startup.settle(&w).await {
+    for mut w in startup.wanted(&worktrees, default_cloudmaps).await {
+        if let Some(mut checkout) = startup.settle(&mut w).await {
+            // a request naming no project, which the gateway can't check
+            // access for, reads the default cloudmaps: never a private repository
+            if checkout.default_cloudmap && w.visibility.as_deref() == Some(PRIVATE) {
+                tracing::error!(
+                    project = checkout.project.as_str(),
+                    "a default cloudmap repository is private; it isn't one"
+                );
+                checkout.default_cloudmap = false;
+            }
             ready.push(checkout);
         }
     }
     ready
+}
+
+/// The branch `git ls-remote --symref <url> HEAD`'s output `out` says
+/// HEAD names.
+fn remote_head(out: &str) -> Option<String> {
+    out.lines().find_map(|line| {
+        let (target, name) = line.strip_prefix("ref: ")?.split_once('\t')?;
+        (name == "HEAD").then(|| target.strip_prefix("refs/heads/").map(str::to_string))?
+    })
 }
 
 /// What [`prepare`] brings each worktree's checkout up with.
@@ -105,6 +126,52 @@ struct Startup<'a> {
     trust: Trust,
 }
 
+/// A worktree [`prepare`] brings a checkout up for: one the database
+/// tracks, or a default cloudmap.
+struct Wanted {
+    origin: String,
+    branch: String,
+    visibility: Option<String>,
+    default_cloudmap: bool,
+}
+
+impl Wanted {
+    fn of(w: &Worktree) -> Self {
+        Wanted {
+            origin: w.origin.clone(),
+            branch: w.branch.clone(),
+            visibility: w.visibility.clone(),
+            default_cloudmap: false,
+        }
+    }
+}
+
+/// A cloudmap repository a request naming no project reads: a project on
+/// the cloud server, and its branch, or with none its default.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefaultCloudmap {
+    pub project: String,
+    pub branch: Option<String>,
+}
+
+impl DefaultCloudmap {
+    /// `project[#branch]`; an error without a project.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let (project, branch) = match text.trim().split_once('#') {
+            Some((project, branch)) => (project, Some(branch.trim().to_string())),
+            None => (text.trim(), None),
+        };
+        let project = project.trim().trim_matches('/');
+        if project.is_empty() {
+            return Err(format!("default cloudmap {text:?} names no project"));
+        }
+        Ok(DefaultCloudmap {
+            project: project.to_string(),
+            branch: branch.filter(|b| !b.is_empty()),
+        })
+    }
+}
+
 /// How many of a private repository's grants are tried before it's left
 /// to python.
 const GRANTS_TRIED: usize = 3;
@@ -112,8 +179,8 @@ const GRANTS_TRIED: usize = 3;
 impl Startup<'_> {
     /// Worktree `w`'s checkout, cloned or brought up: anonymously unless
     /// its repository is known to be private, then with a grant.
-    async fn settle(&self, w: &Worktree) -> Option<Checkout> {
-        let Some(project) = project_of(w, self.cloud_server) else {
+    async fn settle(&self, w: &mut Wanted) -> Option<Checkout> {
+        let Some(project) = project_of(&w.origin, self.cloud_server) else {
             tracing::debug!(
                 origin = w.origin.as_str(),
                 "not a project on the cloud server; skipped"
@@ -137,7 +204,10 @@ impl Startup<'_> {
                     }
                     return Some(checkout);
                 }
-                Err(e) if refused(&e) => self.mark(&w.origin, PRIVATE).await,
+                Err(e) if refused(&e) => {
+                    self.mark(&w.origin, PRIVATE).await;
+                    w.visibility = Some(PRIVATE.to_string());
+                }
                 Err(e) => {
                     left_out(&checkout, &e);
                     return None;
@@ -201,11 +271,74 @@ impl Startup<'_> {
         None
     }
 
-    fn checkout(&self, w: &Worktree, project: &str, under: &str) -> Checkout {
+    fn checkout(&self, w: &Wanted, project: &str, under: &str) -> Checkout {
         Checkout {
             path: self.clone_root.join(under).join(project).join(&w.branch),
             project: project.to_string(),
             branch: w.branch.clone(),
+            default_cloudmap: w.default_cloudmap,
+        }
+    }
+
+    /// The worktrees to bring checkouts up for: the database's, and the
+    /// `default_cloudmaps` it lacks, each default cloudmap marked.
+    async fn wanted(
+        &self,
+        worktrees: &[Worktree],
+        default_cloudmaps: &[DefaultCloudmap],
+    ) -> Vec<Wanted> {
+        let host = unfurl_git_sync::git::normalize_git_url_hard(self.cloud_server);
+        let mut wanted: Vec<Wanted> = worktrees.iter().map(Wanted::of).collect();
+        for entry in default_cloudmaps {
+            let origin = format!("{host}/{}", entry.project);
+            let known: Vec<&Worktree> = worktrees.iter().filter(|w| w.origin == origin).collect();
+            let branch = match &entry.branch {
+                Some(branch) => branch.clone(),
+                None => self.default_branch_of(&entry.project, &known).await,
+            };
+            let visibility = known.iter().find_map(|w| w.visibility.clone());
+            match wanted
+                .iter_mut()
+                .find(|w| w.origin == origin && w.branch == branch)
+            {
+                Some(w) => w.default_cloudmap = true,
+                None => wanted.push(Wanted {
+                    origin,
+                    branch,
+                    visibility,
+                    default_cloudmap: true,
+                }),
+            }
+        }
+        wanted
+    }
+
+    /// `project`'s default branch: as recorded on one of its worktrees
+    /// `known`, or its remote's HEAD, or `main`.
+    async fn default_branch_of(&self, project: &str, known: &[&Worktree]) -> String {
+        if let Some(branch) = known.iter().find_map(|w| w.default_branch.clone()) {
+            return branch;
+        }
+        let url = format!("{}/{project}.git", self.cloud_server.trim_end_matches('/'));
+        let access = Access::anonymous(&url).trusting(self.trust);
+        // in the clone root: not the server's own directory, see `clone`
+        let asked = match std::fs::create_dir_all(self.clone_root) {
+            Ok(()) => {
+                let args = ["ls-remote", "--symref", url.as_str(), "HEAD"];
+                git(self.clone_root, &access, &args).await
+            }
+            Err(e) => Err(e.to_string()),
+        };
+        match asked.map(|out| remote_head(&out)) {
+            Ok(Some(branch)) => branch,
+            found => {
+                tracing::debug!(
+                    project,
+                    found = ?found,
+                    "no default branch for a default cloudmap; taking main"
+                );
+                "main".to_string()
+            }
         }
     }
 
@@ -312,6 +445,7 @@ pub async fn serve(
     trust: Trust,
 ) -> Result<Option<CloudMapState>, unfurl_git_sync::Error> {
     let mut open = Vec::new();
+    let mut defaults = Vec::new();
     for checkout in checkouts {
         let path = checkout.path.to_string_lossy();
         match CloudMapState::open_locked(&path, db_url, scan, &accept, locks.as_ref(), trust).await
@@ -321,7 +455,12 @@ pub async fn serve(
                 branch = checkout.branch.as_str(),
                 "this cloudmap checkout isn't served"
             ),
-            Ok(Some(cm)) => open.push(cm),
+            Ok(Some(cm)) => {
+                if checkout.default_cloudmap {
+                    defaults.push(cm.synced().worktree_id());
+                }
+                open.push(cm)
+            }
             Err(e) => tracing::error!(
                 project = checkout.project.as_str(),
                 branch = checkout.branch.as_str(),
@@ -330,14 +469,16 @@ pub async fn serve(
             ),
         }
     }
-    CloudMapState::serving(open, locks).await
+    Ok(CloudMapState::serving(open, locks)
+        .await?
+        .map(|cm| cm.with_default_cloudmaps(defaults)))
 }
 
-/// Worktree `w`'s project on `cloud_server`: its origin with the server's
+/// The project on `cloud_server` of a worktree of `origin`: its origin with the server's
 /// host, as the database normalizes both, taken off.
-fn project_of(w: &Worktree, cloud_server: &str) -> Option<String> {
+fn project_of(origin: &str, cloud_server: &str) -> Option<String> {
     let host = unfurl_git_sync::git::normalize_git_url_hard(cloud_server);
-    let project = w.origin.strip_prefix(&format!("{host}/"))?;
+    let project = origin.strip_prefix(&format!("{host}/"))?;
     (!project.is_empty()).then(|| project.to_string())
 }
 
@@ -426,10 +567,16 @@ async fn pull(path: &Path, access: &Access) -> Result<(), String> {
 /// Clone `url`'s branch to the checkout. No submodules: git-sync reads
 /// none, and their urls are whoever can push to the project's.
 async fn clone(checkout: &Checkout, url: &str, access: &Access) -> Result<(), String> {
-    let path = checkout.path.to_string_lossy();
-    // from here, where a relative `path` is
+    // from its parent, which `update` made: never from the server's own
+    // directory, which may be in a repository whose config git would read
+    let parent = checkout.path.parent().unwrap_or(Path::new("."));
+    let name = checkout
+        .path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy();
     git(
-        Path::new("."),
+        parent,
         access,
         &[
             "clone",
@@ -442,7 +589,7 @@ async fn clone(checkout: &Checkout, url: &str, access: &Access) -> Result<(), St
             &checkout.branch,
             "--no-single-branch",
             url,
-            &path,
+            &name,
         ],
     )
     .await
@@ -604,6 +751,14 @@ async fn git(dir: &Path, access: &Access, args: &[&str]) -> Result<String, Strin
             command.env(name, value);
         }
     }
+    // never a repository above `dir`: its config would apply
+    if let Some(above) = dir
+        .canonicalize()
+        .ok()
+        .and_then(|d| d.parent().map(Path::to_path_buf))
+    {
+        command.env("GIT_CEILING_DIRECTORIES", above);
+    }
     let run = command
         .args(distrusted)
         .args(args)
@@ -636,6 +791,29 @@ async fn git(dir: &Path, access: &Access, args: &[&str]) -> Result<String, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_default_cloudmap_names_a_project_and_maybe_a_branch() {
+        let parsed = |text| {
+            let l = DefaultCloudmap::parse(text).expect("parse");
+            (l.project, l.branch)
+        };
+        assert_eq!(parsed("org/proj"), ("org/proj".into(), None));
+        assert_eq!(
+            parsed(" org/proj/#dev "),
+            ("org/proj".into(), Some("dev".into()))
+        );
+        assert_eq!(parsed("org/proj#"), ("org/proj".into(), None));
+        assert!(DefaultCloudmap::parse("#dev").is_err());
+        assert!(DefaultCloudmap::parse(" / ").is_err());
+    }
+
+    #[test]
+    fn the_remote_head_is_read_from_ls_remote() {
+        let out = "ref: refs/heads/trunk\tHEAD\n0123abc\tHEAD\n";
+        assert_eq!(remote_head(out).as_deref(), Some("trunk"));
+        assert_eq!(remote_head("0123abc\tHEAD\n"), None);
+    }
 
     #[test]
     fn config_that_redirects_git_is_untrusted() {
@@ -782,14 +960,14 @@ mod tests {
         let w = worktree("unfurl.cloud/onecommons/cloudmap");
         for server in ["https://unfurl.cloud", "https://unfurl.cloud/"] {
             assert_eq!(
-                project_of(&w, server).as_deref(),
+                project_of(&w.origin, server).as_deref(),
                 Some("onecommons/cloudmap"),
                 "{server}"
             );
         }
-        assert_eq!(project_of(&w, "https://elsewhere.example"), None);
+        assert_eq!(project_of(&w.origin, "https://elsewhere.example"), None);
         assert_eq!(
-            project_of(&worktree("unfurl.cloud"), "https://unfurl.cloud"),
+            project_of(&worktree("unfurl.cloud").origin, "https://unfurl.cloud"),
             None
         );
     }

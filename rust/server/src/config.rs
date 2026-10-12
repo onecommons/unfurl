@@ -293,6 +293,17 @@ pub struct Config {
     #[arg(long, env = "UNFURL_TRUST_CHECKOUTS")]
     pub trust_checkouts: bool,
 
+    /// With a clone root, a cloudmap repository a request naming no
+    /// project reads, as `<project>[#branch]` (its default branch without
+    /// one): cloned at startup like those the database tracks. Repeatable,
+    /// or comma-separated in the environment.
+    #[arg(
+        long = "default-cloudmap",
+        env = "UNFURL_DEFAULT_CLOUDMAPS",
+        value_delimiter = ','
+    )]
+    pub default_cloudmaps: Vec<String>,
+
     /// Serve whatever the index already holds instead of scanning the
     /// working tree at startup.
     ///
@@ -596,6 +607,7 @@ mod tests {
             cloudmap_force: false,
             cloudmap_recover: false,
             trust_checkouts: false,
+            default_cloudmaps: Vec::new(),
             cloudmap_skip_scan: false,
             scan_abort_level: ScanAbortLevel::Report,
             log_style: None,

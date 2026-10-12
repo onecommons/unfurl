@@ -167,6 +167,9 @@ pub struct CloudMapState {
     /// How long a write waits for its checkout's git lock before it's
     /// refused.
     commit_wait: Duration,
+    /// With none configured, the worktrees a read naming no project reads:
+    /// the default cloudmaps'.
+    default_cloudmaps: Arc<Vec<i64>>,
 }
 
 /// How long a write waits for its checkout's git lock before it's refused.
@@ -324,6 +327,7 @@ impl CloudMapState {
             configured: false,
             locks,
             commit_wait: COMMIT_WAIT,
+            default_cloudmaps: Arc::new(Vec::new()),
         }))
     }
 
@@ -348,12 +352,20 @@ impl CloudMapState {
             configured: true,
             locks: None,
             commit_wait: COMMIT_WAIT,
+            default_cloudmaps: Arc::new(Vec::new()),
         }
     }
 
     /// This state, taking `locks` around its git work.
     pub fn with_locks(mut self, locks: Option<GitLocks>) -> Self {
         self.locks = locks;
+        self
+    }
+
+    /// This state, with a read naming no project reading the worktrees
+    /// `default_cloudmaps`, by id.
+    pub fn with_default_cloudmaps(mut self, default_cloudmaps: Vec<i64>) -> Self {
+        self.default_cloudmaps = Arc::new(default_cloudmaps);
         self
     }
 
@@ -478,6 +490,7 @@ impl CloudMapState {
                     configured: true,
                     locks: self.locks.clone(),
                     commit_wait: self.commit_wait,
+                    default_cloudmaps: self.default_cloudmaps.clone(),
                 }));
             }
         }
@@ -531,12 +544,21 @@ impl CloudMapState {
             ),
             (None, true) if branch.is_none() => return Ok(ReadTarget::Read(None)),
             (None, true) => self.inner.get_worktree().await?.origin,
+            // the default cloudmaps' worktrees, if any, on `branch` if it names one
+            (None, false) if !self.default_cloudmaps.is_empty() => {
+                return Ok(ReadTarget::Read(Some(WorktreeFilter {
+                    origin: None,
+                    branch: branch.map(str::to_string),
+                    ids: Some(self.default_cloudmaps.to_vec()),
+                })))
+            }
             // no checkout is the default to read
             (None, false) => return Ok(ReadTarget::Proxy),
         };
         let of_origin = WorktreeFilter {
             origin: Some(origin),
             branch: None,
+            ids: None,
         };
         let found = self.inner.worktrees(&of_origin).await?;
         let Some(any) = found.first() else {
@@ -963,6 +985,9 @@ async fn with_head(
     worktrees: Option<WorktreeFilter>,
     params: &unfurl_types::GetCloudmapRequestQuery,
 ) -> Result<Value, LocalError> {
+    if worktrees.as_ref().is_some_and(|w| w.ids.is_some()) {
+        return across_worktrees(cm, worktrees, params).await;
+    }
     let head = match &worktrees {
         None => cm.head_commit().await,
         Some(filter) => cm
@@ -986,6 +1011,24 @@ async fn with_head(
         object.insert("version".to_string(), Value::from(version));
     }
     Ok(body)
+}
+
+/// A read of several worktrees, the default cloudmaps': as [`with_head`], but with
+/// no `commit` or `version`, which each name one worktree's. A
+/// `since_version` is answered as one from before a rebuild, so the
+/// client reads again from scratch.
+async fn across_worktrees(
+    cm: &CloudMapState,
+    worktrees: Option<WorktreeFilter>,
+    params: &unfurl_types::GetCloudmapRequestQuery,
+) -> Result<Value, LocalError> {
+    if params.since_version.is_some() {
+        return Err(LocalError::Reset(
+            "a read naming no project spans several worktrees, with no version to resume from"
+                .into(),
+        ));
+    }
+    build_response(cm, worktrees, params).await
 }
 
 async fn build_response(

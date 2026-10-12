@@ -263,7 +263,9 @@ is opened and scanned with `recover_missing`, since a new clone is where
 commits the database made go missing, and writes are routed to the
 checkout of their project and branch (when they name none, the
 repository's default branch, which opening the checkout records in
-`repository`, or `main` until it has). Reads
+`repository`, or `main` until it has). The repositories `--default-cloudmap` names are
+cloned too, and a read naming no project reads their worktrees, by id;
+without any, it goes to python. Reads
 go through any of them, as they read the database. Python's server
 pulls, writes and clears in the same clones, so git work in one -- the
 startup pull and scan, finishing exports, a write's commit -- holds its

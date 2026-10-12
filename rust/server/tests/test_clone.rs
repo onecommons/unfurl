@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
 use unfurl_git_sync::{DbConfig, FormatRegistry, ScanOptions, SyncedRepo};
-use unfurl_server::clone::{prepare, serve, Checkout};
+use unfurl_server::clone::{prepare, serve, Checkout, DefaultCloudmap};
 use unfurl_server::cloudmap::ProjectCheck;
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -105,6 +105,7 @@ impl World {
             None,
             None,
             unfurl_git_sync::git::Trust::Reduced,
+            &[],
         )
         .await
     }
@@ -130,6 +131,7 @@ async fn a_worktree_with_no_checkout_is_cloned() {
             path: world.public(),
             project: "org/proj".into(),
             branch: "main".into(),
+            default_cloudmap: false,
         }]
     );
     assert!(world.public().join("cloudmap.yaml").exists());
@@ -256,6 +258,7 @@ async fn a_worktree_on_another_server_is_left_out() {
         None,
         None,
         unfurl_git_sync::git::Trust::Reduced,
+        &[],
     )
     .await;
     assert!(got.is_empty());
@@ -325,6 +328,7 @@ async fn a_checkout_that_fails_is_left_out_of_the_rest() {
         path: world.tmp.path().join("nowhere"),
         project: "org/nowhere".into(),
         branch: "main".into(),
+        default_cloudmap: false,
     });
     let scans = AtomicUsize::new(0);
     let cm = serve(
@@ -412,6 +416,7 @@ async fn a_clone_waits_for_its_git_lock() {
         Some(&locks),
         None,
         unfurl_git_sync::git::Trust::Reduced,
+        &[],
     )
     .await;
     assert_eq!(got.len(), 1);
@@ -555,7 +560,16 @@ async fn the_default_branch_is_recorded() {
 
 impl World {
     async fn prepare_trusting(&self, trust: unfurl_git_sync::git::Trust) -> Vec<Checkout> {
-        prepare(&self.db, &self.root(), &self.server(), None, None, trust).await
+        prepare(
+            &self.db,
+            &self.root(),
+            &self.server(),
+            None,
+            None,
+            trust,
+            &[],
+        )
+        .await
     }
 }
 
@@ -674,4 +688,168 @@ async fn a_checkout_redirected_otherwise_is_left_out_unless_trusted() {
             );
         }
     }
+}
+
+impl World {
+    /// A project `project` on the server, not tracked by the database, with
+    /// a cloudmap on `head`, its default branch.
+    fn host(&self, project: &str, head: &str) {
+        let bare = self.tmp.path().join(format!("server/{project}.git"));
+        std::fs::create_dir_all(&bare).expect("mkdir");
+        git(&bare, &["init", "-q", "--bare"]);
+        let seed = self.tmp.path().join("seed").join(project);
+        std::fs::create_dir_all(&seed).expect("mkdir");
+        git(&seed, &["init", "-q", "-b", head]);
+        std::fs::write(seed.join("cloudmap.yaml"), "repositories: {}\n").expect("write");
+        git(&seed, &["add", "."]);
+        git(&seed, &["commit", "-q", "-m", "seed"]);
+        git(&seed, &["remote", "add", "origin", bare.to_str().unwrap()]);
+        git(&seed, &["push", "-q", "origin", head]);
+        git(
+            &bare,
+            &["symbolic-ref", "HEAD", &format!("refs/heads/{head}")],
+        );
+    }
+
+    async fn prepare_with_defaults(&self, defaults: &[DefaultCloudmap]) -> Vec<Checkout> {
+        prepare(
+            &self.db,
+            &self.root(),
+            &self.server(),
+            None,
+            None,
+            unfurl_git_sync::git::Trust::Reduced,
+            defaults,
+        )
+        .await
+    }
+
+    async fn serve_all(&self, checkouts: Vec<Checkout>) -> unfurl_server::cloudmap::CloudMapState {
+        let DbConfig::Sqlite { url } = &self.db else {
+            unreachable!()
+        };
+        serve(
+            checkouts,
+            url,
+            Some(ScanOptions::default()),
+            |_| true,
+            |_, _| String::new(),
+            None,
+            unfurl_git_sync::git::Trust::Reduced,
+        )
+        .await
+        .expect("serve")
+        .expect("served")
+    }
+
+    /// The database's worktrees, as `(origin, branch)`, by id.
+    async fn worktrees(&self) -> Vec<(i64, String, String)> {
+        let db = unfurl_git_sync::Db::connect(&self.db)
+            .await
+            .expect("connect");
+        db.worktrees(&Default::default())
+            .await
+            .expect("worktrees")
+            .into_iter()
+            .map(|w| (w.id, w.origin, w.branch))
+            .collect()
+    }
+}
+
+/// A default cloudmap repository the database doesn't track is cloned at startup,
+/// on its remote's default branch when the listing names none; opening
+/// it adds its worktree row, and a read naming no project reads it alone.
+#[tokio::test]
+async fn a_default_cloudmap_is_cloned_and_read_without_a_project() {
+    use unfurl_server::cloudmap::ReadTarget;
+    let world = World::new().await;
+    world.host("org/default", "trunk");
+    let checkouts = world
+        .prepare_with_defaults(&[DefaultCloudmap::parse("org/default").expect("parse")])
+        .await;
+    let defaults: Vec<_> = checkouts
+        .iter()
+        .map(|c| (c.project.as_str(), c.branch.as_str(), c.default_cloudmap))
+        .collect();
+    assert_eq!(
+        defaults,
+        [("org/proj", "main", false), ("org/default", "trunk", true)]
+    );
+
+    let cm = world.serve_all(checkouts).await;
+    let row = world
+        .worktrees()
+        .await
+        .into_iter()
+        .find(|(_, origin, branch)| origin.ends_with("/org/default") && branch == "trunk")
+        .expect("a worktree row for the default cloudmap's checkout");
+    let read = cm
+        .resolve_read(None, None, false, &world.server())
+        .await
+        .expect("resolve");
+    let ReadTarget::Read(Some(filter)) = read else {
+        panic!("not read here: {read:?}");
+    };
+    assert_eq!(filter.ids, Some(vec![row.0]));
+}
+
+/// A default cloudmap repository whose checkout is on disk already, with no row in
+/// the database, is pulled rather than cloned, and gets its row.
+#[tokio::test]
+async fn a_default_cloudmaps_checkout_on_disk_is_pulled_and_given_its_row() {
+    let world = World::new().await;
+    world.host("org/there", "main");
+    let path = world.root().join("public/org/there/main");
+    std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+    git(
+        world.tmp.path(),
+        &[
+            "clone",
+            "-q",
+            &format!("{}/org/there.git", world.server()),
+            path.to_str().unwrap(),
+        ],
+    );
+    let marker = path.join(".git/not-recloned");
+    std::fs::write(&marker, "").expect("write");
+
+    let checkouts = world
+        .prepare_with_defaults(&[DefaultCloudmap::parse("org/there#main").expect("parse")])
+        .await;
+    assert!(checkouts
+        .iter()
+        .any(|c| c.default_cloudmap && c.path == path));
+    assert!(marker.exists(), "cloned again rather than pulled");
+    world.serve_all(checkouts).await;
+    assert!(world
+        .worktrees()
+        .await
+        .iter()
+        .any(|(_, origin, branch)| origin.ends_with("/org/there") && branch == "main"));
+}
+
+/// A clone root inside a repository whose config would redirect git -- a
+/// url rewrite of the server's to nowhere -- doesn't affect the startup
+/// clone: git never reads the config of a repository above where it runs.
+#[tokio::test]
+async fn a_repository_around_the_clone_root_is_ignored() {
+    let world = World::new().await;
+    world.host("org/default", "trunk");
+    git(world.tmp.path(), &["init", "-q"]);
+    git(
+        world.tmp.path(),
+        &[
+            "config",
+            "url.file:///nowhere/.insteadOf",
+            &format!("{}/", world.server()),
+        ],
+    );
+    let checkouts = world
+        .prepare_with_defaults(&[DefaultCloudmap::parse("org/default").expect("parse")])
+        .await;
+    let got: Vec<_> = checkouts
+        .iter()
+        .map(|c| (c.project.as_str(), c.branch.as_str()))
+        .collect();
+    assert_eq!(got, [("org/proj", "main"), ("org/default", "trunk")]);
 }

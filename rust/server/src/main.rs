@@ -277,6 +277,12 @@ async fn open_clones(
         db_url
     );
     let scan = scan_options(config, db_url, true);
+    let defaults = config
+        .default_cloudmaps
+        .iter()
+        .map(|entry| unfurl_server::clone::DefaultCloudmap::parse(entry))
+        .collect::<Result<Vec<_>, _>>();
+    let defaults = or_exit(defaults, "a --default-cloudmap is malformed");
     let checkouts = unfurl_server::clone::prepare(
         &db,
         root,
@@ -284,6 +290,7 @@ async fn open_clones(
         locks.as_ref(),
         grants,
         config.checkout_trust(),
+        &defaults,
     )
     .await;
     let served = unfurl_server::clone::serve(
