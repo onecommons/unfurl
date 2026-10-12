@@ -228,9 +228,13 @@ async fn open_cloudmap(
     tracing::info!("opening cloudmap repo at {} (db={})", repo, db_url);
     let scan = scan_options(config, db_url, config.cloudmap_recover);
     let accept = |o: &unfurl_git_sync::SyncOutcome| !report_scan(o, config.scan_abort_level);
+    let db = or_exit(
+        cloudmap::connect(db_url).await,
+        "failed to open the cloudmap database",
+    );
     match cloudmap::CloudMapState::open_locked(
         repo,
-        db_url,
+        &db,
         scan,
         accept,
         locks.as_ref(),

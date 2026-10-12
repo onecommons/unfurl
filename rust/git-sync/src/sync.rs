@@ -354,8 +354,22 @@ impl SyncedRepo {
         formats: FormatRegistry,
         trust: git::Trust,
     ) -> Result<Self> {
+        Self::open_on(working_dir, Db::connect(&db).await?, formats, trust).await
+    }
+
+    /// [`Self::open_with`], on `db`, an open database whose pool other
+    /// handles share.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::open`].
+    pub async fn open_on(
+        working_dir: impl AsRef<Path>,
+        db: Db,
+        formats: FormatRegistry,
+        trust: git::Trust,
+    ) -> Result<Self> {
         let repo_path = working_dir.as_ref().to_path_buf();
-        let db = Db::connect(&db).await?;
         let opener = git::Opener::new(&repo_path, trust)?;
 
         // Inspect the repo once at open time to get origin/branch, and to

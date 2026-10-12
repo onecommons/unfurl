@@ -444,12 +444,14 @@ pub async fn serve(
     locks: Option<GitLocks>,
     trust: Trust,
 ) -> Result<Option<CloudMapState>, unfurl_git_sync::Error> {
+    let db = crate::cloudmap::connect(db_url)
+        .await
+        .map_err(|e| unfurl_git_sync::Error::Other(e.to_string()))?;
     let mut open = Vec::new();
     let mut defaults = Vec::new();
     for checkout in checkouts {
         let path = checkout.path.to_string_lossy();
-        match CloudMapState::open_locked(&path, db_url, scan, &accept, locks.as_ref(), trust).await
-        {
+        match CloudMapState::open_locked(&path, &db, scan, &accept, locks.as_ref(), trust).await {
             Ok(None) => tracing::error!(
                 project = checkout.project.as_str(),
                 branch = checkout.branch.as_str(),

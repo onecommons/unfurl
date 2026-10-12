@@ -32,6 +32,7 @@ use crate::proxy;
 use axum::extract::FromRequest;
 use std::time::Duration;
 use unfurl_git_sync::git::Trust;
+use unfurl_git_sync::Db;
 
 use crate::routes::{ValidatedJson, ValidatedQuery, ValidatedRepeatedQuery};
 use crate::unfurl_types;
@@ -184,6 +185,12 @@ struct Route {
     handle: Arc<SyncedRepo>,
 }
 
+/// The database `db_url` names, connected: every checkout opened on it
+/// shares its pool.
+pub async fn connect(db_url: &str) -> Result<Db, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(Db::connect(&db_config(db_url)?).await?)
+}
+
 /// The database `db_url` names: anything starting with `postgres://` or
 /// `postgresql://` is Postgres (only when the `unfurl-git-sync/postgres`
 /// feature is enabled at build time); everything else is SQLite.
@@ -227,24 +234,22 @@ impl CloudMapState {
         (Self, Option<unfurl_git_sync::SyncOutcome>),
         Box<dyn std::error::Error + Send + Sync>,
     > {
-        Self::open_trusting(repo_path, db_url, scan, Trust::Full).await
+        Self::open_trusting(repo_path, &connect(db_url).await?, scan, Trust::Full).await
     }
 
     /// [`Self::open`], trusting the checkout's own git config to `trust`
     /// (see [`unfurl_git_sync::git::Opener`]).
     pub async fn open_trusting(
         repo_path: &str,
-        db_url: &str,
+        db: &Db,
         scan: Option<ScanOptions>,
         trust: Trust,
     ) -> Result<
         (Self, Option<unfurl_git_sync::SyncOutcome>),
         Box<dyn std::error::Error + Send + Sync>,
     > {
-        let db_cfg = db_config(db_url)?;
-
         let registry = FormatRegistry::with_builtins();
-        let synced = SyncedRepo::open_with(repo_path, db_cfg, registry, trust).await?;
+        let synced = SyncedRepo::open_on(repo_path, db.clone(), registry, trust).await?;
         // Returned rather than dropped: the caller decides what a schema
         // violation means for startup, and nothing else ever sees this
         // scan's report.
@@ -260,14 +265,14 @@ impl CloudMapState {
     /// scan, its unfinished exports are finished: `None` if it doesn't.
     pub async fn open_locked(
         repo_path: &str,
-        db_url: &str,
+        db: &Db,
         scan: Option<ScanOptions>,
         accept: impl Fn(&unfurl_git_sync::SyncOutcome) -> bool,
         locks: Option<&GitLocks>,
         trust: Trust,
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         let lock = gitlock::hold(locks, std::path::Path::new(repo_path), gitlock::TTL).await?;
-        let opened = match Self::open_trusting(repo_path, db_url, scan, trust).await {
+        let opened = match Self::open_trusting(repo_path, db, scan, trust).await {
             Ok((cm, outcome)) if outcome.as_ref().is_none_or(&accept) => {
                 cm.finish_exports().await;
                 Ok(Some(cm.with_locks(locks.cloned())))
