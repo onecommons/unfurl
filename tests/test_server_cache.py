@@ -954,3 +954,61 @@ def test_populate_cache_analyzes_exported_files(
     update_cloudmap.side_effect = RuntimeError("cloudmap unavailable")
     push(["c.yaml"])
     update_cloudmap.assert_called_once()
+
+
+def test_a_clone_path_never_leaves_the_clone_root(clone_root):
+    """The clone a request's project and branch name is always beneath the
+    clone root: a branch climbing out of it, absolute, or with an empty
+    component, or a symlink leading out, is refused (400 in a request)."""
+    from werkzeug.exceptions import HTTPException
+    from unfurl.util import UnfurlError
+
+    root = server.app.config["UNFURL_CLONE_ROOT"]
+    hostile = [
+        ("org/proj", "../../../private/org/other/main"),
+        ("org/proj", "/etc"),
+        ("org/proj", "a//b"),
+        ("org/proj", "."),
+        ("../org", "main"),
+        ("org/proj", "main\0"),
+    ]
+    with server.app.test_request_context("/export"):
+        for project, branch in hostile:
+            with pytest.raises(HTTPException) as refused:
+                server._get_managed_project_repo_dir(project, branch, {})
+            assert refused.value.response.status_code == 400, (project, branch)
+        path = server._get_managed_project_repo_dir("org/proj", "feature/x", {})
+        assert os.path.relpath(path, root) == "public/org/proj/feature/x"
+        path = server._get_managed_project_repo_dir("org/proj", "", {})
+        assert os.path.relpath(path, root) == "public/org/proj"
+
+        outside = clone_root / "outside"
+        outside.mkdir()
+        os.makedirs(os.path.join(root, "public", "org"))
+        os.symlink(outside, os.path.join(root, "public", "org", "linked"))
+        with pytest.raises(HTTPException):
+            server._get_managed_project_repo_dir("org/linked", "main", {})
+    with server.app.app_context():
+        with pytest.raises(UnfurlError):
+            server._get_managed_project_repo_dir("org/proj", "../../x", {})
+
+
+def test_an_export_cant_read_another_projects_clone(clone_root):
+    """A request for a project its caller may read can't reach another
+    project's private clone through its branch."""
+    remote = _remote(clone_root)
+    with server.app.app_context():
+        other = server._get_managed_project_repo_dir(
+            "org/other", "main", {"username": "u"}
+        )
+    _git(clone_root, "clone", "-q", str(remote), other)
+    client = server.app.test_client()
+    res = client.get(
+        "/export",
+        query_string={
+            "auth_project": "org/proj",
+            "branch": "../../../private/org/other/main",
+            "format": "blueprint",
+        },
+    )
+    assert res.status_code == 400, res.get_data(as_text=True)

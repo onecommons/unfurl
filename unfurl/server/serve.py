@@ -43,6 +43,7 @@ from typing import (
     List,
     Mapping,
     NamedTuple,
+    NoReturn,
     Optional,
     Set,
     Tuple,
@@ -64,6 +65,7 @@ from flask import (
     abort,
     current_app,
     g,
+    has_request_context,
     jsonify,
     make_response,
     request,
@@ -549,9 +551,28 @@ def _get_project_repo_dir(project_id: str, branch: str, args: Optional[dict]) ->
     return _get_managed_project_repo_dir(project_id, branch, args)
 
 
+def _beneath(path: str) -> bool:
+    """Whether ``path``, from a request, names somewhere beneath where it's
+    joined: no empty, ``.`` or ``..`` component, not absolute, no NUL."""
+    return "\0" not in path and all(
+        part not in ("", ".", "..") for part in path.split("/")
+    )
+
+
+def _refuse_repo_dir(message: str) -> NoReturn:
+    if has_request_context():
+        abort(create_error_response("BAD_REQUEST", message))
+    raise UnfurlError(message)
+
+
 def _get_managed_project_repo_dir(
     project_id: str, branch: str, args: Optional[dict]
 ) -> str:
+    """The clone of ``project_id`` on ``branch`` (none for the project's
+    directory) under the clone root, for a request with ``args``: never
+    outside it, whatever the request names."""
+    if not _beneath(project_id) or (branch and not _beneath(branch)):
+        _refuse_repo_dir(f"not a project and branch: {project_id!r} {branch!r}")
     base = "public"
     if args:
         # any credential: a write with a token alone would otherwise commit
@@ -565,7 +586,11 @@ def _get_managed_project_repo_dir(
         ):
             base = "private"
     clone_root = current_app.config.get("UNFURL_CLONE_ROOT", ".")
-    return os.path.join(clone_root, base, project_id, branch).rstrip("/")
+    path = os.path.join(clone_root, base, project_id, branch).rstrip("/")
+    # nor through a symlink in it
+    if not is_relative_to(os.path.realpath(path), os.path.realpath(clone_root)):
+        _refuse_repo_dir(f"{project_id!r} {branch!r} leads out of the clone root")
+    return path
 
 
 def _get_project_repo(
