@@ -827,7 +827,9 @@ def test_a_pull_under_its_own_git_lock_goes_ahead(clone_root, monkeypatch):
     with server.app.app_context():
         main = server._get_project_repo_dir("org/proj", "main", {})
         _git(clone_root, "clone", "-q", str(remote), main)
-    monkeypatch.setattr(server, "_cache_inflight_timeout", 1)
+    # also the lock's ttl: a pull waiting on itself fails in this long, and
+    # a slow runner's pull mustn't outlast it
+    monkeypatch.setattr(server, "_cache_inflight_timeout", 10)
     pulls = []
     monkeypatch.setattr(
         server, "pull", lambda repo, branch, shallow_since=None: pulls.append(branch) or "pulled"
