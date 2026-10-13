@@ -282,6 +282,7 @@ Enhancements to make connection more flexible and intuitive to use. See the [con
   - Add ``overlays`` input parameter for customizing generated kubernetes resources
   - Add ``init_containers`` input parameter, rendered as the workload's ``initContainers``. They can only mount volumes the container also mounts.
   - Add ``UNFURL_KOMPOSE_TIMEOUT`` environment variable to override the default resource creation timeout (in seconds).
+  - Declare the named volumes a container mounts, which kompose 1.38 requires.
 
 * **helm installer**
   - smarter check operation

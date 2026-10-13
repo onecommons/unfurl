@@ -16,6 +16,7 @@ from unfurl.job import JobOptions, Runner
 from unfurl.runtime import Status
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.configurators.k8s import get_kubectl_args
+from unfurl.configurators.kompose import render_compose
 from unfurl.result import serialize_value
 
 from .utils import lifecycle, Step, init_project, run_job_cmd
@@ -544,6 +545,39 @@ def test_kompose_container_without_image(caplog):
     tasks, errors = _render_kompose(unnamed)
     assert not tasks and errors
     assert "does not specify a container image" in caplog.text
+
+
+def test_render_compose_declares_named_volumes():
+    volumes = [
+        "data:/data",
+        "data:/again:ro",
+        "/host:/host",
+        "./relative:/relative",
+        "~/home:/home",
+        "/anonymous",
+        dict(type="volume", source="long", target="/long"),
+        dict(type="bind", source="/bind", target="/bind"),
+    ]
+    compose = render_compose(dict(image="busybox", volumes=volumes))
+    assert compose["volumes"] == {"data": {}, "long": {}}
+    assert "volumes" not in render_compose(dict(image="busybox", volumes=["/host:/host"]))
+
+
+@pytest.mark.skipif(
+    not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
+)
+def test_kompose_named_volume():
+    named = KOMPOSE_INIT.replace("/var/app/data/html:", "html:")
+    tasks, errors = _render_kompose(named)
+    assert tasks and not errors
+    definitions = tasks[0].target.attributes["definitions"]
+    assert definitions["html-persistentvolumeclaim"]["kind"] == "PersistentVolumeClaim"
+    pod_spec = definitions["app-deployment"]["spec"]["template"]["spec"]
+    claims = {v["name"]: v["persistentVolumeClaim"]["claimName"] for v in pod_spec["volumes"]}
+    html_mount = pod_spec["initContainers"][0]["volumeMounts"][0]
+    assert html_mount["mountPath"] == "/html"
+    assert claims[html_mount["name"]] == "html"
+
 
 
 def _with_pull_policy(policy: str) -> str:
