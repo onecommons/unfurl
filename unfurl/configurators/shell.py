@@ -9,6 +9,7 @@ inputs:
  dryrun
  shell
  keeplines
+ stop_grace_period: 5 # seconds between SIGTERM and SIGKILL on timeout or interrupt
  done
  resultTemplate: # available vars: cmd, stdout, stderr, returncode, error, timeout
    eval:
@@ -55,13 +56,27 @@ if TYPE_CHECKING:
 FILELOG_TRUNCATE_LENGTH = DEFAULT_TRUNCATE_LENGTH
 
 
-def _terminate_process(proc: subprocess.Popen, grace_period: float = 5) -> None:
-    proc.terminate()
+DEFAULT_STOP_GRACE_PERIOD = 5.0
+
+
+def _terminate_process(
+    proc: subprocess.Popen, grace_period: float = DEFAULT_STOP_GRACE_PERIOD
+) -> None:
+    """Send SIGTERM, then SIGKILL if ``proc`` is still running after ``grace_period`` seconds."""
     try:
-        proc.wait(timeout=grace_period)
+        if grace_period > 0:
+            proc.terminate()
+            proc.wait(timeout=grace_period)
     except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+        pass
+    finally:  # also on a second KeyboardInterrupt during the wait
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
+def _stop_grace_period(task: TaskView) -> float:
+    return float(task.inputs.get("stop_grace_period", DEFAULT_STOP_GRACE_PERIOD))
 
 
 def _log_output(task: TaskView, result, attr: str):
@@ -92,6 +107,8 @@ class ShellInputs(TemplateInputs):
     "Echo output, default depends on job verbosity"
     input: Union[None, str] = None
     "Optional string to pass as stdin."
+    stop_grace_period: float = DEFAULT_STOP_GRACE_PERIOD
+    "Seconds to wait after sending SIGTERM to a timed-out or interrupted command before sending SIGKILL. 0 sends SIGKILL immediately."
 
 
 def make_regex_filter(logregex: re.Pattern, levels: list):
@@ -207,7 +224,14 @@ class _BackgroundReader:
 
 
 def _run(
-    *args, stdout_filter=None, stderr_filter=None, input=None, timeout=None, **kwargs
+    *args,
+    echo=True,
+    stop_grace_period=DEFAULT_STOP_GRACE_PERIOD,
+    stdout_filter=None,
+    stderr_filter=None,
+    input=None,
+    timeout=None,
+    **kwargs,
 ):
     with subprocess.Popen(*args, **kwargs) as process:
         try:
@@ -227,19 +251,15 @@ def _run(
                     )
                 _save_input(input)
 
-            process._save_input = _save_input_hook_hack  # type: ignore
+            if echo:
+                process._save_input = _save_input_hook_hack  # type: ignore
             process.communicate(input, timeout=timeout)
             if process.stdout:
                 stdout = b"".join(process._fileobj2output[process.stdout])  # type: ignore
             if process.stderr:
                 stderr = b"".join(process._fileobj2output[process.stderr])  # type: ignore
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-            raise
-        except:  # Including KeyboardInterrupt, communicate handled that.
-            process.kill()
-            # We don't call process.wait() as .__exit__ does that for us.
+        except BaseException:  # including TimeoutExpired and KeyboardInterrupt
+            _terminate_process(process, stop_grace_period)
             raise
         retcode = process.poll()
         assert isinstance(retcode, int)
@@ -400,6 +420,7 @@ class ShellConfigurator(TemplateConfigurator):
                 stdout_filter=stdout_filter,
                 stderr_filter=stderr_filter,
                 input=input,
+                stop_grace_period=_stop_grace_period(task),
             )
         finally:
             if lock_cwd and cwd is not None:
@@ -417,6 +438,7 @@ class ShellConfigurator(TemplateConfigurator):
         stdout_filter=None,
         stderr_filter=None,
         input=None,
+        stop_grace_period: float = DEFAULT_STOP_GRACE_PERIOD,
     ):
         """
         Returns an object with the following attributes:
@@ -433,10 +455,13 @@ class ShellConfigurator(TemplateConfigurator):
         )
         try:
             # hack to echo results
-            if echo and hasattr(subprocess.Popen, "_save_input"):
+            if hasattr(subprocess.Popen, "_save_input"):
                 run = _run
                 extra_kwargs: Dict[str, Any] = dict(
-                    stdout_filter=stdout_filter, stderr_filter=stderr_filter
+                    echo=echo,
+                    stop_grace_period=stop_grace_period,
+                    stdout_filter=stdout_filter,
+                    stderr_filter=stderr_filter,
                 )
             else:
                 # Windows and 2.7 don't have _save_input
@@ -603,6 +628,7 @@ class ShellConfigurator(TemplateConfigurator):
             keeplines=keeplines,
             echo=echo,
             input=input,
+            stop_grace_period=_stop_grace_period(task),
         )
         success, status, outputs = self._process_result(task, result, cwd)
         yield self.done(
@@ -708,7 +734,7 @@ class ShellConfigurator(TemplateConfigurator):
                     reader.pump()
 
                 if deadline and time.monotonic() >= deadline:
-                    _terminate_process(proc)
+                    _terminate_process(proc, _stop_grace_period(task))
                     task.logger.debug(
                         "Background shell timed out after %s seconds: %s",
                         task_timeout,
@@ -720,7 +746,7 @@ class ShellConfigurator(TemplateConfigurator):
 
                 signal = yield task.suspend(pause=poll_interval)
                 if isinstance(signal, Cancel):
-                    _terminate_process(proc)
+                    _terminate_process(proc, _stop_grace_period(task))
                     task.logger.debug("Background shell cancelled: %s", signal.reason)
                     result = self._collect_background_result(proc, cmd_str, reader)
                     result.error = signal
@@ -732,6 +758,9 @@ class ShellConfigurator(TemplateConfigurator):
                     return self._collect_background_result(proc, cmd_str, reader)
                 task.logger.trace("Background shell still running: %s", cmd_str)
         finally:
+            # the job closed this generator or threw an exception into it
+            if proc.poll() is None:
+                _terminate_process(proc, _stop_grace_period(task))
             if reader is not None:
                 reader.close()
 
