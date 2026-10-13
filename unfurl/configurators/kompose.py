@@ -123,6 +123,21 @@ def _get_service(compose: dict, service_name: Optional[str] = None) -> dict:
 def _add_labels(service: dict, labels: dict):
     service.setdefault("labels", {}).update(labels)
 
+def _named_volumes(volumes: List[Union[str, dict]]) -> List[str]:
+    """Return the named volume sources in compose ``volumes`` (not host paths or anonymous volumes)."""
+    names = []
+    for volume in volumes:
+        if isinstance(volume, dict):
+            source = volume.get("source") if volume.get("type") == "volume" else None
+        else:
+            source, sep, _ = volume.partition(":")
+            if not sep:
+                source = None
+        if source and source[0] not in "/.~" and source not in names:
+            names.append(source)
+    return names
+
+
 
 def render_compose(
     container: dict,
@@ -144,7 +159,13 @@ def render_compose(
     assert service_name or not image
     # service names are more constrained than generic kubernetes labels, treat as dns host name
     # the max is 63 but give kompose some room to append to the name
-    return dict(services={cast(str, to_dns_label(service_name, max=NAMEMAX)): service})
+    compose = dict(
+        services={cast(str, to_dns_label(service_name, max=NAMEMAX)): service}
+    )
+    named_volumes = _named_volumes(service.get("volumes") or [])
+    if named_volumes:
+        compose["volumes"] = {name: {} for name in named_volumes}
+    return compose
 
 
 def get_ingress_extras(task, ingress_extras):
