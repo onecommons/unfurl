@@ -3,6 +3,7 @@ coverage
 pytest
 pytest-cov
 pytest-xdist[psutil]
+psutil
 pytest-timeout
 pytest-rerunfailures
 mypy>=1.14.0
