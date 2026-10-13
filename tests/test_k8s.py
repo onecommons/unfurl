@@ -544,3 +544,30 @@ def test_kompose_container_without_image(caplog):
     tasks, errors = _render_kompose(unnamed)
     assert not tasks and errors
     assert "does not specify a container image" in caplog.text
+
+
+def _with_pull_policy(policy: str) -> str:
+    return KOMPOSE_INIT.replace(
+        "image: wordpress:6", f"image: wordpress:6\n                      pull_policy: {policy}"
+    )
+
+
+@pytest.mark.skipif(
+    not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
+)
+@pytest.mark.parametrize(
+    "policy, expected",
+    [("missing", "IfNotPresent"), ("never", "Never"), ("Always", "Always"), ("IfNotPresent", "IfNotPresent")],
+)
+def test_kompose_pull_policy(policy, expected):
+    tasks, errors = _render_kompose(_with_pull_policy(policy))
+    assert tasks and not errors
+    definitions = tasks[0].target.attributes["definitions"]
+    container = definitions["app-deployment"]["spec"]["template"]["spec"]["containers"][0]
+    assert container["imagePullPolicy"] == expected
+
+
+def test_kompose_unsupported_pull_policy(caplog):
+    tasks, errors = _render_kompose(_with_pull_policy("build"))
+    assert not tasks and errors
+    assert 'pull_policy "build" isn\'t supported on Kubernetes' in caplog.text
