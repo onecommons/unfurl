@@ -17,6 +17,7 @@ use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{At, FileRow, NewRecordRow, Place, RecordRow};
 use crate::error::Result;
 use crate::format::SectionKind;
+use crate::ids::History;
 use crate::model::{ConflictState, Record, RecordConflict, SyncOutcome};
 use crate::segments::{self, FileWins, Origin, Value};
 use crate::sync::SyncedRepo;
@@ -181,18 +182,46 @@ impl HeadFile {
     }
 }
 
+/// The ids rollups name, which a record a scan writes takes first (§3.5).
+pub(crate) enum Named<'a, 's> {
+    /// The commit's own rollup, which every row it names must take.
+    Rollup(&'a BTreeMap<Place, i64>),
+    /// Each value's, walked back through parents to the commit that set
+    /// it (§4.9); an id another place holds is passed over.
+    Walk(&'a mut History<'s>),
+}
+
+impl Named<'_, '_> {
+    /// The ids for the places `changes` gives a value.
+    fn ids(
+        &mut self,
+        commit: &str,
+        changes: &BTreeMap<Place, Option<serde_json::Value>>,
+    ) -> Result<BTreeMap<Place, i64>> {
+        let history = match self {
+            Named::Rollup(named) => return Ok((*named).clone()),
+            Named::Walk(history) => history,
+        };
+        let mut ids = BTreeMap::new();
+        for p in changes.iter().filter(|(_, c)| c.is_some()).map(|(p, _)| p) {
+            if let Some(id) = history.id(commit, &p.file_path, &p.path, &p.key)? {
+                ids.insert(p.clone(), id);
+            }
+        }
+        Ok(ids)
+    }
+}
+
 /// The committed side of a scan (§4.3): bring the head up to `commit`,
 /// whose blobs of `files` differ from what the committed segments hold.
-/// `named` is the ids `commit`'s rollup names, which a record takes
-/// first. Returns the files whose draft side has to be reconciled again:
-/// those that changed, and those pending edits followed their records
-/// out of.
+/// Returns the files whose draft side has to be reconciled again: those
+/// that changed, and those pending edits followed their records out of.
 async fn advance_head<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     commit: &str,
     files: &[HeadFile],
-    named: &BTreeMap<Place, i64>,
+    mut named: Named<'_, '_>,
     stats: &mut SyncOutcome,
 ) -> Result<BTreeSet<String>> {
     let w = sync.worktree_id();
@@ -223,6 +252,13 @@ async fn advance_head<DB: Store>(
     if changes.is_empty() {
         return Ok(BTreeSet::new());
     }
+    let must_take = matches!(named, Named::Rollup(_));
+    let named = match &mut named {
+        // a new family's first scan: had a commit this database made been
+        // in reach, opening the worktree would have forked its family
+        Named::Walk(_) if chain.is_empty() => BTreeMap::new(),
+        named => named.ids(commit, &changes)?,
+    };
     // A record that left one file and arrived at the same section and key
     // of another in this scan moved: it keeps its `key_id` (§3.5).
     let mut moved: BTreeMap<Place, i64> = BTreeMap::new();
@@ -261,7 +297,9 @@ async fn advance_head<DB: Store>(
         // the commit message already names it: a row that doesn't get it
         // makes the rollup wrong
         debug_assert!(
-            change.is_none() || named.get(p).is_none_or(|id| rollup.get(p) == Some(id)),
+            !must_take
+                || change.is_none()
+                || named.get(p).is_none_or(|id| rollup.get(p) == Some(id)),
             "{p:?}: the rollup names id {:?}, which another place took",
             named.get(p)
         );
@@ -759,26 +797,42 @@ async fn rename_file<DB: Store>(
     Ok(())
 }
 
+/// The commit a scan brings the head up to.
+pub(crate) struct Head<'a, 's> {
+    pub(crate) commit: &'a str,
+    /// Its files whose blob the committed segments don't hold.
+    pub(crate) files: &'a [HeadFile],
+    /// Where the ids rollups name are read; `None` where nothing can name one.
+    pub(crate) history: Option<&'a mut History<'s>>,
+}
+
 /// One scan's changes to the database, in one transaction: the committed
 /// side up to `head`, then uncommitted renames, then the draft side of
 /// every file that changed on disk or in HEAD, then the re-link (§4.3).
 pub(crate) async fn scan_in_pool<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
-    head: Option<&str>,
-    head_files: &[HeadFile],
+    head: Option<Head<'_, '_>>,
     renames: &[(String, String)],
     disk_files: &[DiskFile<'_>],
     stats: &mut SyncOutcome,
 ) -> Result<()> {
     let w = sync.worktree_id();
     let mut tx = pool.begin().await?;
-    if let Some(head) = head {
+    if let Some(Head {
+        commit: head,
+        files: head_files,
+        history,
+    }) = head
+    {
         // before reading the head: a fork or split may close or split it
         // (§4.14)
         DB::lock_family(&mut tx, sync.family_id()).await?;
-        // an outside commit's rollup ids are phase 4's (§4.9)
-        advance_head(&mut tx, sync, head, head_files, &BTreeMap::new(), stats).await?;
+        let named = match history {
+            Some(history) => Named::Walk(history),
+            None => Named::Rollup(&BTreeMap::new()),
+        };
+        advance_head(&mut tx, sync, head, head_files, named, stats).await?;
         for f in head_files {
             DB::upsert_file(
                 &mut tx,
@@ -846,7 +900,15 @@ pub(crate) async fn commit_in_pool<DB: Store>(
     // it (§4.14)
     DB::lock_family(&mut tx, sync.family_id()).await?;
     segments::fold(&mut tx, w, files, commit, watermark).await?;
-    advance_head(&mut tx, sync, commit, head_files, named, &mut stats).await?;
+    advance_head(
+        &mut tx,
+        sync,
+        commit,
+        head_files,
+        Named::Rollup(named),
+        &mut stats,
+    )
+    .await?;
     for f in head_files {
         DB::upsert_file(
             &mut tx,

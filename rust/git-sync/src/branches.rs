@@ -53,8 +53,8 @@ impl SyncedRepo {
         }
         let blobs = git::tree_blobs(&repo, &r)?;
         let files = self.files_at(&blobs).await?;
-        let database = db::commit::database_id(self.db()).await?;
-        let mut history = crate::ids::History::new(self.formats(), repo, database);
+        let mut history =
+            crate::ids::History::open(self.formats(), repo, self.db(), self.family_id()).await?;
         let at = At {
             origin: &worktree.origin,
             branch,

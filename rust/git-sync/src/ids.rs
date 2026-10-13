@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use crate::db::Db;
 use crate::document::{extract_ext, Syntax};
 use crate::error::Result;
 use crate::format::FormatRegistry;
@@ -29,37 +30,42 @@ struct Parsed {
 }
 
 /// A repository's records at past commits, and the `key_id`s the rollups
-/// this database wrote give them. Each commit's tree and message, and
-/// each file blob, is read once.
+/// this database wrote for one family give them. Each commit's tree and
+/// message, and each file blob, is read once.
 pub(crate) struct History<'s> {
     formats: &'s FormatRegistry,
     repo: gix::Repository,
     database: String,
+    /// The family's `Git-Sync-Family`: its root worktree's origin.
+    family: String,
     trees: HashMap<String, HashMap<String, gix::ObjectId>>,
     blobs: HashMap<gix::ObjectId, Parsed>,
     rollups: HashMap<String, Option<CommitRollup>>,
 }
 
 impl<'s> History<'s> {
-    pub(crate) fn new(
+    /// `family`'s history in `repo`.
+    pub(crate) async fn open(
         formats: &'s FormatRegistry,
         repo: gix::Repository,
-        database: String,
-    ) -> Self {
-        History {
+        db: &Db,
+        family: i64,
+    ) -> Result<Self> {
+        Ok(History {
             formats,
             repo,
-            database,
+            database: crate::db::commit::database_id(db).await?,
+            family: crate::db::worktree::get(db, family).await?.origin,
             trees: HashMap::new(),
             blobs: HashMap::new(),
             rollups: HashMap::new(),
-        }
+        })
     }
 
     /// The id of the record at `file`, `path`, `key` at `commit`: named by
     /// the rollup of the commit that set its value, found walking back
     /// through parents with the same value, first parent first, to the
-    /// first such commit this database made.
+    /// first such commit this database made for the family.
     pub(crate) fn id(
         &mut self,
         commit: &str,
@@ -88,13 +94,16 @@ impl<'s> History<'s> {
     }
 
     /// The id `commit`'s rollup names for the record, when the rollup is
-    /// this database's.
+    /// this database's, for this family.
     fn named(&mut self, commit: &str, file: &str, path: &str, key: &str) -> Result<Option<i64>> {
         if !self.rollups.contains_key(commit) {
             // a damaged rollup names nothing, like a commit without one
             let rollup = git::commit_message(&self.repo, commit)
                 .and_then(|m| parse_commit_rollup(&m).ok().flatten())
-                .filter(|r| r.database.as_deref() == Some(self.database.as_str()));
+                .filter(|r| r.database.as_deref() == Some(self.database.as_str()))
+                // key_ids are the database's: another family's would take
+                // over a record of its own
+                .filter(|r| r.family.as_deref() == Some(self.family.as_str()));
             self.rollups.insert(commit.to_string(), rollup);
         }
         let Some(rollup) = &self.rollups[commit] else {

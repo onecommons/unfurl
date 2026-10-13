@@ -256,8 +256,9 @@ impl SyncedRepo {
     /// conflicted edits, `ids`, to it. `None`, with nothing done, when
     /// they're no longer those.
     async fn move_conflicts(&self, fork: &Fork<'_>, ids: &[i64]) -> Result<Option<i64>> {
-        let database = db::commit::database_id(self.db()).await?;
-        let mut history = crate::ids::History::new(self.formats(), self.repo()?, database);
+        let mut history =
+            crate::ids::History::open(self.formats(), self.repo()?, self.db(), self.family_id())
+                .await?;
         on_pool!(self.db(), pool => move_in_pool(self, pool, &mut history, fork, ids).await)
     }
 

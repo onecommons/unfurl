@@ -947,6 +947,11 @@ record the id comes from the rows, which can miss its identity:
 - a rollup's id another key of the tree already holds, which the scan
   passes over.
 
+A rollup wins over the row the place held: where a merge took the other
+side's value, the record there is the one that value came from. So a
+record made at the same key on both sides takes the side the merge kept.
+Only the family's own rollups count, since ids are the database's.
+
 **Merges bring old versions back.** A value a merge restores may be one
 a user's layered edit was made over, whose row a rewrite has since
 collected. The draft's entry went with that row, so the user sees the
@@ -1339,8 +1344,8 @@ the source branch, fixing any textual conflicts, and the source's next
 scan takes the merge in as content. It holds no pending edits for those
 records any more, so nothing diverges and no `Git-Sync-Resolves-Version`
 trailer is needed. The records keep their ids through the merge by the
-branch's rollup, once the rollup lookup walks merges made outside the
-database (phase 4); until then a record can get a new id there.
+branch's rollup, which the scan finds through the merge's parents
+([§4.9](#49-merges)).
 
 Behaviour changes:
 - **The edits leave the source's view.** Tokens clients hold for them

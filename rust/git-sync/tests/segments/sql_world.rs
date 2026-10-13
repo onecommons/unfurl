@@ -13,7 +13,7 @@ fn sql_supports(op: &Op) -> bool {
         // a trailer is a commit's; there's no working-tree form of it
         Op::DiskEdit(_, _, _, wins) => !matches!(wins, FileWins::Diverged),
         Op::Fork(..) | Op::Rebuild(..) | Op::Rebase(..) | Op::Delete(_) => true,
-        Op::Export(_) | Op::FailedExport(_) => true,
+        Op::Export(_) | Op::FailedExport(_) | Op::Merge(..) => true,
         _ => false,
     }
 }
@@ -61,6 +61,7 @@ impl Before {
             | Op::Fork(n, _)
             | Op::Rebuild(n, ..)
             | Op::Rebase(n, ..)
+            | Op::Merge(n, ..)
             | Op::Export(n) => Some(n),
             Op::FailedExport(n) => Some(n / 3),
             _ => None,
@@ -219,7 +220,11 @@ impl SqlWorld {
                     }
                 }
             }
-            Op::External(..) | Op::Move(..) | Op::Rebuild(..) | Op::Rebase(..) => {
+            Op::External(..)
+            | Op::Move(..)
+            | Op::Rebuild(..)
+            | Op::Rebase(..)
+            | Op::Merge(..) => {
                 mirror.sync(world);
                 self.scan(w, false);
             }

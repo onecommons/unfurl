@@ -191,7 +191,7 @@ pub(crate) async fn open(
         }
         let id = match (family, head) {
             (Some(family), Some(head)) => {
-                let history = History::new(formats, repo, database);
+                let history = History::open(formats, repo, db, family).await?;
                 fork_into(pool, history, family, origin, branch, head).await?
             }
             _ => None,
@@ -861,11 +861,10 @@ pub(crate) async fn rebuild(
     rb: &Rebuild<'_>,
 ) -> Result<Option<i64>> {
     let (w, family, n) = (rb.w, rb.family, rb.n);
-    let database = db::commit::database_id(db).await?;
+    let mut history = History::open(formats, repo, db, family).await?;
     on_pool!(db, pool => {
         let mut tx = pool.begin().await?;
         Store::lock_family(&mut tx, family).await?;
-        let mut history = History::new(formats, repo, database);
         // a scan running alongside rebuilt first
         if let Some(recorded) = Store::head_commit(&mut tx, w).await? {
             if recorded == n || git::is_ancestor(history.repo(), &recorded, n)? {

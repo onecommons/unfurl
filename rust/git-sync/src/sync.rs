@@ -1030,16 +1030,35 @@ impl SyncedRepo {
             });
         }
 
+        let mut history = self
+            .scan_history(head.is_some() && !head_files.is_empty())
+            .await?;
+        let head = head.as_deref().map(|commit| crate::scan::Head {
+            commit,
+            files: &head_files,
+            history: history.as_mut(),
+        });
         on_pool!(self.db(), pool => crate::scan::scan_in_pool(
             self,
             pool,
-            head.as_deref(),
-            &head_files,
+            head,
             &renames,
             &disk_files,
             &mut stats,
         ).await)?;
         Ok(stats)
+    }
+
+    /// The history a scan reads rollup ids from, when it brings files in
+    /// from HEAD: only a file whose blob moved can bring a record one names.
+    async fn scan_history(&self, head_moved: bool) -> Result<Option<crate::ids::History<'_>>> {
+        if !head_moved {
+            return Ok(None);
+        }
+        Ok(Some(
+            crate::ids::History::open(self.formats(), self.repo()?, self.db(), self.family_id())
+                .await?,
+        ))
     }
 
     /// HEAD's blobs, and the files whose blob isn't the one the

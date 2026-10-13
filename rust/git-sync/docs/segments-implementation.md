@@ -163,7 +163,7 @@ Error::FamilyInUse { members: i64 }   // deleting a family root others belong to
   rebuild and a scan give a new row the id the rollup of the commit that
   set its value names, walked back through parents (§3.5, §4.9), as the
   model does. Only rollups whose `Git-Sync-Database` is this database's
-  count. Walking merges made outside the database stays in phase 4.
+  count. A scan walks merges made outside the database since phase 4.
 - **A GET with a `since_version` below the view's `reset_version`**
   answers `409` with the code `RESET`, and the client re-reads. Every
   GET carries `version`, the watermark read before its records, which is
@@ -405,8 +405,9 @@ phase's behaviour changes applied.
    classification and the re-link's tag for committed rows. Operations:
    NewUser, UserWrite, Publish.
 4. **Merges.** The id lookup through merges made outside the
-   database; entries for a version a merge brings back, with the base
-   read from git. Operation: Merge.
+   database (built, §7.3); entries for a version a merge brings back,
+   with the base read from git, which are users' and wait on phase 3.
+   Operation: Merge.
 
 5. **Remotes** (proposed, [§4.15](branch-segments.md#415-remotes-pulling-pushing-and-conflicts)),
    in this order, each usable on its own:
@@ -441,10 +442,11 @@ phase's behaviour changes applied.
    working tree through a trait the server implements with its own git,
    so the policy stays in one place.
 
-   **Order from here:** the server exporting conflicts, as a request
-   option; then phase 4, so a merged diverted or exported branch keeps
-   its records' ids; then step 3's unfold and rebase, for conflicts
-   between records that the merge in git can only divert; then the sweep.
+   **Order from here:** phase 4's id lookup is built, so a merged
+   diverted or exported branch keeps its records' ids. Then the server
+   exporting conflicts, as a request option; then step 3's unfold and
+   rebase, for conflicts between records that the merge in git can only
+   divert; then the sweep.
 
    Appendix C adds the cross-worktree fold and the unfold. Operations:
    Export, Pull, Push, Divert.
@@ -480,8 +482,8 @@ How it differs from the plan:
   database's identity (§5), which the harness checks against the
   model's on every commit. The commit's own head rows read them first,
   as the model does (`file_deletion_under_an_edit_keeps_the_id`).
-  Reading an earlier commit's, the lookup through a merge's parents, is
-  phase 4's. The Reset outcome goes to phase 2.
+  Reading an earlier commit's, through a merge's parents, came with
+  phase 4. The Reset outcome goes to phase 2.
 
 Id rules the harness found, applied alike in the model, the in-memory
 implementation and SQL (branch-segments.md §4.3):
@@ -587,10 +589,45 @@ Open:
   split.** In a worktree with no fork yet, whose one head spans all its
   commits, a fork at a commit where a record was rejected can't recover
   the row the scan kept then once the head has changed it since.
-- **The rollup lookup through merges made outside the database**, which
-  is phase 4's.
+### 7.3 Phase 4: ids through merges, built
 
-### 7.3 Phase 5, step 1: export (plan)
+The harness runs Merge against SQL: the 38 seeded histories that make
+one, and the random runs of every operation. The strategies whose seeds
+predate merges keep the filter they were saved under
+(`ran_before_merges`), so the seeds replay the same histories.
+
+- **A scan of a commit made outside the database takes the ids rollups
+  name** for the places it gives a value, walked back through parents
+  to the commit that set each value (`History::id`, §4.9). An id
+  another place holds is passed over; the commit's own rollup, on a
+  commit through the database, is still asserted.
+- **Only the family's own rollups count,** by `Git-Sync-Family`, in the
+  split's lookup too: `key_id`s are the database's, so another family's
+  merged in would take over records of its own.
+- **A new family's first scan takes no ids from rollups.** It has made
+  no commits, so no rollup names it. With no rows, every record is a
+  change, and the walk would read the tree of every commit back to the
+  one that set each value, and parse each version of the file once.
+- **The reference never reuses an id.** A new record whose version was
+  once some row's id gets a fresh one; it checked only the tree before.
+  The first runs against SQL found it, in six of the seeded histories.
+  Two of them depend on the walk itself:
+  `merge_finds_the_rollup_past_a_squash` and
+  `split_moves_late_rows_after_merges`.
+
+Not built: entries for a version a merge brings back into main. They
+are users' draft entries, so they wait on phase 3's user branches in
+SQL.
+
+Open:
+
+- **The walk runs in the scan's transaction, under the family lock.**
+  It costs what the rows lag behind HEAD, as a split's does, except
+  for a value that came back from long ago: a reset to an old commit,
+  a file that newly parses, a long-lived branch merged in. Bounding it
+  would make the id depend on how far back it was set.
+
+### 7.4 Phase 5, step 1: export (plan)
 
 Built: `src/export.rs`, with `Op::Export` in the harness on both sides.
 How it differs from this plan:

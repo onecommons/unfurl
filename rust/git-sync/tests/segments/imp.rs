@@ -67,6 +67,8 @@ struct Segments {
     /// Keys an edit left to follow its record, per worktree: the file's
     /// value taken in there next is a new row for old content.
     vacated: BTreeSet<(Wt, Key)>,
+    /// Every `key_id` a row has had: a real row's id is never reused.
+    given: BTreeSet<Ver>,
 }
 
 impl Segments {
@@ -105,11 +107,13 @@ impl Segments {
                 settled: BTreeSet::new(),
             },
         );
+        self.given.insert(ver);
         id
     }
 
     fn set_id(&mut self, row: RowId, id: Ver) {
         self.rows.get_mut(&row).unwrap().id = id;
+        self.given.insert(id);
     }
 
     /// The `key_id` of the live row `view` shows for `key`.
@@ -132,6 +136,16 @@ impl Segments {
 
     fn stamp(&mut self, row: RowId, commit: CommitId) {
         self.rows.get_mut(&row).unwrap().commit = Some(commit);
+    }
+
+    /// A new record's id: its version, unless `taken`; then one no row has
+    /// had.
+    fn new_id(&mut self, v: Ver, key: Key, taken: bool) -> Ver {
+        match fresh_id(v, key) {
+            _ if !taken => v,
+            id if !self.given.contains(&id) => id,
+            _ => self.private_ver(),
+        }
     }
 
     fn private_ver(&mut self) -> Ver {
@@ -984,6 +998,7 @@ impl Segments {
         let drafted = self.row_in(self.wts[w].draft, key).map(|r| self.rows[&r].id);
         let pinned = head_row.is_some() && self.held_elsewhere(key, w);
         let entries = self.draft_entries(head_row.as_slice(), w);
+        let reused = change.is_some_and(|v| self.given.contains(&v));
         if let Some(hr) = head_row {
             self.delete_row(hr);
         }
@@ -1008,11 +1023,7 @@ impl Segments {
                         .filter(|id| !elsewhere.contains(id)))
                     // else the record the draft holds at the key
                     .or(drafted.filter(|id| !elsewhere.contains(id)))
-                    .unwrap_or(if elsewhere.contains(&v) {
-                        fresh_id(v, key)
-                    } else {
-                        v
-                    }),
+                    .unwrap_or_else(|| self.new_id(v, key, reused || elsewhere.contains(&v))),
                 None => record.unwrap(),
             };
             self.set_id(n, id);
