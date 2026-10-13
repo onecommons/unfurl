@@ -122,6 +122,7 @@ DSL support is now stable and ready for production use. The DSL now has feature 
   * Allow node filters to be assigned directly to node template object.
   * Convert functions and methods set on fields to be converted ``computed`` eval expressions.
   * Allow assigning TOSCA field objects like Requirement() and placeholders like `CONSTRAINED` directly on ToscaType instances.
+  * Add a `SUBSTITUTE` placeholder for node template fields supplied by a substituting topology: the field is omitted from the YAML and the template gets the "substitute" directive.
   * Allow untyped operations (from Python's perspective) on custom interfaces by allowing ``operation()`` to be assigned directly.
   * When evaluating an operation at parse time, assigning to self or call set_inputs() in the operation body will have it be invoked at runtime.
 

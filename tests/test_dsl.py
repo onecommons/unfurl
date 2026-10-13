@@ -903,6 +903,108 @@ node_types:
     )
 
 
+def test_substitute_fields():
+    python_src = """
+import unfurl
+import tosca
+from tosca import SUBSTITUTE, FieldProjection
+
+class Host(tosca.nodes.Root):
+    pass
+
+class App(tosca.nodes.Root):
+    name: str
+    host: Host
+    constrained: Host = tosca.CONSTRAINED
+    filtered: tosca.nodes.Root = tosca.Requirement(node_filter={"match": [dict(get_nodes_of_type="Host")]})
+    image: tosca.artifacts.Root
+
+sub = App("sub", name=SUBSTITUTE, host=SUBSTITUTE, constrained=SUBSTITUTE, filtered=SUBSTITUTE, image=SUBSTITUTE)
+assert isinstance(sub.host, FieldProjection)
+assert isinstance(sub.name, FieldProjection)
+assert sub._directives == ["substitute"]
+dup = App("dup", _directives=["substitute", "x"], name="dup", host=SUBSTITUTE, image=tosca.artifacts.Root(file="f"))
+plain = App("plain", _directives=["x"], name="plain", host=Host("h"), image=tosca.artifacts.Root(file="f"))
+late = App("late", name="late", host=Host("h"), image=tosca.artifacts.Root(file="f"))
+late.host = SUBSTITUTE
+merged = App("merged", _directives=["x"], name=SUBSTITUTE, host=SUBSTITUTE, image=SUBSTITUTE)
+"""
+    yaml_src = """
+sub:
+  type: App
+  directives:
+  - substitute
+  metadata:
+    module: service_template
+dup:
+  type: App
+  directives:
+  - substitute
+  - x
+  properties:
+    name: dup
+  requirements:
+  - constrained:
+      node: Host
+  artifacts:
+    image:
+      type: tosca.artifacts.Root
+      file: f
+  metadata:
+    module: service_template
+plain:
+  type: App
+  directives:
+  - x
+  properties:
+    name: plain
+  requirements:
+  - host: h
+  - constrained:
+      node: Host
+  artifacts:
+    image:
+      type: tosca.artifacts.Root
+      file: f
+  metadata:
+    module: service_template
+late:
+  type: App
+  directives:
+  - substitute
+  properties:
+    name: late
+  requirements:
+  - constrained:
+      node: Host
+  artifacts:
+    image:
+      type: tosca.artifacts.Root
+      file: f
+  metadata:
+    module: service_template
+merged:
+  type: App
+  directives:
+  - x
+  - substitute
+  requirements:
+  - constrained:
+      node: Host
+  metadata:
+    module: service_template
+h:
+  type: Host
+  metadata:
+    module: service_template
+"""
+    yaml_dict = _to_yaml(python_src, False)
+    node_templates = yaml_dict["topology_template"]["node_templates"]
+    assert node_templates == load_yaml(yaml, yaml_src), (
+        yaml.dump(node_templates, sys.stdout) or "unexpected yaml, see stdout"
+    )
+
+
 @pytest.mark.parametrize(
     "prop,node_filter",
     [

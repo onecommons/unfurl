@@ -1030,6 +1030,13 @@ class _CONSTRAINED_TYPE:
 
 CONSTRAINED: Any = _CONSTRAINED_TYPE()
 
+
+class _SUBSTITUTE_TYPE:
+    __slots__ = ()
+
+
+SUBSTITUTE: Any = _SUBSTITUTE_TYPE()
+
 PATCH: str = "~patch~"
 
 _T = TypeVar("_T")
@@ -1224,7 +1231,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             setattr(self.default, name, val)
 
     def has_explicit_default_value(self) -> bool:
-        return self.default not in [MISSING, REQUIRED, CONSTRAINED, DEFAULT]
+        return self.default not in [MISSING, REQUIRED, CONSTRAINED, SUBSTITUTE, DEFAULT]
 
     def _validate_name_is_property(self, name):
         # ensure that the give field name refers to a property or attribute
@@ -1559,7 +1566,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             bool(template and value is CONSTRAINED and not self.has_node_filter()),
         )
         if converter:
-            if value not in [MISSING, CONSTRAINED, REQUIRED, DEFAULT]:
+            if value not in [MISSING, CONSTRAINED, SUBSTITUTE, REQUIRED, DEFAULT]:
                 # if value is None or () only set if we're overriding an explicit default
                 if value or (
                     self.super_field
@@ -1600,7 +1607,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
     def _get_default_value(self):
         if self.default == DEFAULT:
             return self._get_default_from_factory()
-        elif self.default not in [MISSING, REQUIRED, CONSTRAINED]:
+        elif self.default not in [MISSING, REQUIRED, CONSTRAINED, SUBSTITUTE]:
             return self.default
         if self.default_factory and self.default_factory is not dataclasses.MISSING:
             if hasattr(self.default_factory, "_is_template_function"):
@@ -2814,7 +2821,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     ) -> bool:
         was_set = False
         if not field:
-            if val in [DEFAULT, CONSTRAINED]:
+            if val in [DEFAULT, CONSTRAINED, SUBSTITUTE]:
                 raise ValueError(
                     "Undeclared attribute %s can not be set to %s" % (name, val)
                 )
@@ -3268,7 +3275,7 @@ class ToscaType(_ToscaType):
         def __getattribute__(self, name: str):
             """Customizes attribute access. In parse mode, accessing a attribute that is a TOSCA field will return a `FieldProjection` instead of its value if any of the following are true:
 
-            * the field hasn't been initialized yet (e.g. its value is ``DEFAULT``, ``REQUIRED``, or ``CONSTRAINED``)
+            * the field hasn't been initialized yet (e.g. its value is ``DEFAULT``, ``REQUIRED``, ``CONSTRAINED``, or ``SUBSTITUTE``)
 
             * the field is a TOSCA `Attribute` (as their values are set at runtime)
 
@@ -3292,7 +3299,7 @@ class ToscaType(_ToscaType):
             t_field = object.__getattribute__(self, "get_instance_field")(name)
             if isinstance(t_field, _Tosca_Field):
                 if (
-                    val in [DEFAULT, MISSING, REQUIRED, CONSTRAINED]
+                    val in [DEFAULT, MISSING, REQUIRED, CONSTRAINED, SUBSTITUTE]
                     or t_field.tosca_field_type == ToscaFieldType.attribute
                     or isinstance(val, EvalData)
                     # or its a mutable value or tosca object set on the class:
@@ -3489,6 +3496,8 @@ class ToscaType(_ToscaType):
             body["metadata"] = metadata_to_yaml(self._metadata)
         instance_values = self.get_instance_field_values()
         for field, value in instance_values.values():
+            if value is SUBSTITUTE:
+                continue  # supplied by the substituting topology
             if field.section == "requirements":
                 if field.name in self._instance_fields:
                     # requirement was set directly on the instance
@@ -3802,6 +3811,18 @@ class Node(ToscaType):
         yaml = converter._shared_cls_to_yaml(cls)
         return yaml
 
+    def __post_init__(self) -> None:
+        self._directives = self._get_directives()
+        super().__post_init__()
+
+    def _get_directives(self) -> List[str]:
+        'Returns ``_directives``, adding "substitute" if a field is set to `SUBSTITUTE`.'
+        if NodeTemplateDirective.substitute not in self._directives and any(
+            val is SUBSTITUTE for val in self.__dict__.values()
+        ):
+            return self._directives + [NodeTemplateDirective.substitute.value]
+        return self._directives
+
     def _enforce_required_fields(self):
         for directive in self._directives:
             if directive in ("select", "substitute", "partial"):
@@ -3810,8 +3831,9 @@ class Node(ToscaType):
 
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
         tpl = super().to_template_yaml(converter)
-        if self._directives:
-            tpl["directives"] = self._directives
+        directives = self._get_directives()
+        if directives:
+            tpl["directives"] = directives
         if self._node_filter:
             tpl["node_filter"] = to_tosca_value(self._node_filter)
         return tpl

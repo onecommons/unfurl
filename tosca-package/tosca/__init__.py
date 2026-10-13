@@ -447,6 +447,7 @@ __all__ = [
     "MISSING",
     "DEFAULT",
     "CONSTRAINED",
+    "SUBSTITUTE",
     "Relationship",
     "RelationshipType",
     "Repository",
