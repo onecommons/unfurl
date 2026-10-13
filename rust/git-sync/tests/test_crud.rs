@@ -175,8 +175,8 @@ async fn save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) {
     // Sanity: HEAD really does point at the new oid in the gix repo.
     let wd = sync.get_working_dir().await.expect("get_working_dir");
     assert_eq!(
-        wd.head_commit.as_deref(),
-        Some(oid.as_str()),
+        wd.head_commit,
+        Some(oid),
         "HEAD oid does not match commit_repository return"
     );
 
@@ -185,39 +185,23 @@ async fn save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) {
         .await
         .expect("get")
         .expect("present");
-    assert_eq!(
-        updated.commit_id.as_deref(),
-        Some(oid.as_str()),
-        "modified record commit_id"
-    );
+    assert_eq!(updated.commit_id, Some(oid), "modified record commit_id");
     let added = sync
         .get_record("cloudmap.yaml", path, added_key)
         .await
         .expect("get")
         .expect("present");
-    assert_eq!(
-        added.commit_id.as_deref(),
-        Some(oid.as_str()),
-        "new record commit_id"
-    );
+    assert_eq!(added.commit_id, Some(oid), "new record commit_id");
 
     let file = sync
         .get_file("cloudmap.yaml")
         .await
         .expect("get_file")
         .expect("present");
-    assert_eq!(
-        file.commit_id.as_deref(),
-        Some(oid.as_str()),
-        "file commit_id"
-    );
+    assert_eq!(file.commit_id, Some(oid), "file commit_id");
 
     let worktree = sync.get_worktree().await.expect("get_worktree");
-    assert_eq!(
-        worktree.commit_id.as_deref(),
-        Some(oid.as_str()),
-        "worktree commit_id"
-    );
+    assert_eq!(worktree.commit_id, Some(oid), "worktree commit_id");
 }
 
 /// Top-level keys of a JSON object, in order.
@@ -394,7 +378,7 @@ async fn commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
             path,
             key,
             serde_json::json!({"name":"v3"}),
-            Some(CommitRef::Commit(oid_a.clone())),
+            Some(CommitRef::Commit(oid_a.to_string())),
             false,
         )
         .await;
@@ -425,7 +409,7 @@ async fn commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
             path,
             key,
             serde_json::json!({"name":"v3"}),
-            Some(CommitRef::Commit(oid_b.clone())),
+            Some(CommitRef::Commit(oid_b.to_string())),
             false,
         )
         .await
@@ -450,7 +434,7 @@ async fn commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
         .await
         .expect("get")
         .expect("present");
-    assert_eq!(r.commit_id.as_deref(), Some(oid_c.as_str()));
+    assert_eq!(r.commit_id, Some(oid_c));
 }
 
 async fn conflict_rolls_back_alias_writes(sync: &SyncedRepo, _tmp: &TempDir) {
@@ -582,7 +566,7 @@ async fn create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
         .await
         .expect("get")
         .expect("present");
-    assert_eq!(after.commit_id.as_deref(), Some(oid.as_str()));
+    assert_eq!(after.commit_id, Some(oid));
     assert!(!after.deleted);
 }
 
@@ -1124,7 +1108,7 @@ async fn pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp: &Te
         .await
         .expect("get")
         .expect("present");
-    assert_eq!(after.commit_id.as_deref(), Some(oid.as_str()));
+    assert_eq!(after.commit_id, Some(oid));
     assert_eq!(after.version, v, "version preserved across commit");
 
     // Pending(v) still wins post-commit.

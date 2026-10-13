@@ -3,6 +3,7 @@
 //! `record` table queries that each run in their own transaction and
 //! return [`crate::model`] types.
 
+use crate::commit::CommitId;
 use std::collections::BTreeSet;
 
 use crate::db::store::{Filter, Scope, Store};
@@ -42,7 +43,7 @@ struct FoundColumns {
     file_path: String,
     path: String,
     key: String,
-    commit_id: Option<String>,
+    commit_id: Option<CommitId>,
     json: String,
     version: i64,
     #[sqlx(default)]
@@ -151,7 +152,7 @@ pub(crate) struct RenderInputs {
     /// included -- in the order they were written.
     pub(crate) pending: Vec<Record>,
     /// Each pending edit's base commit, by `(path, key)`.
-    pub(crate) bases: std::collections::HashMap<(String, String), Option<String>>,
+    pub(crate) bases: std::collections::HashMap<(String, String), Option<CommitId>>,
     /// Each pending edit's base content, by `(path, key)`: what a stale
     /// file is checked against.
     pub(crate) base_values: std::collections::HashMap<(String, String), Option<serde_json::Value>>,
@@ -210,7 +211,7 @@ async fn render_inputs_with(
             .collect();
         edits.sort_by_key(|r| r.id);
         let at = |r: &RecordRow| (r.path.clone(), r.key.clone());
-        let bases = edits.iter().map(|r| (at(r), r.base_commit_id.clone())).collect();
+        let bases = edits.iter().map(|r| (at(r), r.base_commit_id)).collect();
         let base_values = edits.iter().map(|r| (at(r), r.base_json.clone())).collect();
         let pending = edits.into_iter().map(|r| r.into_record(worktree_id)).collect();
         Ok(RenderInputs {

@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+use crate::commit::CommitId;
 use crate::db::Db;
 use crate::document::{extract_ext, Syntax};
 use crate::error::Result;
@@ -38,9 +39,9 @@ pub(crate) struct History<'s> {
     database: String,
     /// The family's `Git-Sync-Family`: its root worktree's origin.
     family: String,
-    trees: HashMap<String, HashMap<String, gix::ObjectId>>,
+    trees: HashMap<CommitId, HashMap<String, gix::ObjectId>>,
     blobs: HashMap<gix::ObjectId, Parsed>,
-    rollups: HashMap<String, Option<CommitRollup>>,
+    rollups: HashMap<CommitId, Option<CommitRollup>>,
 }
 
 impl<'s> History<'s> {
@@ -68,42 +69,48 @@ impl<'s> History<'s> {
     /// first such commit this database made for the family.
     pub(crate) fn id(
         &mut self,
-        commit: &str,
+        commit: CommitId,
         file: &str,
         path: &str,
         key: &str,
     ) -> Result<Option<i64>> {
         let v = self.value(commit, file, path, key)?;
-        let mut seen = BTreeSet::from([commit.to_string()]);
-        let mut todo = vec![commit.to_string()];
+        let mut seen = BTreeSet::from([commit]);
+        let mut todo = vec![commit];
         while let Some(at) = todo.pop() {
             let mut same = Vec::new();
-            for p in git::commit_parents(&self.repo, &at)? {
-                if self.value(&p, file, path, key)? == v {
+            for p in git::commit_parents(&self.repo, at)? {
+                if self.value(p, file, path, key)? == v {
                     same.push(p);
                 }
             }
             if same.is_empty() {
-                if let Some(id) = self.named(&at, file, path, key)? {
+                if let Some(id) = self.named(at, file, path, key)? {
                     return Ok(Some(id));
                 }
             }
-            todo.extend(same.into_iter().rev().filter(|p| seen.insert(p.clone())));
+            todo.extend(same.into_iter().rev().filter(|p| seen.insert(*p)));
         }
         Ok(None)
     }
 
     /// The id `commit`'s rollup names for the record, when the rollup is
     /// this database's, for this family.
-    fn named(&mut self, commit: &str, file: &str, path: &str, key: &str) -> Result<Option<i64>> {
-        if !self.rollups.contains_key(commit) {
+    fn named(
+        &mut self,
+        commit: CommitId,
+        file: &str,
+        path: &str,
+        key: &str,
+    ) -> Result<Option<i64>> {
+        if !self.rollups.contains_key(&commit) {
             // a damaged rollup names nothing, like a commit without one
             let rollup = git::commit_message(&self.repo, commit)
                 .and_then(|m| parse_commit_rollup(&m).ok().flatten())
                 .filter(|r| self.owns(r));
-            self.rollups.insert(commit.to_string(), rollup);
+            self.rollups.insert(commit, rollup);
         }
-        let Some(rollup) = &self.rollups[commit] else {
+        let Some(rollup) = &self.rollups[&commit] else {
             return Ok(None);
         };
         Ok(rollup
@@ -119,21 +126,21 @@ impl<'s> History<'s> {
     /// history back to `from`, both included; `false` if `from` isn't on it.
     pub(crate) fn continuous(
         &mut self,
-        from: &str,
-        to: &str,
+        from: CommitId,
+        to: CommitId,
         file: &str,
         path: &str,
         key: &str,
     ) -> Result<bool> {
-        let mut at = to.to_string();
+        let mut at = to;
         loop {
-            if self.value(&at, file, path, key)?.is_none() {
+            if self.value(at, file, path, key)?.is_none() {
                 return Ok(false);
             }
             if at == from {
                 return Ok(true);
             }
-            match git::commit_parents(&self.repo, &at)?.into_iter().next() {
+            match git::commit_parents(&self.repo, at)?.into_iter().next() {
                 Some(p) => at = p,
                 None => return Ok(false),
             }
@@ -145,7 +152,7 @@ impl<'s> History<'s> {
     }
 
     /// `file`'s records at `commit`: `(path, key)` → value.
-    pub(crate) fn records(&mut self, commit: &str, file: &str) -> Result<Records> {
+    pub(crate) fn records(&mut self, commit: CommitId, file: &str) -> Result<Records> {
         Ok(match self.load(commit, file)? {
             Some(blob) => self.blobs[&blob].records.clone(),
             None => Records::new(),
@@ -161,7 +168,7 @@ impl<'s> History<'s> {
     }
 
     /// Whether `file` at `commit` is a document a format reads whole.
-    pub(crate) fn parses(&mut self, commit: &str, file: &str) -> Result<bool> {
+    pub(crate) fn parses(&mut self, commit: CommitId, file: &str) -> Result<bool> {
         if Syntax::for_extension(&extract_ext(file)).is_none() {
             return Ok(false);
         }
@@ -174,7 +181,7 @@ impl<'s> History<'s> {
     /// The record's value at `commit`, `None` where it has none.
     pub(crate) fn value(
         &mut self,
-        commit: &str,
+        commit: CommitId,
         file: &str,
         path: &str,
         key: &str,
@@ -190,12 +197,12 @@ impl<'s> History<'s> {
 
     /// `file`'s blob at `commit`, parsed into [`Self::blobs`]; `None` where
     /// the commit has no such file.
-    fn load(&mut self, commit: &str, file: &str) -> Result<Option<gix::ObjectId>> {
-        if !self.trees.contains_key(commit) {
+    fn load(&mut self, commit: CommitId, file: &str) -> Result<Option<gix::ObjectId>> {
+        if !self.trees.contains_key(&commit) {
             let tree = git::tree_blobs(&self.repo, commit)?;
-            self.trees.insert(commit.to_string(), tree);
+            self.trees.insert(commit, tree);
         }
-        let Some(&blob) = self.trees[commit].get(file) else {
+        let Some(&blob) = self.trees[&commit].get(file) else {
             return Ok(None);
         };
         if !self.blobs.contains_key(&blob) {
@@ -210,7 +217,7 @@ impl<'s> History<'s> {
     /// the file.
     pub(crate) fn skips(
         &mut self,
-        commit: &str,
+        commit: CommitId,
         file: &str,
         path: &str,
         key: &str,

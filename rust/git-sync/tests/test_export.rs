@@ -37,7 +37,7 @@ fn git_ok(tmp: &TempDir, args: &[&str]) -> String {
 }
 
 /// The dashboard record's `name` in `file` at `commit`.
-fn name_at(tmp: &TempDir, commit: &str, file: &str) -> serde_json::Value {
+fn name_at(tmp: &TempDir, commit: impl std::fmt::Display, file: &str) -> serde_json::Value {
     let text = git_ok(tmp, &["show", &format!("{commit}:{file}")]);
     let doc: serde_json::Value = serde_saphyr::from_str(&text).expect("yaml");
     doc["repositories"][DASHBOARD]["name"].clone()
@@ -102,13 +102,13 @@ async fn an_export_moves_the_conflicted_edit(sync: &SyncedRepo, tmp: &TempDir) {
     assert!(!rows[0].clone_on_start, "a branch without a checkout");
     assert_eq!(
         git_ok(tmp, &["rev-parse", &format!("refs/heads/{BRANCH}")]),
-        exported.commit
+        exported.commit.to_string()
     );
     assert_eq!(
         git_ok(tmp, &["rev-parse", &format!("{}^", exported.commit)]),
-        base
+        base.to_string()
     );
-    assert_eq!(name_at(tmp, &exported.commit, "cloudmap.yaml"), "ours");
+    assert_eq!(name_at(tmp, exported.commit, "cloudmap.yaml"), "ours");
     assert!(
         exported.records.iter().any(|r| r.key == DASHBOARD),
         "{:?}",
@@ -163,7 +163,7 @@ async fn its_own_branch_is_refused(sync: &SyncedRepo, tmp: &TempDir) {
     let head = head_commit(sync).await;
     let err = sync.export_conflicts(&branch).await.expect_err("its own");
     assert!(matches!(&err, Error::BranchExists { .. }), "{err:?}");
-    assert_eq!(git_ok(tmp, &["rev-parse", &branch]), head);
+    assert_eq!(git_ok(tmp, &["rev-parse", &branch]), head.to_string());
     assert_eq!(sync.list_conflicts(None).await.expect("conflicts").len(), 1);
     assert_eq!(name_of(sync, DASHBOARD).await, "ours");
 }
@@ -288,8 +288,8 @@ async fn batches_follow_their_records(sync: &SyncedRepo, tmp: &TempDir) {
     let exported = committed.exported.expect("exported");
     let main = committed.commit.expect("committed");
 
-    let keys = |commit: &str| -> Vec<(String, Vec<String>)> {
-        let message = git_ok(tmp, &["log", "-1", "--format=%B", commit]);
+    let keys = |commit: unfurl_git_sync::CommitId| -> Vec<(String, Vec<String>)> {
+        let message = git_ok(tmp, &["log", "-1", "--format=%B", &commit.to_string()]);
         let rollup = parse_commit_rollup(&message).unwrap().expect("a rollup");
         rollup
             .txns
@@ -301,14 +301,14 @@ async fn batches_follow_their_records(sync: &SyncedRepo, tmp: &TempDir) {
             .collect()
     };
     assert_eq!(
-        keys(&exported.commit),
+        keys(exported.commit),
         vec![("split batch".to_string(), vec![DASHBOARD.to_string()])]
     );
     assert_eq!(
-        keys(&main),
+        keys(main),
         vec![("split batch".to_string(), vec!["split".to_string()])]
     );
-    assert_eq!(name_at(tmp, &main, "cloudmap.yaml"), "theirs");
+    assert_eq!(name_at(tmp, main, "cloudmap.yaml"), "theirs");
     assert!(sync
         .list_conflicts(None)
         .await
@@ -350,7 +350,7 @@ async fn a_wholly_exported_batch_leaves(sync: &SyncedRepo, tmp: &TempDir) {
         .expect("commit")
         .commit
         .expect("committed");
-    let message = git_ok(tmp, &["log", "-1", "--format=%B", &main]);
+    let message = git_ok(tmp, &["log", "-1", "--format=%B", &main.to_string()]);
     let rollup = parse_commit_rollup(&message).unwrap().expect("a rollup");
     let messages: Vec<Option<String>> =
         rollup.txns.iter().map(|t| t.meta.message.clone()).collect();
@@ -433,7 +433,10 @@ async fn an_edit_whose_record_moved_is_a_new_record(sync: &SyncedRepo, tmp: &Tem
         .expect("export")
         .expect("exported");
     let commit = &exported.commit;
-    assert_eq!(git_ok(tmp, &["rev-parse", &format!("{commit}^")]), base);
+    assert_eq!(
+        git_ok(tmp, &["rev-parse", &format!("{commit}^")]),
+        base.to_string()
+    );
     assert_eq!(
         name_at(tmp, commit, "cloudmap.yaml"),
         "base",
@@ -466,7 +469,7 @@ async fn the_base_is_where_the_edits_were_made(sync: &SyncedRepo, tmp: &TempDir)
         .expect("exported");
     assert_eq!(
         git_ok(tmp, &["rev-parse", &format!("{}^", exported.commit)]),
-        base
+        base.to_string()
     );
 }
 

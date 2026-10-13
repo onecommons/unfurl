@@ -369,7 +369,7 @@ impl CloudMapState {
                 for e in done {
                     tracing::info!(
                         branch = e.branch.as_str(),
-                        commit = e.commit.as_str(),
+                        commit = %e.commit,
                         records = e.records.len(),
                         "finished an export an earlier run left unfinished"
                     );
@@ -484,7 +484,7 @@ impl CloudMapState {
     pub async fn commit(&self, message: &str) -> Result<Option<String>, unfurl_git_sync::Error> {
         retry_if_head_moved(|| self.inner.commit_repository(message, Default::default()))
             .await
-            .map(|c| c.commit)
+            .map(|c| c.commit.map(|c| c.to_string()))
     }
 
     /// Decide whether a request's `auth_project` and `branch` may be served
@@ -907,7 +907,12 @@ impl CloudMapState {
     /// Read from the `worktree` row rather than from git. It can be stale if
     /// something outside this process commits, which the next scan corrects.
     pub async fn head_commit(&self) -> Result<Option<String>, unfurl_git_sync::Error> {
-        Ok(self.inner.get_worktree().await?.commit_id)
+        Ok(self
+            .inner
+            .get_worktree()
+            .await?
+            .commit_id
+            .map(|c| c.to_string()))
     }
 }
 
@@ -1266,7 +1271,7 @@ async fn conflict_groups(
         }
         if record.conflict == Some(ConflictState::Conflict) {
             by_commit
-                .entry(record.commit_id.clone())
+                .entry(record.commit_id.map(|c| c.to_string()))
                 .or_default()
                 .push(record);
         }
@@ -1324,11 +1329,10 @@ async fn with_head(
     }
     let head = match &worktrees {
         None => cm.head_commit().await,
-        Some(filter) => cm
-            .inner
-            .worktrees(filter)
-            .await
-            .map(|found| found.into_iter().next().and_then(|w| w.commit_id)),
+        Some(filter) => cm.inner.worktrees(filter).await.map(|found| {
+            let found = found.into_iter().next();
+            found.and_then(|w| w.commit_id.map(|c| c.to_string()))
+        }),
     }
     .map_err(|e| LocalError::Internal(format!("head_commit: {e}")))?;
     let version = cm
@@ -2011,7 +2015,8 @@ fn records_to_document(records: Vec<Record>, select: Option<&[SelectPath]>) -> V
         let Some(section) = section_for_path(&r.path) else {
             continue;
         };
-        let enriched = annotate_record(r.json, r.id, r.version, r.commit_id, r.deleted);
+        let commit_id = r.commit_id.map(|c| c.to_string());
+        let enriched = annotate_record(r.json, r.id, r.version, commit_id, r.deleted);
         let entry = match select {
             Some(paths) => project_record(&enriched, &r.key, paths),
             None => enriched,

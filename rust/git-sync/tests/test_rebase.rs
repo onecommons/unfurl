@@ -7,7 +7,7 @@ mod common;
 
 use common::{crud_test, head_commit, DASHBOARD};
 use tempfile::TempDir;
-use unfurl_git_sync::{Rebased, RecordQuery, ScanOptions, SyncedRepo};
+use unfurl_git_sync::{CommitId, Rebased, RecordQuery, ScanOptions, SyncedRepo};
 
 fn git(dir: &std::path::Path, args: &[&str]) -> String {
     let out = std::process::Command::new("git")
@@ -23,11 +23,14 @@ fn git(dir: &std::path::Path, args: &[&str]) -> String {
 
 /// A commit off `base` that replaces `from` with `to` in cloudmap.yaml,
 /// made without moving HEAD: upstream, as a fetch brings it.
-fn upstream(tmp: &TempDir, base: &str, from: &str, to: &str) -> String {
+fn upstream(tmp: &TempDir, base: CommitId, from: &str, to: &str) -> CommitId {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("up");
     let up = path.to_str().expect("utf8");
-    git(tmp.path(), &["worktree", "add", "-q", "--detach", up, base]);
+    git(
+        tmp.path(),
+        &["worktree", "add", "-q", "--detach", up, &base.to_string()],
+    );
     let file = path.join("cloudmap.yaml");
     let text = std::fs::read_to_string(&file).expect("read");
     assert!(text.contains(from), "{from:?} is in the file");
@@ -35,7 +38,7 @@ fn upstream(tmp: &TempDir, base: &str, from: &str, to: &str) -> String {
     git(&path, &["commit", "-q", "-am", "upstream"]);
     let oid = git(&path, &["rev-parse", "HEAD"]);
     git(tmp.path(), &["worktree", "remove", "--force", up]);
-    oid
+    oid.parse().expect("a commit")
 }
 
 async fn scan(sync: &SyncedRepo) {
@@ -45,7 +48,7 @@ async fn scan(sync: &SyncedRepo) {
 }
 
 /// Name record `key` `name`, and commit it.
-async fn commit_name(sync: &SyncedRepo, key: &str, name: &str) -> String {
+async fn commit_name(sync: &SyncedRepo, key: &str, name: &str) -> CommitId {
     sync.upsert_record(
         Some("cloudmap.yaml"),
         "/repositories",
@@ -75,13 +78,18 @@ async fn names(sync: &SyncedRepo) -> std::collections::BTreeMap<String, (i64, se
 
 /// Reset the checkout to `to` while HEAD is still `from`, scan, and
 /// commit: what the caller does after the database's part.
-async fn finish(sync: &SyncedRepo, tmp: &TempDir, from: &str, to: &str) -> Option<String> {
+async fn finish(
+    sync: &SyncedRepo,
+    tmp: &TempDir,
+    from: CommitId,
+    to: CommitId,
+) -> Option<CommitId> {
     assert_eq!(
         git(tmp.path(), &["rev-parse", "HEAD"]),
-        from,
+        from.to_string(),
         "HEAD is still the rebased commit"
     );
-    git(tmp.path(), &["reset", "-q", "--hard", to]);
+    git(tmp.path(), &["reset", "-q", "--hard", &to.to_string()]);
     scan(sync).await;
     sync.commit_repository("rebased", Default::default())
         .await
@@ -96,9 +104,9 @@ async fn local_commits_go_onto_upstream(sync: &SyncedRepo, tmp: &TempDir) {
     let b = head_commit(sync).await;
     let l = commit_name(sync, "local", "local").await;
     let id = names(sync).await["local"].0;
-    let u = upstream(tmp, &b, "name: dashboard", "name: upstream");
-    let rebased = sync.rebase_onto(&u).await.expect("rebase");
-    let head = l.clone();
+    let u = upstream(tmp, b, "name: dashboard", "name: upstream");
+    let rebased = sync.rebase_onto(u).await.expect("rebase");
+    let head = l;
     assert_eq!(
         rebased,
         Rebased::Unfolded {
@@ -107,16 +115,19 @@ async fn local_commits_go_onto_upstream(sync: &SyncedRepo, tmp: &TempDir) {
             edits: 1
         }
     );
-    let c = finish(sync, tmp, &l, &u)
+    let c = finish(sync, tmp, l, u)
         .await
         .expect("a commit onto upstream");
     let kept = git(tmp.path(), &["rev-parse", "refs/git-sync/rebased/main"]);
-    assert_eq!(kept, l, "the local commits stay reachable");
-    assert_eq!(git(tmp.path(), &["rev-parse", &format!("{c}^@")]), u);
+    assert_eq!(kept, l.to_string(), "the local commits stay reachable");
+    assert_eq!(
+        git(tmp.path(), &["rev-parse", &format!("{c}^@")]),
+        u.to_string()
+    );
     let seen = names(sync).await;
     assert_eq!(seen["local"].0, id, "the record keeps its id");
     assert_eq!(seen[DASHBOARD].1, "upstream", "upstream's change stays");
-    let message = git(tmp.path(), &["log", "-1", "--format=%B", &c]);
+    let message = git(tmp.path(), &["log", "-1", "--format=%B", &c.to_string()]);
     assert!(
         message.contains("local"),
         "the rollup names the record:\n{message}"
@@ -130,14 +141,14 @@ async fn both_sides_changing_a_record_conflicts(sync: &SyncedRepo, tmp: &TempDir
     scan(sync).await;
     let b = head_commit(sync).await;
     let l = commit_name(sync, DASHBOARD, "mine").await;
-    let u = upstream(tmp, &b, "name: dashboard", "name: theirs");
-    let rebased = sync.rebase_onto(&u).await.expect("rebase");
+    let u = upstream(tmp, b, "name: dashboard", "name: theirs");
+    let rebased = sync.rebase_onto(u).await.expect("rebase");
     assert!(matches!(rebased, Rebased::Unfolded { .. }), "{rebased:?}");
-    assert_eq!(finish(sync, tmp, &l, &u).await, None, "nothing to commit");
+    assert_eq!(finish(sync, tmp, l, u).await, None, "nothing to commit");
     // and a second rebase waits for them to be resolved
     let l = commit_name(sync, "other", "other").await;
-    let u2 = upstream(tmp, &u, "name: Odoo", "name: odoo");
-    let Rebased::Refused(why) = sync.rebase_onto(&u2).await.expect("rebase") else {
+    let u2 = upstream(tmp, u, "name: Odoo", "name: odoo");
+    let Rebased::Refused(why) = sync.rebase_onto(u2).await.expect("rebase") else {
         panic!("rebased over conflicts");
     };
     assert!(why.contains("conflicts"), "{why}");
@@ -157,13 +168,13 @@ crud_test!(both_sides_changing_a_record_conflicts);
 async fn a_fast_forward_and_an_ancestor_arent_rebased(sync: &SyncedRepo, tmp: &TempDir) {
     scan(sync).await;
     let b = head_commit(sync).await;
-    let u = upstream(tmp, &b, "name: dashboard", "name: upstream");
+    let u = upstream(tmp, b, "name: dashboard", "name: upstream");
     assert_eq!(
-        sync.rebase_onto(&u).await.expect("rebase"),
+        sync.rebase_onto(u).await.expect("rebase"),
         Rebased::FastForward
     );
     commit_name(sync, "local", "local").await;
-    assert_eq!(sync.rebase_onto(&b).await.expect("rebase"), Rebased::Ahead);
+    assert_eq!(sync.rebase_onto(b).await.expect("rebase"), Rebased::Ahead);
 }
 crud_test!(a_fast_forward_and_an_ancestor_arent_rebased);
 
@@ -174,8 +185,8 @@ async fn refused(sync: &SyncedRepo, tmp: &TempDir, setup: impl AsyncFnOnce(&Sync
     let b = head_commit(sync).await;
     setup(sync).await;
     let before = names(sync).await;
-    let u = upstream(tmp, &b, "name: dashboard", "name: upstream");
-    let Rebased::Refused(why) = sync.rebase_onto(&u).await.expect("rebase") else {
+    let u = upstream(tmp, b, "name: dashboard", "name: upstream");
+    let Rebased::Refused(why) = sync.rebase_onto(u).await.expect("rebase") else {
         panic!("rebased");
     };
     assert_eq!(names(sync).await, before, "nothing changed");
@@ -246,8 +257,8 @@ async fn a_rebase_interrupted_before_the_reset_heals(sync: &SyncedRepo, tmp: &Te
     commit_name(sync, "local", "local").await;
     let l = head_commit(sync).await;
     let before = names(sync).await;
-    let u = upstream(tmp, &b, "name: dashboard", "name: upstream");
-    let rebased = sync.rebase_onto(&u).await.expect("rebase");
+    let u = upstream(tmp, b, "name: dashboard", "name: upstream");
+    let rebased = sync.rebase_onto(u).await.expect("rebase");
     assert!(matches!(rebased, Rebased::Unfolded { .. }), "{rebased:?}");
     scan(sync).await;
     assert_eq!(head_commit(sync).await, l);

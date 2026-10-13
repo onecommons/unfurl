@@ -55,7 +55,7 @@ async fn cloudmap_end_to_end_postgres() {
         .await
         .expect("find");
     assert_eq!(after.len(), 1);
-    assert_eq!(after[0].commit_id.as_deref(), Some(oid.as_str()));
+    assert_eq!(after[0].commit_id, Some(oid));
 
     drop(sync);
     drop(tmp);

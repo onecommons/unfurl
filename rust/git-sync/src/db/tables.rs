@@ -6,6 +6,7 @@
 //! transaction; the table modules beside it turn them into the
 //! [`crate::model`] types the API returns.
 
+use crate::commit::CommitId;
 use crate::error::{Error, Result};
 use crate::model::ConflictState;
 
@@ -18,11 +19,11 @@ pub(crate) struct RecordRow {
     pub(crate) file_path: String,
     pub(crate) path: String,
     pub(crate) key: String,
-    pub(crate) commit_id: Option<String>,
+    pub(crate) commit_id: Option<CommitId>,
     pub(crate) json: serde_json::Value,
     pub(crate) deleted: bool,
     pub(crate) version: i64,
-    pub(crate) base_commit_id: Option<String>,
+    pub(crate) base_commit_id: Option<CommitId>,
     /// The content of the version `base_commit_id` names.
     pub(crate) base_json: Option<serde_json::Value>,
     pub(crate) settled: Vec<i64>,
@@ -89,11 +90,11 @@ impl From<&RecordRow> for Place {
 pub(crate) struct NewRecordRow<'a> {
     pub(crate) at: At<'a>,
     pub(crate) key_id: Option<i64>,
-    pub(crate) commit_id: Option<&'a str>,
+    pub(crate) commit_id: Option<CommitId>,
     pub(crate) json: &'a serde_json::Value,
     pub(crate) deleted: bool,
     pub(crate) version: i64,
-    pub(crate) base_commit_id: Option<&'a str>,
+    pub(crate) base_commit_id: Option<CommitId>,
     pub(crate) base_json: Option<&'a serde_json::Value>,
     pub(crate) settled: &'a [i64],
     pub(crate) conflict: Option<ConflictState>,
@@ -105,7 +106,7 @@ impl<'a> NewRecordRow<'a> {
     pub(crate) fn new(
         at: At<'a>,
         key_id: Option<i64>,
-        commit_id: Option<&'a str>,
+        commit_id: Option<CommitId>,
         json: &'a serde_json::Value,
         deleted: bool,
         version: i64,
@@ -130,11 +131,11 @@ impl<'a> From<&'a RecordRow> for NewRecordRow<'a> {
         NewRecordRow {
             at: r.at(),
             key_id: Some(r.key_id),
-            commit_id: r.commit_id.as_deref(),
+            commit_id: r.commit_id,
             json: &r.json,
             deleted: r.deleted,
             version: r.version,
-            base_commit_id: r.base_commit_id.as_deref(),
+            base_commit_id: r.base_commit_id,
             base_json: r.base_json.as_ref(),
             settled: &r.settled,
             conflict: r.conflict,
@@ -180,11 +181,11 @@ pub(crate) struct RecordColumns {
     file_path: String,
     path: String,
     key: String,
-    commit_id: Option<String>,
+    commit_id: Option<CommitId>,
     json: String,
     deleted: bool,
     version: i64,
-    base_commit_id: Option<String>,
+    base_commit_id: Option<CommitId>,
     settled: Option<String>,
     conflict: Option<String>,
     base_json: Option<String>,
@@ -252,7 +253,7 @@ impl ConflictState {
 pub(crate) struct FileRow<'a> {
     pub(crate) path: &'a str,
     pub(crate) format: &'a str,
-    pub(crate) commit_id: Option<Option<&'a str>>,
+    pub(crate) commit_id: Option<Option<CommitId>>,
     pub(crate) source_oid: Option<Option<&'a str>>,
     pub(crate) committed_oid: Option<Option<&'a str>>,
 }
@@ -269,5 +270,5 @@ pub(crate) struct WorktreeSegs {
 pub(crate) struct SegmentEnd {
     pub(crate) id: i64,
     /// `None` for a new worktree's head, until its first scan.
-    pub(crate) head_commit: Option<String>,
+    pub(crate) head_commit: Option<CommitId>,
 }

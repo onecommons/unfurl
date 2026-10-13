@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use gix::bstr::ByteSlice;
 
+use crate::commit::CommitId;
 use crate::error::{Error, Result};
 
 fn git_err(e: impl std::fmt::Display) -> Error {
@@ -273,7 +274,7 @@ pub fn worktree_meta(repo: &gix::Repository) -> Result<WorktreeMeta> {
         None => DETACHED.to_string(),
     };
 
-    let head_oid = repo.head_id().ok().map(|id| id.detach());
+    let head_oid = repo.head_id().ok().map(|id| CommitId::from(id.detach()));
 
     Ok(WorktreeMeta {
         origin,
@@ -286,7 +287,7 @@ pub fn worktree_meta(repo: &gix::Repository) -> Result<WorktreeMeta> {
 pub struct WorktreeMeta {
     pub origin: String,
     pub branch: String,
-    pub head_oid: Option<gix::ObjectId>,
+    pub head_oid: Option<CommitId>,
 }
 
 /// Iterate every tracked path in the gix index, paired with the
@@ -342,12 +343,8 @@ pub fn blob_oid_for_bytes(repo: &gix::Repository, bytes: &[u8]) -> Result<gix::O
 
 /// Stage `paths` (relative to the work dir) and create a commit on HEAD
 /// with the given message. Returns the new commit OID.
-pub fn commit_paths(
-    repo: &gix::Repository,
-    paths: &[String],
-    message: &str,
-) -> Result<gix::ObjectId> {
-    let head = repo.head_id().ok().map(|id| id.detach());
+pub fn commit_paths(repo: &gix::Repository, paths: &[String], message: &str) -> Result<CommitId> {
+    let head = repo.head_id().ok().map(|id| CommitId::from(id.detach()));
     commit_paths_onto(repo, paths, message, head)
 }
 
@@ -358,8 +355,8 @@ pub fn commit_paths_onto(
     repo: &gix::Repository,
     paths: &[String],
     message: &str,
-    parent: Option<gix::ObjectId>,
-) -> Result<gix::ObjectId> {
+    parent: Option<CommitId>,
+) -> Result<CommitId> {
     head_is_at(repo, parent)?;
     let work_dir = repo
         .workdir()
@@ -383,8 +380,8 @@ pub fn commit_paths_onto(
         updates.push((path_segments(rel)?, blob_oid));
     }
 
-    let parents: Vec<gix::ObjectId> = parent.into_iter().collect();
-    let head_tree_oid = parents.first().map(|&c| tree_of(repo, c)).transpose()?;
+    let parents: Vec<gix::ObjectId> = parent.map(|p| p.oid()).into_iter().collect();
+    let head_tree_oid = parent.map(|c| tree_of(repo, c)).transpose()?;
     let new_tree_oid = build_tree_with_updates(repo, head_tree_oid, &updates)?;
 
     // gix updates HEAD only if it still names `parent`
@@ -407,7 +404,7 @@ pub fn commit_paths_onto(
         .write(gix::index::write::Options::default())
         .map_err(git_err)?;
 
-    Ok(id.detach())
+    Ok(id.detach().into())
 }
 
 /// A commit of `parent`'s tree with `files` overlaid -- each path's new
@@ -415,10 +412,10 @@ pub fn commit_paths_onto(
 /// the working tree nor the index.
 pub fn commit_files_onto(
     repo: &gix::Repository,
-    parent: gix::ObjectId,
+    parent: CommitId,
     files: &[(String, Option<Vec<u8>>)],
     message: &str,
-) -> Result<gix::ObjectId> {
+) -> Result<CommitId> {
     let mut updates: Vec<TreeUpdate> = Vec::with_capacity(files.len());
     for (rel, bytes) in files {
         let blob = bytes
@@ -443,14 +440,14 @@ pub fn commit_files_onto(
         author: author.into(),
         committer: committer.into(),
         encoding: None,
-        parents: std::iter::once(parent).collect(),
+        parents: std::iter::once(parent.oid()).collect(),
         extra_headers: Vec::new(),
     };
-    Ok(repo.write_object(&commit).map_err(git_err)?.detach())
+    Ok(repo.write_object(&commit).map_err(git_err)?.detach().into())
 }
 
-/// Create branch `name` at `oid`; [`Error::BranchExists`] if it exists.
-pub fn create_branch(repo: &gix::Repository, name: &str, oid: gix::ObjectId) -> Result<()> {
+/// Create branch `name` at `commit`; [`Error::BranchExists`] if it exists.
+pub fn create_branch(repo: &gix::Repository, name: &str, commit: CommitId) -> Result<()> {
     let full = format!("refs/heads/{name}");
     let exists = || Error::BranchExists {
         branch: name.to_string(),
@@ -464,7 +461,7 @@ pub fn create_branch(repo: &gix::Repository, name: &str, oid: gix::ObjectId) -> 
     }
     match repo.reference(
         full.as_str(),
-        oid,
+        commit.oid(),
         gix::refs::transaction::PreviousValue::MustNotExist,
         "git-sync: branch",
     ) {
@@ -482,11 +479,11 @@ pub fn create_branch(repo: &gix::Repository, name: &str, oid: gix::ObjectId) -> 
     }
 }
 
-/// Point ref `full`, a full name, at `oid`, whatever it named before.
-pub(crate) fn set_ref(repo: &gix::Repository, full: &str, oid: gix::ObjectId) -> Result<()> {
+/// Point ref `full`, a full name, at `commit`, whatever it named before.
+pub(crate) fn set_ref(repo: &gix::Repository, full: &str, commit: CommitId) -> Result<()> {
     repo.reference(
         full,
-        oid,
+        commit.oid(),
         gix::refs::transaction::PreviousValue::Any,
         "git-sync: ref",
     )
@@ -509,33 +506,29 @@ pub fn remote_default_branch(repo: &gix::Repository, remote: &str) -> Result<Opt
 }
 
 /// The commit branch `name` names, if it exists.
-pub fn branch_tip(repo: &gix::Repository, name: &str) -> Result<Option<gix::ObjectId>> {
+pub fn branch_tip(repo: &gix::Repository, name: &str) -> Result<Option<CommitId>> {
     Ok(repo
         .try_find_reference(format!("refs/heads/{name}").as_str())
         .map_err(git_err)?
-        .and_then(|r| r.target().try_id().map(|id| id.to_owned())))
+        .and_then(|r| r.target().try_id().map(|id| id.to_owned().into())))
 }
 
 /// Move branch `name` from `from` to `to`; an error if it isn't at `from`.
-pub fn move_branch(
-    repo: &gix::Repository,
-    name: &str,
-    from: gix::ObjectId,
-    to: gix::ObjectId,
-) -> Result<()> {
+pub fn move_branch(repo: &gix::Repository, name: &str, from: CommitId, to: CommitId) -> Result<()> {
     use gix::refs::transaction::PreviousValue;
     repo.reference(
         format!("refs/heads/{name}").as_str(),
-        to,
-        PreviousValue::MustExistAndMatch(gix::refs::Target::Object(from)),
+        to.oid(),
+        PreviousValue::MustExistAndMatch(gix::refs::Target::Object(from.oid())),
         "git-sync: commit",
     )
     .map_err(git_err)?;
     Ok(())
 }
 
-/// Delete branch `name` if it still names `oid`; otherwise leave it.
-pub fn delete_branch_if_at(repo: &gix::Repository, name: &str, oid: gix::ObjectId) -> Result<()> {
+/// Delete branch `name` if it still names `commit`; otherwise leave it.
+pub fn delete_branch_if_at(repo: &gix::Repository, name: &str, commit: CommitId) -> Result<()> {
+    let oid = commit.oid();
     use gix::refs::transaction::{Change, PreviousValue, RefEdit, RefLog};
     let full = format!("refs/heads/{name}");
     let Some(r) = repo.try_find_reference(full.as_str()).map_err(git_err)? else {
@@ -560,34 +553,30 @@ pub fn delete_branch_if_at(repo: &gix::Repository, name: &str, oid: gix::ObjectI
 /// commit on `head`'s first-parent line that each of `bases` is or
 /// descends from, else that line's first commit. A base this repository
 /// doesn't have descends from nothing.
-pub fn export_base(
-    repo: &gix::Repository,
-    head: gix::ObjectId,
-    bases: &[String],
-) -> Result<gix::ObjectId> {
+pub fn export_base(repo: &gix::Repository, head: CommitId, bases: &[CommitId]) -> Result<CommitId> {
     let mut below: Vec<HashSet<gix::ObjectId>> = Vec::with_capacity(bases.len());
-    for b in bases {
+    for &b in bases {
         below.push(match present(repo, b)? {
             Some(oid) => reachable(repo, oid)?,
             None => HashSet::new(),
         });
     }
-    let mut at = head;
+    let mut at = head.oid();
     loop {
         if below.iter().all(|a| a.contains(&at)) {
-            return Ok(at);
+            return Ok(at.into());
         }
         match parents(repo, at)?.first() {
             Some(&p) => at = p,
-            None => return Ok(at),
+            None => return Ok(at.into()),
         }
     }
 }
 
 /// `commit`'s tree.
-pub(crate) fn tree_of(repo: &gix::Repository, commit: gix::ObjectId) -> Result<gix::ObjectId> {
+pub(crate) fn tree_of(repo: &gix::Repository, commit: CommitId) -> Result<gix::ObjectId> {
     Ok(repo
-        .find_commit(commit)
+        .find_commit(commit.oid())
         .map_err(git_err)?
         .tree_id()
         .map_err(git_err)?
@@ -604,8 +593,8 @@ fn path_segments(rel: &str) -> Result<Vec<String>> {
 }
 
 /// [`Error::HeadMoved`] unless `HEAD` names `expected`.
-fn head_is_at(repo: &gix::Repository, expected: Option<gix::ObjectId>) -> Result<()> {
-    let found = repo.head_id().ok().map(|id| id.detach());
+fn head_is_at(repo: &gix::Repository, expected: Option<CommitId>) -> Result<()> {
+    let found = repo.head_id().ok().map(|id| CommitId::from(id.detach()));
     if found == expected {
         return Ok(());
     }
@@ -739,9 +728,9 @@ fn build_tree_with_updates(
 /// requested paths — far cheaper than resolving each path independently.
 pub fn last_commits_for_paths(
     repo: &gix::Repository,
-    head: Option<gix::ObjectId>,
+    head: Option<CommitId>,
     paths: &[String],
-) -> Result<HashMap<String, String>> {
+) -> Result<HashMap<String, CommitId>> {
     use gix::object::tree::diff::{Action, Change};
     use gix::prelude::ObjectIdExt;
     use std::ops::ControlFlow;
@@ -750,10 +739,10 @@ pub fn last_commits_for_paths(
     let Some(head) = head.filter(|_| !paths.is_empty()) else {
         return Ok(HashMap::new());
     };
-    let head = head.attach(repo);
+    let head = head.oid().attach(repo);
 
     let mut pending: HashSet<String> = paths.iter().cloned().collect();
-    let mut result: HashMap<String, String> = HashMap::new();
+    let mut result: HashMap<String, CommitId> = HashMap::new();
 
     let walker = head.ancestors().all().map_err(git_err)?;
     for info in walker {
@@ -774,7 +763,7 @@ pub fn last_commits_for_paths(
             None => None,
         };
 
-        let oid_str = commit_id.to_string();
+        let commit = CommitId::from(commit_id);
 
         // The visitor records every changed path that the caller asked
         // about and removes it from the pending set. We never abort
@@ -782,7 +771,7 @@ pub fn last_commits_for_paths(
         let mut visit = |change: Change<'_, '_, '_>| -> gix::Result<Action> {
             if let Ok(path_str) = change.location().to_str() {
                 if pending.remove(path_str as &str) {
-                    result.insert(path_str.to_string(), oid_str.clone());
+                    result.insert(path_str.to_string(), commit);
                 }
             }
             Ok(ControlFlow::Continue(()))
@@ -816,9 +805,12 @@ pub fn last_commits_for_paths(
     Ok(result)
 }
 
-/// Every blob in `commit`'s tree: path → OID. Empty when `commit` isn't a
-/// resolvable commit.
-pub fn tree_blobs(repo: &gix::Repository, commit: &str) -> Result<HashMap<String, gix::ObjectId>> {
+/// Every blob in `commit`'s tree: path → OID. Empty for a commit this
+/// repository doesn't have.
+pub fn tree_blobs(
+    repo: &gix::Repository,
+    commit: CommitId,
+) -> Result<HashMap<String, gix::ObjectId>> {
     Ok(tree_entries(repo, commit)?
         .into_iter()
         .filter(|(_, (mode, _))| mode.is_blob())
@@ -830,15 +822,12 @@ pub fn tree_blobs(repo: &gix::Repository, commit: &str) -> Result<HashMap<String
 /// Empty for a commit this repository doesn't have.
 pub(crate) fn tree_entries(
     repo: &gix::Repository,
-    commit: &str,
+    commit: CommitId,
 ) -> Result<HashMap<String, (gix::object::tree::EntryMode, gix::ObjectId)>> {
     use gix::object::tree::diff::{Action, Change};
     use std::ops::ControlFlow;
 
-    let Ok(oid) = gix::ObjectId::from_hex(commit.as_bytes()) else {
-        return Ok(HashMap::new());
-    };
-    let Ok(commit) = repo.find_commit(oid) else {
+    let Ok(commit) = repo.find_commit(commit.oid()) else {
         return Ok(HashMap::new());
     };
     let tree = commit.tree().map_err(git_err)?;
@@ -877,19 +866,16 @@ pub fn read_blob(repo: &gix::Repository, oid: &str) -> Result<Vec<u8>> {
 
 /// Bytes of `rel_path`'s blob in `commit`.
 ///
-/// `Ok(None)` when `commit` isn't a resolvable commit oid or its tree
+/// `Ok(None)` when this repository doesn't have `commit` or its tree
 /// doesn't carry the path — the sync path reads a pending edit's base
 /// content through this, and an unreadable base is handled there (as
 /// "assume diverged"), not here.
 pub fn read_blob_at_commit(
     repo: &gix::Repository,
-    commit: &str,
+    commit: CommitId,
     rel_path: &str,
 ) -> Result<Option<Vec<u8>>> {
-    let Ok(oid) = gix::ObjectId::from_hex(commit.as_bytes()) else {
-        return Ok(None);
-    };
-    let Ok(commit) = repo.find_commit(oid) else {
+    let Ok(commit) = repo.find_commit(commit.oid()) else {
         return Ok(None);
     };
     let mut tree = commit.tree().map_err(git_err)?;
@@ -900,26 +886,23 @@ pub fn read_blob_at_commit(
     Ok(Some(object.data.clone()))
 }
 
-/// The raw message of `commit`, or `None` when it isn't a resolvable
-/// commit oid. Read by the scan to look for the trailer a file-side
+/// The raw message of `commit`, or `None` when this repository doesn't
+/// have it. Read by the scan to look for the trailer a file-side
 /// author uses to resolve conflicts (see
 /// [`crate::SyncedRepo::update_from_working_dir_with`]).
-pub fn commit_message(repo: &gix::Repository, commit: &str) -> Option<String> {
-    let oid = gix::ObjectId::from_hex(commit.as_bytes()).ok()?;
-    let commit = repo.find_commit(oid).ok()?;
+pub fn commit_message(repo: &gix::Repository, commit: CommitId) -> Option<String> {
+    let commit = repo.find_commit(commit.oid()).ok()?;
     Some(commit.message_raw().ok()?.to_string())
 }
 
 /// Whether this repository has `commit` as a commit.
-pub(crate) fn has_commit(repo: &gix::Repository, commit: &str) -> Result<bool> {
+pub(crate) fn has_commit(repo: &gix::Repository, commit: CommitId) -> Result<bool> {
     Ok(present(repo, commit)?.is_some())
 }
 
 /// `commit`, when this repository has it as a commit.
-fn present(repo: &gix::Repository, commit: &str) -> Result<Option<gix::ObjectId>> {
-    let Ok(oid) = gix::ObjectId::from_hex(commit.as_bytes()) else {
-        return Ok(None);
-    };
+fn present(repo: &gix::Repository, commit: CommitId) -> Result<Option<gix::ObjectId>> {
+    let oid = commit.oid();
     Ok(repo
         .try_find_object(oid)
         .map_err(git_err)?
@@ -937,11 +920,10 @@ pub(crate) fn parents(repo: &gix::Repository, oid: gix::ObjectId) -> Result<Vec<
 }
 
 /// `commit`'s parents, first parent first.
-pub fn commit_parents(repo: &gix::Repository, commit: &str) -> Result<Vec<String>> {
-    let oid = gix::ObjectId::from_hex(commit.as_bytes()).map_err(git_err)?;
-    Ok(parents(repo, oid)?
+pub fn commit_parents(repo: &gix::Repository, commit: CommitId) -> Result<Vec<CommitId>> {
+    Ok(parents(repo, commit.oid())?
         .into_iter()
-        .map(|p| p.to_string())
+        .map(CommitId::from)
         .collect())
 }
 
@@ -960,7 +942,11 @@ fn reachable(repo: &gix::Repository, oid: gix::ObjectId) -> Result<HashSet<gix::
 }
 
 /// The commits `to` has that `from` doesn't: `from..to`.
-pub(crate) fn commits_between(repo: &gix::Repository, from: &str, to: &str) -> Result<Vec<String>> {
+pub(crate) fn commits_between(
+    repo: &gix::Repository,
+    from: CommitId,
+    to: CommitId,
+) -> Result<Vec<CommitId>> {
     let (Some(from), Some(to)) = (present(repo, from)?, present(repo, to)?) else {
         return Err(Error::Git(format!("{from}..{to}: a commit isn't here")));
     };
@@ -968,13 +954,13 @@ pub(crate) fn commits_between(repo: &gix::Repository, from: &str, to: &str) -> R
     Ok(reachable(repo, to)?
         .into_iter()
         .filter(|c| !below.contains(c))
-        .map(|c| c.to_string())
+        .map(CommitId::from)
         .collect())
 }
 
 /// Whether `ancestor` is `commit` or one of its ancestors. A commit this
 /// repository doesn't have is neither.
-pub fn is_ancestor(repo: &gix::Repository, ancestor: &str, commit: &str) -> Result<bool> {
+pub fn is_ancestor(repo: &gix::Repository, ancestor: CommitId, commit: CommitId) -> Result<bool> {
     let (Some(a), Some(c)) = (present(repo, ancestor)?, present(repo, commit)?) else {
         return Ok(false);
     };
@@ -994,7 +980,11 @@ pub fn is_ancestor(repo: &gix::Repository, ancestor: &str, commit: &str) -> Resu
 }
 
 /// Whether `commit` is on `head`'s first-parent history, `head` included.
-pub fn first_parent_contains(repo: &gix::Repository, head: &str, commit: &str) -> Result<bool> {
+pub fn first_parent_contains(
+    repo: &gix::Repository,
+    head: CommitId,
+    commit: CommitId,
+) -> Result<bool> {
     let (Some(mut at), Some(c)) = (present(repo, head)?, present(repo, commit)?) else {
         return Ok(false);
     };
@@ -1013,7 +1003,7 @@ pub fn first_parent_contains(repo: &gix::Repository, head: &str, commit: &str) -
 /// descends from, the newest where there are several (a criss-cross
 /// merge). `None` when they share no history, or this repository lacks
 /// either.
-pub fn merge_base(repo: &gix::Repository, a: &str, b: &str) -> Result<Option<String>> {
+pub fn merge_base(repo: &gix::Repository, a: CommitId, b: CommitId) -> Result<Option<CommitId>> {
     let (Some(a), Some(b)) = (present(repo, a)?, present(repo, b)?) else {
         return Ok(None);
     };
@@ -1052,16 +1042,15 @@ pub fn merge_base(repo: &gix::Repository, a: &str, b: &str) -> Result<Option<Str
             best.push((time.seconds, c));
         }
     }
-    Ok(best.into_iter().max().map(|(_, c)| c.to_string()))
+    Ok(best.into_iter().max().map(|(_, c)| c.into()))
 }
 
 /// The paths of files that differ between commits `from` and `to`.
-pub fn changed_paths(repo: &gix::Repository, from: &str, to: &str) -> Result<Vec<String>> {
+pub fn changed_paths(repo: &gix::Repository, from: CommitId, to: CommitId) -> Result<Vec<String>> {
     use gix::object::tree::diff::{Action, Change};
     use std::ops::ControlFlow;
-    let tree = |commit: &str| -> Result<gix::Tree<'_>> {
-        let oid = gix::ObjectId::from_hex(commit.as_bytes()).map_err(git_err)?;
-        repo.find_commit(oid)
+    let tree = |commit: CommitId| -> Result<gix::Tree<'_>> {
+        repo.find_commit(commit.oid())
             .map_err(git_err)?
             .tree()
             .map_err(git_err)
@@ -1103,7 +1092,7 @@ pub fn init_with_files(
     path: &Path,
     files: &[(String, Vec<u8>)],
     message: &str,
-) -> Result<gix::ObjectId> {
+) -> Result<CommitId> {
     use std::fs;
 
     fs::create_dir_all(path)?;
@@ -1224,21 +1213,19 @@ mod commit_tests {
         let repo = open_repo(tmp.path()).expect("open");
         let oid =
             commit_paths(&repo, &["nested/gone.yaml".to_string()], "drop it").expect("commit");
-        let oid_str = oid.to_string();
-
         assert!(
-            read_blob_at_commit(&repo, &oid_str, "nested/gone.yaml")
+            read_blob_at_commit(&repo, oid, "nested/gone.yaml")
                 .expect("read")
                 .is_none(),
             "the commit no longer carries the path"
         );
         assert!(
-            read_blob_at_commit(&repo, &oid_str, "keep.yaml")
+            read_blob_at_commit(&repo, oid, "keep.yaml")
                 .expect("read")
                 .is_some(),
             "its neighbour is untouched"
         );
-        let commit = repo.find_commit(oid).expect("commit");
+        let commit = repo.find_commit(oid.oid()).expect("commit");
         let mut tree = commit.tree().expect("tree");
         assert!(
             tree.peel_to_entry_by_path("nested")
@@ -1274,14 +1261,14 @@ mod history_tests {
             .to_string()
     }
 
-    fn commit(dir: &Path, file: &str, text: &str) -> String {
+    fn commit(dir: &Path, file: &str, text: &str) -> CommitId {
         if let Some(parent) = Path::new(file).parent() {
             std::fs::create_dir_all(dir.join(parent)).expect("mkdir");
         }
         std::fs::write(dir.join(file), text).expect("write");
         run(dir, &["add", "-A"]);
         run(dir, &["commit", "-q", "-m", text]);
-        run(dir, &["rev-parse", "HEAD"])
+        run(dir, &["rev-parse", "HEAD"]).parse().expect("a commit")
     }
 
     /// main: root - m1 - merge(m1, f1); feature: root - f1; other: an
@@ -1289,11 +1276,11 @@ mod history_tests {
     struct History {
         _tmp: tempfile::TempDir,
         repo: gix::Repository,
-        root: String,
-        m1: String,
-        f1: String,
-        merge: String,
-        orphan: String,
+        root: CommitId,
+        m1: CommitId,
+        f1: CommitId,
+        merge: CommitId,
+        orphan: CommitId,
     }
 
     fn history() -> History {
@@ -1306,7 +1293,7 @@ mod history_tests {
         run(d, &["checkout", "-q", "main"]);
         let m1 = commit(d, "a.yaml", "m1");
         run(d, &["merge", "-q", "--no-ff", "-m", "merge", "feature"]);
-        let merge = run(d, &["rev-parse", "HEAD"]);
+        let merge: CommitId = run(d, &["rev-parse", "HEAD"]).parse().expect("a commit");
         run(d, &["checkout", "-q", "--orphan", "other"]);
         let orphan = commit(d, "c.yaml", "orphan");
         let repo = open_repo(d).expect("open");
@@ -1321,66 +1308,54 @@ mod history_tests {
         }
     }
 
-    const MISSING: &str = "0123456789abcdef0123456789abcdef01234567";
+    fn missing() -> CommitId {
+        "0123456789abcdef0123456789abcdef01234567"
+            .parse()
+            .expect("hex")
+    }
 
     #[test]
     fn ancestry() {
         let h = history();
-        assert!(is_ancestor(&h.repo, &h.root, &h.merge).unwrap());
-        assert!(is_ancestor(&h.repo, &h.f1, &h.merge).unwrap());
-        assert!(is_ancestor(&h.repo, &h.merge, &h.merge).unwrap());
-        assert!(!is_ancestor(&h.repo, &h.f1, &h.m1).unwrap());
-        assert!(!is_ancestor(&h.repo, &h.root, &h.orphan).unwrap());
-        assert!(!is_ancestor(&h.repo, MISSING, &h.merge).unwrap());
-        assert!(!is_ancestor(&h.repo, &h.root, MISSING).unwrap());
+        assert!(is_ancestor(&h.repo, h.root, h.merge).unwrap());
+        assert!(is_ancestor(&h.repo, h.f1, h.merge).unwrap());
+        assert!(is_ancestor(&h.repo, h.merge, h.merge).unwrap());
+        assert!(!is_ancestor(&h.repo, h.f1, h.m1).unwrap());
+        assert!(!is_ancestor(&h.repo, h.root, h.orphan).unwrap());
+        assert!(!is_ancestor(&h.repo, missing(), h.merge).unwrap());
+        assert!(!is_ancestor(&h.repo, h.root, missing()).unwrap());
     }
 
     #[test]
     fn first_parents() {
         let h = history();
-        assert!(first_parent_contains(&h.repo, &h.merge, &h.m1).unwrap());
-        assert!(first_parent_contains(&h.repo, &h.merge, &h.root).unwrap());
-        assert!(!first_parent_contains(&h.repo, &h.merge, &h.f1).unwrap());
-        assert!(!first_parent_contains(&h.repo, &h.merge, MISSING).unwrap());
+        assert!(first_parent_contains(&h.repo, h.merge, h.m1).unwrap());
+        assert!(first_parent_contains(&h.repo, h.merge, h.root).unwrap());
+        assert!(!first_parent_contains(&h.repo, h.merge, h.f1).unwrap());
+        assert!(!first_parent_contains(&h.repo, h.merge, missing()).unwrap());
     }
 
     #[test]
     fn merge_bases() {
         let h = history();
-        assert_eq!(
-            merge_base(&h.repo, &h.m1, &h.f1).unwrap(),
-            Some(h.root.clone())
-        );
-        assert_eq!(
-            merge_base(&h.repo, &h.merge, &h.f1).unwrap(),
-            Some(h.f1.clone())
-        );
-        assert_eq!(
-            merge_base(&h.repo, &h.f1, &h.merge).unwrap(),
-            Some(h.f1.clone())
-        );
-        assert_eq!(merge_base(&h.repo, &h.merge, &h.orphan).unwrap(), None);
-        assert_eq!(merge_base(&h.repo, &h.merge, MISSING).unwrap(), None);
+        assert_eq!(merge_base(&h.repo, h.m1, h.f1).unwrap(), Some(h.root));
+        assert_eq!(merge_base(&h.repo, h.merge, h.f1).unwrap(), Some(h.f1));
+        assert_eq!(merge_base(&h.repo, h.f1, h.merge).unwrap(), Some(h.f1));
+        assert_eq!(merge_base(&h.repo, h.merge, h.orphan).unwrap(), None);
+        assert_eq!(merge_base(&h.repo, h.merge, missing()).unwrap(), None);
     }
 
     #[test]
     fn export_bases() {
         let h = history();
-        let oid = |s: &str| gix::ObjectId::from_hex(s.as_bytes()).expect("oid");
-        let base = |bases: &[&String]| {
-            let bases: Vec<String> = bases.iter().map(|b| b.to_string()).collect();
-            export_base(&h.repo, oid(&h.merge), &bases)
-                .unwrap()
-                .to_string()
-        };
+        let base = |bases: &[CommitId]| export_base(&h.repo, h.merge, bases).unwrap();
         assert_eq!(base(&[]), h.merge, "no bases: HEAD");
-        assert_eq!(base(&[&h.m1]), h.m1);
-        assert_eq!(base(&[&h.m1, &h.root]), h.root, "the oldest");
+        assert_eq!(base(&[h.m1]), h.m1);
+        assert_eq!(base(&[h.m1, h.root]), h.root, "the oldest");
         // f1 is off the first-parent line: what it descends from on it
-        assert_eq!(base(&[&h.f1]), h.root);
-        let missing = MISSING.to_string();
-        assert_eq!(base(&[&missing]), h.root, "a base gone: the line's first");
-        assert_eq!(base(&[&h.orphan]), h.root);
+        assert_eq!(base(&[h.f1]), h.root);
+        assert_eq!(base(&[missing()]), h.root, "a base gone: the line's first");
+        assert_eq!(base(&[h.orphan]), h.root);
     }
 
     #[test]
@@ -1388,23 +1363,22 @@ mod history_tests {
         let h = history();
         let d = h.repo.workdir().expect("work dir").to_path_buf();
         let head = run(&d, &["rev-parse", "HEAD"]);
-        let parent = gix::ObjectId::from_hex(h.merge.as_bytes()).expect("oid");
+        let parent = h.merge;
         let files = vec![
             ("a.yaml".to_string(), Some(b"changed".to_vec())),
             ("b.yaml".to_string(), None),
             ("new/n.yaml".to_string(), Some(b"new".to_vec())),
         ];
         let c = commit_files_onto(&h.repo, parent, &files, "export").expect("commit");
-        let c = c.to_string();
-        assert_eq!(commit_parents(&h.repo, &c).unwrap(), vec![h.merge.clone()]);
-        let at = |path: &str| read_blob_at_commit(&h.repo, &c, path).unwrap();
+        assert_eq!(commit_parents(&h.repo, c).unwrap(), vec![h.merge]);
+        let at = |path: &str| read_blob_at_commit(&h.repo, c, path).unwrap();
         assert_eq!(at("a.yaml").as_deref(), Some(&b"changed"[..]));
         assert_eq!(at("b.yaml"), None);
         assert_eq!(at("new/n.yaml").as_deref(), Some(&b"new"[..]));
         assert_eq!(run(&d, &["rev-parse", "HEAD"]), head, "HEAD didn't move");
         run(&d, &["diff", "--cached", "--quiet"]);
         assert!(
-            run(&d, &["branch", "--contains", &c]).is_empty(),
+            run(&d, &["branch", "--contains", &c.to_string()]).is_empty(),
             "no branch names it"
         );
     }
@@ -1412,21 +1386,21 @@ mod history_tests {
     #[test]
     fn branches_are_created_once_and_deleted_where_they_point() {
         let h = history();
-        let oid = |s: &str| gix::ObjectId::from_hex(s.as_bytes()).expect("oid");
-        create_branch(&h.repo, "exported", oid(&h.m1)).expect("create");
-        let again = create_branch(&h.repo, "exported", oid(&h.root));
+        let oid = |c: CommitId| c;
+        create_branch(&h.repo, "exported", oid(h.m1)).expect("create");
+        let again = create_branch(&h.repo, "exported", oid(h.root));
         assert!(
             matches!(&again, Err(Error::BranchExists { branch }) if branch == "exported"),
             "{again:?}"
         );
         let d = h.repo.workdir().expect("work dir").to_path_buf();
         let tip = || run(&d, &["rev-parse", "refs/heads/exported"]);
-        assert_eq!(tip(), h.m1, "the failed create left it");
-        delete_branch_if_at(&h.repo, "exported", oid(&h.root)).expect("delete");
-        assert_eq!(tip(), h.m1, "it names another commit: kept");
-        delete_branch_if_at(&h.repo, "exported", oid(&h.m1)).expect("delete");
+        assert_eq!(tip(), h.m1.to_string(), "the failed create left it");
+        delete_branch_if_at(&h.repo, "exported", oid(h.root)).expect("delete");
+        assert_eq!(tip(), h.m1.to_string(), "it names another commit: kept");
+        delete_branch_if_at(&h.repo, "exported", oid(h.m1)).expect("delete");
         assert!(run(&d, &["branch", "--list", "exported"]).is_empty());
-        delete_branch_if_at(&h.repo, "exported", oid(&h.m1)).expect("gone already");
+        delete_branch_if_at(&h.repo, "exported", oid(h.m1)).expect("gone already");
     }
 
     #[test]
@@ -1442,10 +1416,10 @@ mod history_tests {
         let to = commit(d, "new/added.yaml", "added");
         let repo = open_repo(d).expect("open");
         assert_eq!(
-            changed_paths(&repo, &from, &to).unwrap(),
+            changed_paths(&repo, from, to).unwrap(),
             vec!["dir/edit.yaml", "dir/gone.yaml", "new/added.yaml"]
         );
-        assert!(changed_paths(&repo, &to, &to).unwrap().is_empty());
+        assert!(changed_paths(&repo, to, to).unwrap().is_empty());
     }
 }
 

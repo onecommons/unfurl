@@ -5,6 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::commit::CommitId;
 use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{FileRow, NewRecordRow, Place, RecordRow};
 use crate::db::{self, on_pool};
@@ -48,16 +49,16 @@ impl Ids {
     }
 }
 
-/// What the transaction takes. Commits are hex ids.
+/// What the transaction takes.
 struct Rebase<'a> {
     /// HEAD: the last of the local commits, which the database holds.
-    head: &'a str,
+    head: CommitId,
     /// The merge base of `head` and `upstream`, which the edits are based at.
-    base: &'a str,
+    base: CommitId,
     /// The fetched commit the head is rebuilt onto.
-    upstream: &'a str,
+    upstream: CommitId,
     /// The local commits: those `head` has that `base` doesn't.
-    local: &'a [String],
+    local: &'a [CommitId],
     edits: &'a [Unfolded],
     /// Every file of `upstream`'s tree.
     files: &'a [HeadFile],
@@ -83,14 +84,14 @@ impl SyncedRepo {
     /// # Errors
     ///
     /// A failure reading git or the database.
-    pub async fn rebase_onto(&self, upstream: &str) -> Result<Rebased> {
+    pub async fn rebase_onto(&self, upstream: CommitId) -> Result<Rebased> {
         let repo = self.repo()?;
         let worktree = db::worktree::get(self.db(), self.worktree_id()).await?;
-        let checked_out = git::worktree_meta(&repo)?.head_oid.map(|o| o.to_string());
-        let Some(head) = checked_out.filter(|h| worktree.commit_id.as_ref() == Some(h)) else {
+        let checked_out = git::worktree_meta(&repo)?.head_oid;
+        let Some(head) = checked_out.filter(|h| worktree.commit_id == Some(*h)) else {
             return Ok(refused("HEAD isn't the commit the database holds"));
         };
-        let Some(base) = git::merge_base(&repo, &head, upstream)? else {
+        let Some(base) = git::merge_base(&repo, head, upstream)? else {
             return Ok(refused("HEAD and upstream share no history"));
         };
         if base == upstream {
@@ -99,12 +100,12 @@ impl SyncedRepo {
         if base == head {
             return Ok(Rebased::FastForward);
         }
-        if let Some(why) = dirty(&repo, &head)? {
+        if let Some(why) = dirty(&repo, head)? {
             return Ok(refused(&why));
         }
         let mut history = History::open(self.formats(), repo, self.db(), self.family_id()).await?;
-        let local = git::commits_between(history.repo(), &base, &head)?;
-        let edits = match self.unfold(&mut history, &base, &head, &local).await? {
+        let local = git::commits_between(history.repo(), base, head)?;
+        let edits = match self.unfold(&mut history, base, head, &local).await? {
             Ok(edits) => edits,
             Err(why) => return Ok(refused(&why)),
         };
@@ -112,8 +113,8 @@ impl SyncedRepo {
             .head_files(history.repo(), Some(upstream), &Default::default(), false)?
             .files;
         let rebase = Rebase {
-            head: &head,
-            base: &base,
+            head,
+            base,
             upstream,
             local: &local,
             edits: &edits,
@@ -126,7 +127,7 @@ impl SyncedRepo {
         }
         // the local commits are referenced by nothing once the caller resets
         let kept = format!("refs/git-sync/rebased/{}", worktree.branch);
-        git::set_ref(history.repo(), &kept, oid(&head)?)?;
+        git::set_ref(history.repo(), &kept, head)?;
         Ok(Rebased::Unfolded {
             base,
             head,
@@ -139,9 +140,9 @@ impl SyncedRepo {
     async fn unfold(
         &self,
         history: &mut History<'_>,
-        base: &str,
-        head: &str,
-        local: &[String],
+        base: CommitId,
+        head: CommitId,
+        local: &[CommitId],
     ) -> Result<std::result::Result<Vec<Unfolded>, String>> {
         let named = named(history, local);
         let chain: BTreeMap<Place, RecordRow> =
@@ -184,8 +185,8 @@ impl SyncedRepo {
     fn file_edits(
         &self,
         history: &mut History<'_>,
-        base: &str,
-        head: &str,
+        base: CommitId,
+        head: CommitId,
         file: &str,
         ids: &Ids,
     ) -> Result<std::result::Result<Vec<Unfolded>, String>> {
@@ -229,8 +230,8 @@ impl SyncedRepo {
     fn unrepresented(
         &self,
         history: &History<'_>,
-        base: &str,
-        head: &str,
+        base: CommitId,
+        head: CommitId,
         file: &str,
         edits: &[Unfolded],
     ) -> Result<Option<String>> {
@@ -257,7 +258,7 @@ impl SyncedRepo {
 
     /// `e` as a draft row based at commit `base`, with `version` where it
     /// has none.
-    fn edit_row(&self, e: &Unfolded, base: &str, version: i64) -> RecordRow {
+    fn edit_row(&self, e: &Unfolded, base: CommitId, version: i64) -> RecordRow {
         RecordRow {
             id: 0,
             key_id: e.key_id.unwrap_or(0),
@@ -271,7 +272,7 @@ impl SyncedRepo {
             deleted: e.now.is_none(),
             version: e.version.unwrap_or(version),
             // a create has no base
-            base_commit_id: e.was.as_ref().map(|_| base.to_string()),
+            base_commit_id: e.was.as_ref().map(|_| base),
             base_json: e.was.clone(),
             settled: Vec::new(),
             conflict: None,
@@ -310,18 +311,13 @@ fn moved(edits: &[Unfolded]) -> bool {
         })
 }
 
-fn oid(commit: &str) -> Result<gix::ObjectId> {
-    gix::ObjectId::from_hex(commit.as_bytes())
-        .map_err(|e| crate::error::Error::Git(format!("{commit}: {e}")))
-}
-
 fn refused(why: &str) -> Rebased {
     Rebased::Refused(why.to_string())
 }
 
 /// Why the working tree isn't commit `head`'s tree, if it isn't: a file of
 /// the tree or the index whose content isn't the tree's.
-fn dirty(repo: &gix::Repository, head: &str) -> Result<Option<String>> {
+fn dirty(repo: &gix::Repository, head: CommitId) -> Result<Option<String>> {
     let tree = git::tree_blobs(repo, head)?;
     let root = repo
         .workdir()
@@ -345,10 +341,10 @@ fn dirty(repo: &gix::Repository, head: &str) -> Result<Option<String>> {
 
 /// The record lines this family's rollups in `local` hold, the newest
 /// write of each place.
-fn named(history: &History<'_>, local: &[String]) -> BTreeMap<Place, TxnRecord> {
+fn named(history: &History<'_>, local: &[CommitId]) -> BTreeMap<Place, TxnRecord> {
     let mut named: BTreeMap<Place, TxnRecord> = BTreeMap::new();
     for c in local {
-        let Some(rollup) = git::commit_message(history.repo(), c)
+        let Some(rollup) = git::commit_message(history.repo(), *c)
             .and_then(|m| parse_commit_rollup(&m).ok().flatten())
             .filter(|r| history.owns(r))
         else {
@@ -379,7 +375,7 @@ async fn insert_edit<DB: Store>(
     sync: &SyncedRepo,
     d: i64,
     e: &Unfolded,
-    base: &str,
+    base: CommitId,
     key_id: Option<i64>,
 ) -> Result<()> {
     let version = match e.version {
@@ -409,12 +405,11 @@ async fn rebase_in_pool<DB: Store>(
     let (w, family) = (sync.worktree_id(), sync.family_id());
     let mut tx = pool.begin().await?;
     DB::lock_family(&mut tx, family).await?;
-    if DB::head_commit(&mut tx, w).await?.as_deref() != Some(r.head) {
+    if DB::head_commit(&mut tx, w).await? != Some(r.head) {
         return Ok(Some("HEAD moved in the database"));
     }
     // a commit since the edits were collected wouldn't be unfolded
-    let checked_out = git::worktree_meta(history.repo())?.head_oid;
-    if checked_out.map(|o| o.to_string()).as_deref() != Some(r.head) {
+    if git::worktree_meta(history.repo())?.head_oid != Some(r.head) {
         return Ok(Some("HEAD moved"));
     }
     // phase 3: a user branch's edits over the versions this copies need the
@@ -440,7 +435,7 @@ async fn rebase_in_pool<DB: Store>(
     }
     let tombstones = unfold_edits(&mut tx, sync, d, r, &pending).await?;
     for c in r.local {
-        DB::unstamp_txns(&mut tx, w, c).await?;
+        DB::unstamp_txns(&mut tx, w, *c).await?;
     }
     crate::fork::onto(&mut tx, history, family, w, r.upstream, r.files).await?;
     // the transaction rolls back as it drops

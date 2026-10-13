@@ -52,7 +52,7 @@ async fn delete_file_removes_it_from_disk_and_git(sync: &SyncedRepo, tmp: &TempD
         .expect("a removal is a change");
     let repo = unfurl_git_sync::git::open_repo(tmp.path()).expect("open");
     assert!(
-        unfurl_git_sync::git::read_blob_at_commit(&repo, &oid, "cloudmap.yaml")
+        unfurl_git_sync::git::read_blob_at_commit(&repo, oid, "cloudmap.yaml")
             .expect("read")
             .is_none(),
         "the commit carries the removal"
@@ -186,7 +186,7 @@ async fn a_deleted_file_is_taken_in_and_committed(sync: &SyncedRepo, tmp: &TempD
         .expect("the working tree lost a file git still has");
     let repo = unfurl_git_sync::git::open_repo(tmp.path()).expect("open");
     assert!(
-        unfurl_git_sync::git::read_blob_at_commit(&repo, &oid, "cloudmap.yaml")
+        unfurl_git_sync::git::read_blob_at_commit(&repo, oid, "cloudmap.yaml")
             .expect("read")
             .is_none()
     );

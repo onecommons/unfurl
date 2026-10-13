@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! `worktree` table reads and writes.
 
+use crate::commit::CommitId;
 use crate::db::Db;
 use crate::error::Result;
 
@@ -24,7 +25,11 @@ pub(crate) async fn find(db: &Db, origin: &str, branch: &str) -> Result<Option<i
     Ok(row.map(|(id,)| id))
 }
 
-pub(crate) async fn update_commit(db: &Db, worktree_id: i64, commit: Option<&str>) -> Result<()> {
+pub(crate) async fn update_commit(
+    db: &Db,
+    worktree_id: i64,
+    commit: Option<CommitId>,
+) -> Result<()> {
     on_pool!(db, pool => {
         sqlx::query(sql!(pool, "UPDATE worktree SET commit_id = ?1 WHERE id = ?2"))
             .bind(commit)

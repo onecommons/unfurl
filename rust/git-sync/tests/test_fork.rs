@@ -6,8 +6,8 @@ mod common;
 
 use common::*;
 use unfurl_git_sync::{
-    DbConfig, Error, FormatRegistry, RecordConflictKind, RecordQuery, ScanOptions, SyncedRepo,
-    WorktreeFilter,
+    CommitId, DbConfig, Error, FormatRegistry, RecordConflictKind, RecordQuery, ScanOptions,
+    SyncedRepo, WorktreeFilter,
 };
 
 /// Every record `sync` shows: key → (name, id).
@@ -23,7 +23,7 @@ async fn names(sync: &SyncedRepo) -> std::collections::BTreeMap<String, (String,
         .collect()
 }
 
-async fn write_and_commit(sync: &SyncedRepo, key: &str) -> String {
+async fn write_and_commit(sync: &SyncedRepo, key: &str) -> CommitId {
     sync.upsert_record(
         Some("cloudmap.yaml"),
         "/repositories",
@@ -67,7 +67,15 @@ async fn a_diverged_branch_forks_at_its_merge_base() {
     let path = dir.to_str().expect("utf8");
     git(
         tmp.path(),
-        &["worktree", "add", "-q", "-b", "feature", path, &base],
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature",
+            path,
+            &base.to_string(),
+        ],
     );
     let file = dir.join("cloudmap.yaml");
     let text = std::fs::read_to_string(&file).expect("read");
@@ -127,7 +135,7 @@ async fn a_reset_head_rebuilds_and_resets_cursors() {
     write_and_commit(&sync, "two").await;
     let cursor = sync.watermark(None).await.expect("watermark");
 
-    git(tmp.path(), &["reset", "-q", "--hard", &base]);
+    git(tmp.path(), &["reset", "-q", "--hard", &base.to_string()]);
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("scan after the reset");
@@ -176,20 +184,22 @@ fn git_out(dir: &std::path::Path, args: &[&str]) -> String {
 
 /// From `from`, a commit made upstream, changing a record git-sync's
 /// commits since `from` didn't: its oid.
-fn upstream_from(dir: &std::path::Path, from: &str) -> String {
-    git(dir, &["reset", "-q", "--hard", from]);
+fn upstream_from(dir: &std::path::Path, from: CommitId) -> CommitId {
+    git(dir, &["reset", "-q", "--hard", &from.to_string()]);
     let file = dir.join("cloudmap.yaml");
     let text = std::fs::read_to_string(&file).expect("read");
     std::fs::write(&file, text.replace("name: dashboard", "name: upstream")).expect("write");
     git_out(dir, &["commit", "-q", "-am", "upstream"]);
     git_out(dir, &["rev-parse", "HEAD"])
+        .parse()
+        .expect("a commit")
 }
 
 /// Move HEAD to `to` and prune what that leaves unreachable, so commits
 /// git-sync made since are gone, as from a new clone of a remote that
 /// never got them.
-fn reset_and_prune(dir: &std::path::Path, to: &str, gone: &str) {
-    git(dir, &["reset", "-q", "--hard", to]);
+fn reset_and_prune(dir: &std::path::Path, to: CommitId, gone: CommitId) {
+    git(dir, &["reset", "-q", "--hard", &to.to_string()]);
     git(dir, &["reflog", "expire", "--expire=now", "--all"]);
     git(dir, &["gc", "-q", "--prune=now"]);
     let missing = std::process::Command::new("git")
@@ -212,8 +222,8 @@ async fn a_missing_commit_that_loses_records_is_refused(
         .expect("scan");
     let base = write_and_commit(sync, "one").await;
     let gone = write_and_commit(sync, "two").await;
-    let up = upstream_from(tmp.path(), &base);
-    reset_and_prune(tmp.path(), &up, &gone);
+    let up = upstream_from(tmp.path(), base);
+    reset_and_prune(tmp.path(), up, gone);
 
     // the record upstream changed isn't lost
     let err = sync
@@ -228,7 +238,7 @@ async fn a_missing_commit_that_loses_records_is_refused(
     else {
         panic!("{err:?}");
     };
-    assert_eq!(*commit, gone);
+    assert_eq!(*commit, gone.to_string());
     assert!(names(sync).await.contains_key("two"), "nothing changed");
     // the record lost is among those written since
     let written = RecordQuery {
@@ -266,19 +276,21 @@ async fn a_missing_commit_that_loses_nothing_rebuilds(sync: &SyncedRepo, tmp: &t
         .expect("scan");
     let base = write_and_commit(sync, "one").await;
     let gone = write_and_commit(sync, "two").await;
-    let again = git_out(
+    let again: CommitId = git_out(
         tmp.path(),
         &[
             "commit-tree",
             &format!("{gone}^{{tree}}"),
             "-p",
-            &base,
+            &base.to_string(),
             "-m",
             "the same, made again",
         ],
-    );
-    let up = upstream_from(tmp.path(), &again);
-    reset_and_prune(tmp.path(), &up, &gone);
+    )
+    .parse()
+    .expect("a commit");
+    let up = upstream_from(tmp.path(), again);
+    reset_and_prune(tmp.path(), up, gone);
 
     // nothing to recover, either
     let recover = ScanOptions {
@@ -294,7 +306,7 @@ async fn a_missing_commit_that_loses_nothing_rebuilds(sync: &SyncedRepo, tmp: &t
     assert!(branches.is_empty(), "{branches}");
     assert!(names(sync).await.contains_key("two"));
     let head = sync.get_worktree().await.expect("worktree").commit_id;
-    assert_eq!(head.as_deref(), Some(up.as_str()));
+    assert_eq!(head, Some(up));
 }
 
 crud_test!(a_missing_commit_that_loses_nothing_rebuilds);
@@ -309,8 +321,8 @@ async fn a_missing_commit_recovers_to_a_branch(sync: &SyncedRepo, tmp: &tempfile
     let base = write_and_commit(sync, "one").await;
     let gone = write_and_commit(sync, "two").await;
     let one = names(sync).await["one"].1;
-    let up = upstream_from(tmp.path(), &base);
-    reset_and_prune(tmp.path(), &up, &gone);
+    let up = upstream_from(tmp.path(), base);
+    reset_and_prune(tmp.path(), up, gone);
 
     let recover = ScanOptions {
         recover_missing: true,
@@ -321,7 +333,7 @@ async fn a_missing_commit_recovers_to_a_branch(sync: &SyncedRepo, tmp: &tempfile
         .await
         .expect("recovered");
     let got = outcome.recovered.expect("a branch");
-    assert_eq!(got.branch, format!("git-sync/recovered-{}", &gone[..12]));
+    assert_eq!(got.branch, format!("git-sync/recovered-{}", gone.short(12)));
     let filter = unfurl_git_sync::WorktreeFilter {
         origin: None,
         branch: Some(got.branch.clone()),
@@ -329,9 +341,16 @@ async fn a_missing_commit_recovers_to_a_branch(sync: &SyncedRepo, tmp: &tempfile
     };
     let rows = sync.worktrees(&filter).await.expect("worktrees");
     assert!(!rows[0].clone_on_start, "a branch without a checkout");
-    assert_eq!(git_out(tmp.path(), &["rev-parse", &got.branch]), got.commit);
+    assert_eq!(
+        git_out(tmp.path(), &["rev-parse", &got.branch]),
+        got.commit.to_string()
+    );
     let parent = git_out(tmp.path(), &["rev-parse", &format!("{}^", got.commit)]);
-    assert_eq!(parent, base, "forked where the lost commit was made");
+    assert_eq!(
+        parent,
+        base.to_string(),
+        "forked where the lost commit was made"
+    );
     let file = git_out(
         tmp.path(),
         &["show", &format!("{}:cloudmap.yaml", got.commit)],
@@ -346,7 +365,7 @@ async fn a_missing_commit_recovers_to_a_branch(sync: &SyncedRepo, tmp: &tempfile
     assert!(!now.contains_key("two"));
     assert_eq!(now["one"].1, one, "the record keeps its id");
     let head = sync.get_worktree().await.expect("worktree").commit_id;
-    assert_eq!(head.as_deref(), Some(up.as_str()));
+    assert_eq!(head, Some(up));
 }
 
 crud_test!(a_missing_commit_recovers_to_a_branch);
@@ -374,8 +393,8 @@ async fn a_recovered_record_upstream_changed_conflicts(sync: &SyncedRepo, tmp: &
         .expect("commit")
         .commit
         .expect("a commit");
-    let up = upstream_from(tmp.path(), &base);
-    reset_and_prune(tmp.path(), &up, &gone);
+    let up = upstream_from(tmp.path(), base);
+    reset_and_prune(tmp.path(), up, gone);
 
     let recover = ScanOptions {
         recover_missing: true,
@@ -411,14 +430,14 @@ async fn missing_after(
     sync: &SyncedRepo,
     tmp: &tempfile::TempDir,
     key: &str,
-) -> (String, String, String) {
+) -> (CommitId, CommitId, CommitId) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("scan");
     let base = write_and_commit(sync, "one").await;
     let gone = write_and_commit(sync, key).await;
-    let up = upstream_from(tmp.path(), &base);
-    reset_and_prune(tmp.path(), &up, &gone);
+    let up = upstream_from(tmp.path(), base);
+    reset_and_prune(tmp.path(), up, gone);
     (base, gone, up)
 }
 
@@ -433,8 +452,8 @@ fn recovering() -> ScanOptions {
 /// the ref at its base: the next takes it as claimed.
 async fn a_left_over_recovery_ref_is_reused(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
     let (base, gone, _) = missing_after(sync, tmp, "two").await;
-    let branch = format!("git-sync/recovered-{}", &gone[..12]);
-    git(tmp.path(), &["branch", &branch, &base]);
+    let branch = format!("git-sync/recovered-{}", gone.short(12));
+    git(tmp.path(), &["branch", &branch, &base.to_string()]);
     let got = sync
         .update_from_working_dir(recovering())
         .await
@@ -450,8 +469,8 @@ crud_test!(a_left_over_recovery_ref_is_reused);
 /// changed.
 async fn a_recovery_branch_taken_is_refused(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
     let (_, gone, up) = missing_after(sync, tmp, "two").await;
-    let branch = format!("git-sync/recovered-{}", &gone[..12]);
-    git(tmp.path(), &["branch", &branch, &up]);
+    let branch = format!("git-sync/recovered-{}", gone.short(12));
+    git(tmp.path(), &["branch", &branch, &up.to_string()]);
     let err = sync
         .update_from_working_dir(recovering())
         .await
@@ -470,7 +489,7 @@ async fn a_recovery_with_no_base_is_refused(sync: &SyncedRepo, tmp: &tempfile::T
         .expect("scan");
     let base = write_and_commit(sync, "one").await;
     let gone = write_and_commit(sync, "two").await;
-    let alone = git_out(
+    let alone: CommitId = git_out(
         tmp.path(),
         &[
             "commit-tree",
@@ -478,8 +497,10 @@ async fn a_recovery_with_no_base_is_refused(sync: &SyncedRepo, tmp: &tempfile::T
             "-m",
             "unrelated",
         ],
-    );
-    reset_and_prune(tmp.path(), &alone, &gone);
+    )
+    .parse()
+    .expect("a commit");
+    reset_and_prune(tmp.path(), alone, gone);
     let err = sync
         .update_from_working_dir(recovering())
         .await
@@ -530,8 +551,8 @@ async fn pending_over_a_missing_commit(
         .await
         .expect("pending edit");
     }
-    let up = upstream_from(tmp.path(), &base);
-    reset_and_prune(tmp.path(), &up, &gone);
+    let up = upstream_from(tmp.path(), base);
+    reset_and_prune(tmp.path(), up, gone);
     sync.update_from_working_dir(options).await
 }
 
@@ -625,7 +646,7 @@ async fn a_rebuild_keeps_pending_edits(sync: &SyncedRepo, tmp: &tempfile::TempDi
 
     let cursor = sync.watermark(None).await.expect("watermark");
 
-    git(tmp.path(), &["reset", "-q", "--hard", &base]);
+    git(tmp.path(), &["reset", "-q", "--hard", &base.to_string()]);
     let scan = sync
         .update_from_working_dir(ScanOptions::default())
         .await
@@ -641,7 +662,7 @@ async fn a_rebuild_keeps_pending_edits(sync: &SyncedRepo, tmp: &tempfile::TempDi
     let conflict = &scan.conflicts[0];
     assert_eq!(conflict.key, "one");
     assert_eq!(conflict.kind, RecordConflictKind::ModifyModify);
-    assert_eq!(conflict.base_commit_id.as_deref(), Some(dropped.as_str()));
+    assert_eq!(conflict.base_commit_id, Some(dropped));
     assert_eq!(conflict.theirs.as_ref().expect("theirs")["name"], "one");
 
     for key in [DASHBOARD, "one"] {
@@ -668,7 +689,7 @@ async fn a_mixed_reset_keeps_the_working_trees_records() {
     let base = write_and_commit(&sync, "one").await;
     write_and_commit(&sync, "two").await;
 
-    git(tmp.path(), &["reset", "-q", "--mixed", &base]);
+    git(tmp.path(), &["reset", "-q", "--mixed", &base.to_string()]);
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("scan after the reset");
@@ -701,7 +722,15 @@ async fn a_branch_reset_onto_main_rebuilds_on_mains_chain() {
     let path = dir.to_str().expect("utf8");
     git(
         tmp.path(),
-        &["worktree", "add", "-q", "-b", "feature", path, &base],
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature",
+            path,
+            &base.to_string(),
+        ],
     );
     let feature = open_at(&dir, &db).await;
     feature
@@ -711,7 +740,7 @@ async fn a_branch_reset_onto_main_rebuilds_on_mains_chain() {
     write_and_commit(&feature, "feat").await;
     let tip = write_and_commit(&main, "two").await;
 
-    git(&dir, &["reset", "-q", "--hard", &tip]);
+    git(&dir, &["reset", "-q", "--hard", &tip.to_string()]);
     feature
         .update_from_working_dir(ScanOptions::default())
         .await
@@ -870,7 +899,7 @@ async fn a_split_leaves_a_record_main_rejects_alone() {
             "-b",
             "feature",
             feature.to_str().expect("utf8"),
-            &c1,
+            &c1.to_string(),
         ],
     );
     open_at(&feature, &db).await;
@@ -974,7 +1003,7 @@ async fn a_fork_where_a_record_was_invalid_keeps_its_row() {
             "-b",
             "then",
             dir.to_str().expect("utf8"),
-            &rejected_at,
+            &rejected_at.to_string(),
         ],
     );
     let then = open_at(&dir, &db).await;

@@ -9,6 +9,8 @@
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::commit::CommitId;
+
 /// One row of the `worktree` table — a `(origin, branch)` pair the
 /// crate has indexed.
 ///
@@ -41,7 +43,7 @@ pub struct Worktree {
     /// Short branch name, e.g. `main`.
     pub branch: String,
     /// Last HEAD oid the crate has observed for this `(origin, branch)`.
-    pub commit_id: Option<String>,
+    pub commit_id: Option<CommitId>,
     /// Working-tree-relative path of the file new records go to when a
     /// CRUD call passes `file_path = None`. Set on the first
     /// [`crate::SyncedRepo::update_from_working_dir`] run; never
@@ -105,7 +107,7 @@ pub struct File {
     /// Name of the [`crate::DataFormat`] that classified this file.
     pub format: String,
     /// Last commit oid known to have touched this path.
-    pub commit_id: Option<String>,
+    pub commit_id: Option<CommitId>,
     /// Blob OID of the exact bytes this file's records were parsed from,
     /// or `None` for a file registered by a record write rather than a
     /// scan.
@@ -636,7 +638,7 @@ pub struct Record {
     pub key: String,
     /// Last commit oid that committed this record's value, or `None`
     /// when the record is in-flight (uncommitted).
-    pub commit_id: Option<String>,
+    pub commit_id: Option<CommitId>,
     /// The record's JSON payload.
     pub json: serde_json::Value,
     /// Tombstone flag.
@@ -784,7 +786,7 @@ pub struct CommitOptions {
 pub struct Committed {
     /// The new commit on this worktree's branch, or `None` when there was
     /// nothing new to commit.
-    pub commit: Option<String>,
+    pub commit: Option<CommitId>,
     /// The branch the conflicts went to, when they were exported.
     pub exported: Option<Exported>,
 }
@@ -798,8 +800,8 @@ pub enum Rebased {
     /// reachable from `refs/git-sync/rebased/<branch>` until the branch's
     /// next rebase.
     Unfolded {
-        base: String,
-        head: String,
+        base: CommitId,
+        head: CommitId,
         edits: usize,
     },
     /// HEAD is upstream or behind it: fast-forward instead.
@@ -821,7 +823,7 @@ pub struct Exported {
     pub worktree_id: i64,
     /// The branch's commit: the export base with the edits applied, or the
     /// base itself when they change nothing there.
-    pub commit: String,
+    pub commit: CommitId,
     /// The records moved, as the commit's rollup names them.
     pub records: Vec<TxnRecord>,
 }
@@ -853,7 +855,7 @@ pub struct Txn {
     pub created_at: String,
     /// Commit oid that carried this batch's writes to git, or `None`
     /// while the batch is still outstanding.
-    pub commit_id: Option<String>,
+    pub commit_id: Option<CommitId>,
 }
 
 /// One record whose value a commit changes.
@@ -1000,7 +1002,7 @@ pub struct WorkingDir {
     pub branch: String,
     /// Current HEAD commit oid as a hex string. `None` for an unborn
     /// or empty repository.
-    pub head_commit: Option<String>,
+    pub head_commit: Option<CommitId>,
 }
 
 /// Result of a CRUD write
@@ -1149,7 +1151,7 @@ pub struct RecordConflict {
     pub kind: RecordConflictKind,
     /// Commit the pending edit is based on — the merge base for
     /// resolving against git history. `None` for [`RecordConflictKind::AddAdd`].
-    pub base_commit_id: Option<String>,
+    pub base_commit_id: Option<CommitId>,
     /// The file's version of the record — `None` when the file side
     /// deleted it ([`RecordConflictKind::ModifyDelete`]). Carried here
     /// because a subsequent write replaces it with the pending edit:

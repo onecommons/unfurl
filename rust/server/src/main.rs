@@ -52,7 +52,7 @@ fn report_scan(scan: &unfurl_git_sync::SyncOutcome, level: ScanAbortLevel) -> bo
     if let Some(e) = &scan.recovered {
         tracing::warn!(
             branch = e.branch.as_str(),
-            commit = e.commit.as_str(),
+            commit = %e.commit,
             records = e.records.len(),
             "the repository lacks commits the database made: their records are saved to a branch, to merge"
         );

@@ -399,7 +399,11 @@ impl Freshener {
         crate::push::can_divert(push).await?;
         let branch = crate::push::diverted_branch(head);
         // only a fork this call made is its own to delete
-        let forked = match handle.fork_branch(&branch, head).await {
+        let forked = match head.parse() {
+            Ok(pushed) => handle.fork_branch(&branch, pushed).await,
+            Err(e) => Err(e),
+        };
+        let forked = match forked {
             Ok(forked) => forked.created,
             Err(e) => {
                 tracing::warn!(

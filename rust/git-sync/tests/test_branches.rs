@@ -7,7 +7,7 @@ mod common;
 
 use common::{crud_test, head_commit, upsert_op};
 use tempfile::TempDir;
-use unfurl_git_sync::{Error, RecordQuery, ScanOptions, SyncedRepo, WorktreeFilter};
+use unfurl_git_sync::{CommitId, Error, RecordQuery, ScanOptions, SyncedRepo, WorktreeFilter};
 
 const BRANCH: &str = "git-sync/diverted-abc";
 
@@ -62,19 +62,19 @@ async fn a_fork_has_the_committed_records(sync: &SyncedRepo, _tmp: &TempDir) {
         .await
         .expect("a staged edit");
     let r = head_commit(sync).await;
-    let forked = sync.fork_branch(BRANCH, &r).await.expect("fork");
+    let forked = sync.fork_branch(BRANCH, r).await.expect("fork");
     assert!(forked.created);
     let n = forked.worktree_id;
     assert_eq!(records_on(sync, BRANCH).await, committed);
     let rows = sync.worktrees(&of(BRANCH)).await.expect("worktrees");
     assert_eq!(rows[0].id, n);
-    assert_eq!(rows[0].commit_id.as_deref(), Some(r.as_str()));
+    assert_eq!(rows[0].commit_id, Some(r));
     assert!(!rows[0].clone_on_start);
     assert!(!sync.db().has_uncommitted(n).await.expect("uncommitted"));
     let own = sync.get_worktree().await.expect("worktree");
     assert!(own.clone_on_start, "the worktree's own is cloned");
     // made again: the same, not created by this call
-    let again = sync.fork_branch(BRANCH, &r).await.expect("again");
+    let again = sync.fork_branch(BRANCH, r).await.expect("again");
     assert_eq!((again.worktree_id, again.created), (n, false));
 }
 
@@ -86,14 +86,14 @@ async fn a_fork_is_at_the_recorded_commit(sync: &SyncedRepo, tmp: &TempDir) {
         .expect("scan");
     let r = head_commit(sync).await;
     git(tmp, &["commit", "-q", "--allow-empty", "-m", "on top"]);
-    let on_top = git(tmp, &["rev-parse", "HEAD"]);
-    sync.fork_branch(BRANCH, &on_top).await.expect("fork");
+    let on_top: CommitId = git(tmp, &["rev-parse", "HEAD"]).parse().expect("a commit");
+    sync.fork_branch(BRANCH, on_top).await.expect("fork");
     let rows = sync.worktrees(&of(BRANCH)).await.expect("worktrees");
-    assert_eq!(rows[0].commit_id.as_deref(), Some(r.as_str()));
+    assert_eq!(rows[0].commit_id, Some(r));
     git(tmp, &["checkout", "-q", "--orphan", "unrelated"]);
     git(tmp, &["commit", "-q", "--allow-empty", "-m", "unrelated"]);
-    let unrelated = git(tmp, &["rev-parse", "HEAD"]);
-    let refused = sync.fork_branch("git-sync/other", &unrelated).await;
+    let unrelated: CommitId = git(tmp, &["rev-parse", "HEAD"]).parse().expect("a commit");
+    let refused = sync.fork_branch("git-sync/other", unrelated).await;
     assert!(matches!(refused, Err(Error::Other(_))), "{refused:?}");
 }
 
@@ -105,13 +105,13 @@ async fn an_existing_branch_is_refused(sync: &SyncedRepo, tmp: &TempDir) {
         .expect("scan");
     let r = head_commit(sync).await;
     git(tmp, &["branch", "git-sync/taken"]);
-    let taken = sync.fork_branch("git-sync/taken", &r).await;
+    let taken = sync.fork_branch("git-sync/taken", r).await;
     assert!(
         matches!(taken, Err(Error::BranchExists { .. })),
         "{taken:?}"
     );
     let main = sync.get_worktree().await.expect("worktree").branch;
-    let own = sync.fork_branch(&main, &r).await;
+    let own = sync.fork_branch(&main, r).await;
     assert!(matches!(own, Err(Error::BranchExists { .. })), "{own:?}");
 }
 
@@ -121,7 +121,7 @@ async fn a_fork_is_deleted(sync: &SyncedRepo, _tmp: &TempDir) {
         .await
         .expect("scan");
     let r = head_commit(sync).await;
-    sync.fork_branch(BRANCH, &r).await.expect("fork");
+    sync.fork_branch(BRANCH, r).await.expect("fork");
     sync.delete_branch(BRANCH).await.expect("delete");
     assert!(sync
         .worktrees(&of(BRANCH))

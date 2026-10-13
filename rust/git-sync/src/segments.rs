@@ -10,6 +10,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::commit::CommitId;
 use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{At, NewRecordRow, RecordRow};
 use crate::error::Result;
@@ -24,11 +25,11 @@ pub(crate) enum Value<'a> {
 
 /// How a draft row came to be.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Origin<'a> {
+pub(crate) enum Origin {
     /// A client's edit: pending, with a base.
     Edit,
     /// Taken in from the working tree, keeping the file's last commit.
-    File(Option<&'a str>),
+    File(Option<CommitId>),
 }
 
 /// The row a write made, and its record.
@@ -46,7 +47,7 @@ pub(crate) async fn write<DB: Store>(
     w: i64,
     at: At<'_>,
     value: Value<'_>,
-    origin: Origin<'_>,
+    origin: Origin,
     record: Option<i64>,
     version: i64,
 ) -> Result<Written> {
@@ -125,7 +126,7 @@ pub(crate) async fn write<DB: Store>(
             json,
             deleted,
             version,
-            base_commit_id: base.as_deref(),
+            base_commit_id: base,
             base_json: base_json.as_ref(),
             settled: &settled,
             conflict: None,
@@ -191,9 +192,9 @@ async fn edit_base<DB: Store>(
     record: Option<i64>,
     prior: Option<&RecordRow>,
     other: Option<&RecordRow>,
-) -> Result<(Option<String>, Option<serde_json::Value>)> {
+) -> Result<(Option<CommitId>, Option<serde_json::Value>)> {
     if let Some(y) = prior.or(other) {
-        return Ok((y.base_commit_id.clone(), y.base_json.clone()));
+        return Ok((y.base_commit_id, y.base_json.clone()));
     }
     Ok(match record {
         Some(id) => DB::visible(tx, w, Scope::Chain, Filter::KeyId(id))
@@ -350,7 +351,7 @@ pub(crate) async fn set_conflict<DB: Store>(
     at: At<'_>,
     theirs: Value<'_>,
     dropped: &serde_json::Value,
-    commit_id: Option<&str>,
+    commit_id: Option<CommitId>,
     version: i64,
 ) -> Result<()> {
     drop_conflict(tx, d, at).await?;
@@ -403,7 +404,7 @@ pub(crate) async fn scan_key<DB: Store>(
     w: i64,
     at: At<'_>,
     change: Option<&serde_json::Value>,
-    commit: &str,
+    commit: CommitId,
     version: i64,
     ids: KeyIds,
 ) -> Result<Option<Written>> {
@@ -708,7 +709,7 @@ pub(crate) async fn fold<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     files: &BTreeSet<String>,
-    commit: &str,
+    commit: CommitId,
     watermark: i64,
 ) -> Result<()> {
     let segs = DB::segs(tx, w).await?;

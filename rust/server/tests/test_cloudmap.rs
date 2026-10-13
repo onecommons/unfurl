@@ -916,7 +916,7 @@ async fn post_with_oid_token_succeeds_when_matches() {
         .await
         .expect("get")
         .expect("present");
-    assert_eq!(rec.commit_id.as_deref(), Some(oid.as_str()));
+    assert_eq!(rec.commit_id, Some(oid));
 
     // POST with the matching commit oid → success.
     let cm = CloudMapState::from_synced(synced);
@@ -1598,7 +1598,7 @@ async fn commit_repository_commits_a_newly_created_cloudmap() {
     // `git::commit_paths` builds the tree directly, inserting missing
     // subtrees, rather than staging through the index.
     let out = std::process::Command::new("git")
-        .args(["ls-tree", "-r", "--name-only", &oid])
+        .args(["ls-tree", "-r", "--name-only", &oid.to_string()])
         .current_dir(tmp.path())
         .output()
         .expect("git ls-tree");

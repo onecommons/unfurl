@@ -4,6 +4,7 @@
 //! commit its committed chain holds, sharing its segments, and not cloned
 //! at startup (docs/branch-segments.md §4.15).
 
+use crate::commit::CommitId;
 use crate::db::store::Store;
 use crate::db::tables::FileRow;
 use crate::db::{self, on_pool};
@@ -25,7 +26,7 @@ impl SyncedRepo {
     /// [`Error::BranchExists`] when a worktree of `branch` that isn't this
     /// fork, or a local ref of it, exists; [`Error::Other`] when `pushed`
     /// doesn't descend from R, or R moved before the fork.
-    pub async fn fork_branch(&self, branch: &str, pushed: &str) -> Result<Forked> {
+    pub async fn fork_branch(&self, branch: &str, pushed: CommitId) -> Result<Forked> {
         let worktree = self.get_worktree().await?;
         let Some(r) = worktree.commit_id else {
             return Err(Error::Other(format!(
@@ -34,7 +35,7 @@ impl SyncedRepo {
         };
         if let Some(n) = db::worktree::find(self.db(), &worktree.origin, branch).await? {
             let made = db::worktree::get(self.db(), n).await?;
-            return match made.commit_id.as_deref() == Some(r.as_str()) && !made.clone_on_start {
+            return match made.commit_id == Some(r) && !made.clone_on_start {
                 true => Ok(Forked {
                     worktree_id: n,
                     created: false,
@@ -46,19 +47,19 @@ impl SyncedRepo {
         if git::branch_tip(&repo, branch)?.is_some() {
             return Err(exists(branch));
         }
-        if pushed != r && !git::is_ancestor(&repo, &r, pushed)? {
+        if pushed != r && !git::is_ancestor(&repo, r, pushed)? {
             return Err(Error::Other(format!(
                 "{branch}: {pushed} doesn't descend from {r}"
             )));
         }
-        let blobs = git::tree_blobs(&repo, &r)?;
+        let blobs = git::tree_blobs(&repo, r)?;
         let files = self.files_at(&blobs).await?;
         let mut history =
             crate::ids::History::open(self.formats(), repo, self.db(), self.family_id()).await?;
         let at = At {
             origin: &worktree.origin,
             branch,
-            commit: &r,
+            commit: r,
             files: &files,
         };
         let n = on_pool!(self.db(), pool => fork_in_pool(self, pool, &mut history, &at).await)?;
@@ -121,7 +122,7 @@ fn exists(branch: &str) -> Error {
 struct At<'a> {
     origin: &'a str,
     branch: &'a str,
-    commit: &'a str,
+    commit: CommitId,
     files: &'a [(String, String, String)],
 }
 
@@ -135,7 +136,7 @@ async fn fork_in_pool<DB: Store>(
     // before any read: SQLite can't take the write lock after one
     DB::lock_family(&mut tx, sync.family_id()).await?;
     let head = DB::head_commit(&mut tx, sync.worktree_id()).await?;
-    if head.as_deref() != Some(at.commit) {
+    if head != Some(at.commit) {
         return Err(Error::Other(format!(
             "{}: {} moved from {} before the fork",
             at.branch,

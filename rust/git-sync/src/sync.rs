@@ -22,6 +22,7 @@
 //! primitives, [`crate::document`] parses and re-emits the files, and
 //! [`crate::rollup`] renders and reads the commit message.
 
+use crate::commit::CommitId;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -109,7 +110,7 @@ struct SyncedRepoInner {
     unrecognized: std::sync::Mutex<Unrecognized>,
     /// The HEAD the last scan walked history at. While HEAD stays there, a
     /// clean file's last commit is the one on record.
-    walked_head: std::sync::Mutex<Option<gix::ObjectId>>,
+    walked_head: std::sync::Mutex<Option<CommitId>>,
 }
 
 /// How many findings of one grade are logged individually before the rest
@@ -256,7 +257,7 @@ struct Candidate<'a> {
     /// The parsed document, present when the bytes differ from
     /// what the database last took in, or HEAD changed the file.
     parsed_doc: Option<ParsedDoc<'a>>,
-    db_commit: Option<String>,
+    db_commit: Option<CommitId>,
     /// Its last commit may have moved, so history is walked for it.
     needs_history: bool,
 }
@@ -264,13 +265,13 @@ struct Candidate<'a> {
 impl Candidate<'_> {
     /// The last commit to touch the file: from the walk, or for a file not
     /// walked, the one on record.
-    fn last_commit<'a>(
-        &'a self,
-        last_commits: &'a std::collections::HashMap<String, String>,
-    ) -> Option<&'a str> {
+    fn last_commit(
+        &self,
+        last_commits: &std::collections::HashMap<String, CommitId>,
+    ) -> Option<CommitId> {
         match last_commits.get(&self.tf.rel_path) {
-            Some(commit) => Some(commit),
-            None if !self.needs_history => self.db_commit.as_deref(),
+            Some(&commit) => Some(commit),
+            None if !self.needs_history => self.db_commit,
             None => None,
         }
     }
@@ -378,14 +379,13 @@ impl SyncedRepo {
         let repo = opener.open(&repo_path)?;
         let meta = git::worktree_meta(&repo)?;
         let default_branch = git::remote_default_branch(&repo, "origin")?;
-        let head = meta.head_oid.map(|o| o.to_string());
         let worktree_id = crate::fork::open(
             &db,
             repo,
             &formats,
             &meta.origin,
             &meta.branch,
-            head.as_deref(),
+            meta.head_oid,
         )
         .await?;
         let family_id = db::worktree::family_id(&db, worktree_id).await?;
@@ -474,7 +474,7 @@ impl SyncedRepo {
         Ok(crate::model::WorkingDir {
             repo_path: self.inner.repo_path.clone(),
             branch: meta.branch,
-            head_commit: meta.head_oid.map(|o| o.to_string()),
+            head_commit: meta.head_oid,
         })
     }
 
@@ -553,15 +553,14 @@ impl SyncedRepo {
 
     /// [`Self::update_from_working_dir`], also returning the `HEAD` it took
     /// in.
-    async fn scan(&self, options: ScanOptions) -> Result<(SyncOutcome, Option<gix::ObjectId>)> {
+    async fn scan(&self, options: ScanOptions) -> Result<(SyncOutcome, Option<CommitId>)> {
         // HEAD is read once, so the commit stamped below is the one the
         // scan took in, and a rebuild recorded, even if it moves meanwhile.
         let meta = git::worktree_meta(&self.repo()?)?;
         let stats = self.scan_files(&options, &meta).await?;
         *self.walked_head() = meta.head_oid;
         if let Some(oid) = meta.head_oid {
-            db::worktree::update_commit(self.db(), self.worktree_id(), Some(&oid.to_string()))
-                .await?;
+            db::worktree::update_commit(self.db(), self.worktree_id(), Some(oid)).await?;
         }
 
         // Auto-pick a default file_path for new records on the first
@@ -580,7 +579,7 @@ impl SyncedRepo {
     async fn follow_head(
         &self,
         branch: &str,
-        head: Option<&str>,
+        head: Option<CommitId>,
         options: &ScanOptions,
     ) -> Result<Option<crate::model::Exported>> {
         let worktree = db::worktree::get(self.db(), self.worktree_id()).await?;
@@ -599,7 +598,7 @@ impl SyncedRepo {
                 });
             }
         }
-        let (Some(recorded), Some(n)) = (worktree.commit_id.as_deref(), head) else {
+        let (Some(recorded), Some(n)) = (worktree.commit_id, head) else {
             return Ok(None);
         };
         let repo = self.repo()?;
@@ -616,8 +615,8 @@ impl SyncedRepo {
     async fn rebuild_onto(
         &self,
         worktree: &crate::model::Worktree,
-        recorded: &str,
-        n: &str,
+        recorded: CommitId,
+        n: CommitId,
         options: &ScanOptions,
         after: &mut impl FnMut(crate::export::ExportStep) -> Result<()>,
     ) -> Result<Option<crate::model::Exported>> {
@@ -634,14 +633,14 @@ impl SyncedRepo {
         let rb = crate::fork::Rebuild {
             w: self.worktree_id(),
             family: self.family_id(),
-            n,
+            new_head: n,
             files: &files,
             keep: (missing && !options.rebuild_missing).then_some(recorded),
             recover: recovery.as_ref().map(|p| crate::fork::Recover {
                 origin: &worktree.origin,
                 branch: &p.branch,
                 from: &worktree.branch,
-                base: &p.base,
+                base: p.base,
                 files: &p.files,
             }),
         };
@@ -649,7 +648,7 @@ impl SyncedRepo {
         match (rebuilt, recovery) {
             (Ok(Some(b)), Some(p)) => {
                 after(crate::export::ExportStep::Moved)?;
-                let exported = self.commit_export(&p.branch, b, oid(&p.base)?, after);
+                let exported = self.commit_export(&p.branch, b, p.base, after);
                 exported.await.map(Some)
             }
             (Ok(_), _) => Ok(None),
@@ -664,8 +663,8 @@ impl SyncedRepo {
     /// has no commit of this worktree's chain to recover them at.
     async fn prepare_recovery(
         &self,
-        recorded: &str,
-        n: &str,
+        recorded: CommitId,
+        n: CommitId,
         files: &[crate::scan::HeadFile],
     ) -> Result<Option<Prepared>> {
         let rows = crate::fork::chain_rows(self.db(), self.worktree_id()).await?;
@@ -678,10 +677,10 @@ impl SyncedRepo {
             return Ok(None);
         };
         let files = self
-            .head_files(&repo, Some(&base), &Default::default(), false)?
+            .head_files(&repo, Some(base), &Default::default(), false)?
             .files;
         Ok(Some(Prepared {
-            branch: format!("git-sync/recovered-{}", &recorded[..recorded.len().min(12)]),
+            branch: format!("git-sync/recovered-{}", recorded.short(12)),
             base,
             files,
         }))
@@ -690,7 +689,7 @@ impl SyncedRepo {
     /// `e`, with where to read the records a [`Error::CommitMissing`]
     /// would lose: what was written after the nearest commit HEAD `n` has
     /// that this database made.
-    async fn missing_since(&self, e: Error, n: &str) -> Error {
+    async fn missing_since(&self, e: Error, n: CommitId) -> Error {
         let Error::CommitMissing { commit, lost, .. } = e else {
             return e;
         };
@@ -766,7 +765,7 @@ impl SyncedRepo {
         {
             return Classified::Skip;
         }
-        let db_commit = db_file.and_then(|f| f.commit_id.clone());
+        let db_commit = db_file.and_then(|f| f.commit_id);
         let head_changed = pass.head_changed.contains(&tf.rel_path);
         let parsed_doc = if !pass.options.force
             && !head_changed
@@ -830,10 +829,8 @@ impl SyncedRepo {
         meta: &git::WorktreeMeta,
     ) -> Result<SyncOutcome> {
         let repo = self.repo()?;
-        let head = meta.head_oid.map(|o| o.to_string());
-        let recovered = self
-            .follow_head(&meta.branch, head.as_deref(), options)
-            .await?;
+        let head = meta.head_oid;
+        let recovered = self.follow_head(&meta.branch, head, options).await?;
         let tracked = git::tracked_files(&repo)?;
         let known_files: std::collections::HashMap<String, crate::model::File> =
             db::file::list(self.db(), self.worktree_id())
@@ -851,7 +848,7 @@ impl SyncedRepo {
             blobs: head_blobs,
             files: head_files,
             parsed: head_parsed,
-        } = self.head_files(&repo, head.as_deref(), &known_files, options.force)?;
+        } = self.head_files(&repo, head, &known_files, options.force)?;
         stats.files_parsed += head_parsed;
         let head_changed: BTreeSet<String> =
             head_files.iter().map(|f| f.rel_path.clone()).collect();
@@ -941,15 +938,15 @@ impl SyncedRepo {
         // Second pass: resolve the commit that last touched every
         // candidate path via a single backwards walk from HEAD.
         let last_commits = git::last_commits_for_paths(&repo, meta.head_oid, &walk_paths)?;
-        let mut resolves: std::collections::HashMap<String, Option<i64>> =
+        let mut resolves: std::collections::HashMap<CommitId, Option<i64>> =
             std::collections::HashMap::new();
         let mut docs: Vec<(Candidate<'_>, ParsedDoc<'_>, Option<i64>)> = Vec::new();
         for mut c in candidates {
             let mut parsed_doc = c.parsed_doc.take();
             let record_commit_id = c.last_commit(&last_commits);
-            let file_commit_id: Option<&str> = if c.clean { record_commit_id } else { None };
+            let file_commit_id: Option<CommitId> = if c.clean { record_commit_id } else { None };
             let resolves_version = record_commit_id.and_then(|commit| {
-                *resolves.entry(commit.to_string()).or_insert_with(|| {
+                *resolves.entry(commit).or_insert_with(|| {
                     git::commit_message(&repo, commit)
                         .as_deref()
                         .and_then(resolves_version_from_message)
@@ -973,7 +970,7 @@ impl SyncedRepo {
             let Some(doc) = parsed_doc else {
                 // The database already holds these bytes, so only the
                 // file's commit attribution can be out of date.
-                if file_commit_id == c.db_commit.as_deref() {
+                if file_commit_id == c.db_commit {
                     stats.files_unchanged += 1;
                 } else {
                     self.set_file_commit(&c.tf.rel_path, file_commit_id).await?;
@@ -1017,8 +1014,8 @@ impl SyncedRepo {
             disk_files.push(DiskFile {
                 file: ScannedFile {
                     rel_path: path,
-                    record_commit_id: row.commit_id.as_deref(),
-                    file_commit_id: row.commit_id.as_deref(),
+                    record_commit_id: row.commit_id,
+                    file_commit_id: row.commit_id,
                     source_oid: row.source_oid.as_deref().unwrap_or_default(),
                     value: &empty,
                     format,
@@ -1033,7 +1030,7 @@ impl SyncedRepo {
         let mut history = self
             .scan_history(head.is_some() && !head_files.is_empty())
             .await?;
-        let head = head.as_deref().map(|commit| crate::scan::Head {
+        let head = head.map(|commit| crate::scan::Head {
             commit,
             files: &head_files,
             history: history.as_mut(),
@@ -1067,7 +1064,7 @@ impl SyncedRepo {
     pub(crate) fn head_files(
         &self,
         repo: &gix::Repository,
-        head: Option<&str>,
+        head: Option<CommitId>,
         known_files: &std::collections::HashMap<String, crate::model::File>,
         force: bool,
     ) -> Result<HeadSide> {
@@ -1134,7 +1131,7 @@ impl SyncedRepo {
 
     /// Point a file row at the commit carrying its bytes, `None` while
     /// they're uncommitted.
-    async fn set_file_commit(&self, file_path: &str, commit: Option<&str>) -> Result<()> {
+    async fn set_file_commit(&self, file_path: &str, commit: Option<CommitId>) -> Result<()> {
         let w = self.worktree_id();
         on_pool!(self.db(), pool => {
             let mut tx = pool.begin().await?;
@@ -1173,7 +1170,7 @@ impl SyncedRepo {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn walked_head(&self) -> std::sync::MutexGuard<'_, Option<gix::ObjectId>> {
+    fn walked_head(&self) -> std::sync::MutexGuard<'_, Option<CommitId>> {
         self.inner
             .walked_head
             .lock()
@@ -2031,7 +2028,7 @@ impl SyncedRepo {
             &conflict_rows,
             check.as_ref(),
         );
-        let commit_id = file_row.as_ref().and_then(|f| f.commit_id.clone());
+        let commit_id = file_row.as_ref().and_then(|f| f.commit_id);
         if touched.is_empty() {
             // Conflict bookkeeping lands even when nothing is written: the
             // divergences it records are why there is nothing to write.
@@ -2133,7 +2130,7 @@ impl SyncedRepo {
         let Some(head) = git::worktree_meta(&repo)?.head_oid else {
             return Ok(bytes);
         };
-        let Some(committed) = git::read_blob_at_commit(&repo, &head.to_string(), file_path)? else {
+        let Some(committed) = git::read_blob_at_commit(&repo, head, file_path)? else {
             return Ok(bytes);
         };
         let (Ok(text), Ok(mut root)) = (
@@ -2190,7 +2187,7 @@ impl SyncedRepo {
             format: format.as_deref(),
             source_oid: oid.as_deref(),
             retract,
-            commit_id: commit_id.as_deref(),
+            commit_id,
             ops: &ops,
         };
         let persist = || {
@@ -2268,7 +2265,7 @@ impl SyncedRepo {
             format: None,
             source_oid: None,
             retract,
-            commit_id: commit_id.as_deref(),
+            commit_id,
             ops: &ops,
         };
         let nothing = || Ok(());
@@ -2450,8 +2447,8 @@ impl SyncedRepo {
     async fn commit_scanned(
         &self,
         message: &str,
-        scanned_head: Option<gix::ObjectId>,
-    ) -> Result<Option<String>> {
+        scanned_head: Option<CommitId>,
+    ) -> Result<Option<CommitId>> {
         // Snapshot the dirty file list *before* save_changes (which sets
         // no commit_id changes) so we know what to stage even when bytes
         // didn't actually change on disk.
@@ -2486,10 +2483,10 @@ impl SyncedRepo {
         // those anyway would mint an empty commit on every call, and a
         // standing conflict would do it forever.
         let repo = self.repo()?;
-        let head = scanned_head.map(|o| o.to_string());
+        let head = scanned_head;
         let to_stage: Vec<String> = dirty
             .iter()
-            .filter(|rel| self.differs_from_head(&repo, head.as_deref(), rel))
+            .filter(|rel| self.differs_from_head(&repo, head, rel))
             .cloned()
             .collect();
         // File rows the database owes a removal for and no longer has a
@@ -2510,16 +2507,14 @@ impl SyncedRepo {
             .cloned()
             .collect();
 
-        let oid_str = match (to_stage.is_empty(), head.as_deref()) {
-            (false, _) => {
-                git::commit_paths_onto(&repo, &to_stage, &message, scanned_head)?.to_string()
-            }
+        let commit = match (to_stage.is_empty(), head) {
+            (false, _) => git::commit_paths_onto(&repo, &to_stage, &message, scanned_head)?,
             // Nothing to record, but rows are still in flight: their
             // content is what HEAD already holds, so attribute them to
             // the commit that does carry it rather than manufacture an
             // empty one. (A row whose content is *not* in HEAD is a
             // conflicted one, which `the fold` skips.)
-            (true, Some(head)) => head.to_string(),
+            (true, Some(head)) => head,
             // Nothing staged and no HEAD to fall back on: an unborn
             // repository with nothing to put in its first commit.
             (true, None) => return Ok(None),
@@ -2532,9 +2527,9 @@ impl SyncedRepo {
                 .into_iter()
                 .map(|f| (f.path.clone(), f))
                 .collect();
-        let head_side = self.head_files(&repo, Some(&oid_str), &known_files, false)?;
+        let head_side = self.head_files(&repo, Some(commit), &known_files, false)?;
         let carried = crate::scan::Carried {
-            commit: &oid_str,
+            commit,
             files: &files,
             removed: &removed,
             watermark,
@@ -2543,7 +2538,7 @@ impl SyncedRepo {
         };
         on_pool!(self.db(), pool => crate::scan::commit_in_pool(self, pool, &carried).await)?;
 
-        Ok((!to_stage.is_empty()).then_some(oid_str))
+        Ok((!to_stage.is_empty()).then_some(commit))
     }
 
     /// The rollup of a commit carrying `files`' rows written below
@@ -2616,7 +2611,7 @@ impl SyncedRepo {
     /// An unreadable file counts as differing so the read error
     /// surfaces from [`git::commit_paths`], which is where it was
     /// reported before this check existed.
-    fn differs_from_head(&self, repo: &gix::Repository, head: Option<&str>, rel: &str) -> bool {
+    fn differs_from_head(&self, repo: &gix::Repository, head: Option<CommitId>, rel: &str) -> bool {
         let Some(head) = head else {
             return true;
         };
@@ -2752,7 +2747,7 @@ impl Render {
 struct Bookkeeping {
     write_seq: Option<i64>,
     retract: bool,
-    commit_id: Option<String>,
+    commit_id: Option<CommitId>,
     ops: Vec<ConflictOp>,
     outcome: WriteFileOutcome,
 }
@@ -2777,7 +2772,7 @@ struct Rendered {
     /// The file was deleted but something is still in it: the write
     /// clears the deletion.
     retract: bool,
-    commit_id: Option<String>,
+    commit_id: Option<CommitId>,
     ops: Vec<ConflictOp>,
     conflicts: Vec<crate::model::RecordConflict>,
 }
@@ -2793,7 +2788,7 @@ struct RenderWrite<'a> {
     source_oid: Option<&'a str>,
     /// Clear the file's deletion.
     retract: bool,
-    commit_id: Option<&'a str>,
+    commit_id: Option<CommitId>,
     ops: &'a [ConflictOp],
 }
 
@@ -2855,12 +2850,8 @@ async fn commit_render_in_pool<DB: crate::db::store::Store>(
 /// were made on, with every file of its tree.
 struct Prepared {
     branch: String,
-    base: String,
+    base: CommitId,
     files: Vec<crate::scan::HeadFile>,
-}
-
-fn oid(hex: &str) -> Result<gix::ObjectId> {
-    gix::ObjectId::from_hex(hex.as_bytes()).map_err(|e| Error::Git(e.to_string()))
 }
 
 #[cfg(test)]
@@ -3355,7 +3346,7 @@ mod race_tests {
     }
 
     /// The dashboard's name in `FILE` at `commit`.
-    fn name_at(sync: &SyncedRepo, commit: &str) -> serde_json::Value {
+    fn name_at(sync: &SyncedRepo, commit: CommitId) -> serde_json::Value {
         let bytes = git::read_blob_at_commit(&sync.repo().expect("repo"), commit, FILE)
             .expect("read")
             .expect("there");
@@ -3395,7 +3386,7 @@ mod race_tests {
                 .expect("export")
                 .expect("exported");
             assert_eq!(tries, 2);
-            assert_eq!(name_at(sync, &exported.commit), "ours-again");
+            assert_eq!(name_at(sync, exported.commit), "ours-again");
             assert!(sync
                 .list_conflicts(None)
                 .await
@@ -3440,13 +3431,13 @@ mod race_tests {
                     .await
                     .expect("finish")
                     .expect("finished");
-                assert_ne!(exported.commit, base.to_string());
+                assert_ne!(exported.commit, base);
                 if at == ExportStep::Folded {
                     assert_eq!(Some(&exported.commit), folded.as_ref(), "the commit folded");
                 }
                 let tip = git::branch_tip(&repo, "exported").expect("tip");
-                assert_eq!(tip.map(|t| t.to_string()), Some(exported.commit.clone()));
-                assert_eq!(name_at(sync, &exported.commit), "ours");
+                assert_eq!(tip, Some(exported.commit));
+                assert_eq!(name_at(sync, exported.commit), "ours");
                 let again = sync.export_conflicts("exported").await;
                 assert!(
                     matches!(again, Err(Error::BranchExists { .. })),
@@ -3458,14 +3449,14 @@ mod race_tests {
     }
 
     /// The commit the database has branch `branch`'s worktree at.
-    async fn branch_commit(sync: &SyncedRepo, branch: &str) -> Option<String> {
+    async fn branch_commit(sync: &SyncedRepo, branch: &str) -> Option<CommitId> {
         let filter = crate::model::WorktreeFilter {
             origin: None,
             branch: Some(branch.into()),
             ids: None,
         };
         let rows = sync.worktrees(&filter).await.expect("worktrees");
-        rows[0].commit_id.clone()
+        rows[0].commit_id
     }
 
     /// An export that failed after its fold, then a write: the next call
@@ -3515,10 +3506,10 @@ mod race_tests {
                     .expect_err("stopped");
                 let done = sync.finish_exports().await.expect("finished");
                 assert_eq!(done.len(), 1, "{at:?}");
-                assert_eq!(name_at(sync, &done[0].commit), "ours");
+                assert_eq!(name_at(sync, done[0].commit), "ours");
                 let repo = sync.repo().expect("repo");
                 let tip = git::branch_tip(&repo, "exported").expect("tip");
-                assert_eq!(tip.map(|t| t.to_string()), Some(done[0].commit.clone()));
+                assert_eq!(tip, Some(done[0].commit));
                 assert!(sync.finish_exports().await.expect("none").is_empty());
 
                 // a mark a crash after the ref moved left behind
@@ -3556,7 +3547,7 @@ mod race_tests {
                 assert!(out.status.success(), "git {args:?}: {out:?}");
                 String::from_utf8_lossy(&out.stdout).trim().to_string()
             };
-            let base = git(&["rev-parse", "HEAD"]);
+            let base: CommitId = git(&["rev-parse", "HEAD"]).parse().expect("a commit");
             sync.update_record(
                 Some(FILE),
                 "/repositories",
@@ -3573,7 +3564,7 @@ mod race_tests {
                 .expect("commit")
                 .commit
                 .expect("a commit");
-            git(&["reset", "-q", "--hard", &base]);
+            git(&["reset", "-q", "--hard", &base.to_string()]);
             git(&["reflog", "expire", "--expire=now", "--all"]);
             git(&["gc", "-q", "--prune=now"]);
 
@@ -3584,13 +3575,13 @@ mod race_tests {
             };
             let mut fail = |_| Err(Error::Other("stopped".into()));
             let err = sync
-                .rebuild_onto(&worktree, &gone, &base, &options, &mut fail)
+                .rebuild_onto(&worktree, gone, base, &options, &mut fail)
                 .await
                 .expect_err("stopped");
             assert!(matches!(&err, Error::Other(m) if m == "stopped"), "{err:?}");
             assert_eq!(
                 sync.get_worktree().await.expect("worktree").commit_id,
-                Some(base.clone()),
+                Some(base),
                 "the rebuild committed"
             );
 
@@ -3598,9 +3589,9 @@ mod race_tests {
             assert_eq!(done.len(), 1);
             assert_eq!(
                 done[0].branch,
-                format!("git-sync/recovered-{}", &gone[..12])
+                format!("git-sync/recovered-{}", gone.short(12))
             );
-            assert_eq!(name_at(sync, &done[0].commit), "lost");
+            assert_eq!(name_at(sync, done[0].commit), "lost");
         })
         .await;
     }
@@ -3669,7 +3660,7 @@ mod race_tests {
             );
             let repo = sync.repo().expect("repo");
             let tip = git::branch_tip(&repo, "exported").expect("tip");
-            assert_eq!(tip.map(|t| t.to_string()), Some(exported.commit));
+            assert_eq!(tip, Some(exported.commit));
             let pending = branch.list_changes(None, false).await.expect("changes");
             assert!(pending.iter().any(|r| r.key == "on-the-branch"));
         })
@@ -3699,9 +3690,9 @@ mod race_tests {
                 .expect("commit");
             assert!(moved);
             let exported = committed.exported.expect("exported");
-            assert_eq!(name_at(sync, &exported.commit), "ours");
+            assert_eq!(name_at(sync, exported.commit), "ours");
             let commit = committed.commit.expect("committed");
-            assert_eq!(name_at(sync, &commit), "theirs");
+            assert_eq!(name_at(sync, commit), "theirs");
         })
         .await;
     }
@@ -3845,7 +3836,10 @@ mod race_tests {
                         && *found == Some(outside.to_string())),
                 "{err:?}"
             );
-            assert_eq!(repo.head_id().expect("head").detach(), outside);
+            assert_eq!(
+                CommitId::from(repo.head_id().expect("head").detach()),
+                outside
+            );
 
             let oid = sync
                 .commit_repository("retry", Default::default())
@@ -3853,14 +3847,12 @@ mod race_tests {
                 .expect("retry")
                 .commit
                 .expect("a commit");
-            let commit = repo
-                .find_commit(gix::ObjectId::from_hex(oid.as_bytes()).expect("oid"))
-                .expect("commit");
+            let commit = repo.find_commit(oid.oid()).expect("commit");
             assert_eq!(
                 commit.parent_ids().next().map(|p| p.detach()),
-                Some(outside)
+                Some(outside.oid())
             );
-            let committed = git::read_blob_at_commit(&repo, &oid, FILE)
+            let committed = git::read_blob_at_commit(&repo, oid, FILE)
                 .expect("read")
                 .expect("in the commit");
             assert!(String::from_utf8_lossy(&committed).contains("name: a"));
@@ -3916,7 +3908,7 @@ mod scan_cache_tests {
         .expect("scan")
     }
 
-    async fn commit_of(sync: &SyncedRepo, path: &str) -> Option<String> {
+    async fn commit_of(sync: &SyncedRepo, path: &str) -> Option<CommitId> {
         let row = sync.get_file(path).await.expect("get").expect("row");
         row.commit_id
     }
@@ -3983,10 +3975,7 @@ mod scan_cache_tests {
         std::fs::write(&path, &text).expect("restore");
         let back = git::commit_paths(&repo, &["cloudmap.yaml".into()], "back").expect("commit");
         scan(&sync, false).await;
-        assert_eq!(
-            commit_of(&sync, "cloudmap.yaml").await,
-            Some(back.to_string())
-        );
+        assert_eq!(commit_of(&sync, "cloudmap.yaml").await, Some(back));
     }
 
     #[tokio::test]
@@ -4007,10 +3996,7 @@ mod scan_cache_tests {
         std::fs::write(&path, text.replace("name: dashboard", "name: renamed")).expect("edit");
         let touched = git::commit_paths(&repo, &["cloudmap.yaml".into()], "touch").expect("commit");
         scan(&sync, false).await;
-        assert_eq!(
-            commit_of(&sync, "cloudmap.yaml").await,
-            Some(touched.to_string())
-        );
+        assert_eq!(commit_of(&sync, "cloudmap.yaml").await, Some(touched));
     }
 }
 

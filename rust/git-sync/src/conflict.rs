@@ -15,6 +15,7 @@
 //! unsaved edit trivially does -- and [`conflict_kind`] names the
 //! result. The rest is bookkeeping over the conflict rows themselves.
 
+use crate::commit::CommitId;
 use crate::crud::{compute_aliases, enforce_conflict};
 use unfurl_merge::markdown::Applied;
 
@@ -108,7 +109,7 @@ pub(crate) struct TheirSide<'a> {
     /// an uncommitted hand edit. Not "the commit that last touched the
     /// path", which is a different question and would name a commit
     /// that does not hold what this row records.
-    pub(crate) commit_id: Option<&'a str>,
+    pub(crate) commit_id: Option<CommitId>,
 }
 
 /// Record the file's value for a diverged record, creating the conflict
@@ -233,7 +234,7 @@ pub(crate) fn apply_pending_records(
     file_path: &str,
     pending: Vec<Record>,
     format: Option<&dyn crate::DataFormat>,
-    bases: &std::collections::HashMap<(String, String), Option<String>>,
+    bases: &std::collections::HashMap<(String, String), Option<CommitId>>,
     conflict_rows: &std::collections::HashMap<(String, String), Record>,
     check: Option<&ConflictCheck>,
 ) -> Applying {
@@ -254,13 +255,13 @@ pub(crate) fn apply_pending_records(
         let theirs =
             crate::document::record_in(root, section_kind, &section_name, &rec.key).cloned();
         let base_commit = bases.get(&at).cloned().flatten();
-        let report = |kind, base_commit: &Option<String>, theirs: Option<&serde_json::Value>| {
+        let report = |kind, base_commit: &Option<CommitId>, theirs: Option<&serde_json::Value>| {
             RecordConflict {
                 file_path: file_path.to_string(),
                 path: rec.path.clone(),
                 key: rec.key.clone(),
                 kind,
-                base_commit_id: base_commit.clone(),
+                base_commit_id: *base_commit,
                 theirs: theirs.cloned(),
             }
         };
@@ -399,7 +400,7 @@ pub(crate) async fn apply_conflict_ops_in_tx<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     file_path: &str,
-    commit_id: Option<&str>,
+    commit_id: Option<CommitId>,
     ops: &[ConflictOp],
 ) -> Result<()> {
     let existing = conflict_rows(tx, sync, file_path).await?;
@@ -559,20 +560,13 @@ pub(crate) async fn resolve_conflict_in_tx<DB: Store>(
                 };
                 // taken in from the file, so not a pending edit: it keeps
                 // a commit that holds the file
-                let commit = match committed.as_ref().and_then(|r| r.commit_id.clone()) {
+                let commit = match committed.as_ref().and_then(|r| r.commit_id) {
                     Some(c) => Some(c),
                     None => DB::head_commit(tx, w).await?,
                 };
-                let written = segments::write(
-                    tx,
-                    w,
-                    at,
-                    value,
-                    Origin::File(commit.as_deref()),
-                    record,
-                    version,
-                )
-                .await?;
+                let written =
+                    segments::write(tx, w, at, value, Origin::File(commit), record, version)
+                        .await?;
                 written.key_id
             } else {
                 committed.map_or(ours.key_id, |r| r.key_id)

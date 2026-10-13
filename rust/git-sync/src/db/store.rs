@@ -16,6 +16,7 @@
 
 use std::future::Future;
 
+use crate::commit::CommitId;
 use crate::db;
 use crate::db::tables::{
     At, FileRow, NewRecordRow, RecordColumns, RecordRow, SegmentEnd, Superseded, WorktreeSegs,
@@ -144,7 +145,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
         tx: &mut sqlx::Transaction<'_, Self>,
         row: i64,
         seg: i64,
-        commit_id: &str,
+        commit_id: CommitId,
     ) -> impl Future<Output = Result<()>> + Send;
 
     fn set_conflict_state(
@@ -186,7 +187,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
     fn set_head_commit(
         tx: &mut sqlx::Transaction<'_, Self>,
         worktree_id: i64,
-        commit: &str,
+        commit: CommitId,
     ) -> impl Future<Output = Result<()>> + Send;
 
     /// Record what the committed segments and the working tree hold of a
@@ -265,7 +266,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
     fn segment_ending_at(
         tx: &mut sqlx::Transaction<'_, Self>,
         family: i64,
-        commit: &str,
+        commit: CommitId,
     ) -> impl Future<Output = Result<Option<i64>>> + Send;
 
     /// Segment `base`, whose state is `commit`'s, made one to build on: an
@@ -275,7 +276,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
         tx: &mut sqlx::Transaction<'_, Self>,
         family: i64,
         base: i64,
-        commit: &str,
+        commit: CommitId,
     ) -> impl Future<Output = Result<Option<i64>>> + Send;
 
     /// C.13: create worktree `(origin, branch)` at `commit`, in `family`,
@@ -287,7 +288,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
         base: i64,
         origin: &str,
         branch: &str,
-        commit: &str,
+        commit: CommitId,
     ) -> impl Future<Output = Result<i64>> + Send;
 
     /// Each worktree of `family`'s head segment.
@@ -308,7 +309,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
     fn split_segment(
         tx: &mut sqlx::Transaction<'_, Self>,
         s: i64,
-        commit: &str,
+        commit: CommitId,
     ) -> impl Future<Output = Result<i64>> + Send;
 
     /// Move row `row` into segment `seg`, as it is.
@@ -339,7 +340,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
         tx: &mut sqlx::Transaction<'_, Self>,
         family: i64,
         parent: Option<i64>,
-        commit: &str,
+        commit: CommitId,
         owner: i64,
     ) -> impl Future<Output = Result<i64>> + Send;
 
@@ -400,7 +401,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
         w: i64,
         base: Option<i64>,
         head: i64,
-        commit: &str,
+        commit: CommitId,
     ) -> impl Future<Output = Result<()>> + Send;
 
     /// Stamp the worktree's outstanding `txn` rows with the commit that
@@ -408,14 +409,14 @@ pub(crate) trait Store: sqlx::Database + Sized {
     fn stamp_txns(
         tx: &mut sqlx::Transaction<'_, Self>,
         worktree_id: i64,
-        commit: &str,
+        commit: CommitId,
     ) -> impl Future<Output = Result<()>> + Send;
 
     /// The worktree's `txn` rows `commit` carried are outstanding again.
     fn unstamp_txns(
         tx: &mut sqlx::Transaction<'_, Self>,
         worktree_id: i64,
-        commit: &str,
+        commit: CommitId,
     ) -> impl Future<Output = Result<()>> + Send;
 
     /// Draft edit `id` is based at `base_commit`, on `base_json`, or is a
@@ -423,7 +424,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
     fn rebase_edit(
         tx: &mut sqlx::Transaction<'_, Self>,
         id: i64,
-        base_commit: Option<&str>,
+        base_commit: Option<CommitId>,
         base_json: Option<&serde_json::Value>,
     ) -> impl Future<Output = Result<()>> + Send;
 
@@ -464,7 +465,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
     fn head_commit(
         tx: &mut sqlx::Transaction<'_, Self>,
         worktree_id: i64,
-    ) -> impl Future<Output = Result<Option<String>>> + Send;
+    ) -> impl Future<Output = Result<Option<CommitId>>> + Send;
 
     /// The file new records go to when a write names none.
     fn default_file_path(
@@ -493,7 +494,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
         tx: &mut sqlx::Transaction<'_, Self>,
         worktree_id: i64,
         file_path: &str,
-    ) -> impl Future<Output = Result<Option<(Option<String>, bool)>>> + Send;
+    ) -> impl Future<Output = Result<Option<(Option<CommitId>, bool)>>> + Send;
 
     fn set_file_deleted(
         tx: &mut sqlx::Transaction<'_, Self>,
@@ -718,7 +719,7 @@ macro_rules! store_impl {
                 tx: &mut sqlx::Transaction<'_, Self>,
                 row: i64,
                 seg: i64,
-                commit_id: &str,
+                commit_id: CommitId,
             ) -> Result<()> {
                 let sql = sql!(tx, "UPDATE record SET segment_id = ?2, commit_id = ?3, base_commit_id = NULL, \
                          base_json = NULL, settled = NULL WHERE id = ?1",);
@@ -813,7 +814,7 @@ macro_rules! store_impl {
             async fn set_head_commit(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 worktree_id: i64,
-                commit: &str,
+                commit: CommitId,
             ) -> Result<()> {
                 let sql = sql!(tx, "UPDATE segment SET head_commit = ?2 \
                      WHERE id = (SELECT head_segment_id FROM worktree WHERE id = ?1)",);
@@ -867,7 +868,7 @@ macro_rules! store_impl {
                 let sql = sql!(tx, "SELECT worktree_id, path, format, commit_id, source_oid, committed_oid, deleted \
                      FROM file WHERE worktree_id = ?1 AND (CAST(?2 AS TEXT) IS NULL OR path = ?2) \
                      ORDER BY path",);
-                let rows: Vec<(i64, String, String, Option<String>, Option<String>, Option<String>, bool)> =
+                let rows: Vec<(i64, String, String, Option<CommitId>, Option<String>, Option<String>, bool)> =
                     sqlx::query_as(&sql)
                         .bind(worktree_id)
                         .bind(path)
@@ -1020,7 +1021,7 @@ macro_rules! store_impl {
             async fn segment_ending_at(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 family: i64,
-                commit: &str,
+                commit: CommitId,
             ) -> Result<Option<i64>> {
                 let row: Option<(i64,)> = sqlx::query_as(sql!(
                     tx,
@@ -1039,7 +1040,7 @@ macro_rules! store_impl {
                 tx: &mut sqlx::Transaction<'_, Self>,
                 family: i64,
                 base: i64,
-                commit: &str,
+                commit: CommitId,
             ) -> Result<Option<i64>> {
                 let (kind, parent, owner): (String, Option<i64>, Option<i64>) = sqlx::query_as(sql!(
                     tx,
@@ -1115,7 +1116,7 @@ macro_rules! store_impl {
                 base: i64,
                 origin: &str,
                 branch: &str,
-                commit: &str,
+                commit: CommitId,
             ) -> Result<i64> {
                 let base = Self::prepare_base(tx, family, base, commit).await?;
                 let (w,): (i64,) = sqlx::query_as(sql!(
@@ -1224,7 +1225,7 @@ macro_rules! store_impl {
             async fn split_segment(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 s: i64,
-                commit: &str,
+                commit: CommitId,
             ) -> Result<i64> {
                 let (s2,): (i64,) = sqlx::query_as(sql!(
                     tx,
@@ -1332,7 +1333,7 @@ macro_rules! store_impl {
                 tx: &mut sqlx::Transaction<'_, Self>,
                 family: i64,
                 parent: Option<i64>,
-                commit: &str,
+                commit: CommitId,
                 owner: i64,
             ) -> Result<i64> {
                 let (id,): (i64,) = sqlx::query_as(sql!(
@@ -1525,7 +1526,7 @@ macro_rules! store_impl {
                 w: i64,
                 base: Option<i64>,
                 head: i64,
-                commit: &str,
+                commit: CommitId,
             ) -> Result<()> {
                 let (old, v): (i64, i64) = sqlx::query_as(sql!(
                     tx,
@@ -1613,7 +1614,7 @@ macro_rules! store_impl {
             async fn stamp_txns(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 worktree_id: i64,
-                commit: &str,
+                commit: CommitId,
             ) -> Result<()> {
                 let sql = sql!(tx, "UPDATE txn SET commit_id = ?2 WHERE worktree_id = ?1 AND commit_id IS NULL",);
                 sqlx::query(&sql)
@@ -1627,7 +1628,7 @@ macro_rules! store_impl {
             async fn unstamp_txns(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 worktree_id: i64,
-                commit: &str,
+                commit: CommitId,
             ) -> Result<()> {
                 let sql = sql!(tx, "UPDATE txn SET commit_id = NULL WHERE worktree_id = ?1 AND commit_id = ?2",);
                 sqlx::query(&sql)
@@ -1641,7 +1642,7 @@ macro_rules! store_impl {
             async fn rebase_edit(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 id: i64,
-                base_commit: Option<&str>,
+                base_commit: Option<CommitId>,
                 base_json: Option<&serde_json::Value>,
             ) -> Result<()> {
                 let base_json = base_json.map(|b| serde_json::to_string(b).expect("a value serializes"));
@@ -1721,9 +1722,9 @@ macro_rules! store_impl {
             async fn head_commit(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 worktree_id: i64,
-            ) -> Result<Option<String>> {
+            ) -> Result<Option<CommitId>> {
                 let sql = sql!(tx, "SELECT commit_id FROM worktree WHERE id = ?1");
-                let (commit,): (Option<String>,) = sqlx::query_as(&sql)
+                let (commit,): (Option<CommitId>,) = sqlx::query_as(&sql)
                     .bind(worktree_id)
                     .fetch_one(&mut **tx)
                     .await?;
@@ -1777,7 +1778,7 @@ macro_rules! store_impl {
                 tx: &mut sqlx::Transaction<'_, Self>,
                 worktree_id: i64,
                 file_path: &str,
-            ) -> Result<Option<(Option<String>, bool)>> {
+            ) -> Result<Option<(Option<CommitId>, bool)>> {
                 let sql = sql!(tx, "SELECT commit_id, deleted FROM file WHERE worktree_id = ?1 AND path = ?2",);
                 Ok(sqlx::query_as(&sql)
                     .bind(worktree_id)

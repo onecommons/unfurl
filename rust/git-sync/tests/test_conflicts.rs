@@ -383,7 +383,7 @@ async fn rescan_reports_modify_modify(sync: &SyncedRepo, tmp: &TempDir) {
         ("cloudmap.yaml", "/repositories")
     );
     assert_eq!(c.key, DASHBOARD);
-    assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
+    assert_eq!(c.base_commit_id, Some(base));
     assert_eq!(c.theirs.as_ref().expect("theirs carried")["name"], "theirs");
     assert!(
         sync.list_changes(None, false)
@@ -445,7 +445,7 @@ async fn rescan_reports_modify_delete_but_not_creates(sync: &SyncedRepo, tmp: &T
     let c = &stats.conflicts[0];
     assert_eq!(c.kind, RecordConflictKind::ModifyDelete);
     assert_eq!(c.key, DASHBOARD);
-    assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
+    assert_eq!(c.base_commit_id, Some(base));
     assert_eq!(c.theirs, None, "the file side deleted the record");
     for key in [DASHBOARD, "git://example.com/created.git"] {
         assert!(
@@ -489,7 +489,7 @@ async fn consecutive_updates_keep_base(sync: &SyncedRepo, tmp: &TempDir) {
     assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
     let c = &stats.conflicts[0];
     assert_eq!(c.kind, RecordConflictKind::ModifyModify);
-    assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
+    assert_eq!(c.base_commit_id, Some(base));
 }
 
 /// Across an edit → commit → edit cycle, the base of the second edit is
@@ -538,10 +538,7 @@ async fn base_tracks_the_latest_commit(sync: &SyncedRepo, tmp: &TempDir) {
         .await
         .expect("rescan");
     assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
-    assert_eq!(
-        stats.conflicts[0].base_commit_id.as_deref(),
-        Some(oid.as_str())
-    );
+    assert_eq!(stats.conflicts[0].base_commit_id, Some(oid));
 }
 
 /// A dirty file's rows read as committed-at-their-path's-last-commit,
@@ -601,7 +598,7 @@ async fn commit_carries_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
         .await
         .expect("get")
         .expect("present");
-    assert_eq!(rec.commit_id.as_deref(), Some(oid.as_str()));
+    assert_eq!(rec.commit_id, Some(oid));
     assert_eq!(head_commit(sync).await, oid, "the commit reached the repo");
     assert!(
         sync.commit_repository("again", Default::default())
@@ -701,7 +698,7 @@ async fn rescan_reports_delete_modify(sync: &SyncedRepo, tmp: &TempDir) {
     let c = &stats.conflicts[0];
     assert_eq!(c.kind, RecordConflictKind::DeleteModify);
     assert_eq!(c.key, DASHBOARD);
-    assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
+    assert_eq!(c.base_commit_id, Some(base));
     assert_eq!(c.theirs.as_ref().expect("theirs carried")["name"], "theirs");
 }
 
@@ -908,7 +905,7 @@ async fn commit_takes_outside_edits_in_first(sync: &SyncedRepo, tmp: &TempDir) {
         .expect("get")
         .expect("present");
     assert_eq!(rec.json["name"], "by-hand");
-    assert_eq!(rec.commit_id.as_deref(), Some(oid.as_str()));
+    assert_eq!(rec.commit_id, Some(oid));
     let on_disk: serde_json::Value = serde_saphyr::from_str(
         &std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read"),
     )
@@ -1060,8 +1057,8 @@ async fn a_commit_carries_the_file_not_the_record(sync: &SyncedRepo, tmp: &TempD
     let theirs = only_conflict(sync).await;
     assert_eq!(theirs.json["name"], "theirs");
     assert_eq!(
-        theirs.commit_id.as_deref(),
-        Some(oid.as_str()),
+        theirs.commit_id,
+        Some(oid),
         "the conflict row is what this commit carries"
     );
 
@@ -1135,7 +1132,7 @@ async fn an_outside_commit_conflicts_like_a_hand_edit(sync: &SyncedRepo, tmp: &T
     let theirs = only_conflict(sync).await;
     assert_eq!(theirs.json["name"], "upstream");
     assert_eq!(theirs.conflict, Some(ConflictState::Conflict));
-    assert_eq!(theirs.commit_id.as_deref(), Some(upstream.as_str()));
+    assert_eq!(theirs.commit_id, Some(upstream));
     let ours = sync
         .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
         .await

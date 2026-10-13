@@ -10,6 +10,7 @@
 //! error -- an [`crate::Error::Conflict`] included -- the transaction is
 //! dropped without commit, so it rolls back.
 
+use crate::commit::CommitId;
 use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{At, RecordRow};
 use crate::error::{Error, Result};
@@ -34,7 +35,7 @@ pub(crate) fn enforce_conflict(
     file_path: &str,
     path: &str,
     expected: &CommitRef,
-    existing_record_commit: Option<&String>,
+    existing_record_commit: Option<&CommitId>,
     existing_record_version: Option<i64>,
     record_present: bool,
 ) -> Result<()> {
@@ -59,7 +60,7 @@ pub(crate) fn enforce_conflict(
                     file_path: file_path.to_string(),
                     path: path.to_string(),
                     expected: expected.clone(),
-                    actual: existing_record_commit.cloned(),
+                    actual: existing_record_commit.map(CommitId::to_string),
                 })
             }
         }
@@ -67,12 +68,13 @@ pub(crate) fn enforce_conflict(
             // Oid token requires an existing record at the given key,
             // and its commit_id must match.
             match existing_record_commit {
-                Some(actual) if actual == expected_oid => Ok(()),
+                // the client's token is its text, compared as such
+                Some(actual) if actual.to_string() == *expected_oid => Ok(()),
                 actual => Err(Error::Conflict {
                     file_path: file_path.to_string(),
                     path: path.to_string(),
                     expected: expected.clone(),
-                    actual: actual.cloned(),
+                    actual: actual.map(CommitId::to_string),
                 }),
             }
         }

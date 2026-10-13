@@ -14,7 +14,7 @@ use unfurl_git_sync::{
 /// Initialise a fresh git repository at `path` and commit
 /// `expected_cloudmap.yaml` (copied from this crate's fixtures dir) as
 /// `cloudmap.yaml`.
-pub async fn init_repo_with_fixture(path: &Path) -> gix::ObjectId {
+pub async fn init_repo_with_fixture(path: &Path) -> unfurl_git_sync::CommitId {
     let fixture = std::fs::read(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/expected_cloudmap.yaml"),
     )
@@ -210,8 +210,8 @@ pub async fn open_at(dir: &std::path::Path, db: &str) -> SyncedRepo {
 
 pub const DASHBOARD: &str = "git://unfurl.cloud/feb20a/dashboard.git";
 
-/// HEAD as a hex string, for asserting conflict bases.
-pub async fn head_commit(sync: &SyncedRepo) -> String {
+/// HEAD, for asserting conflict bases.
+pub async fn head_commit(sync: &SyncedRepo) -> unfurl_git_sync::CommitId {
     sync.get_working_dir()
         .await
         .expect("working dir")

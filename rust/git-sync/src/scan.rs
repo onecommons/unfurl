@@ -12,6 +12,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::commit::CommitId;
 use crate::conflict::{classify_conflict, drop_conflict_row, refresh_conflict_row, TheirSide};
 use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{At, FileRow, NewRecordRow, Place, RecordRow};
@@ -33,11 +34,11 @@ pub(crate) struct ScannedFile<'a> {
     /// Commit that last touched the path — what scanned records are
     /// stamped with, clean or dirty. `None` only for a path no commit
     /// has ever carried.
-    pub(crate) record_commit_id: Option<&'a str>,
+    pub(crate) record_commit_id: Option<CommitId>,
     /// The same commit when the on-disk blob matches the index entry,
     /// `None` when the file is dirty — what the file row gets, so a
     /// NULL there means "this content is not in git".
-    pub(crate) file_commit_id: Option<&'a str>,
+    pub(crate) file_commit_id: Option<CommitId>,
     /// Blob OID of the exact bytes `value` was parsed from.
     pub(crate) source_oid: &'a str,
     /// The parsed document.
@@ -195,7 +196,7 @@ impl Named<'_, '_> {
     /// The ids for the places `changes` gives a value.
     fn ids(
         &mut self,
-        commit: &str,
+        commit: CommitId,
         changes: &BTreeMap<Place, Option<serde_json::Value>>,
     ) -> Result<BTreeMap<Place, i64>> {
         let history = match self {
@@ -219,7 +220,7 @@ impl Named<'_, '_> {
 async fn advance_head<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
-    commit: &str,
+    commit: CommitId,
     files: &[HeadFile],
     mut named: Named<'_, '_>,
     stats: &mut SyncOutcome,
@@ -337,7 +338,7 @@ async fn advance_head<DB: Store>(
                     file_path: p.file_path.clone(),
                     path: p.path.clone(),
                     key: p.key.clone(),
-                    commit_id: Some(commit.to_string()),
+                    commit_id: Some(commit),
                     json: value.clone(),
                     deleted: false,
                     version: first + i as i64,
@@ -619,7 +620,7 @@ async fn pending_edit<DB: Store>(
                 path: at.path.to_string(),
                 key: at.key.to_string(),
                 kind,
-                base_commit_id: p.base_commit_id.clone(),
+                base_commit_id: p.base_commit_id,
                 theirs: theirs.cloned(),
             });
         }
@@ -691,7 +692,7 @@ async fn take_in<DB: Store>(
                 file_path: file.rel_path.to_string(),
                 path: at.path.to_string(),
                 key: at.key.to_string(),
-                commit_id: file.record_commit_id.map(str::to_string),
+                commit_id: file.record_commit_id,
                 json: v.clone(),
                 deleted: false,
                 version,
@@ -743,14 +744,7 @@ async fn rename_file<DB: Store>(
             key: &c.key,
         };
         let row = |at, deleted| {
-            NewRecordRow::new(
-                at,
-                Some(c.key_id),
-                c.commit_id.as_deref(),
-                &c.json,
-                deleted,
-                c.version,
-            )
+            NewRecordRow::new(at, Some(c.key_id), c.commit_id, &c.json, deleted, c.version)
         };
         DB::insert(tx, d, row(old, true)).await?;
         DB::entry(tx, c.id, d, c.key_id).await?;
@@ -770,7 +764,7 @@ async fn rename_file<DB: Store>(
                 file_path: to.to_string(),
                 path: c.path.clone(),
                 key: c.key.clone(),
-                commit_id: c.commit_id.clone(),
+                commit_id: c.commit_id,
                 json: c.json.clone(),
                 deleted: false,
                 version: c.version,
@@ -799,7 +793,7 @@ async fn rename_file<DB: Store>(
 
 /// The commit a scan brings the head up to.
 pub(crate) struct Head<'a, 's> {
-    pub(crate) commit: &'a str,
+    pub(crate) commit: CommitId,
     /// Its files whose blob the committed segments don't hold.
     pub(crate) files: &'a [HeadFile],
     /// Where the ids rollups name are read; `None` where nothing can name one.
@@ -862,7 +856,7 @@ pub(crate) async fn scan_in_pool<DB: Store>(
 
 /// What a commit carried, for [`commit_in_pool`].
 pub(crate) struct Carried<'a> {
-    pub(crate) commit: &'a str,
+    pub(crate) commit: CommitId,
     /// The files it was made for.
     pub(crate) files: &'a BTreeSet<String>,
     /// Those it deletes.

@@ -61,6 +61,7 @@
 #![deny(rust_2018_idioms)]
 
 mod branches;
+pub mod commit;
 mod conflict;
 mod crud;
 pub mod db;
@@ -79,6 +80,8 @@ mod scan;
 mod segments;
 pub mod sync;
 
+#[doc(inline)]
+pub use commit::CommitId;
 #[doc(inline)]
 pub use db::{Db, DbConfig};
 #[doc(inline)]

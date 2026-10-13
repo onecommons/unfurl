@@ -2,6 +2,7 @@
 //! conflict move to a new branch, committed onto their base, and the
 //! worktree takes the file's values (docs/branch-segments.md §4.15, C.20).
 
+use crate::commit::CommitId;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::conflict::resolve_conflict_in_tx;
@@ -20,7 +21,7 @@ enum Attempt {
     /// Nothing is in conflict.
     Nothing,
     /// The edits are in branch `n`'s draft, forked at `base`.
-    Moved(i64, gix::ObjectId),
+    Moved(i64, CommitId),
     /// A write changed the conflicted edits between the read and the move.
     Raced,
 }
@@ -147,11 +148,10 @@ impl SyncedRepo {
         ) else {
             return Err(exists(branch));
         };
-        let at = gix::ObjectId::from_hex(at.as_bytes()).map_err(|e| Error::Git(e.to_string()))?;
         let pending = !on_pool!(self.db(), pool => draft_edits_in_pool(pool, n).await)?.is_empty();
         match (pending, tip == at) {
             (true, true) => self.commit_export(branch, n, at, after).await.map(Some),
-            (false, false) if git::parents(&repo, at)? == [tip] => {
+            (false, false) if git::commit_parents(&repo, at)? == [tip] => {
                 self.finish_export(branch, n, tip, at).await.map(Some)
             }
             // finished, the ref moved, with its mark left behind
@@ -175,15 +175,12 @@ impl SyncedRepo {
         let (false, Some(head)) = (edits.is_empty(), head) else {
             return Ok(Attempt::Nothing);
         };
-        let bases: Vec<String> = edits
-            .iter()
-            .filter_map(|e| e.base_commit_id.clone())
-            .collect();
+        let bases: Vec<CommitId> = edits.iter().filter_map(|e| e.base_commit_id).collect();
         let base = git::export_base(&repo, head, &bases)?;
         // what the commit will hold: a file that can't be rendered fails
         // the export here, before anything changes
         self.render_at(&repo, base, edits.iter().cloned().map(|e| e.into_record(w)))?;
-        let blobs = git::tree_blobs(&repo, &base.to_string())?;
+        let blobs = git::tree_blobs(&repo, base)?;
         let files = self.files_at(&blobs).await?;
         let from = db::worktree::get(self.db(), w).await?;
         // claims the name before anything in the database changes
@@ -193,7 +190,7 @@ impl SyncedRepo {
             origin: &from.origin,
             branch,
             from: &from.branch,
-            base: &base.to_string(),
+            base,
             files: &files,
         };
         let moved = match before_move().await {
@@ -218,17 +215,16 @@ impl SyncedRepo {
     fn render_at(
         &self,
         repo: &gix::Repository,
-        base: gix::ObjectId,
+        base: CommitId,
         records: impl IntoIterator<Item = Record>,
     ) -> Result<Vec<(String, Option<Vec<u8>>)>> {
         let mut by_file: BTreeMap<String, Vec<Record>> = BTreeMap::new();
         for r in records {
             by_file.entry(r.file_path.clone()).or_default().push(r);
         }
-        let base = base.to_string();
         let mut changed = Vec::new();
         for (file, pending) in by_file {
-            let source = git::read_blob_at_commit(repo, &base, &file)?;
+            let source = git::read_blob_at_commit(repo, base, &file)?;
             if let Some(bytes) = self.render_onto(&file, source.as_deref(), pending)? {
                 changed.push((file, Some(bytes)));
             }
@@ -268,7 +264,7 @@ impl SyncedRepo {
         &self,
         branch: &str,
         n: i64,
-        base: gix::ObjectId,
+        base: CommitId,
         after: &mut impl FnMut(ExportStep) -> Result<()>,
     ) -> Result<Exported> {
         let sib = self.sibling(n);
@@ -288,7 +284,6 @@ impl SyncedRepo {
                 c
             }
         };
-        let oid = commit.to_string();
         // its files at the base, so only those the export changed are parsed
         let known: std::collections::HashMap<String, crate::model::File> =
             db::file::list(self.db(), n)
@@ -296,9 +291,9 @@ impl SyncedRepo {
                 .into_iter()
                 .map(|f| (f.path.clone(), f))
                 .collect();
-        let head_side = sib.head_files(&repo, Some(&oid), &known, false)?;
+        let head_side = sib.head_files(&repo, Some(commit), &known, false)?;
         let carried = Carried {
-            commit: &oid,
+            commit,
             files: &files,
             removed: &[],
             watermark,
@@ -320,10 +315,10 @@ impl SyncedRepo {
         &self,
         branch: &str,
         n: i64,
-        base: gix::ObjectId,
-        commit: gix::ObjectId,
+        base: CommitId,
+        commit: CommitId,
     ) -> Result<Exported> {
-        let message = git::commit_message(&self.repo()?, &commit.to_string()).unwrap_or_default();
+        let message = git::commit_message(&self.repo()?, commit).unwrap_or_default();
         let rollup = parse_commit_rollup(&message)?.ok_or_else(|| {
             Error::Other(format!(
                 "{branch}: the export's commit {commit} has no rollup"
@@ -337,8 +332,8 @@ impl SyncedRepo {
         &self,
         branch: &str,
         n: i64,
-        base: gix::ObjectId,
-        commit: gix::ObjectId,
+        base: CommitId,
+        commit: CommitId,
         rollup: CommitRollup,
     ) -> Result<Exported> {
         if commit != base {
@@ -354,7 +349,7 @@ impl SyncedRepo {
         Ok(Exported {
             branch: branch.to_string(),
             worktree_id: n,
-            commit: commit.to_string(),
+            commit,
             records,
         })
     }
@@ -373,7 +368,7 @@ struct Fork<'a> {
     origin: &'a str,
     branch: &'a str,
     from: &'a str,
-    base: &'a str,
+    base: CommitId,
     files: &'a [(String, String, String)],
 }
 

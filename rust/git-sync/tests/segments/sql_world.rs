@@ -205,14 +205,14 @@ impl SqlWorld {
                     .commit;
                 match (made, world.git.commits.len() > before.commits) {
                     (Some(oid), true) => {
+                        let oid = oid.to_string();
                         mirror.adopt(&world.git, w, before.commits, &oid);
                         self.check_rollup(world, before.commits, &oid, mirror);
                     }
                     (None, false) => {}
                     (made, _) => {
                         let shown = made
-                            .as_deref()
-                            .map(|oid| git(&mirror.root, &["show", oid], None))
+                            .map(|oid| git(&mirror.root, &["show", &oid.to_string()], None))
                             .unwrap_or_default();
                         panic!(
                             "the implementation's commit: {made:?}\n{shown}\nmodel: {:?}",
@@ -268,7 +268,7 @@ impl SqlWorld {
                 let upstream = mirror.oids.last().expect("upstream").clone();
                 let rebased = self
                     .rt
-                    .block_on(self.repos[&w].rebase_onto(&upstream))
+                    .block_on(self.repos[&w].rebase_onto(upstream.parse().expect("a commit")))
                     .unwrap();
                 if world.refused {
                     assert!(
@@ -315,9 +315,9 @@ impl SqlWorld {
                 true => {
                     assert_eq!(world.git.commits.len(), before.commits, "a commit");
                     let tip = git(&mirror.root, &["rev-parse", &branch], None);
-                    assert_eq!(tip, got.commit, "the export's ref");
+                    assert_eq!(tip, got.commit.to_string(), "the export's ref");
                 }
-                false => self.took_export(world, mirror, before, f, &got.commit),
+                false => self.took_export(world, mirror, before, f, &got.commit.to_string()),
             }
             return;
         }
@@ -341,7 +341,7 @@ impl SqlWorld {
             return;
         }
         let got = got.expect("an export");
-        self.took_export(world, mirror, before, f, &got.commit);
+        self.took_export(world, mirror, before, f, &got.commit.to_string());
         assert_eq!(self.exported.insert(f, got.worktree_id), None);
     }
 
@@ -361,8 +361,8 @@ impl SqlWorld {
         };
         let rows = self.rt.block_on(self.repos[&w].worktrees(&filter)).unwrap();
         if folded {
-            let commit = rows[0].commit_id.clone().expect("the commit folded");
-            self.took_export(world, mirror, before, f, &commit);
+            let commit = rows[0].commit_id.expect("the commit folded");
+            self.took_export(world, mirror, before, f, &commit.to_string());
         }
         self.exported.insert(f, rows[0].id);
         self.stuck.insert(w, (f, branch, folded));

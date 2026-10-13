@@ -215,7 +215,7 @@ async fn rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tmp: &
     let rows = sync.list_transactions().await.expect("list_transactions");
     assert_eq!(rows.len(), 2, "roll-forward must not delete rows");
     for row in &rows {
-        assert_eq!(row.commit_id.as_deref(), Some(oid.as_str()), "{row:?}");
+        assert_eq!(row.commit_id, Some(oid), "{row:?}");
     }
 }
 
