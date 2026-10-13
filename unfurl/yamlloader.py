@@ -841,6 +841,15 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         ExceptionCollector.appendException(ImportError(msg))
         return True
 
+    def _in_place_path(self, repo_view: RepoView, base: str) -> str:
+        """The directory a ``#HEAD`` package rule set ``repo_view`` to use in place, or "" (always "" in safe mode)."""
+        if not repo_view.package or self.get_safe_mode():
+            return ""
+        path = repo_view.package.local_path
+        if path:
+            return os.path.abspath(os.path.join(base, path))
+        return ""
+
     def _has_path_escaped_project(self, path) -> bool:
         if not self.confine_user_paths:
             return False
@@ -907,6 +916,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         # XXX lock_to_commit not implemented, currently used to indicate the lock have a tag
         # commit = repo_view.package.lock_to_commit if repo_view.package else ""
         bare = False  # not supported yet
+        in_place = "" if repo_view.repo else self._in_place_path(repo_view, base)
+        if in_place:
+            in_place_repo = Repo.find_containing_repo(in_place)
+            if in_place_repo:
+                repo_view.repo = in_place_repo
+                repo_view.path = os.path.relpath(in_place, in_place_repo.working_dir)
+                if repo_view.path == ".":
+                    repo_view.path = ""
         if not repo_view.repo:
             # calls LocalEnv.find_or_create_working_dir()
             # XXX coalesce repoviews
@@ -1081,7 +1098,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 if not os.path.isabs(repository_path):
                     repository_path = os.path.join(base, repository_path)
                 # None here means its root is the project
-                return self._resolve_file_path(None, repository_path, file_name)
+                root = repository_path if self._in_place_path(repo_view, base) else None
+                return self._resolve_file_path(root, repository_path, file_name)
             if self._safe_mode:
                 # we can have git urls that point to local git repos
                 # in safe mode, we want to make sure they don't escape the project either

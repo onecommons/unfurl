@@ -62,6 +62,7 @@ from .packages import (
     PackagesType,
     find_canonical,
     get_package_id_from_url,
+    is_package_rule_key,
     is_semver,
 )
 from .merge import merge_dicts
@@ -884,6 +885,7 @@ class Manifest(AttributeManager):
             resolver = self.get_import_resolver()
         # we need to fetch this every call since the config might have changed:
         repositories = self._get_repositories(config)
+        self._add_package_rules_from_ensemble(config)
         lock = config.get("lock")
         if lock and "package_rules" in lock and not self.package_specs:
             package_specs = [
@@ -954,8 +956,26 @@ class Manifest(AttributeManager):
             "repositories"
         ) or {}
         # these take priority:
-        repositories.update((tpl.get("environment") or {}).get("repositories") or {})
+        repositories.update(
+            (name, value)
+            for name, value in Manifest._get_environment_repositories(tpl).items()
+            if not is_package_rule_key(name)
+        )
         return repositories
+
+    @staticmethod
+    def _get_environment_repositories(tpl) -> Dict:
+        return (tpl.get("environment") or {}).get("repositories") or {}
+
+    def _add_package_rules_from_ensemble(self, config) -> None:
+        """Add the package rules in the ensemble's ``environment`` section ahead of the project's."""
+        package_specs = []
+        for name, tpl in self._get_environment_repositories(config).items():
+            if is_package_rule_key(name):
+                spec = PackageSpec(name, tpl.get("url"), tpl.get("revision"))
+                if spec not in self.package_specs:
+                    package_specs.append(spec)
+        self.package_specs[:0] = package_specs
 
     def _set_builtin_repositories(self):
         """Sets "unfurl", "self", "spec", and "project" repositories if not declared.

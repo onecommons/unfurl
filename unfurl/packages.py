@@ -55,6 +55,11 @@ You can also set these rules in ``UNFURL_PACKAGE_RULES`` environment variable wh
 ```UNFURL_PACKAGE_RULES="unfurl.cloud/onecommons/* #main unfurl.cloud/onecommons/unfurl-types github.com/user1/myfork"```
 
 The first rule sets the revision of matching packages to the branch "main", the second replaces one package with another package.
+
+A ``HEAD`` revision uses the package's current state without checking out a revision or checking versions.
+If its url is a local path or ``file:`` url, that directory is used in place, even outside the project (except in safe mode), e.g.:
+
+```UNFURL_PACKAGE_RULES="unfurl.cloud/onecommons/std /path/to/std#HEAD"```
 """
 
 import json
@@ -342,6 +347,11 @@ def reverse_rules_for_canonical(package_specs: List["PackageSpec"], canonical: s
     return reverse_rules
 
 
+def is_package_rule_key(key: str) -> bool:
+    """Whether a key in a ``repositories`` section names a package rule rather than a repository."""
+    return "." in key
+
+
 def get_package_id_from_url(url: str) -> Package_Url_Info:
     if (
         url.startswith(".")
@@ -350,6 +360,9 @@ def get_package_id_from_url(url: str) -> Package_Url_Info:
         or url.startswith("git-local")
     ):
         # this isn't a package id or a non-local git url
+        if url.endswith("#HEAD") and not url.startswith("git-local"):
+            # any other fragment on a file: url is left for git to resolve
+            return Package_Url_Info(None, url[: -len("#HEAD")], "HEAD")
         return Package_Url_Info(None, url, None)
 
     # package_ids can have a revision in the fragment
@@ -559,6 +572,14 @@ class Package:
             # since "^v" is in the semver regex, make sure don't end up with "vv"
             return self.version_tag_prefix() + self.revision.lstrip("v")
 
+    @property
+    def local_path(self) -> str:
+        """The local directory a ``#HEAD`` package rule set this package to use as is, or ""."""
+        if self.locked and not self.revision and self.url:
+            if not is_url_or_git_path(self.url):
+                return normalize_path(self.url)
+        return ""
+
     def is_mutable_ref(self) -> bool:
         # is this package pointing to ref that could change?
         if self.locked:
@@ -659,7 +680,7 @@ def resolve_package(
         return None
     # possibly change the package info if we match a PackageSpec
     changed = PackageSpec.update_package(package_specs, package)
-    if lock_dict:
+    if lock_dict and not package.local_path:
         apply_lock(lock_dict, package)
     if package.package_id not in packages:
         if not package.url:

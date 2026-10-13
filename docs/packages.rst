@@ -169,4 +169,27 @@ The first rule sets the revision of matching packages to the branch "main", and 
 
 If a ``UNFURL_PACKAGE_RULES`` environment variable is defined, its package rules are appended to the list of package rules in the enviroment's `repositories` section.
 
+An ensemble's ``environment`` section can declare package rules in its ``repositories`` too; they are applied before the project's rules.
+
 The active packages rules of an ensemble are saved in its `lock section <lock>` and are used in subsequent deployments if the ensemble's environment did not define any package rules.
+
+Using a package as is
+---------------------
+
+Setting a rule's revision to ``HEAD`` (``revision: HEAD`` or a ``#HEAD`` fragment) locks the package to the current state of its repository: Unfurl uses whatever is checked out without checking out or pulling a revision, and the versions that imports request aren't checked against it.
+
+If the rule's URL is a local path or a ``file:`` URL, that directory is used in place, even if it is outside the project. This is useful for developing a package alongside the blueprints that use it, for example:
+
+```UNFURL_PACKAGE_RULES="unfurl.cloud/onecommons/std /path/to/std#HEAD"```
+
+or in the environment's ``repositories`` section:
+
+.. code:: yaml
+
+    unfurl.cloud/onecommons/std:
+      url: /path/to/std
+      revision: HEAD
+
+In safe mode (e.g. in Unfurl Server) the directory must be inside the project. Without ``HEAD``, a local path must be inside the project too, and a ``file:`` URL with any other fragment is cloned into the project at that revision.
+
+The rule ``github.com/onecommons/unfurl #HEAD`` accepts the running version of Unfurl, whichever version a blueprint requires.

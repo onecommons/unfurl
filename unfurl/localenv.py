@@ -30,7 +30,7 @@ from typing import (
     cast,
 )
 from ansible.parsing.vault import VaultLib
-from .packages import Package, PackageSpec, ProxiedRepo, is_semver
+from .packages import Package, PackageSpec, ProxiedRepo, is_package_rule_key, is_semver
 from .repo import (
     GitRepo,
     Repo,
@@ -1803,7 +1803,7 @@ class LocalEnv:
         repositories = {}
         package_specs: List[PackageSpec] = []
         for key, value in relabel_dict(context, self, "repositories").items():
-            if "." in key:  # assume it's a package not a repository name
+            if is_package_rule_key(key):
                 assert isinstance(value, dict)
                 package_specs.append(
                     PackageSpec(key, value.get("url"), value.get("revision"))

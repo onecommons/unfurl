@@ -8,6 +8,7 @@ import git
 import pytest
 from toscaparser.common.exception import FatalToscaImportError
 from unfurl.localenv import LocalEnv
+from unfurl.lock import Lock
 from unfurl.packages import (
     PackageSpec,
     Package,
@@ -19,7 +20,8 @@ from unfurl.packages import (
     package_id_to_url,
     resolve_package,
 )
-from unfurl.repo import Repo, get_remote_refs, get_remote_tags
+from unfurl.repo import Repo, RepoView, get_remote_refs, get_remote_tags
+from toscaparser.repositories import Repository
 from unfurl.util import UnfurlError, taketwo
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.yamlloader import get_tags_from_proxy
@@ -357,6 +359,228 @@ def test_unfurl_dependencies():
     with pytest.raises(UnfurlError) as err:
         YamlManifest(ENSEMBLE_UNFURL_FUTURE)  # fails
     assert "was specified but the running version is" in str(err)
+
+
+def test_unfurl_head_rule(tmp_path):
+    ensemble_path = tmp_path / "ensemble.yaml"
+    ensemble_path.write_text(ENSEMBLE_UNFURL_FUTURE)
+    with pytest.raises(UnfurlError) as err:
+        LocalEnv(str(ensemble_path), homePath="").get_manifest()
+    assert "was specified but the running version is" in str(err)
+
+    local_env = LocalEnv(
+        str(ensemble_path),
+        homePath="",
+        overrides={"UNFURL_PACKAGE_RULES": "github.com/onecommons/unfurl #HEAD"},
+    )
+    assert local_env.get_manifest()
+
+
+_HEAD_ENSEMBLE = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
+    repositories:
+      std:
+        url: https://unfurl.cloud/onecommons/std.git#v1.0.0
+%s
+    imports:
+      - file: types.yaml
+        repository: std
+%s
+    topology_template: {}
+%s
+"""
+
+
+@pytest.fixture
+def head_pkg(tmp_path):
+    """A package checkout outside the project whose main branch is ahead of its v1.0.0 tag."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    repo = git.Repo.init(pkg, initial_branch="main")
+    with repo.config_writer() as config:
+        config.set_value("user", "name", "test")
+        config.set_value("user", "email", "test@example.com")
+    (pkg / "types.yaml").write_text(
+        "node_types:\n  FromTag: {derived_from: tosca.nodes.Root}\n"
+    )
+    repo.index.add(["types.yaml"])
+    repo.index.commit("v1")
+    repo.create_tag("v1.0.0")
+    (pkg / "types.yaml").write_text(
+        "imports:\n  - nested.yaml\n"
+        "node_types:\n  FromMain: {derived_from: tosca.nodes.Root}\n"
+    )
+    (pkg / "nested.yaml").write_text(
+        "node_types:\n  FromMainNested: {derived_from: tosca.nodes.Root}\n"
+    )
+    repo.index.add(["types.yaml", "nested.yaml"])
+    repo.index.commit("main")
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "unfurl.yaml").write_text("apiVersion: unfurl/v1alpha1\nkind: Project\n")
+    return pkg, project
+
+
+def _load_head_pkg(
+    project, rules=None, repositories="", imports="", extra="", safe_mode=None
+):
+    path = project / "ensemble.yaml"
+    path.write_text(_HEAD_ENSEMBLE % (repositories, imports, extra))
+    overrides = {"UNFURL_PACKAGE_RULES": rules} if rules else None
+    local_env = LocalEnv(str(path), homePath="", overrides=overrides)
+    return local_env.get_manifest(safe_mode=safe_mode)
+
+
+def _node_types(manifest):
+    return sorted(
+        name
+        for name in manifest.tosca.template.topology_template.custom_defs
+        if name.startswith("From")
+    )
+
+
+def _assert_untouched(pkg, project):
+    repo = git.Repo(pkg)
+    assert repo.active_branch.name == "main"
+    assert repo.head.commit.message == "main"
+    assert not repo.is_dirty()
+    assert not (project / "pkg").exists()
+
+
+@pytest.mark.parametrize("form", ["{pkg}#HEAD", "file://{pkg}#HEAD"])
+def test_local_head_rule(head_pkg, form):
+    pkg, project = head_pkg
+    rule = "unfurl.cloud/onecommons/std " + form.format(pkg=pkg)
+    spec = PackageSpec(*rule.split())
+    assert spec.revision == "HEAD"
+    assert PackageSpec(*spec.as_env_value().split()) == spec
+
+    manifest = _load_head_pkg(project, rule)
+    assert _node_types(manifest) == ["FromMain", "FromMainNested"]
+    _assert_untouched(pkg, project)
+
+
+_YAML_HEAD_RULES = [
+    "url: {pkg}\n  revision: HEAD",
+    "url: {pkg}#HEAD",
+    "url: file://{pkg}#HEAD",
+]
+
+
+def _yaml_rule(pkg, form, indent):
+    rule = "unfurl.cloud/onecommons/std:\n  " + form.format(pkg=pkg)
+    return "".join(" " * indent + line + "\n" for line in rule.splitlines())
+
+
+def test_local_head_rule_yaml_spec(head_pkg):
+    pkg, project = head_pkg
+    spec = PackageSpec("unfurl.cloud/onecommons/std", str(pkg), "HEAD")
+    assert spec.as_env_value() == f"unfurl.cloud/onecommons/std {pkg}#HEAD"
+    assert PackageSpec(*spec.as_env_value().split()) == spec
+
+
+@pytest.mark.parametrize("form", _YAML_HEAD_RULES)
+def test_local_head_rule_project(head_pkg, form):
+    pkg, project = head_pkg
+    (project / "unfurl.yaml").write_text(
+        "apiVersion: unfurl/v1alpha1\nkind: Project\n"
+        "environments:\n  defaults:\n    repositories:\n"
+        + _yaml_rule(pkg, form, 6)
+    )
+    manifest = _load_head_pkg(project)
+    assert _node_types(manifest) == ["FromMain", "FromMainNested"]
+    _assert_untouched(pkg, project)
+
+
+@pytest.mark.parametrize("form", _YAML_HEAD_RULES)
+def test_local_head_rule_ensemble(head_pkg, form):
+    pkg, project = head_pkg
+    environment = "environment:\n  repositories:\n" + _yaml_rule(pkg, form, 4)
+    manifest = _load_head_pkg(project, extra=environment)
+    assert "unfurl.cloud/onecommons/std" not in manifest.repositories
+    assert _node_types(manifest) == ["FromMain", "FromMainNested"]
+    _assert_untouched(pkg, project)
+
+    with pytest.raises(FatalToscaImportError):
+        _load_head_pkg(project, extra=environment, safe_mode=True)
+
+
+def test_local_head_rule_lock_round_trip(head_pkg):
+    pkg, project = head_pkg
+    rule = f"unfurl.cloud/onecommons/std {pkg}#HEAD"
+    manifest = _load_head_pkg(project, rule)
+    package_rules = Lock(manifest).lock()["package_rules"]
+    assert package_rules == [rule]
+
+    lock = "lock:\n  package_rules:\n" + "".join(
+        f"    - {rule}\n" for rule in package_rules
+    )
+    manifest = _load_head_pkg(project, extra=lock)
+    assert PackageSpec(*rule.split()) in manifest.package_specs
+    assert _node_types(manifest) == ["FromMain", "FromMainNested"]
+    _assert_untouched(pkg, project)
+
+    # a tag recorded for the checkout doesn't override the rule
+    package_specs = [PackageSpec(*rule.split())]
+    repo_view = RepoView(
+        Repository("std", dict(url="https://unfurl.cloud/onecommons/std.git#v1.0.0")), None
+    )
+    lock_dict = dict(url=f"file://{pkg}", tag="v1.1.0", discovered_revision="")
+    package = resolve_package(repo_view, {}, package_specs, None, lock_dict)
+    assert package and package.local_path == str(pkg)
+
+
+def test_local_head_rule_two_pins(head_pkg):
+    pkg, project = head_pkg
+    manifest = _load_head_pkg(
+        project,
+        f"unfurl.cloud/onecommons/std {pkg}#HEAD",
+        repositories="      std2:\n        url: https://unfurl.cloud/onecommons/std.git#v2.0.0",
+        imports="      - file: nested.yaml\n        repository: std2",
+    )
+    assert _node_types(manifest) == ["FromMain", "FromMainNested"]
+    _assert_untouched(pkg, project)
+
+
+def test_local_head_rule_python(head_pkg):
+    pkg, project = head_pkg
+    manifest = _load_head_pkg(project, f"unfurl.cloud/onecommons/std {pkg}#HEAD")
+    path = manifest.get_import_resolver().find_repository_path("std")
+    assert path and os.path.samefile(path, pkg)
+    assert os.path.samefile(project / "tosca_repositories" / "std", pkg)
+    _assert_untouched(pkg, project)
+
+
+def test_local_head_rule_safe_mode(head_pkg):
+    pkg, project = head_pkg
+    with pytest.raises(FatalToscaImportError):
+        _load_head_pkg(
+            project, f"unfurl.cloud/onecommons/std {pkg}#HEAD", safe_mode=True
+        )
+    assert not (project / "pkg").exists()
+
+
+@pytest.mark.parametrize("form", ["{pkg}", "file://{pkg}"])
+def test_local_rule_without_head(head_pkg, form):
+    pkg, project = head_pkg
+    # without #HEAD a local path still has to be inside the project
+    with pytest.raises(FatalToscaImportError):
+        _load_head_pkg(project, "unfurl.cloud/onecommons/std " + form.format(pkg=pkg))
+
+
+def test_local_file_url_rule_with_revision(head_pkg):
+    pkg, project = head_pkg
+    manifest = _load_head_pkg(
+        project, f"unfurl.cloud/onecommons/std file://{pkg}#v1.0.0"
+    )
+    assert _node_types(manifest) == ["FromTag"]
+    assert (project / "pkg" / "types.yaml").exists()  # cloned at the tag
+    repo = git.Repo(pkg)
+    assert repo.active_branch.name == "main" and not repo.is_dirty()
 
 
 _SAMPLE_INFO = {
