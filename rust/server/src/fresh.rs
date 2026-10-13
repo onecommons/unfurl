@@ -221,6 +221,10 @@ impl Freshener {
         if !tracked.cloned {
             return;
         }
+        // pushed at startup if this process stops before it is
+        if let Err(e) = handle.set_push_pending(true).await {
+            tracing::warn!(error = %e, "can't record a push as pending");
+        }
         let pending = serde_json::json!({"status": "pending"});
         self.record_push(&tracked, &[commit.to_string()], &pending)
             .await;
@@ -280,6 +284,14 @@ impl Freshener {
         });
     }
 
+    /// Push `handle`'s checkout in the background, as after a commit, with
+    /// a grant: one whose push this process, or one before it, hadn't made.
+    pub async fn resume_push(self: &Arc<Self>, handle: &Arc<SyncedRepo>) {
+        if let Some(tracked) = self.tracked(handle).await {
+            self.schedule_push(tracked, handle.clone(), None);
+        }
+    }
+
     /// How long a failed push of `tracked`'s checkout waits to be tried
     /// again: the push interval, a second at the least, doubled for each
     /// failure since the last push that didn't, up to an hour.
@@ -330,7 +342,13 @@ impl Freshener {
             credentials: credentials.as_ref(),
             trust: self.settings.trust,
         };
-        let pushed = crate::push::push(&push).await;
+        let pushed = match crate::push::push(&push).await {
+            Ok((crate::push::Pushed::MustDivert { head }, commits)) => {
+                let diverted = self.divert(handle, &push, &head).await;
+                diverted.map(|pushed| (pushed, commits))
+            }
+            pushed => pushed,
+        };
         // one that failed counts too, so a failing remote isn't hammered;
         // one with nothing to push doesn't
         if !matches!(pushed, Ok((crate::push::Pushed::Nothing, _))) {
@@ -340,6 +358,9 @@ impl Freshener {
         match pushed {
             Ok((pushed, commits)) => {
                 tracked.push_failures.store(0, Ordering::SeqCst);
+                if let Err(e) = handle.set_push_pending(false).await {
+                    tracing::warn!(error = %e, "can't record a push as made");
+                }
                 self.pushed(tracked, handle, &pushed, &commits).await;
                 Again::No
             }
@@ -361,6 +382,44 @@ impl Freshener {
                 }
             }
         }
+    }
+
+    /// Divert `handle`'s checkout, whose branch its remote won't take from
+    /// `head`: first a worktree of the branch the commits go to, forked at
+    /// the commit the database has, so their records stay readable, by id,
+    /// once the checkout is reset. The fork is a convenience only: a
+    /// checkout of the branch takes the ids from its rollups anyway, so
+    /// one that fails is no reason not to divert.
+    async fn divert(
+        &self,
+        handle: &SyncedRepo,
+        push: &crate::push::Push<'_>,
+        head: &str,
+    ) -> Result<crate::push::Pushed, RefreshError> {
+        crate::push::can_divert(push).await?;
+        let branch = crate::push::diverted_branch(head);
+        // only a fork this call made is its own to delete
+        let forked = match handle.fork_branch(&branch, head).await {
+            Ok(forked) => forked.created,
+            Err(e) => {
+                tracing::warn!(
+                    checkout = %handle.repo_path().display(),
+                    branch = branch.as_str(),
+                    error = %e,
+                    "can't keep the records of commits a push diverts readable on their branch"
+                );
+                false
+            }
+        };
+        let diverted = crate::push::divert(push).await;
+        // rejected on the new branch too: no branch there for the row to be
+        // of. (One that couldn't be pushed keeps it: the push is tried again.)
+        if forked && matches!(diverted, Ok(crate::push::Pushed::Refused { .. })) {
+            if let Err(e) = handle.delete_branch(&branch).await {
+                tracing::warn!(branch = branch.as_str(), error = %e, "can't delete a branch's fork");
+            }
+        }
+        diverted
     }
 
     /// Record what came of pushing `commits`: the branch's head, if
@@ -389,10 +448,10 @@ impl Freshener {
                 outcome["to_branch"] = branch.as_str().into();
                 outcome["message"] = error.as_str().into();
             }
-            Pushed::Nothing => {}
+            Pushed::Nothing | Pushed::MustDivert { .. } => {}
         }
         // HEAD moved: merged, or reset to the remote
-        if !matches!(pushed, Pushed::Pushed { .. }) {
+        if !matches!(pushed, Pushed::Pushed { .. } | Pushed::MustDivert { .. }) {
             self.rescan(handle).await;
         }
         self.record_push(tracked, commits, &outcome).await;

@@ -93,6 +93,13 @@ async fn an_export_moves_the_conflicted_edit(sync: &SyncedRepo, tmp: &TempDir) {
     assert!(other.commit_id.is_none(), "still pending: {other:?}");
 
     assert_eq!(exported.branch, BRANCH);
+    let filter = unfurl_git_sync::WorktreeFilter {
+        origin: None,
+        branch: Some(BRANCH.into()),
+        ids: None,
+    };
+    let rows = sync.worktrees(&filter).await.expect("worktrees");
+    assert!(!rows[0].clone_on_start, "a branch without a checkout");
     assert_eq!(
         git_ok(tmp, &["rev-parse", &format!("refs/heads/{BRANCH}")]),
         exported.commit

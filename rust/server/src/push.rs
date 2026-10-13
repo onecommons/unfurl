@@ -24,8 +24,11 @@ pub enum Pushed {
     /// `head`, is checked out and pushed.
     Merged { head: String },
     /// Its remote's branch had moved on and doesn't merge cleanly, or
-    /// rejected them (a protected branch, a hook): its commits went to a
-    /// new `branch` there, and it was reset to its remote.
+    /// rejected them (a protected branch, a hook): they're to be diverted,
+    /// by [`divert`], from `head`.
+    MustDivert { head: String },
+    /// Its commits went to a new `branch` there, and it was reset to its
+    /// remote.
     Diverted { branch: String },
     /// Its remote rejected them on a new branch too: they were kept on a
     /// local `branch`, which is never pushed, and it was reset to its
@@ -37,7 +40,7 @@ impl Pushed {
     /// The status `/events` reports for a commit it was about.
     pub fn status(&self) -> Option<&'static str> {
         match self {
-            Pushed::Nothing => None,
+            Pushed::Nothing | Pushed::MustDivert { .. } => None,
             Pushed::Pushed { .. } | Pushed::Merged { .. } => Some("pushed"),
             Pushed::Diverted { .. } => Some("diverted"),
             Pushed::Refused { .. } => Some("refused"),
@@ -94,28 +97,34 @@ async fn push_with(p: &Push<'_>, access: &Access) -> Result<(Pushed, Vec<String>
     let pushed = match ref_status(&stdout, &main) {
         // refused credentials, or no answer: left for the next push
         None => return Err(RefreshError::Remote(format!("git push: {stderr}"))),
-        Some(('!', summary)) if moved_on(summary) => merge_or_divert(p, access, &main).await?,
-        Some(('!', _)) => divert(p, access).await?,
+        Some(('!', summary)) if moved_on(summary) => {
+            merge_or_divert(p, access, &main, head).await?
+        }
+        Some(('!', _)) => Pushed::MustDivert { head: head.clone() },
         Some(_) => Pushed::Pushed { head: head.clone() },
     };
     Ok((pushed, ahead))
 }
 
-/// Merge the remote's branch, which has moved on, into the checkout and
-/// push the merge, if it merges cleanly; otherwise divert.
+/// Merge the remote's branch, which has moved on, into the checkout at
+/// `head` and push the merge, if it merges cleanly; otherwise it's to be
+/// diverted.
 async fn merge_or_divert(
     p: &Push<'_>,
     access: &Access,
     main: &str,
+    head: &str,
 ) -> Result<Pushed, RefreshError> {
     let Some(merge) = merge_upstream(p, access).await? else {
-        return divert(p, access).await;
+        return Ok(Pushed::MustDivert {
+            head: head.to_string(),
+        });
     };
     let (stdout, stderr) = push_refs(p, access, Some(main), &[]).await?;
     match ref_status(&stdout, main) {
         None => Err(RefreshError::Remote(format!("git push: {stderr}"))),
         // moved on again, or rejected
-        Some(('!', _)) => divert(p, access).await,
+        Some(('!', _)) => Ok(Pushed::MustDivert { head: merge }),
         Some(_) => Ok(Pushed::Merged { head: merge }),
     }
 }
@@ -322,13 +331,14 @@ fn ref_status<'a>(stdout: &'a str, to: &str) -> Option<(char, &'a str)> {
 /// Push HEAD, which its remote's branch won't take, to a new branch there,
 /// `git-sync/diverted-<commit>`, and reset to the remote; if that's
 /// rejected too, set it aside.
-async fn divert(p: &Push<'_>, access: &Access) -> Result<Pushed, RefreshError> {
+pub async fn divert(p: &Push<'_>) -> Result<Pushed, RefreshError> {
+    let access = &p.access();
     // before anything is pushed or kept: a reset would lose it
     resettable(p, access).await?;
     let head = git(p.path, access, &["rev-parse", "HEAD"])
         .await
         .map_err(RefreshError::Local)?;
-    let branch = format!("git-sync/diverted-{}", &head[..12.min(head.len())]);
+    let branch = diverted_branch(&head);
     let to = format!("refs/heads/{branch}");
     let refspec = format!("HEAD:{to}");
     let out = run_git(p.path, access, &["push", "--porcelain", "origin", &refspec])
@@ -382,6 +392,16 @@ async fn set_aside(
         branch,
         error: error.to_string(),
     })
+}
+
+/// The branch commits from `head` are diverted to.
+pub fn diverted_branch(head: &str) -> String {
+    format!("git-sync/diverted-{}", &head[..12.min(head.len())])
+}
+
+/// [`resettable`], for a checkout about to be diverted.
+pub async fn can_divert(p: &Push<'_>) -> Result<(), RefreshError> {
+    resettable(p, &p.access()).await
 }
 
 /// Refuse a checkout whose working tree holds changes a reset would lose.

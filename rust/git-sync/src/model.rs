@@ -56,6 +56,21 @@ pub struct Worktree {
     /// The branch the repository's HEAD names, or `None` until something
     /// finds out (see [`crate::db::Db::set_default_branch`]).
     pub default_branch: Option<String>,
+    /// Whether a server cloning the worktrees clones this one's branch at
+    /// startup: not one without a checkout (a recovery's, an export's, a
+    /// [`crate::SyncedRepo::fork_branch`]'s), nor one brought up on demand.
+    pub clone_on_start: bool,
+    /// Whether its checkout holds commits its remote doesn't have yet,
+    /// which a server pushes at startup.
+    pub push_pending: bool,
+}
+
+/// What [`crate::SyncedRepo::fork_branch`] made: the worktree, and whether
+/// this call created it rather than finding it made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Forked {
+    pub worktree_id: i64,
+    pub created: bool,
 }
 
 /// A [`Worktree::visibility`]: anyone may read the repository.

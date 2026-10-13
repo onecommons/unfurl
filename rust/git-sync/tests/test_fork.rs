@@ -322,6 +322,13 @@ async fn a_missing_commit_recovers_to_a_branch(sync: &SyncedRepo, tmp: &tempfile
         .expect("recovered");
     let got = outcome.recovered.expect("a branch");
     assert_eq!(got.branch, format!("git-sync/recovered-{}", &gone[..12]));
+    let filter = unfurl_git_sync::WorktreeFilter {
+        origin: None,
+        branch: Some(got.branch.clone()),
+        ids: None,
+    };
+    let rows = sync.worktrees(&filter).await.expect("worktrees");
+    assert!(!rows[0].clone_on_start, "a branch without a checkout");
     assert_eq!(git_out(tmp.path(), &["rev-parse", &got.branch]), got.commit);
     let parent = git_out(tmp.path(), &["rev-parse", &format!("{}^", got.commit)]);
     assert_eq!(parent, base, "forked where the lost commit was made");

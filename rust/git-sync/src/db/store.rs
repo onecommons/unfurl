@@ -425,6 +425,12 @@ pub(crate) trait Store: sqlx::Database + Sized {
         from: &str,
     ) -> impl Future<Output = Result<()>> + Send;
 
+    /// Worktree `worktree_id` isn't cloned at startup: it has no checkout.
+    fn no_clone_on_start(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+    ) -> impl Future<Output = Result<()>> + Send;
+
     /// `txn` row `id` belongs to `worktree_id` now.
     fn move_txn(
         tx: &mut sqlx::Transaction<'_, Self>,
@@ -1623,6 +1629,15 @@ macro_rules! store_impl {
                     .bind(from)
                     .execute(&mut **tx)
                     .await?;
+                Ok(())
+            }
+
+            async fn no_clone_on_start(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                worktree_id: i64,
+            ) -> Result<()> {
+                let sql = sql!(tx, "UPDATE worktree SET clone_on_start = FALSE WHERE id = ?1");
+                sqlx::query(&sql).bind(worktree_id).execute(&mut **tx).await?;
                 Ok(())
             }
 

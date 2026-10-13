@@ -604,6 +604,10 @@ async fn run(config: Config, grant_key: Option<Result<GrantKey, GrantError>>) {
     let cloudmap = open_cloudmap(&config, locks.clone(), grants.clone())
         .await
         .map(|cm| freshened(cm, &config, redis.clone(), locks, grants.clone()));
+    if let Some(cm) = &cloudmap {
+        // the pushes a process before this one hadn't made
+        cm.resume_pushes().await;
+    }
     let state = AppState {
         config: Arc::new(config.clone()),
         redis,

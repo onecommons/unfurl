@@ -1251,11 +1251,11 @@ its lock ([§6](#6-behaviour-changes)).
 
 ### 4.15 Remotes: pulling, pushing and conflicts
 
-Proposed; none of it is implemented. git-sync doesn't fetch, pull or
-push today. It reacts to whatever it finds at `HEAD` and in the working
-tree, so a pull or push is someone else's job, and the next scan takes
-in its result ([§4.3](#43-scan-moving-forward),
-[§4.8](#48-rebuilding-after-a-rewrite)).
+Partly built. git-sync doesn't fetch, pull or push: the server does,
+with the git command line (its README's "Freshness" and "Pushing"),
+and the next scan takes in the result ([§4.3](#43-scan-moving-forward),
+[§4.8](#48-rebuilding-after-a-rewrite)). Export, below, is built in
+git-sync; the unfold and rebase of "Pulling" aren't.
 
 The aim is to pull and push without ever leaving conflict markers in a
 working tree. A divergence between our changes and the remote's is
@@ -1267,26 +1267,29 @@ handled where it is cheapest:
 
 Two building blocks come first.
 
-**A. Branches without a checkout.** Today every tracked branch is a
-`SyncedRepo` on a checkout. A branch here is a worktree row with no
-checkout, whose state is its ref's commit.
-- **Advancing it** uses only the committed side of the scan. When the
-  ref's tip descends from `worktree.commit_id`, `head_files` and
-  `advance_head` read the changed blobs from the commits, not from a
-  disk. When it doesn't, it rebuilds ([§4.8](#48-rebuilding-after-a-rewrite)).
+**A. Branches without a checkout.** A branch here is a worktree row with
+no checkout: forked from a worktree at a commit its committed chain
+holds, sharing its segments, with its files as that commit has them --
+an export's ([C.20](#c20-export-a-worktrees-conflicts-to-a-branch)), a
+recovery's ([§4.8](#48-rebuilding-after-a-rewrite)), or one
+`fork_branch` makes, as the server does for the commits a push diverts.
+- **It isn't advanced without a checkout.** Its view stays at its fork
+  until something checks the branch out: the server's clone mode does,
+  on a request naming it, and the checkout takes the row over and scans
+  forward from there. So no part of the scan runs without a disk.
+- **`worktree.clone_on_start` is false for it,** so a server cloning the
+  database's worktrees at startup doesn't clone a branch that may be only
+  in this repository, or only on the remote. A branch the server brought
+  up on demand is marked the same: a request brings it up again.
 - **It has no draft writes.** Edits to it are made in git, by whoever
-  resolves its conflicts.
-- **It is deleted when its ref is.** A sweep over the family's
-  checkout-less branches deletes each whose ref is gone
-  ([C.19](#c19-delete-a-worktree)), on the main worktree's scan or
-  periodically. Compaction then collects what only it used.
-- **Phase 3's user branches are the starting point,** not the whole
-  of it ([§4.12](#412-layered-reads-user-branches-and-private-overlays)).
-  They're checkout-less worktree rows too, but with an empty head and
-  only a draft, and no ref until they're published, which checks them
-  out ([C.15](#c15-publish-a-user-branch)). A branch here has commits,
-  follows a ref, is committed to without a checkout, and goes when its
-  ref does.
+  resolves what it holds.
+- **Deleting one whose ref is gone** is a sweep not yet built, the same
+  for every worktree whose branch went: a merge request merged and its
+  branch deleted, say ([C.19](#c19-delete-a-worktree)).
+- **Phase 3's user branches** are rows like these, with an empty head,
+  only a draft, and no ref until they're published
+  ([§4.12](#412-layered-reads-user-branches-and-private-overlays),
+  [C.15](#c15-publish-a-user-branch)).
 
 **B. Moving draft rows into another worktree's head.** Nothing in
 phases 1–3 does this: rows only ever move within one worktree. Here a

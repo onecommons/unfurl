@@ -60,6 +60,7 @@
 
 #![deny(rust_2018_idioms)]
 
+mod branches;
 mod conflict;
 mod crud;
 pub mod db;
@@ -91,7 +92,7 @@ pub use formats::cloudmap::CloudMapFormat;
 pub use model::{
     canonical_facet_key, canonical_json_text, Applied, BatchOp, BatchOutcome, CommitOptions,
     CommitRollup, Committed, ConflictState, Cursor, Exported, FacetColumnRow, FacetPath, FacetRows,
-    FacetSpec, Failed, File, FileFailure, JsonQuery, QueryOp, Record, RecordConflict,
+    FacetSpec, Failed, File, FileFailure, Forked, JsonQuery, QueryOp, Record, RecordConflict,
     RecordConflictKind, RecordQuery, Resolution, RollupTxn, ScanOptions, SyncOutcome, Txn, TxnMeta,
     TxnRecord, ValidationFailure, WorkingDir, Worktree, WorktreeFilter, WriteFileOutcome,
     WriteOutcome,

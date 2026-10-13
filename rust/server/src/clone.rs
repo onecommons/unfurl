@@ -246,6 +246,14 @@ impl Cloner {
                 startup.default_branch_of(project, &known, &access).await
             }
         };
+        if unfinished_export(&known, &branch) {
+            tracing::info!(
+                project,
+                branch,
+                "an unfinished export's branch isn't brought up"
+            );
+            return None;
+        }
         Some(Wanted {
             worktree: known.iter().find(|w| w.branch == branch).map(|w| w.id),
             visibility: known.iter().find_map(|w| w.visibility.clone()),
@@ -338,6 +346,15 @@ impl Cloner {
         }
         Some((opened, checkout.pulled))
     }
+}
+
+/// Whether `branch`, among the worktrees `known`, is one an export hasn't
+/// finished: a checkout of it would take in the edits moving to it, which
+/// the export then commits too.
+fn unfinished_export(known: &[&Worktree], branch: &str) -> bool {
+    known
+        .iter()
+        .any(|w| w.branch == branch && w.exporting_from.is_some())
 }
 
 /// A worktree [`prepare`] brings a checkout up for: one the database
@@ -543,7 +560,14 @@ impl Startup<'_> {
         default_cloudmaps: &[DefaultCloudmap],
     ) -> Vec<Wanted> {
         let host = unfurl_git_sync::git::normalize_git_url_hard(self.cloud_server);
-        let mut wanted: Vec<Wanted> = worktrees.iter().map(Wanted::of).collect();
+        // not one without a checkout, or brought up on demand, which a
+        // request brings up again, unless it holds commits to push; never
+        // an unfinished export's
+        let mut wanted: Vec<Wanted> = worktrees
+            .iter()
+            .filter(|w| (w.clone_on_start || w.push_pending) && w.exporting_from.is_none())
+            .map(Wanted::of)
+            .collect();
         for entry in default_cloudmaps {
             let origin = format!("{host}/{}", entry.project);
             let known: Vec<&Worktree> = worktrees.iter().filter(|w| w.origin == origin).collect();
@@ -1096,6 +1120,19 @@ mod tests {
         assert_eq!(remote_head("0123abc\tHEAD\n"), None);
     }
 
+    #[test]
+    fn an_unfinished_exports_branch_isnt_brought_up() {
+        let mut exporting = worktree("unfurl.cloud/org/proj");
+        exporting.branch = "git-sync/conflicts".into();
+        exporting.exporting_from = Some("main".into());
+        let main = worktree("unfurl.cloud/org/proj");
+        let known = [&exporting, &main];
+        assert!(unfinished_export(&known, "git-sync/conflicts"));
+        assert!(!unfinished_export(&known, "main"));
+        exporting.exporting_from = None;
+        assert!(!unfinished_export(&[&exporting], "git-sync/conflicts"));
+    }
+
     fn worktree(origin: &str) -> Worktree {
         Worktree {
             id: 1,
@@ -1106,6 +1143,8 @@ mod tests {
             exporting_from: None,
             visibility: None,
             default_branch: None,
+            clone_on_start: true,
+            push_pending: false,
         }
     }
 

@@ -939,6 +939,7 @@ async fn recover<DB: Store>(
         return Ok(None);
     };
     DB::set_exporting_from(tx, b, to.from).await?;
+    DB::no_clone_on_start(tx, b).await?;
     let at_base: BTreeMap<Place, RecordRow> = DB::visible(tx, b, Scope::Chain, Filter::All)
         .await?
         .into_iter()

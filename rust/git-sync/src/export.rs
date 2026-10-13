@@ -238,7 +238,7 @@ impl SyncedRepo {
 
     /// This worktree's files in a tree of `blobs`: each one's path, format
     /// and blob there, for the branch's file rows.
-    async fn files_at(
+    pub(crate) async fn files_at(
         &self,
         blobs: &std::collections::HashMap<String, gix::ObjectId>,
     ) -> Result<Vec<(String, String, String)>> {
@@ -460,6 +460,7 @@ async fn move_in_pool<DB: Store>(
         DB::upsert_file(&mut tx, n, &row).await?;
     }
     DB::set_exporting_from(&mut tx, n, fork.from).await?;
+    DB::no_clone_on_start(&mut tx, n).await?;
     copy_edits(&mut tx, n, &edits).await?;
     for e in &edits {
         resolve_conflict_in_tx(&mut tx, sync, e.at(), Resolution::Theirs, None).await?;

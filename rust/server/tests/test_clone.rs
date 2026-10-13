@@ -1748,6 +1748,9 @@ async fn a_refused_push_is_set_aside() {
     assert!(eventually(refused).await);
     let outcome = cm.push_outcome(&commit).await.expect("a push record");
     assert!(outcome.contains("message"), "the reason: {outcome}");
+    // no worktree of a branch the remote has none of
+    let diverted = format!("git-sync/diverted-{}", &commit[..12]);
+    assert!(rows_of(&cm, &diverted).await.is_empty());
     let aside = format!("git-sync/refused-{}", &commit[..12]);
     assert_eq!(git(&world.public(), &["rev-parse", &aside]), commit);
     assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), before);
@@ -2217,4 +2220,226 @@ async fn a_pull_doesnt_push_the_configured_checkout() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     assert_eq!(upstream(&world), before);
     assert_eq!(cm.pushes_started(), 0);
+}
+
+/// The worktrees the database has of `branch`.
+async fn rows_of(
+    cm: &unfurl_server::cloudmap::CloudMapState,
+    branch: &str,
+) -> Vec<unfurl_git_sync::Worktree> {
+    let filter = unfurl_git_sync::WorktreeFilter {
+        origin: None,
+        branch: Some(branch.into()),
+        ids: None,
+    };
+    cm.synced().worktrees(&filter).await.expect("worktrees")
+}
+
+/// The record `key` on `branch`, by the database, if any.
+async fn record_on(
+    cm: &unfurl_server::cloudmap::CloudMapState,
+    branch: &str,
+    key: &str,
+) -> Option<unfurl_git_sync::Record> {
+    let query = unfurl_git_sync::RecordQuery {
+        worktrees: Some(unfurl_git_sync::WorktreeFilter {
+            origin: None,
+            branch: Some(branch.into()),
+            ids: None,
+        }),
+        key: Some(key.into()),
+        ..Default::default()
+    };
+    cm.synced()
+        .find_records(&query)
+        .await
+        .expect("records")
+        .pop()
+}
+
+/// A divert keeps the diverted commits' records readable, as a worktree of
+/// the branch they went to, not cloned at startup; and a request for that
+/// branch takes it over, the record's id and all.
+#[tokio::test]
+async fn a_diverted_branch_keeps_its_records() {
+    let world = World::new().await;
+    let top = world.serve_pushing(3600, 0).await;
+    let cm = serve_proj(&top, None).await;
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    // a file both sides add, differently: a conflict
+    let seed = world.tmp.path().join("seed/org/proj");
+    std::fs::write(seed.join("mine.yaml"), "theirs: true\n").expect("write");
+    git(&seed, &["add", "."]);
+    git(&seed, &["commit", "-q", "-m", "theirs"]);
+    git(&seed, &["push", "-q", "origin", "main"]);
+    // read before the push, which waits on the checkout
+    let held = cm.hold_checkout(std::time::Duration::from_secs(30)).await;
+    let mine = "git://example.com/mine.git";
+    cm.synced()
+        .create_record(
+            // a file of its own, as a cloudmap: the world's isn't one
+            Some("mine.yaml"),
+            "/repositories",
+            mine,
+            serde_json::json!({"name": "mine"}),
+            None,
+            false,
+        )
+        .await
+        .expect("create");
+    let commit = cm.commit("mine").await.expect("commit").expect("a commit");
+    let before = record_on(&cm, "main", mine).await.expect("mine on main");
+    cm.committed(&commit, &Default::default()).await;
+    drop(held);
+    let diverted = async || {
+        cm.push_outcome(&commit)
+            .await
+            .is_some_and(|o| o.contains("diverted"))
+    };
+    assert!(eventually(diverted).await);
+    let branch = format!("git-sync/diverted-{}", &commit[..12]);
+    assert!(
+        eventually(async || record_on(&cm, "main", mine).await.is_none()).await,
+        "main is reset"
+    );
+    let rows = rows_of(&cm, &branch).await;
+    assert_eq!(rows.len(), 1);
+    assert!(!rows[0].clone_on_start);
+    assert_eq!(
+        record_on(&cm, &branch, mine)
+            .await
+            .expect("on its branch")
+            .id,
+        before.id
+    );
+    // brought up: the same worktree, and record
+    // as a request does: of the server, not of main's checkout
+    let check = top
+        .project_check(
+            Some("org/proj"),
+            Some(&branch),
+            false,
+            &Default::default(),
+            None,
+        )
+        .await
+        .expect("check");
+    assert!(matches!(check, ProjectCheck::Serve(_)));
+    let rows_after = rows_of(&cm, &branch).await;
+    assert_eq!(rows_after.len(), 1);
+    assert_eq!(rows_after[0].id, rows[0].id);
+    assert_eq!(
+        record_on(&cm, &branch, mine).await.expect("still").id,
+        before.id
+    );
+}
+
+/// A fork that can't be made doesn't hold the divert up: the commits still
+/// go to their branch.
+#[tokio::test]
+async fn a_divert_goes_ahead_without_its_fork() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let seed = world.tmp.path().join("seed/org/proj");
+    std::fs::write(seed.join("cloudmap.yaml"), "repositories:\n  theirs: {}\n").expect("write");
+    git(&seed, &["commit", "-q", "-am", "theirs"]);
+    git(&seed, &["push", "-q", "origin", "main"]);
+    // the push waits on the checkout: commit, and take the branch's name
+    let held = cm.hold_checkout(std::time::Duration::from_secs(30)).await;
+    cm.synced()
+        .create_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "git://example.com/mine.git",
+            serde_json::json!({"name": "mine"}),
+            None,
+            false,
+        )
+        .await
+        .expect("create");
+    let commit = cm.commit("mine").await.expect("commit").expect("a commit");
+    let branch = format!("git-sync/diverted-{}", &commit[..12]);
+    git(&world.public(), &["branch", &branch, "HEAD"]);
+    cm.committed(&commit, &Default::default()).await;
+    drop(held);
+    let diverted = async || {
+        cm.push_outcome(&commit)
+            .await
+            .is_some_and(|o| o.contains("diverted"))
+    };
+    assert!(eventually(diverted).await);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    assert_eq!(
+        git(&bare, &["rev-parse", &format!("refs/heads/{branch}")]),
+        commit
+    );
+    assert!(rows_of(&cm, &branch).await.is_empty(), "no fork");
+}
+
+/// Startup clones the worktrees marked to, and default cloudmaps, but not
+/// a branch brought up on demand, which a request brings up again.
+#[tokio::test]
+async fn startup_skips_what_was_brought_up_on_demand() {
+    let world = World::new().await;
+    world.host("org/other", "main");
+    let cm = world.serve_with_cloner().await;
+    let check = cm
+        .project_check(Some("org/other"), None, false, &Default::default(), None)
+        .await
+        .expect("check");
+    assert!(matches!(check, ProjectCheck::Serve(_)));
+    let projects = |checkouts: Vec<Checkout>| -> Vec<String> {
+        checkouts.into_iter().map(|c| c.project).collect()
+    };
+    assert_eq!(projects(world.prepare().await), ["org/proj"]);
+    let defaults = [DefaultCloudmap::parse("org/other").expect("parse")];
+    let mut with_default = projects(world.prepare_with_defaults(&defaults).await);
+    with_default.sort();
+    assert_eq!(with_default, ["org/other", "org/proj"]);
+}
+
+/// A push a server hadn't made before it stopped is made by the next at
+/// startup, though its checkout was brought up on demand and wouldn't be
+/// cloned at startup otherwise: no request has to name it.
+#[tokio::test]
+async fn a_push_pending_at_restart_is_made() {
+    let world = World::new().await;
+    world.host("org/other", "main");
+    let top = world.serve_pushing(3600, 3600).await;
+    let check = top
+        .project_check(Some("org/other"), None, false, &Default::default(), None)
+        .await
+        .expect("check");
+    let ProjectCheck::Serve(other) = check else {
+        panic!("not served");
+    };
+    let bare = world.tmp.path().join("server/org/other.git");
+    let hidden = bare.with_extension("gone");
+    std::fs::rename(&bare, &hidden).expect("hide");
+    let commit = write_and_commit(&other, "mine").await;
+    assert!(eventually(async || other.pushes_started() >= 1).await);
+    std::fs::rename(&hidden, &bare).expect("restore");
+    drop((other, top));
+    // a new process, on the same database and clone root
+    let checkouts = world.prepare().await;
+    let projects: Vec<String> = checkouts.iter().map(|c| c.project.clone()).collect();
+    assert!(projects.contains(&"org/other".to_string()), "{projects:?}");
+    let again = world.serve_pushing(3600, 3600).await;
+    again.resume_pushes().await;
+    let upstream = || git(&bare, &["rev-parse", "main"]);
+    assert!(eventually(async || upstream() == commit).await);
+    // and once it's pushed, startup leaves it for a request again
+    assert!(
+        eventually(async || {
+            let projects: Vec<String> = world
+                .prepare()
+                .await
+                .into_iter()
+                .map(|c| c.project)
+                .collect();
+            !projects.contains(&"org/other".to_string())
+        })
+        .await
+    );
 }

@@ -55,7 +55,7 @@ otherwise `/cloudmap` is proxied to Python):
 |---|---|---|---|
 | Path to a checked-out cloudmap repo | `--cloudmap-repo` | `UNFURL_CLOUDMAP_REPO` | (unset) |
 | Index DB URL (`sqlite::memory:`, `sqlite:///path/to.db`, `postgres://...`) | `--cloudmap-db-url` | `UNFURL_CLOUDMAP_DB_URL` | (unset) |
-| With a DB URL and no repo: clone (or fast-forward) a checkout of every worktree the DB tracks under this directory, in python's `public/<project>/<branch>` layout, and serve them all; a request naming a project or branch with none brings one up, with the request's own credentials if it has them, which are then kept as a grant for its later pulls, and one that can't be is left to python; a missing last commit's records are saved to a branch. With Redis, git work in a checkout holds a lock shared with python, keyed by its path, so this must resolve to the same absolute path as python's `UNFURL_CLONE_ROOT` | `--clone-root` | `UNFURL_CLONE_ROOT` | (unset; `unfurl serve` passes its own) |
+| With a DB URL and no repo: clone (or fast-forward) a checkout of every worktree the DB tracks and marks to clone at startup (`worktree.clone_on_start`), and of each default cloudmap under this directory, in python's `public/<project>/<branch>` layout, and serve them all; a request naming a project or branch with none brings one up, with the request's own credentials if it has them, which are then kept as a grant for its later pulls, and marks its worktree not to clone at startup, as a request brings it up again (one an export hasn't finished isn't brought up), and one that can't be is left to python; a missing last commit's records are saved to a branch. With Redis, git work in a checkout holds a lock shared with python, keyed by its path, so this must resolve to the same absolute path as python's `UNFURL_CLONE_ROOT` | `--clone-root` | `UNFURL_CLONE_ROOT` | (unset; `unfurl serve` passes its own) |
 | Working tree wins over in-flight edits on the startup scan, and a missing last commit is rebuilt from HEAD instead of refusing to start | `--cloudmap-force` | `UNFURL_CLOUDMAP_FORCE` | `false` |
 | A missing last commit's records are saved to a branch, `git-sync/recovered-<commit>`, to merge, instead of refusing to start | `--cloudmap-recover` | `UNFURL_CLOUDMAP_RECOVER` | `false` |
 | Trust the own git config of the checkouts under `--clone-root`, which python writes too. Without it, git-sync ignores it but for remote urls, the server's git commands override hooks, fsmonitor, credential helpers and proxies, and a checkout whose config sets filter or diff drivers, includes, extra headers, url rewrites or `core.worktree` isn't pulled or served (`docs/credentials.md` §2.6). A configured `--cloudmap-repo`, and serving a local path, are trusted anyway | `--trust-checkouts` | `UNFURL_TRUST_CHECKOUTS` | `false` |
@@ -142,8 +142,8 @@ pull pushes again.
 |---|---|---|
 | is taken | the branch head recorded, as python records it | `pushed` |
 | finds the remote's branch moved on, and it merges cleanly | merged in memory (`git merge-tree`), the merge committed and checked out, and pushed | `pushed` |
-| finds it moved on and conflicting, or is rejected (a protected branch, a hook) | the commits pushed to a new branch, `git-sync/diverted-<commit>`, for a developer to merge, and the checkout reset to its remote and rescanned | `diverted` |
-| is rejected on that new branch too | the commits kept on a local branch, `git-sync/refused-<commit>`, never pushed, and the checkout reset to its remote and rescanned | `refused` |
+| finds it moved on and conflicting, or is rejected (a protected branch, a hook) | a worktree of a new branch, `git-sync/diverted-<commit>`, forked at the commit the database has, so its records stay readable by id; the commits pushed to it, for a developer to merge; and the checkout reset to its remote and rescanned. The fork is only a convenience: one that fails doesn't stop the divert | `diverted` |
+| is rejected on that new branch too | the fork deleted, and the commits kept on a local branch, `git-sync/refused-<commit>`, never pushed, and the checkout reset to its remote and rescanned | `refused` |
 | has its credentials refused | tried again with a grant; no grant is forgotten, as one may still read | nothing yet |
 | can't reach the remote | tried again with the same credentials | nothing yet |
 | can't be reset, its working tree holding changes | left as it is, nothing pushed or kept, and tried again, with a warning | nothing yet |
@@ -159,7 +159,12 @@ its branch is merged; the merge comes in with the next pull. What came of
 a commit's push is kept in Redis, `<prefix>push:<project>:<branch>:<commit>`,
 and a `/events` branch watch on that commit reports it once the push is
 tried, rather than `moved`, which it doesn't report while the push is
-pending. A `git-sync/refused-<commit>` branch stays in the clone, which
+pending. A checkout whose push hasn't been made when the server stops
+(`worktree.push_pending`) is cloned and pushed at the next startup,
+though it was brought up on demand. A diverted branch's worktree stays
+until a sweep of worktrees whose remote branch is gone, which isn't
+built yet; so does one a retried divert forked before it was refused,
+which only the call that made it deletes. A `git-sync/refused-<commit>` branch stays in the clone, which
 python then keeps as holding unpushed work, until an operator recovers
 its commits and deletes it (`git branch -D`). This is the "Pushing" of git-sync's design
 (§4.15), but for its in-database rebase: a clean merge in git stands in

@@ -42,7 +42,7 @@ pub(crate) async fn matching(
 ) -> Result<Vec<crate::model::Worktree>> {
     const SQL: &str =
         "SELECT w.id, w.origin, w.branch, w.commit_id, w.default_file_path, w.exporting_from, \
-         r.visibility, r.default_branch \
+         r.visibility, r.default_branch, w.clone_on_start, w.push_pending \
          FROM worktree w LEFT JOIN repository r ON r.origin = w.origin \
          WHERE (CAST(?1 AS TEXT) IS NULL OR w.origin = ?1) \
            AND (CAST(?2 AS TEXT) IS NULL OR w.branch = ?2)";
@@ -60,7 +60,7 @@ pub(crate) async fn matching(
 pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Worktree> {
     const SQL: &str =
         "SELECT w.id, w.origin, w.branch, w.commit_id, w.default_file_path, w.exporting_from, \
-         r.visibility, r.default_branch \
+         r.visibility, r.default_branch, w.clone_on_start, w.push_pending \
          FROM worktree w LEFT JOIN repository r ON r.origin = w.origin \
          WHERE w.id = ?1";
     Ok(on_pool!(db, pool => {
@@ -177,6 +177,40 @@ pub(crate) async fn set_default_file(db: &Db, worktree_id: i64, value: Option<&s
 }
 
 impl Db {
+    /// Set whether a server cloning the worktrees clones worktree
+    /// `worktree_id`'s branch at startup.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Db`] if the statement fails.
+    pub async fn set_clone_on_start(&self, worktree_id: i64, clone: bool) -> Result<()> {
+        on_pool!(self, pool => {
+            sqlx::query(sql!(pool, "UPDATE worktree SET clone_on_start = ?2 WHERE id = ?1"))
+                .bind(worktree_id)
+                .bind(clone)
+                .execute(pool)
+                .await?;
+        });
+        Ok(())
+    }
+
+    /// Set whether worktree `worktree_id`'s checkout holds commits its
+    /// remote doesn't have yet.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Db`] if the statement fails.
+    pub async fn set_push_pending(&self, worktree_id: i64, pending: bool) -> Result<()> {
+        on_pool!(self, pool => {
+            sqlx::query(sql!(pool, "UPDATE worktree SET push_pending = ?2 WHERE id = ?1"))
+                .bind(worktree_id)
+                .bind(pending)
+                .execute(pool)
+                .await?;
+        });
+        Ok(())
+    }
+
     /// Record whether the repository `origin`, in any spelling of its url,
     /// is public: [`crate::model::PUBLIC`] or [`crate::model::PRIVATE`], or
     /// `None` for not known. Its worktrees, those created later included,

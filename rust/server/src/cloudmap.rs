@@ -645,6 +645,10 @@ impl CloudMapState {
         access: &RequestAccess,
     ) -> Option<Arc<SyncedRepo>> {
         let (opened, pulled) = cloner.bring_up(wanted, project, access).await?;
+        // brought up again on demand, not at startup
+        if let Err(e) = opened.inner.set_clone_on_start(false).await {
+            tracing::warn!(project, error = %e, "can't mark a checkout brought up on demand");
+        }
         let worktree = opened.inner.get_worktree().await.ok()?;
         let served = ServedCheckout {
             default_branch: worktree.default_branch().to_string(),
@@ -710,6 +714,23 @@ impl CloudMapState {
     /// How many pulls have started.
     pub fn pulls_started(&self) -> usize {
         self.fresh.as_ref().map_or(0, |fresh| fresh.pulls_started())
+    }
+
+    /// Push, in the background, each checkout served whose push a process
+    /// before this one hadn't made.
+    pub async fn resume_pushes(&self) {
+        let Some(fresh) = &self.fresh else {
+            return;
+        };
+        let handles: Vec<Arc<SyncedRepo>> = {
+            let checkouts = self.checkouts.read().expect("checkouts");
+            checkouts.iter().map(|c| c.handle.clone()).collect()
+        };
+        for handle in handles {
+            if handle.get_worktree().await.is_ok_and(|w| w.push_pending) {
+                fresh.resume_push(&handle).await;
+            }
+        }
     }
 
     /// How many pushes have started.

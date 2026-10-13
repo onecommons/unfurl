@@ -222,14 +222,13 @@ impl SyncedRepo {
     /// today.
     pub async fn commit_repository(&self, message: &str, options: CommitOptions)
         -> Result<Committed>;
-    /// Fetch, then fast-forward, or rebase the local commits onto upstream
-    /// in the database.
-    pub async fn pull(&self, remote: &str) -> Result<Pulled>;
-    /// Push, pulling and retrying on a non-fast-forward rejection, and
-    /// diverting to a new remote ref when that fails.
-    pub async fn push(&self, remote: &str, options: PushOptions) -> Result<Pushed>;
-    /// The family's branches without a checkout, each following a ref.
-    pub async fn ref_branches(&self) -> Result<Vec<Worktree>>;
+    /// Built: a worktree for `branch`, with no checkout, forked from this
+    /// one at the commit its head is at, not cloned at startup.
+    pub async fn fork_branch(&self, branch: &str, pushed: &str) -> Result<i64>;
+    /// Proposed: bring what a fetch brought into the checkout and the
+    /// database: fast-forward, or rebase the local commits onto `upstream`
+    /// in the database. Fetching, like pushing, stays in the server.
+    pub async fn integrate(&self, upstream: &str) -> Result<Pulled>;
 }
 pub struct CommitOptions { pub conflicts_to_branch: Option<String> }
 /// What one call committed: to the current branch, and to the exported
@@ -239,17 +238,17 @@ pub struct Committed { pub commit: Option<String>, pub exported: Option<Exported
 /// moved there.
 pub struct Exported { pub branch: String, pub commit: String, pub records: Vec<TxnRecord> }
 pub struct Pulled { pub fast_forward: bool, pub conflicts: Vec<RecordConflict> }
-pub enum Pushed { Pushed { commit: String }, Diverted { branch: String } }
 ```
 
-A checkout-less branch is a `worktree` row like any other: it gets no
-`SyncedRepo` of its own, and the handle of the checkout it was made from
-advances and sweeps it.
+A checkout-less branch is a `worktree` row like any other, marked not to
+be cloned at startup: it gets no `SyncedRepo` of its own until something
+checks the branch out and takes the row over.
 
 **Clone mode (the server, built).** A server given a database and a clone
 root but no checkout (`--clone-root`, which `unfurl serve` sets) makes
-the checkouts from the database: for each worktree whose origin is a
-project on the cloud server, a clone of its branch where python puts one,
+the checkouts from the database: for each worktree marked to be cloned
+at startup (`clone_on_start`) whose origin is a project on the cloud
+server, a clone of its branch where python puts one,
 `public/<project>/<branch>` anonymously or, for a private project, with
 its users' most recent grant under `private/`, or a fast-forward of the
 one there, under python's lock file. One that can't be fast-forwarded is
@@ -415,15 +414,15 @@ phase's behaviour changes applied.
       cross-worktree move and the fold without a checkout,
       `export_conflicts`, and `commit_repository`'s new `CommitOptions`,
       with a batch's `txn` row split across the two commits.
-   2. **Advancing and sweeping checkout-less branches,** deferred until
-      after export: taking in commits made to an exported branch's ref,
-      and deleting its worktree when the ref goes. Until then an
-      exported branch's view stays at its export commit, which only a
-      read across worktrees sees, and its worktree outlives its ref. With
-      it, a branch the server diverts a push to becomes a checkout-less
-      fork at the diverted commits, so their records stay readable on it;
-      its ref is a remote-tracking one, which a fetch moves and
-      `--prune` removes.
+   2. **Branches without a checkout, kept as rows (built).** Not advanced
+      without a checkout: `worktree.clone_on_start`, false for an export's,
+      a recovery's and a `fork_branch`'s row, and for one the server
+      brought up on demand, keeps a server cloning the worktrees at
+      startup from cloning them; a request naming such a branch brings up
+      a checkout, which takes the row over. The server forks the commits
+      a push diverts this way, so their records stay readable by id. A
+      sweep of worktrees whose remote branch is gone, for every branch,
+      is left for later.
    3. **Pull:** fetch and fast-forward, then the unfold and the rebase in
       the database. The first half is built in the server (`clone.rs`,
       "Freshness" in its README), with the git command line; the unfold
@@ -442,16 +441,16 @@ phase's behaviour changes applied.
    working tree through a trait the server implements with its own git,
    so the policy stays in one place.
 
-   **Order from here:** step 2, with diverted branches kept readable;
-   then phase 4, so a merged diverted or exported branch keeps its
-   records' ids; then step 3's unfold and rebase, for conflicts between
-   records that the merge in git can only divert.
+   **Order from here:** the server exporting conflicts, as a request
+   option; then phase 4, so a merged diverted or exported branch keeps
+   its records' ids; then step 3's unfold and rebase, for conflicts
+   between records that the merge in git can only divert; then the sweep.
 
    Appendix C adds the cross-worktree fold and the unfold. Operations:
    Export, Pull, Push, Divert.
 
    It depends only on phase 2. Phase 3's publish could use step 1's fold
-   without a checkout, and shares step 2's checkout-less rows. Phase 4 is
+   without a checkout, and its user branches are step 2's rows. Phase 4 is
    what keeps a record's id when an exported branch is merged back in
    git.
 
