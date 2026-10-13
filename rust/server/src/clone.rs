@@ -788,7 +788,9 @@ pub struct Refresh<'a> {
 /// Why a refresh failed.
 #[derive(Debug)]
 pub enum RefreshError {
-    /// Its own git config is refused: it isn't served.
+    /// Its own config or state is refused -- what git would run, a remote
+    /// not its project's, another branch checked out: it isn't served or
+    /// pushed as it is, until someone changes it.
     Untrusted(String),
     /// Its remote couldn't be reached, or refused its credentials.
     Remote(String),

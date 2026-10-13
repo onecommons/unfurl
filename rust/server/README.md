@@ -131,9 +131,12 @@ lock the checkout's pulls and pushes do, so none runs git in it
 meanwhile. Only a checkout under the clone root is pushed, never the
 configured `--cloudmap-repo`; and only from its own branch, to its own
 project: one on another branch, or whose remote names another project,
-isn't. A push that fails is tried again on its own the interval after (a
-second at the least): with the same credentials if the remote couldn't
-be reached, else a grant.
+isn't. A push that fails is tried again on its own: the interval after,
+a second at the least, doubling with each failure up to an hour, and
+with the same credentials if the remote couldn't be reached, else a
+grant. One refused for the checkout itself -- untrusted config, a remote
+not its project's, another branch checked out -- isn't, until a write or
+pull pushes again.
 
 | The push | Done | `/events` reports |
 |---|---|---|
@@ -141,8 +144,10 @@ be reached, else a grant.
 | finds the remote's branch moved on, and it merges cleanly | merged in memory (`git merge-tree`), the merge committed and checked out, and pushed | `pushed` |
 | finds it moved on and conflicting, or is rejected (a protected branch, a hook) | the commits pushed to a new branch, `git-sync/diverted-<commit>`, for a developer to merge, and the checkout reset to its remote and rescanned | `diverted` |
 | is rejected on that new branch too | the commits kept on a local branch, `git-sync/refused-<commit>`, never pushed, and the checkout reset to its remote and rescanned | `refused` |
-| has its credentials refused, or can't reach the remote | left for the next push, with a grant; no grant is forgotten, as one may still read | nothing yet |
-| can't be reset, its working tree holding changes, or is on another branch | left as it is, nothing pushed or kept, and tried again each interval, with a warning | nothing yet |
+| has its credentials refused | tried again with a grant; no grant is forgotten, as one may still read | nothing yet |
+| can't reach the remote | tried again with the same credentials | nothing yet |
+| can't be reset, its working tree holding changes | left as it is, nothing pushed or kept, and tried again, with a warning | nothing yet |
+| is refused for the checkout itself: untrusted config, a remote not its project's, another branch checked out | left as it is, with a warning, until a write or pull pushes again | nothing yet |
 
 Since the gateway lets only a project's developers write, a refusal of
 credentials means they were revoked within its TTL: another developer's
@@ -153,7 +158,10 @@ every push the remote moved on from is diverted, with a warning. A diverted comm
 its branch is merged; the merge comes in with the next pull. What came of
 a commit's push is kept in Redis, `<prefix>push:<project>:<branch>:<commit>`,
 and a `/events` branch watch on that commit reports it once the push is
-tried, rather than `moved`. This is the "Pushing" of git-sync's design
+tried, rather than `moved`, which it doesn't report while the push is
+pending. A `git-sync/refused-<commit>` branch stays in the clone, which
+python then keeps as holding unpushed work, until an operator recovers
+its commits and deletes it (`git branch -D`). This is the "Pushing" of git-sync's design
 (§4.15), but for its in-database rebase: a clean merge in git stands in
 for it, and what doesn't merge is diverted. It's done here, not in
 git-sync, since gix can't push and the server holds the credentials.

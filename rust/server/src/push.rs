@@ -238,7 +238,7 @@ async fn pushable(p: &Push<'_>, access: &Access) -> Result<(), RefreshError> {
         .unwrap_or_default();
     if on != p.branch {
         let other = format!("{} is on {on:?}, not {}", p.path.display(), p.branch);
-        return Err(RefreshError::Local(other));
+        return Err(RefreshError::Untrusted(other));
     }
     Ok(())
 }

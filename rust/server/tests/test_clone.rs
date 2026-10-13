@@ -2108,13 +2108,27 @@ async fn a_checkout_on_another_branch_isnt_pushed() {
         .await
         .expect("create");
     let commit = cm.commit("mine").await.expect("commit").expect("a commit");
-    git(&world.public(), &["checkout", "-q", "-b", "elsewhere"]);
+    // tracking main: without the check, its HEAD would go onto main
+    git(
+        &world.public(),
+        &[
+            "checkout",
+            "-q",
+            "-b",
+            "elsewhere",
+            "--track",
+            "origin/main",
+        ],
+    );
     cm.committed(&commit, &Default::default()).await;
     assert!(eventually(async || cm.pushes_started() >= 1).await);
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     assert_eq!(upstream(&world), before);
     let pending = cm.push_outcome(&commit).await.expect("a push record");
     assert!(pending.contains("pending"), "{pending}");
+    // nor tried again on its own, until someone changes it
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    assert_eq!(cm.pushes_started(), 1);
 }
 
 /// A checkout whose push url names another project isn't pushed there.
@@ -2153,4 +2167,54 @@ async fn a_failed_push_is_tried_again() {
     assert!(eventually(async || cm.pushes_started() >= 1).await);
     std::fs::rename(&hidden, &bare).expect("restore");
     assert!(eventually(async || upstream(&world) == commit).await);
+}
+
+/// The configured checkout, the operator's own, isn't pushed by a pull
+/// either, though it holds commits its remote lacks.
+#[tokio::test]
+async fn a_pull_doesnt_push_the_configured_checkout() {
+    let world = World::new().await;
+    world.prepare().await;
+    let DbConfig::Sqlite { url } = &world.db else {
+        unreachable!()
+    };
+    let (cm, _) = unfurl_server::cloudmap::CloudMapState::open(
+        world.public().to_str().unwrap(),
+        url,
+        Some(ScanOptions::default()),
+    )
+    .await
+    .expect("open");
+    let settings = unfurl_server::fresh::Settings {
+        timeout: 0,
+        cache_key_prefix: "test:".into(),
+        cloud_server: world.server(),
+        clone_root: None,
+        grants: None,
+        locks: None,
+        trust: unfurl_git_sync::git::Trust::Full,
+        push_interval: 0,
+        record_ttl: 0,
+    };
+    let cm = cm.with_freshener(unfurl_server::fresh::Freshener::new(None, settings, |_| {
+        true
+    }));
+    let before = upstream(&world);
+    std::fs::write(world.public().join("mine.txt"), "mine").expect("write");
+    git(&world.public(), &["add", "."]);
+    git(&world.public(), &["commit", "-q", "-m", "mine"]);
+    cm.resolve_read(
+        Some("org/proj"),
+        None,
+        false,
+        &world.server(),
+        &Default::default(),
+        None,
+    )
+    .await
+    .expect("read");
+    assert!(eventually(async || cm.pulls_started() == 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(upstream(&world), before);
+    assert_eq!(cm.pushes_started(), 0);
 }

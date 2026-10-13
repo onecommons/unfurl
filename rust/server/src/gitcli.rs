@@ -213,9 +213,10 @@ pub(crate) async fn refuse_untrusted_config(path: &Path, access: &Access) -> Res
     }
 }
 
-/// Refuse the checkout at `path` unless its remote, `origin`, is `url`, for
-/// fetching and pushing alike: credentials for `url`'s host would
-/// otherwise reach whichever other project it names.
+/// Refuse the checkout at `path` unless every url of its remote, `origin`,
+/// is `url`, for fetching and pushing alike: credentials for `url`'s host
+/// would otherwise reach whichever other project one names, as git pushes
+/// to each.
 pub(crate) async fn refuse_other_origin(
     path: &Path,
     access: &Access,
@@ -223,15 +224,18 @@ pub(crate) async fn refuse_other_origin(
 ) -> Result<(), String> {
     let expected = unfurl_git_sync::git::normalize_git_url_hard(url);
     for args in [
-        &["remote", "get-url", "origin"][..],
-        &["remote", "get-url", "--push", "origin"],
+        &["remote", "get-url", "--all", "origin"][..],
+        &["remote", "get-url", "--push", "--all", "origin"],
     ] {
         let named = git(path, access, args).await?;
-        if unfurl_git_sync::git::normalize_git_url_hard(&named) != expected {
+        let other = named
+            .lines()
+            .find(|named| unfurl_git_sync::git::normalize_git_url_hard(named) != expected);
+        if let Some(other) = other {
             return Err(format!(
                 "{}: its remote is {}, not its project's, which isn't trusted",
                 path.display(),
-                redact(&named)
+                redact(other)
             ));
         }
     }
@@ -249,6 +253,8 @@ fn untrusted(name: &str) -> bool {
         "diff.",
         "merge.",
         "gpg.",
+        // a fetch would download a bundle from wherever it names
+        "bundle.",
         "include.",
         "includeif.",
         "http.",
@@ -263,6 +269,7 @@ fn untrusted(name: &str) -> bool {
                 .any(|key| name.ends_with(key)))
         || [
             "core.worktree",
+            "fetch.bundleuri",
             "core.askpass",
             "core.sshcommand",
             "core.gitproxy",
@@ -372,7 +379,13 @@ mod tests {
     /// left to [`refuse_other_origin`].
     #[test]
     fn config_that_runs_a_merge_driver_or_redirects_a_push_is_untrusted() {
-        for name in ["merge.evil.driver", "merge.verifySignatures", "gpg.program"] {
+        for name in [
+            "merge.evil.driver",
+            "merge.verifySignatures",
+            "gpg.program",
+            "bundle.example.uri",
+            "fetch.bundleURI",
+        ] {
             assert!(untrusted(name), "{name}");
         }
         assert!(!untrusted("remote.origin.pushurl"));
@@ -403,6 +416,15 @@ mod tests {
         let refused = refuse_other_origin(tmp.path(), &access, url).await;
         assert!(refused.is_err_and(|e| e.contains("victim/other")));
         run(&["config", "--unset", "remote.origin.pushurl"]);
+        // a second url, or push url, as git pushes to every one
+        run(&["config", "--add", "remote.origin.url", theirs]);
+        assert!(refuse_other_origin(tmp.path(), &access, url).await.is_err());
+        run(&["config", "--unset", "remote.origin.url", "victim"]);
+        run(&["config", "remote.origin.pushurl", ours]);
+        run(&["config", "--add", "remote.origin.pushurl", theirs]);
+        assert!(refuse_other_origin(tmp.path(), &access, url).await.is_err());
+        run(&["config", "--unset-all", "remote.origin.pushurl"]);
+        assert!(refuse_other_origin(tmp.path(), &access, url).await.is_ok());
         run(&["remote", "set-url", "origin", theirs]);
         assert!(refuse_other_origin(tmp.path(), &access, url).await.is_err());
     }

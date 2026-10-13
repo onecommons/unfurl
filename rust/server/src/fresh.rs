@@ -14,7 +14,7 @@ use unfurl_git_sync::git::Trust;
 use unfurl_git_sync::{ScanOptions, SyncOutcome, SyncedRepo};
 
 use crate::cache;
-use crate::clone::{self, RequestAccess};
+use crate::clone::{self, RefreshError, RequestAccess};
 use crate::gitlock::{self, GitLocks};
 use crate::grants::{Credentials, GrantStore};
 
@@ -108,6 +108,9 @@ struct Tracked {
     last_push: std::sync::Mutex<Option<std::time::Instant>>,
     /// Whether a push of it is waiting to run.
     push_scheduled: std::sync::atomic::AtomicBool,
+    /// Its pushes that failed since the last that didn't, which back its
+    /// retries off.
+    push_failures: std::sync::atomic::AtomicU32,
 }
 
 /// Whether a push is tried again, and with what.
@@ -121,6 +124,9 @@ enum Again {
 
 /// The least a push waits to be tried again, whatever the interval.
 const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The most a push waits to be tried again, however often it failed.
+const RETRY_MAX: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// What the checkouts are pulled with.
 pub struct Settings {
@@ -269,9 +275,17 @@ impl Freshener {
                 Again::Same => credentials,
                 Again::WithAGrant => None,
             };
-            tokio::time::sleep(RETRY_DELAY).await;
+            tokio::time::sleep(me.retry_delay(&tracked)).await;
             me.schedule_push(tracked, handle, credentials);
         });
+    }
+
+    /// How long a failed push of `tracked`'s checkout waits to be tried
+    /// again: the push interval, a second at the least, doubled for each
+    /// failure since the last push that didn't, up to an hour.
+    fn retry_delay(&self, tracked: &Tracked) -> std::time::Duration {
+        let failures = tracked.push_failures.load(Ordering::SeqCst);
+        backoff(self.settings.push_interval, failures)
     }
 
     /// How long until `tracked`'s checkout may be pushed again.
@@ -325,6 +339,7 @@ impl Freshener {
         }
         match pushed {
             Ok((pushed, commits)) => {
+                tracked.push_failures.store(0, Ordering::SeqCst);
                 self.pushed(tracked, handle, &pushed, &commits).await;
                 Again::No
             }
@@ -337,9 +352,12 @@ impl Freshener {
                     error = %e,
                     "can't push this cloudmap checkout; pushed again later"
                 );
-                match e.refused() {
-                    true => Again::WithAGrant,
-                    false => Again::Same,
+                tracked.push_failures.fetch_add(1, Ordering::SeqCst);
+                match e {
+                    // until someone changes it: a write or pull pushes again
+                    RefreshError::Untrusted(_) => Again::No,
+                    _ if e.refused() => Again::WithAGrant,
+                    _ => Again::Same,
                 }
             }
         }
@@ -503,6 +521,7 @@ impl Freshener {
             pulling: Default::default(),
             last_push: Default::default(),
             push_scheduled: Default::default(),
+            push_failures: Default::default(),
         });
         let mut all = self.tracked.lock().expect("tracked");
         Some(all.entry(id).or_insert(tracked).clone())
@@ -632,5 +651,29 @@ impl Freshener {
                 "an export a pull left unfinished couldn't be finished"
             );
         }
+    }
+}
+
+/// [`Freshener::retry_delay`], after `failures` failed pushes, with a push
+/// interval of `interval` seconds.
+fn backoff(interval: u64, failures: u32) -> std::time::Duration {
+    let base = std::time::Duration::from_secs(interval).max(RETRY_DELAY);
+    let doubled = base.saturating_mul(1 << failures.saturating_sub(1).min(16));
+    doubled.min(RETRY_MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retries_back_off_from_the_interval_to_an_hour() {
+        let secs = |interval, failures| backoff(interval, failures).as_secs();
+        assert_eq!(secs(0, 1), 1, "a second at the least");
+        assert_eq!(secs(0, 2), 2);
+        assert_eq!(secs(60, 1), 60);
+        assert_eq!(secs(60, 3), 240);
+        assert_eq!(secs(60, 40), 3600, "an hour at the most");
+        assert_eq!(secs(u64::MAX, 1), 3600);
     }
 }
