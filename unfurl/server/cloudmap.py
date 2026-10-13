@@ -60,8 +60,10 @@ from .serve import (
     get_cache,
     get_project_url,
     git_lock,
+    guess_branch,
     serving_local_path,
     _get_project_repo_dir,
+    _git_credentials,
 )
 from .endpoints import _commit_and_push, _get_author, _get_body, _get_commit_msg
 
@@ -86,6 +88,23 @@ def _cloudmap_project_id(request) -> str:
     if project_id:
         return project_id
     return default_cloudmap_project()
+
+
+def _cloudmap_branch(project_id: str, branch: Optional[str]) -> str:
+    """``branch``, or if the request named none, the one :func:`guess_branch`
+    picks for ``project_id``, asking its remote with the request's
+    credentials if it must."""
+    from .cache import CLOUDMAP_BRANCH
+
+    if branch:
+        return branch
+    if project_id == CLOUDMAP_PROJECT:
+        return CLOUDMAP_BRANCH
+    credentials = _git_credentials(request)
+    args = (
+        dict(username=credentials[0], password=credentials[1]) if credentials else None
+    )
+    return guess_branch(project_id, args)
 
 
 def default_cloudmap_project() -> str:
@@ -581,14 +600,14 @@ def _project_document(doc: Dict[str, Any], select: List[SelectPath]) -> Dict[str
     description="The filtered CloudMap document, plus follow/paging keys when requested",
 )
 def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
-    from .cache import CLOUDMAP_BRANCH, CLOUDMAP_PATH, load_cloudmap_local
+    from .cache import CLOUDMAP_PATH, load_cloudmap_local
 
     project_id = _cloudmap_project_id(request)
     if not project_id:
         forwarded = _forward_default("")
         if forwarded is not None:
             return forwarded
-    branch = query.branch or CLOUDMAP_BRANCH
+    branch = _cloudmap_branch(project_id, query.branch)
     kind = query.kind
     key = query.key
     follow = query.follow
@@ -866,14 +885,14 @@ def _canonical_facet_key(value: Any) -> str:
 @app.input(FacetsQuery, location="query", arg_name="query")
 @app.output(FacetsResult, description="Group and facet counts for the selected records")
 def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
-    from .cache import CLOUDMAP_BRANCH, CLOUDMAP_PATH, load_cloudmap_local
+    from .cache import CLOUDMAP_PATH, load_cloudmap_local
 
     project_id = _cloudmap_project_id(request)
     if not project_id:
         forwarded = _forward_default("/facets")
         if forwarded is not None:
             return forwarded
-    branch = query.branch or CLOUDMAP_BRANCH
+    branch = _cloudmap_branch(project_id, query.branch)
     try:
         group_tokens = _pointer_tokens(query.group_by)
     except ValueError as parse_err:
@@ -1076,7 +1095,7 @@ def post_cloudmap(
     Also per-record optimistic concurrency (via ``unfurl.server.{commit,version}`` keys) is not supported by this handler,
     so the ``latest_commit`` check is the only concurrency control in place.
     """
-    from .cache import CLOUDMAP_BRANCH, CLOUDMAP_PATH
+    from .cache import CLOUDMAP_PATH
 
     project_id = get_project_id_or_abort(request) or default_cloudmap_project()
     if not project_id:
@@ -1094,7 +1113,7 @@ def post_cloudmap(
     latest_commit = raw.get("latest_commit")
     username = raw.get("username")
     password = raw.get("private_token", raw.get("password"))
-    branch = raw.get("branch", CLOUDMAP_BRANCH)
+    branch = _cloudmap_branch(project_id, raw.get("branch"))
 
     # Split the body: envelope keys vs cloudmap sections.
     body_sections: Dict[str, Dict[str, Any]] = {}
@@ -1536,15 +1555,16 @@ def update_cloudmap(
     """Open the cloudmap in ``project_id`` and save what ``update`` does to it,
     as ``POST /cloudmap/analyze`` does. ``update`` returns the records added,
     the urls skipped and a commit message."""
-    from .cache import CLOUDMAP_BRANCH, CLOUDMAP_PATH, get_cloudmap_proxy, load_cloudmap_db
+    from .cache import CLOUDMAP_PATH, get_cloudmap_proxy, load_cloudmap_db
     from ..cloudmap import CloudMap
     from ..cloudmap.proxy import CloudMapProxyConflict, CloudMapProxyError
 
     cloudmap_path = (
         body.cloudmap_path or _current_cloudmap_local_path(project_id) or CLOUDMAP_PATH
     )
-    branch = body.branch or CLOUDMAP_BRANCH
     proxy = get_cloudmap_proxy(project_id, cloudmap_path, body.latest_commit)
+    # a proxied cloudmap is read and saved without one
+    branch = "" if proxy is not None else _cloudmap_branch(project_id, body.branch)
     db: Optional[CloudMapDB] = None
     before: Dict[str, Dict[str, Any]] = {}
     store: CloudMapStore

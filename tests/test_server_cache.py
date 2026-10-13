@@ -525,11 +525,11 @@ def _git(cwd, *args):
     )
 
 
-def _remote(tmp_path):
-    """A repository standing in for the project's remote, on ``main``."""
-    remote = tmp_path / "remote"
+def _remote(tmp_path, branch="main", name="remote"):
+    """A repository standing in for the project's remote, on ``branch``."""
+    remote = tmp_path / name
     remote.mkdir()
-    _git(remote, "init", "-q", "-b", "main")
+    _git(remote, "init", "-q", "-b", branch)
     (remote / "cloudmap.yaml").write_text("repositories: {}\n")
     _git(remote, "add", ".")
     _git(remote, "commit", "-q", "-m", "first")
@@ -546,6 +546,106 @@ def clone_root(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "get_cache", lambda: cache)
     monkeypatch.setattr(server, "clear_cache", lambda cache, prefix: [])
     return tmp_path
+
+
+@pytest.fixture
+def ls_remotes(clone_root, monkeypatch):
+    """Projects' remotes are ``clone_root/<project>.git``; the urls each
+    ``ls-remote`` asked are returned."""
+    from unfurl.server import cache as server_cache
+
+    monkeypatch.setitem(server.app.config, "UNFURL_CLOUD_SERVER", str(clone_root) + "/")
+    monkeypatch.setitem(server.app.config, "UNFURL_LOCAL_CLOUDMAP_URL", None)
+    monkeypatch.setitem(server.app.config, "UNFURL_LOCAL_PROJECTS", {})
+    monkeypatch.setitem(server.app.config, "UNFURL_GUI_MODE", None)
+    monkeypatch.setitem(server.app.config, "CACHE_DEFAULT_PULL_TIMEOUT", 120)
+    monkeypatch.setitem(server.app.config, "CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT", 300)
+    monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
+    # what cache.py's get_cache returns
+    monkeypatch.setattr(server, "_cache", server.get_cache())
+    asked: List[str] = []
+    get_remote_refs = server_cache.get_remote_refs
+
+    def counted(url, pattern="*"):
+        asked.append(url)
+        return get_remote_refs(url, pattern)
+
+    monkeypatch.setattr(server_cache, "get_remote_refs", counted)
+    return asked
+
+
+def _refuse_ls_remote(monkeypatch, asked: List[str]) -> None:
+    from git.exc import GitCommandError
+    from unfurl.server import cache as server_cache
+
+    def refused(url, pattern="*"):
+        asked.append(url)
+        raise GitCommandError(["git", "ls-remote", url], 128)
+
+    monkeypatch.setattr(server_cache, "get_remote_refs", refused)
+
+
+def test_a_cloudmap_read_naming_no_branch_reads_the_default_branch(clone_root, ls_remotes):
+    """A cloudmap read that names no branch reads the one the project's
+    remote's HEAD points at, as the rust server does, not "main"."""
+    _remote(clone_root, "master", "proj.git")
+    client = server.app.test_client()
+    for path, params in [("/cloudmap", {}), ("/cloudmap/facets", {"group_by": "/name"})]:
+        res = client.get(path, query_string={"auth_project": "proj", **params})
+        assert res.status_code == 200, res.get_data(as_text=True)
+    root = server.app.config["UNFURL_CLONE_ROOT"]
+    assert os.path.isdir(os.path.join(root, "public", "proj", "master"))
+    assert not os.path.exists(os.path.join(root, "public", "proj", "main"))
+    assert len(ls_remotes) == 1, "the clone answers after"
+
+
+def test_a_clones_default_branch_is_used_before_asking_the_remote(
+    clone_root, ls_remotes, monkeypatch
+):
+    """The default branch an existing clone of the project recorded is used,
+    whichever branch it is a clone of, without asking the remote."""
+    remote = _remote(clone_root, "trunk")
+    _git(remote, "branch", "feature")
+    with server.app.app_context():
+        clone = server._get_project_repo_dir("proj", "feature", {})
+        _git(clone_root, "clone", "-q", "-b", "feature", str(remote), clone)
+        _refuse_ls_remote(monkeypatch, ls_remotes)
+        assert server.guess_branch("proj", None) == "trunk"
+    assert ls_remotes == []
+
+
+def test_a_remote_that_cant_tell_and_no_clone_is_main(
+    clone_root, ls_remotes, monkeypatch
+):
+    """With neither a clone nor the remote to say, it's "main"."""
+    _refuse_ls_remote(monkeypatch, ls_remotes)
+    with server.app.app_context():
+        assert server.guess_branch("proj", None) == "main"
+    assert len(ls_remotes) == 1
+
+
+def test_a_local_projects_branch_is_its_own(clone_root, ls_remotes):
+    """A local project's branch is the one its checkout is on, and its
+    remote isn't asked."""
+    local = _remote(clone_root, "dev", "local")
+    server.app.config["UNFURL_LOCAL_PROJECTS"]["proj"] = str(local)
+    with server.app.app_context():
+        assert server.guess_branch("proj", None) == "dev"
+    res = server.app.test_client().get("/cloudmap", query_string={"auth_project": "proj"})
+    assert res.status_code == 200, res.get_data(as_text=True)
+    assert ls_remotes == []
+
+
+def test_the_public_cloudmaps_branch_is_main(clone_root, ls_remotes, monkeypatch):
+    """The public cloudmap, the default project, is read on "main" without
+    asking its remote."""
+    from unfurl.server import cloudmap
+
+    _refuse_ls_remote(monkeypatch, ls_remotes)
+    with server.app.test_request_context("/cloudmap"):
+        assert cloudmap._cloudmap_branch(cloudmap.CLOUDMAP_PROJECT, None) == "main"
+        assert cloudmap._cloudmap_branch(cloudmap.CLOUDMAP_PROJECT, "dev") == "dev"
+    assert ls_remotes == []
 
 
 def test_clear_project_keeps_clones_with_unpushed_work(clone_root):

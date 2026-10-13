@@ -1930,7 +1930,7 @@ class LocalEnv:
             if not locked and not (repoview.package and repoview.package.locked):
                 dirty = repo.is_dirty()
                 if (revision and not exact) or checkout_args:
-                    if repo.is_dirty():
+                    if dirty:
                         logger.warning(
                             f"{repo.working_dir} is dirty, skipping checking out revision {revision}"
                         )

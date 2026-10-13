@@ -1933,6 +1933,50 @@ def get_latest_tag_or_default_branch(
     return branch, default_branch
 
 
+def guess_branch(project_id: str, args: Optional[dict]) -> str:
+    """The branch a request naming none reads: a local project's checked-out
+    branch, its only one; or the default branch an existing clone of the
+    project recorded, or else its remote's HEAD names; falling back to
+    "main"."""
+    from .cache import get_remote_refs_cached
+
+    local_branch = get_local_branch(project_id)
+    if local_branch:
+        return local_branch
+    if not project_id or project_id.startswith("local:"):
+        return DEFAULT_BRANCH
+    branch = _default_branch_of_a_clone(project_id)
+    if not branch:
+        try:
+            branch = get_remote_refs_cached(
+                get_project_url(project_id), "*", args, need_default_branch=True
+            ).default_branch
+        except Exception as e:
+            # not the exception's message: it can hold the url with credentials
+            logger.warning(
+                "can't ask the remote of %s for its default branch: %s",
+                project_id,
+                type(e).__name__,
+            )
+    return branch or DEFAULT_BRANCH
+
+
+def _default_branch_of_a_clone(project_id: str) -> str:
+    """The default branch recorded by the first clone of ``project_id``
+    found under the clone root that records one, or ""."""
+    for visibility in ["public", "private"]:
+        project_dir = _get_managed_project_repo_dir(
+            project_id, "", dict(visibility=visibility)
+        )
+        for clone in _clones_under(project_dir):
+            if os.path.isfile(clone + ".lock"):
+                continue  # still being cloned
+            repo = Repo.make_repo(clone)
+            if isinstance(repo, GitRepo) and repo.default_branch:
+                return repo.default_branch
+    return ""
+
+
 def _export(
     request: Request,
     requested_format: str,
@@ -2307,6 +2351,16 @@ def _unpushed_work(path: str, ahead: Union[int, str, None] = None) -> Optional[s
     return None
 
 
+def _clones_under(project_dir: str) -> List[str]:
+    """The working directories of the clones under ``project_dir``."""
+    clones: List[str] = []
+    for root, dirs, files in os.walk(project_dir):
+        if ".git" in dirs or ".git" in files:
+            dirs[:] = []  # a clone's own subdirectories aren't clones
+            clones.append(root)
+    return clones
+
+
 def _remove_clones(
     project_dir: str, force: bool = False
 ) -> Tuple[List[str], List[Tuple[str, str]]]:
@@ -2314,11 +2368,7 @@ def _remove_clones(
     work, which a clone made again wouldn't have, unless ``force``, and any
     whose git lock another holds: the clones removed, and those kept with
     why."""
-    clones: List[str] = []
-    for root, dirs, files in os.walk(project_dir):
-        if ".git" in dirs or ".git" in files:
-            dirs[:] = []  # a clone's own subdirectories aren't clones
-            clones.append(root)
+    clones = _clones_under(project_dir)
     cache = assert_not_none(get_cache())
     # those this thread held already stay held, by whoever took them
     nested = set(_held_git_locks())
