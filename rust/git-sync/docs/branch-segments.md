@@ -1393,23 +1393,28 @@ It returns the new commit, if any, and the branch, if one was made.
    edits that the new commits diverge from become record conflicts, as
    for any commit made outside git-sync.
 3. **If the histories have diverged,** rebase in the database rather
-   than merge in git:
+   than merge in git ([C.21](#c21-rebase-a-worktrees-local-commits-onto-upstream)),
+   the database first:
    1. **Unfold** the local commits, from the merge base to `HEAD`, into
-      draft rows based at the merge base: the fold in reverse. Each batch
-      keeps its `txn` row, unstamped, so its author and message survive
-      the re-commit. A commit without a rollup is unfolded from its tree
-      diff, with ids found as a scan finds them.
-   2. **Save** any other pending edits first, so the working tree holds
-      nothing the reset would lose.
-   3. **Reset** the branch and working tree to upstream. The next scan
-      rebuilds ([§4.8](#48-rebuilding-after-a-rewrite)), keeping the
-      draft and classifying each edit against upstream's value: one
-      upstream didn't change stays pending; one it changed becomes a
-      record conflict.
+      draft rows based at the merge base: one edit per record they
+      changed, with the id and version their rollups name. Each batch's
+      `txn` row is unstamped, so its author and message survive the
+      re-commit.
+   2. **Rebuild** the head onto upstream
+      ([§4.8](#48-rebuilding-after-a-rewrite)), keeping the draft, in
+      the same transaction.
+   3. **Reset** the branch and working tree to upstream. The scan after
+      it classifies each edit against upstream's value: one upstream
+      didn't change stays pending; one it changed becomes a record
+      conflict.
    4. **Commit** what doesn't conflict onto upstream
-      (`commit_repository`).
+      (`commit_repository`), as one commit.
    5. **Leave the conflicts** in the database to resolve, or export them
       (above).
+
+   A failure between the database and the reset heals: the next scan
+   finds `HEAD` still at the local commits and rebuilds back onto them,
+   and the unfolded edits are no-ops the next commit folds.
 
 The result is linear history with no merge commits and no conflict
 markers, and only records that truly conflict are held back. History is
@@ -3325,3 +3330,115 @@ WHERE worktree_id = :w AND commit_id IS NULL
 -- 6. :n is W's unfinished export until step 7
 UPDATE worktree SET exporting_from = :w_branch WHERE id = :n;
 ```
+
+### C.21 Rebase a worktree's local commits onto upstream
+
+[§4.15](#415-remotes-pulling-pushing-and-conflicts); `src/rebase.rs`.
+W's recorded HEAD is `:l`, the commit it has that its remote lacks
+commits up to; `:u` is the fetched upstream, and `:b` their merge base.
+The database moves first and the working tree after, so a failure
+between the two heals: the next scan finds HEAD at `:l`, which doesn't
+descend from `:u`, and rebuilds back onto it (C.18). The unfolded edits,
+which equal `:l`'s values, stay pending as no-ops until the next commit
+folds them without making one. In order:
+
+1. **Refuse,** with nothing changed, unless `:b` is neither `:l` nor
+   `:u` (those are a fast-forward and nothing to do), HEAD is `:l` and
+   its tracked files are its tree, and every file `:b` and `:l` differ
+   in is at both and one a format reads there, whose value at `:l` is
+   `:b`'s with the edits below applied (`render_onto`), empty maps
+   aside. A literate document's bytes must be, since its value doesn't
+   hold its prose. Anything else in the local commits -- data outside
+   the records, a file added or removed, a mode or a submodule changed,
+   a record moved to another file, an edit of a record pending at
+   another place -- has nowhere to go in the draft, and W's conflicts
+   have a file side the rebuild leaves behind, so the caller diverts
+   instead. Comments, layout and
+   key order the local commits changed aren't kept: the commit onto
+   `:u` renders the edits onto `:u`'s bytes.
+2. **Collect the edits,** outside any transaction: each place whose
+   record differs between `:b` and `:l`, as an edit to its value at
+   `:l`, based at `:b` with the value there, or a create where `:b` has
+   none; where `:l` has none, a tombstone, whose json is `:b`'s value,
+   as every tombstone's is the value it deletes. Its `key_id` and
+   `version` are the live row W's chain holds there, else those the
+   last of this family's rollups between `:b` and `:l` names (C.10),
+   else new ones. A tombstone is added after the rebuild, as a deletion
+   of the record the rebuilt chain shows at its place, with its id.
+3. **Unfold and rebuild,** in one transaction holding the family lock
+   (§4.14), below. `:l` must still be W's `commit_id`, and HEAD: a
+   commit since step 2 wasn't unfolded. Then `refs/git-sync/rebased/<branch>`
+   names `:l`, which the reset leaves no branch naming, until the
+   branch's next rebase.
+4. **The caller** resets the working tree to `:u` while HEAD is still
+   `:l`, then scans and commits as usual (C.10, C.11, C.12), with
+   nothing scanning the checkout in between: a scan before the reset is
+   the heal above. The
+   rebuild resets W's cursors (§4.10), as every rebuild does. The scan's three-way check
+   (§4.11) classifies each edit against `:u`'s value: settled where
+   `:u` has it already, pending where `:u` kept the base, a conflict
+   otherwise. The commit carries what's pending onto `:u`, one commit
+   for all of the local ones, its rollup naming their batches.
+
+```sql
+-- the guard: what the edits were collected against
+SELECT commit_id FROM worktree WHERE id = :w;  -- must be :l
+
+-- 1. a pending edit already at a place keeps its value and takes the
+--    older base: it now edits :b's value, or creates the record
+UPDATE record SET base_commit_id = e.base_commit_id, base_json = e.base_json
+FROM unfolded e
+WHERE record.segment_id = :d AND record.conflict IS NULL
+  AND record.commit_id IS NULL
+  AND record.file_path = e.file_path AND record.path = e.path
+  AND record.key = e.key;
+
+-- 2. the rest but the tombstones go into :d as copies, never moved: a
+--    segment between :b and :l can be in a diverted or exported branch's
+--    chain
+INSERT INTO record (key_id, segment_id, file_path, path, key, commit_id, json,
+                    deleted, version, base_commit_id, base_json, settled)
+SELECT e.key_id, :d, e.file_path, e.path, e.key, NULL, e.json,
+       e.deleted, e.version, e.base_commit_id, e.base_json, NULL
+FROM unfolded e
+WHERE NOT e.deleted
+  AND NOT EXISTS (SELECT 1 FROM record r
+                  WHERE r.segment_id = :d AND r.conflict IS NULL
+                    AND r.commit_id IS NULL
+                    AND r.file_path = e.file_path AND r.path = e.path
+                    AND r.key = e.key);
+
+-- 3. their batches are outstanding again, so the commit onto :u names
+--    them, with their authors and messages
+UPDATE txn SET commit_id = NULL
+WHERE worktree_id = :w AND commit_id = ANY(:local);
+
+-- 4. C.16 places :u, C.17 splits the segment it falls inside, and C.18
+--    rebuilds W onto it from :u's files; the draft stays
+
+-- 5. the tombstones, each the record the rebuilt chain shows at its place
+INSERT INTO record (key_id, segment_id, file_path, path, key, commit_id, json,
+                    deleted, version, base_commit_id, base_json, settled)
+SELECT COALESCE((SELECT key_id FROM chain_live c        -- C.1's view of W
+                 WHERE c.file_path = e.file_path AND c.path = e.path
+                   AND c.key = e.key), e.key_id),
+       :d, e.file_path, e.path, e.key, NULL, e.json,
+       TRUE, e.version, e.base_commit_id, e.base_json, NULL
+FROM unfolded e
+WHERE e.deleted
+  AND NOT EXISTS (SELECT 1 FROM record r
+                  WHERE r.segment_id = :d AND r.conflict IS NULL
+                    AND r.commit_id IS NULL
+                    AND r.file_path = e.file_path AND r.path = e.path
+                    AND r.key = e.key);
+
+-- 6. the files the edits are in are read from the working tree again at
+--    the next scan, which classifies them
+UPDATE file SET source_oid = NULL
+WHERE worktree_id = :w AND path = ANY(SELECT file_path FROM unfolded);
+
+-- 7. C.11 re-links :d against the rebuilt chain; C.14 compacts
+```
+
+`:local` is every commit between `:b` and `:l`. Conflict rows in `:d`
+stay: the scan renews them against `:u`'s values.

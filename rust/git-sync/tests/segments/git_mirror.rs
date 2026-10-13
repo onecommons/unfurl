@@ -127,12 +127,17 @@ impl GitMirror {
         }
     }
 
-    /// Bring the repository and the checkouts up to `world`.
-    fn sync(&mut self, world: &World) {
+    /// Make the commits `world` has that the repository doesn't.
+    fn make_commits(&mut self, world: &World) {
         for c in self.oids.len()..world.git.commits.len() {
             let oid = self.make_commit(&world.git, c);
             self.oids.push(oid);
         }
+    }
+
+    /// Bring the repository and the checkouts up to `world`.
+    fn sync(&mut self, world: &World) {
+        self.make_commits(world);
         for w in 0..world.model.wts.len() {
             let m = &world.model.wts[w];
             if m.user || m.exported {

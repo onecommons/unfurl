@@ -13,7 +13,7 @@ fn sql_supports(op: &Op) -> bool {
         // a trailer is a commit's; there's no working-tree form of it
         Op::DiskEdit(_, _, _, wins) => !matches!(wins, FileWins::Diverged),
         Op::Fork(..) | Op::Rebuild(..) | Op::Rebase(..) | Op::Delete(_) => true,
-        Op::Export(_) | Op::FailedExport(_) | Op::Merge(..) => true,
+        Op::Export(_) | Op::FailedExport(_) | Op::Merge(..) | Op::Integrate(..) => true,
         _ => false,
     }
 }
@@ -62,6 +62,7 @@ impl Before {
             | Op::Rebuild(n, ..)
             | Op::Rebase(n, ..)
             | Op::Merge(n, ..)
+            | Op::Integrate(n, ..)
             | Op::Export(n) => Some(n),
             Op::FailedExport(n) => Some(n / 3),
             _ => None,
@@ -257,6 +258,32 @@ impl SqlWorld {
                     .unwrap();
             }
             Op::Export(_) | Op::FailedExport(_) => self.export(op, world, mirror, before),
+            Op::Integrate(..) => {
+                // nothing to rebase onto: a user branch, which SQL doesn't
+                // have yet, or nothing below HEAD
+                if world.git.commits.len() == before.commits {
+                    return;
+                }
+                mirror.make_commits(world);
+                let upstream = mirror.oids.last().expect("upstream").clone();
+                let rebased = self
+                    .rt
+                    .block_on(self.repos[&w].rebase_onto(&upstream))
+                    .unwrap();
+                if world.refused {
+                    assert!(
+                        matches!(rebased, unfurl_git_sync::Rebased::Refused(_)),
+                        "the model refused; the implementation's rebase: {rebased:?}"
+                    );
+                    return;
+                }
+                assert!(
+                    matches!(rebased, unfurl_git_sync::Rebased::Unfolded { .. }),
+                    "the implementation's rebase: {rebased:?}"
+                );
+                mirror.sync(world);
+                self.scan(w, false);
+            }
             Op::Delete(_) => {
                 let gone: Vec<Wt> = self
                     .repos

@@ -68,6 +68,7 @@ fn run(ops: &[Op]) {
                     | Op::Rebuild(..)
                     | Op::Rebase(..)
                     | Op::Merge(..)
+                    | Op::Integrate(..)
             ) {
                 // a step that changed nothing on disk or in git is taken in
                 // by the next scan anyway: check it's a no-op
@@ -93,6 +94,11 @@ fn phase1_op() -> impl Strategy<Value = Op> {
 /// Exports, and only what the SQL side runs around them.
 fn sql_export_op() -> impl Strategy<Value = Op> {
     export_op().prop_filter("the SQL side runs it", ran_before_merges)
+}
+
+/// Rebases onto upstream, and only what the SQL side runs around them.
+fn sql_integrate_op() -> impl Strategy<Value = Op> {
+    integrate_op().prop_filter("the SQL side runs it", sql_supports)
 }
 
 /// Exports, some failing partway, and only what the SQL side runs.
@@ -135,6 +141,12 @@ proptest! {
 
     #[test]
     #[ignore]
+    fn integrates_agree_with_the_implementation(ops in prop::collection::vec(sql_integrate_op(), 1..40)) {
+        run(&ops);
+    }
+
+    #[test]
+    #[ignore]
     fn failed_exports_agree_with_the_implementation(ops in prop::collection::vec(sql_failed_export_op(), 1..40)) {
         run(&ops);
     }
@@ -168,6 +180,11 @@ proptest! {
 
     #[test]
     fn exports_regressions(ops in prop::collection::vec(sql_export_op(), 1..40)) {
+        run(&ops);
+    }
+
+    #[test]
+    fn integrates_regressions(ops in prop::collection::vec(sql_integrate_op(), 1..40)) {
         run(&ops);
     }
 

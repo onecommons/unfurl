@@ -789,6 +789,27 @@ pub struct Committed {
     pub exported: Option<Exported>,
 }
 
+/// What [`crate::SyncedRepo::rebase_onto`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Rebased {
+    /// The local commits' edits are in the draft, based at `base`, and the
+    /// head is rebuilt onto upstream: reset the working tree to it, only
+    /// while HEAD is still `head`, then scan and commit. `head` stays
+    /// reachable from `refs/git-sync/rebased/<branch>` until the branch's
+    /// next rebase.
+    Unfolded {
+        base: String,
+        head: String,
+        edits: usize,
+    },
+    /// HEAD is upstream or behind it: fast-forward instead.
+    FastForward,
+    /// Upstream is in HEAD's history already.
+    Ahead,
+    /// Nothing changed: the reason the local commits can't be rebased here.
+    Refused(String),
+}
+
 /// What [`crate::SyncedRepo::export_conflicts`] made: the branch the
 /// conflicted edits went to, its worktree in the database, its commit, and
 /// the records moved there.

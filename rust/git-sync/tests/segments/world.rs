@@ -40,6 +40,10 @@ enum Op {
     Move(u8, Key, bool),
     /// Export a worktree's unresolved conflicts to a new branch (C.20).
     Export(u8),
+    /// Rebase a worktree's commits since `history[.1]`, counted back from
+    /// below its head, onto an outside commit off it with changes `.2`
+    /// (C.21), then reset its checkout there and scan.
+    Integrate(u8, u8, Vec<(Key, bool)>),
     /// An export that fails after one of its steps, `.0 % 3`, from the
     /// worktree `.0 / 3` picks: its branch holds the edits uncommitted
     /// until the next export from that worktree finishes it.
@@ -96,6 +100,29 @@ fn merge_op(key: std::ops::Range<Key>) -> impl Strategy<Value = Op> {
         prop::collection::vec((key, prop::bool::weighted(0.2)), 0..2),
     )
         .prop_map(|(w, s, kind, picks, extra)| Op::Merge(w, s, kind, picks, extra))
+}
+
+/// C.21's deletions, added after the rebuild: each `(key, value at the
+/// base, version, id the rollup names)`.
+#[derive(Default)]
+struct Unfold {
+    base: CommitId,
+    tombstones: Vec<(Key, Option<Ver>, Ver, Ver)>,
+}
+
+/// [`op`] with rebases onto upstream (C.21), kept out of it so the seeds
+/// saved under it replay the same histories. Weighted toward what a
+/// rebase needs: commits through the database, and upstream changes at
+/// the keys they wrote.
+fn integrate_op() -> impl Strategy<Value = Op> {
+    let key = 0..KEYS;
+    prop_oneof![
+        3 => op(),
+        4 => (any::<u8>(), key.clone(), prop::bool::weighted(0.2)).prop_map(|(w, k, d)| Op::Write(w, k, d)),
+        3 => any::<u8>().prop_map(Op::Commit),
+        3 => (any::<u8>(), 0u8..4, prop::collection::vec((key, prop::bool::weighted(0.2)), 0..3))
+            .prop_map(|(w, b, c)| Op::Integrate(w, b, c)),
+    ]
 }
 
 /// [`op`] with rewrites onto other worktrees' lines, kept out of it so
@@ -172,6 +199,9 @@ struct World {
     origins: Vec<BTreeMap<Key, CommitId>>,
     /// Each worktree's unfinished export, by worktree.
     stuck: BTreeMap<Wt, Unfinished>,
+    /// The last `Integrate` made its upstream commit and refused to rebase
+    /// onto it: the implementation must refuse too.
+    refused: bool,
 }
 
 /// An export that failed after a step: its edits in the branch's draft,
@@ -215,6 +245,7 @@ impl World {
             own_ids: BTreeMap::new(),
             origins: Vec::new(),
             stuck: BTreeMap::new(),
+            refused: false,
         }
     }
 
@@ -645,6 +676,18 @@ impl World {
     /// worktree's chain up to an index, or none (a new root), with `k`
     /// changed; then scanned.
     fn rebuild(&mut self, w: Wt, base: Option<(Wt, usize)>, k: Key, deleted: bool) {
+        self.rebuild_with(w, base, &[(k, deleted)], &Unfold::default());
+    }
+
+    /// [`Self::rebuild`] with any number of keys `changes` changes, and
+    /// `unfold`'s tombstones added to the draft once the chain is rebuilt.
+    fn rebuild_with(
+        &mut self,
+        w: Wt,
+        base: Option<(Wt, usize)>,
+        changes: &[(Key, bool)],
+        unfold: &Unfold,
+    ) {
         // onto a line that already holds w's HEAD it's a fast-forward and a
         // commit, not a rewrite: a base ending at HEAD, below an empty head,
         // say
@@ -688,11 +731,13 @@ impl World {
                 }
             }
         }
-        if deleted {
-            tree.remove(&k);
-        } else {
-            let v = self.ver();
-            tree.insert(k, v);
+        for &(k, deleted) in changes {
+            if deleted {
+                tree.remove(&k);
+            } else {
+                let v = self.ver();
+                tree.insert(k, v);
+            }
         }
         let c = self
             .git
@@ -728,6 +773,16 @@ impl World {
                 (k, id)
             })
             .collect();
+        // a tombstone deletes the record the rebuilt chain shows at its key
+        for &(k, was, ver, named) in &unfold.tombstones {
+            let id = m.ids.get(&k).copied().unwrap_or(named);
+            m.unfold(k, was, None, ver, id);
+            self.imp.unfold(w, unfold.base, &[(k, was, None, id)]);
+        }
+        if !unfold.tombstones.is_empty() {
+            self.imp.relink_draft(w);
+        }
+        let m = &mut self.model.wts[w];
         let before = std::mem::replace(&mut m.committed, tree);
         m.follow_records();
         let disk = m.disk.clone();
@@ -818,6 +873,97 @@ impl World {
     /// leaving the edits in the branch's draft, or the fold (2), leaving
     /// only its ref to move; the last two only where it makes a commit.
     /// The next export from `w` finishes it, and does nothing else.
+    /// C.21: `w`'s commits since a commit below its head rebased onto an
+    /// outside commit off that one with `extra`. Refused, with nothing
+    /// done, for a working tree that isn't its HEAD, or local commits that
+    /// moved a record.
+    fn integrate(&mut self, w: Wt, back: u8, extra: &[(Key, bool)]) {
+        self.refused = false;
+        let history = self.imp.wts[w].history.clone();
+        let len = history.len();
+        let m = &self.model.wts[w];
+        if len < 2 {
+            return;
+        }
+        // users' edits over the versions the unfold copies are phase 3's,
+        // with the entries a merge's old versions need (§4.9)
+        if self.model.wts.iter().any(|u| u.user && u.alive) {
+            return;
+        }
+        let pos = len - 2 - back as usize % (len - 1);
+        let b = history[pos];
+        let (at_b, at_l) = (self.git.commits[b].clone(), m.committed.clone());
+        let ids_b = self.ids_at(w, b);
+        // each place the local commits changed: (value at b, value at l, id)
+        let local: BTreeMap<Key, (Option<Ver>, Option<Ver>, Ver)> = (0..KEYS)
+            .filter(|k| at_b.get(k) != at_l.get(k))
+            .map(|k| {
+                let id = m.ids.get(&k).or(ids_b.get(&k)).copied().expect("a record");
+                (k, (at_b.get(&k).copied(), at_l.get(&k).copied(), id))
+            })
+            .collect();
+        // a moved record: one id at two keys, or one gone from a file where
+        // the same key of the other changed, as a scan pairs them
+        let mut ids: Vec<Ver> = local.values().map(|&(_, _, id)| id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let paired = local.iter().any(|(&k, &(was, now, _))| {
+            let other = local.get(&other_file(k));
+            was.is_some() && now.is_none() && other.is_some_and(|&(_, n, _)| n.is_some())
+        });
+        let draft_ids: BTreeSet<Ver> = m.draft.values().map(|d| d.id).collect();
+        // an edit of the record pending at another place
+        let elsewhere = local
+            .iter()
+            .any(|(k, &(_, _, id))| !m.draft.contains_key(k) && draft_ids.contains(&id));
+        let dirty = m.disk != m.committed;
+        if ids.len() < local.len() || paired || elsewhere || dirty || !m.conflicts.is_empty() {
+            let mut tree = at_b;
+            for &(k, deleted) in extra {
+                if deleted {
+                    tree.remove(&k);
+                } else {
+                    let v = self.ver();
+                    tree.insert(k, v);
+                }
+            }
+            self.git.commit(tree, vec![b]);
+            // never checked out, and no rollup names its records
+            self.commit_ids.push(BTreeMap::new());
+            self.refused = true;
+            return;
+        }
+        // a pending edit takes its base whatever it is; a deletion is
+        // added once the chain is rebuilt
+        let mut tombstones = Vec::new();
+        let mut unfolded = Vec::new();
+        for (&k, &(was, now, id)) in &local {
+            match (now, self.model.wts[w].draft.contains_key(&k)) {
+                (None, false) => {
+                    let ver = self.ver();
+                    tombstones.push((k, was, ver, id));
+                }
+                _ => {
+                    let ver = now.unwrap_or_default();
+                    self.model.wts[w].unfold(k, was, now, ver, id);
+                    unfolded.push((k, was, now, id));
+                }
+            }
+        }
+        self.imp.unfold(w, b, &unfolded);
+        // placed as C.16 places it: on a segment ending at `b`, else
+        // splitting the one `b` falls inside
+        let base = match self.imp.ending_at(b) {
+            Some(at) => at,
+            None => match self.imp.inside(b, &self.git) {
+                Some(at) => at,
+                None => (w, self.imp.segment_at(w, pos, &self.git)),
+            },
+        };
+        let unfold = Unfold { base: b, tombstones };
+        self.rebuild_with(w, Some(base), extra, &unfold);
+    }
+
     fn export(&mut self, n: u8, stop: Option<u8>) {
         let w = self.pick(n, false).unwrap();
         match self.stuck.remove(&w) {
@@ -1070,6 +1216,10 @@ impl World {
                     .push(OWt::new(self.git.commits[c].clone(), ids, false));
             }
             Op::Export(n) => self.export(n, None),
+            Op::Integrate(n, back, ref extra) => {
+                let w = self.pick(n, false).unwrap();
+                self.integrate(w, back, extra);
+            }
             Op::FailedExport(n) => self.export(n / 3, Some(n % 3)),
             Op::NewUser => {
                 let pos = self.imp.wts[MAIN].history.len() - 1;

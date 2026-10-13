@@ -1368,6 +1368,94 @@ impl Segments {
         }
     }
 
+    /// C.16's placement of a commit on `c`: the segment ending at `c`,
+    /// an internal one first, as the worktree and index of a chain that
+    /// holds it.
+    fn ending_at(&self, c: CommitId) -> Option<(Wt, usize)> {
+        let mut segs: Vec<SegId> = (0..self.segs.len())
+            .filter(|&s| {
+                let seg = &self.segs[s];
+                seg.alive && seg.kind != Kind::Draft && seg.head_commit == Some(c)
+            })
+            .collect();
+        segs.sort_by_key(|&s| (self.segs[s].kind != Kind::Internal, s));
+        segs.into_iter().find_map(|s| {
+            self.wts.iter().enumerate().find_map(|(u, wt)| {
+                let i = wt.chain.iter().position(|&(seg, _)| seg == s)?;
+                wt.alive.then_some((u, i))
+            })
+        })
+    }
+
+    /// C.16's placement of `c` inside a segment, split there: down the
+    /// chain of the first worktree whose head `c` is an ancestor of, one
+    /// whose first-parent history holds `c` first.
+    fn inside(&mut self, c: CommitId, git: &Git) -> Option<(Wt, usize)> {
+        let mut top: Option<(Wt, bool)> = None;
+        for (u, wt) in self.wts.iter().enumerate() {
+            let Some(&h) = wt.history.last().filter(|_| wt.alive) else {
+                continue;
+            };
+            if !ancestors_of(git, h).contains(&c) {
+                continue;
+            }
+            let first = wt.history.contains(&c);
+            if top.is_none_or(|(_, f)| first && !f) {
+                top = Some((u, first));
+            }
+        }
+        let (u, _) = top?;
+        let pos = self.wts[u].history.iter().position(|&x| x == c)?;
+        Some((u, self.segment_at(u, pos, git)))
+    }
+
+    /// The index in `w`'s chain of the segment whose head is
+    /// `history[pos]`, splitting the one it falls inside.
+    fn segment_at(&mut self, w: Wt, pos: usize, git: &Git) -> usize {
+        let history = self.wts[w].history.clone();
+        let c = history[pos];
+        let pos_of = |commit: CommitId| history.iter().position(|&x| x == commit).unwrap();
+        let s = self.wts[w]
+            .chain
+            .iter()
+            .map(|&(s, _)| s)
+            .find(|&s| pos_of(self.segs[s].head_commit.unwrap()) >= pos)
+            .unwrap();
+        if self.segs[s].head_commit != Some(c) {
+            self.split(s, c, git, &history);
+        }
+        self.wts[w].chain.iter().position(|&(seg, _)| seg == s).unwrap()
+    }
+
+    /// C.21's unfold into `w`'s draft: for each `(key, was, now, id)` the
+    /// local commits since `b` changed, a pending edit there takes `was` as
+    /// its base; otherwise a copy of record `id` at `now`, based at `b`.
+    fn unfold(&mut self, w: Wt, b: CommitId, local: &[(Key, Option<Ver>, Option<Ver>, Ver)]) {
+        let d = self.wts[w].draft;
+        for &(key, was, now, id) in local {
+            if let Some(r) = self.row_in(d, key) {
+                let row = self.rows.get_mut(&r).unwrap();
+                let e = row.edit.as_mut().expect("a clean working tree has no file rows");
+                e.base = was;
+                e.base_commit = was.map(|_| b);
+                if row.deleted {
+                    e.gone = was;
+                }
+                continue;
+            }
+            let edit = Edit {
+                base: was,
+                gone: if now.is_none() { was } else { None },
+                base_commit: was.map(|_| b),
+            };
+            let r = self.insert_value(d, key, now);
+            let row = self.rows.get_mut(&r).unwrap();
+            row.edit = Some(edit);
+            row.id = id;
+            self.given.insert(id);
+        }
+    }
+
     /// §4.5 and §4.6: fork `w` at `history[pos]`, splitting a segment if the
     /// commit falls inside one.
     fn fork(&mut self, w: Wt, pos: usize, git: &Git) -> Wt {
@@ -1541,7 +1629,8 @@ impl Segments {
                     if v_c != below_live || collide.contains(&k) {
                         let new = self.insert_value(s, k, v_c);
                         // a new record: its version may be an older record's id
-                        let fresh = Some(fresh_id(self.rows[&new].ver, k)).filter(|id| !taken.contains(id));
+                        let fresh = Some(fresh_id(self.rows[&new].ver, k))
+                            .filter(|id| !taken.contains(id) && !self.given.contains(id));
                         let id = recovered
                             .get(&k)
                             .copied()
@@ -1562,7 +1651,8 @@ impl Segments {
                     // changed before c and back after it
                     let new = self.insert_value(s, k, v_c);
                     // a new record: its version may be an older record's id
-                        let fresh = Some(fresh_id(self.rows[&new].ver, k)).filter(|id| !taken.contains(id));
+                        let fresh = Some(fresh_id(self.rows[&new].ver, k))
+                            .filter(|id| !taken.contains(id) && !self.given.contains(id));
                     let id = recovered
                         .get(&k)
                         .copied()

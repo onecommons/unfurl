@@ -411,6 +411,22 @@ pub(crate) trait Store: sqlx::Database + Sized {
         commit: &str,
     ) -> impl Future<Output = Result<()>> + Send;
 
+    /// The worktree's `txn` rows `commit` carried are outstanding again.
+    fn unstamp_txns(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+        commit: &str,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// Draft edit `id` is based at `base_commit`, on `base_json`, or is a
+    /// create where that's `None`; a tombstone's json is `base_json` too.
+    fn rebase_edit(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        id: i64,
+        base_commit: Option<&str>,
+        base_json: Option<&serde_json::Value>,
+    ) -> impl Future<Output = Result<()>> + Send;
+
     /// The worktree's outstanding `txn` rows, oldest range first.
     fn outstanding_txns(
         tx: &mut sqlx::Transaction<'_, Self>,
@@ -1603,6 +1619,39 @@ macro_rules! store_impl {
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(commit)
+                    .execute(&mut **tx)
+                    .await?;
+                Ok(())
+            }
+
+            async fn unstamp_txns(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                worktree_id: i64,
+                commit: &str,
+            ) -> Result<()> {
+                let sql = sql!(tx, "UPDATE txn SET commit_id = NULL WHERE worktree_id = ?1 AND commit_id = ?2",);
+                sqlx::query(&sql)
+                    .bind(worktree_id)
+                    .bind(commit)
+                    .execute(&mut **tx)
+                    .await?;
+                Ok(())
+            }
+
+            async fn rebase_edit(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                id: i64,
+                base_commit: Option<&str>,
+                base_json: Option<&serde_json::Value>,
+            ) -> Result<()> {
+                let base_json = base_json.map(|b| serde_json::to_string(b).expect("a value serializes"));
+                let sql = sql!(tx, "UPDATE record SET base_commit_id = CAST(?2 AS TEXT), base_json = jsonb(?3), \
+                     json = CASE WHEN deleted AND ?3 IS NOT NULL THEN jsonb(?3) ELSE json END \
+                     WHERE id = ?1",);
+                sqlx::query(&sql)
+                    .bind(id)
+                    .bind(base_commit)
+                    .bind(base_json)
                     .execute(&mut **tx)
                     .await?;
                 Ok(())

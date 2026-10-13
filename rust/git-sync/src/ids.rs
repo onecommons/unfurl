@@ -100,10 +100,7 @@ impl<'s> History<'s> {
             // a damaged rollup names nothing, like a commit without one
             let rollup = git::commit_message(&self.repo, commit)
                 .and_then(|m| parse_commit_rollup(&m).ok().flatten())
-                .filter(|r| r.database.as_deref() == Some(self.database.as_str()))
-                // key_ids are the database's: another family's would take
-                // over a record of its own
-                .filter(|r| r.family.as_deref() == Some(self.family.as_str()));
+                .filter(|r| self.owns(r));
             self.rollups.insert(commit.to_string(), rollup);
         }
         let Some(rollup) = &self.rollups[commit] else {
@@ -152,6 +149,25 @@ impl<'s> History<'s> {
         Ok(match self.load(commit, file)? {
             Some(blob) => self.blobs[&blob].records.clone(),
             None => Records::new(),
+        })
+    }
+
+    /// Whether `rollup` is this database's, for this family: key_ids are
+    /// the database's, so another family's would take over a record of
+    /// its own.
+    pub(crate) fn owns(&self, rollup: &CommitRollup) -> bool {
+        rollup.database.as_deref() == Some(self.database.as_str())
+            && rollup.family.as_deref() == Some(self.family.as_str())
+    }
+
+    /// Whether `file` at `commit` is a document a format reads whole.
+    pub(crate) fn parses(&mut self, commit: &str, file: &str) -> Result<bool> {
+        if Syntax::for_extension(&extract_ext(file)).is_none() {
+            return Ok(false);
+        }
+        Ok(match self.load(commit, file)? {
+            Some(blob) => !self.blobs[&blob].whole,
+            None => false,
         })
     }
 

@@ -482,6 +482,18 @@ pub fn create_branch(repo: &gix::Repository, name: &str, oid: gix::ObjectId) -> 
     }
 }
 
+/// Point ref `full`, a full name, at `oid`, whatever it named before.
+pub(crate) fn set_ref(repo: &gix::Repository, full: &str, oid: gix::ObjectId) -> Result<()> {
+    repo.reference(
+        full,
+        oid,
+        gix::refs::transaction::PreviousValue::Any,
+        "git-sync: ref",
+    )
+    .map_err(git_err)?;
+    Ok(())
+}
+
 /// The branch `remote`'s HEAD named when the repository was last cloned or
 /// fetched from it, `refs/remotes/<remote>/HEAD`, if that's recorded.
 pub fn remote_default_branch(repo: &gix::Repository, remote: &str) -> Result<Option<String>> {
@@ -807,6 +819,19 @@ pub fn last_commits_for_paths(
 /// Every blob in `commit`'s tree: path → OID. Empty when `commit` isn't a
 /// resolvable commit.
 pub fn tree_blobs(repo: &gix::Repository, commit: &str) -> Result<HashMap<String, gix::ObjectId>> {
+    Ok(tree_entries(repo, commit)?
+        .into_iter()
+        .filter(|(_, (mode, _))| mode.is_blob())
+        .map(|(path, (_, id))| (path, id))
+        .collect())
+}
+
+/// Every entry but a tree's in `commit`'s tree, by path: its mode and id.
+/// Empty for a commit this repository doesn't have.
+pub(crate) fn tree_entries(
+    repo: &gix::Repository,
+    commit: &str,
+) -> Result<HashMap<String, (gix::object::tree::EntryMode, gix::ObjectId)>> {
     use gix::object::tree::diff::{Action, Change};
     use std::ops::ControlFlow;
 
@@ -826,8 +851,8 @@ pub fn tree_blobs(repo: &gix::Repository, commit: &str) -> Result<HashMap<String
             ..
         } = change
         {
-            if let (true, Ok(path)) = (entry_mode.is_blob(), location.to_str()) {
-                out.insert(path.to_string(), id.detach());
+            if let (false, Ok(path)) = (entry_mode.is_tree(), location.to_str()) {
+                out.insert(path.to_string(), (entry_mode, id.detach()));
             }
         }
         Ok(ControlFlow::Continue(()))
@@ -932,6 +957,19 @@ fn reachable(repo: &gix::Repository, oid: gix::ObjectId) -> Result<HashSet<gix::
         }
     }
     Ok(seen)
+}
+
+/// The commits `to` has that `from` doesn't: `from..to`.
+pub(crate) fn commits_between(repo: &gix::Repository, from: &str, to: &str) -> Result<Vec<String>> {
+    let (Some(from), Some(to)) = (present(repo, from)?, present(repo, to)?) else {
+        return Err(Error::Git(format!("{from}..{to}: a commit isn't here")));
+    };
+    let below = reachable(repo, from)?;
+    Ok(reachable(repo, to)?
+        .into_iter()
+        .filter(|c| !below.contains(c))
+        .map(|c| c.to_string())
+        .collect())
 }
 
 /// Whether `ancestor` is `commit` or one of its ancestors. A commit this

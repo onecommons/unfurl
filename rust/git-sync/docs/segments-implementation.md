@@ -225,10 +225,10 @@ impl SyncedRepo {
     /// Built: a worktree for `branch`, with no checkout, forked from this
     /// one at the commit its head is at, not cloned at startup.
     pub async fn fork_branch(&self, branch: &str, pushed: &str) -> Result<i64>;
-    /// Proposed: bring what a fetch brought into the checkout and the
-    /// database: fast-forward, or rebase the local commits onto `upstream`
-    /// in the database. Fetching, like pushing, stays in the server.
-    pub async fn integrate(&self, upstream: &str) -> Result<Pulled>;
+    /// Built: rebase the local commits onto `upstream` in the database
+    /// (C.21); the caller then resets the checkout to `upstream`, and scans
+    /// and commits. Fetching, pushing and the reset stay in the server.
+    pub async fn rebase_onto(&self, upstream: &str) -> Result<Rebased>;
 }
 pub struct CommitOptions { pub conflicts_to_branch: Option<String> }
 /// What one call committed: to the current branch, and to the exported
@@ -237,7 +237,7 @@ pub struct Committed { pub commit: Option<String>, pub exported: Option<Exported
 /// The branch the conflicted edits went to, its commit, and the records
 /// moved there.
 pub struct Exported { pub branch: String, pub commit: String, pub records: Vec<TxnRecord> }
-pub struct Pulled { pub fast_forward: bool, pub conflicts: Vec<RecordConflict> }
+pub enum Rebased { Unfolded { base: String, edits: usize }, FastForward, Ahead, Refused(String) }
 ```
 
 A checkout-less branch is a `worktree` row like any other, marked not to
@@ -427,26 +427,28 @@ phase's behaviour changes applied.
    3. **Pull:** fetch and fast-forward, then the unfold and the rebase in
       the database. The first half is built in the server (`clone.rs`,
       "Freshness" in its README), with the git command line; the unfold
-      and rebase aren't started.
+      and rebase are built in git-sync (`rebase_onto`, §7.5), and the
+      server doesn't use them yet.
    4. **Push:** push support (the `git` CLI or git2; gix can't push),
       the retry, and diverting to a new ref. Built in the server instead
       (`push.rs`, "Pushing" in its README): what the remote moved
       on from is merged in git when it merges cleanly, and diverted when
       it doesn't, pending the rebase.
 
-   **Transport and integration.** Fetching and pushing stay in the
-   server, which holds the credentials and the distrust policy for the
-   git command line. Integrating what a fetch brought -- the
-   fast-forward, the merge, the unfold and the rebase -- moves into
-   git-sync with step 3, as an `integrate(upstream)` that changes the
-   working tree through a trait the server implements with its own git,
-   so the policy stays in one place.
+   **Transport and integration.** Fetching, pushing and changing the
+   working tree stay in the server, which holds the credentials and the
+   distrust policy for the git command line. git-sync's
+   `rebase_onto(upstream)` changes the database first; the server then
+   resets the checkout and scans and commits, as for any outside change.
+   The database going first is what lets a failure between the two heal,
+   with no mark to finish from, and it needs no trait for the server to
+   implement.
 
    **Order from here:** phase 4's id lookup is built, so a merged
-   diverted or exported branch keeps its records' ids. Then the server
-   exporting conflicts, as a request option; then step 3's unfold and
-   rebase, for conflicts between records that the merge in git can only
-   divert; then the sweep.
+   diverted or exported branch keeps its records' ids, and step 3's
+   unfold and rebase is built in git-sync. Then the server using it in
+   place of the merge in git; then the server exporting conflicts, as a
+   request option; then the sweep.
 
    Appendix C adds the cross-worktree fold and the unfold. Operations:
    Export, Pull, Push, Divert.
@@ -788,6 +790,60 @@ and the harness on both backends, and the server's `test_cloudmap`.
 - **C.20 step 4 is `resolve_conflict(Theirs)`'s code,** run per key in
   the export's transaction, so W's side is exactly a resolution's; the
   harness checks it against the model's.
+
+### 7.5 Phase 5, step 3: the rebase in the database, built in git-sync
+
+`rebase_onto(upstream)` is C.21. The harness runs it as `Integrate`:
+an outside commit off a commit below W's head, the rebase onto it, the
+reset, and the scan, on its own strategy so the seeds saved under the
+others replay as before. Where the model refuses, it still makes the
+upstream commit and SQL must refuse it too. 600 random histories and 15
+seeded ones agree with the reference on SQLite. `test_rebase` checks
+the result and the refusals a history can't easily make, on both
+backends: a dirty tree, data outside the records, an added file, a mode
+change, an unparseable file, a moved record, conflicts, and an
+unscanned HEAD.
+
+How it differs from the plan:
+- **Values, not bytes,** decide whether the local commits changed only
+  records. Rendering every edit onto the merge base at once orders new
+  records differently from the commits that made them one at a time, so
+  bytes would refuse most rebases. Comments, layout and key order the
+  local commits changed aren't kept.
+- **A tombstone deletes what the rebuilt chain shows.** Upstream can
+  bring a record back with an id a split gave it (§4.7); a tombstone
+  with the rollup's id would delete a record that isn't there.
+- **The row beats the rollup** for an id: an outside commit after the
+  last rollup can have re-created the record.
+- **A create has no base,** or the three-way check reads upstream's
+  lacking it as an edit of a record the file dropped.
+- **The reference never reuses an id in a split** either: its fresh id
+  for a re-created row had come back for the same version at the same
+  key.
+
+Behaviour changes, for the server's use of it:
+- **Comments, layout and key order** the local commits changed are
+  dropped: only their records are carried onto upstream.
+- **Clients re-read:** the rebuild resets W's cursors, as any rebuild
+  does, where a clean merge in git was a fast-forward scan.
+- **The caller holds the checkout** from `rebase_onto` through the reset,
+  the scan and the commit, and resets only while HEAD is still the commit
+  `Unfolded` names: a scan in between undoes the rebase, leaving no-op
+  edits the next commit folds, and a commit in between wasn't unfolded.
+  `refs/git-sync/rebased/<branch>` keeps the local commits reachable.
+- **A worktree with conflicts isn't rebased:** they're resolved, or
+  exported, first.
+
+Not built:
+- **With user branches open.** The harness skips `Integrate` while one
+  exists: a user's edit over a version the unfold copies needs the
+  entries a merge's old versions do (phase 4's remainder, after phase
+  3).
+- **A test of the refusal for a record validation rejects.** The
+  random histories cover an edit pending at another place.
+- **Restamping on a heal.** A rebase that heals leaves its batches
+  outstanding, so the next commit's rollup names them again.
+- **The server's use of it,** next.
 
 ## 8. For review
 

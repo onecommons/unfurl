@@ -879,15 +879,7 @@ pub(crate) async fn rebuild(
             Some(to) => recover(&mut tx, &mut history, rb, to).await?,
             None => None,
         };
-        let base = match place(&mut tx, &mut history, family, n).await? {
-            None => None,
-            Some(Placement::At(seg)) => Store::prepare_base(&mut tx, family, seg, n).await?,
-            Some(Placement::Inside { s, h, c }) => {
-                split(&mut tx, &mut history, family, s, &c, &h).await?;
-                Some(s)
-            }
-        };
-        rebuild_on(&mut tx, family, w, base, n, rb.files).await?;
+        onto(&mut tx, &mut history, family, w, n, rb.files).await?;
         if let (Some(commit), None) = (rb.keep, recovered) {
             let after = committed_view(&mut tx, w).await?;
             let lost = lost(history.repo(), &before, &after)?;
@@ -908,6 +900,27 @@ pub(crate) async fn rebuild(
         tx.commit().await?;
         Ok(recovered)
     })
+}
+
+/// C.16 to C.18: build `w`'s head again on the base placement finds for
+/// `n`, every file of whose tree is `files`. The draft stays.
+pub(crate) async fn onto<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    history: &mut History<'_>,
+    family: i64,
+    w: i64,
+    n: &str,
+    files: &[HeadFile],
+) -> Result<()> {
+    let base = match place(tx, history, family, n).await? {
+        None => None,
+        Some(Placement::At(seg)) => DB::prepare_base(tx, family, seg, n).await?,
+        Some(Placement::Inside { s, h, c }) => {
+            split(tx, history, family, s, &c, &h).await?;
+            Some(s)
+        }
+    };
+    rebuild_on(tx, family, w, base, n, files).await
 }
 
 /// When HEAD lacks a record the commits the repository doesn't have made,

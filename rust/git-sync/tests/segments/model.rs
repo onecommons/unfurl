@@ -221,6 +221,41 @@ impl OWt {
         }
     }
 
+    /// C.21's unfold of `k`, which the local commits took from `was` to
+    /// `now`: a pending edit there now edits `was`; otherwise one of
+    /// record `id` to `now`, `ver` (a tombstone's own version where `now`
+    /// is `None`), based on `was`.
+    fn unfold(&mut self, k: Key, was: Option<Ver>, now: Option<Ver>, ver: Ver, id: Ver) {
+        if let Some(d) = self.draft.get_mut(&k) {
+            let Origin::Edit(e) = &mut d.origin else {
+                unreachable!("a clean working tree has no file rows")
+            };
+            e.base = was;
+            if d.deleted {
+                e.gone = was;
+            }
+            return;
+        }
+        self.draft.insert(
+            k,
+            ODraft {
+                ver,
+                deleted: now.is_none(),
+                based_on: BTreeSet::new(),
+                origin: Origin::Edit(Edit {
+                    base: was,
+                    gone: if now.is_none() { was } else { None },
+                    base_commit: None,
+                }),
+                continues: BTreeSet::new(),
+                id,
+                seen_at: BTreeSet::new(),
+                settled: BTreeSet::new(),
+                same_as: BTreeSet::new(),
+            },
+        );
+    }
+
     /// A pending edit follows its record, with its conflict, to the key the
     /// committed tree now has it at.
     fn follow_records(&mut self) {

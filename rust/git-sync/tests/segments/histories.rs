@@ -2153,3 +2153,159 @@ fn a_failed_export_is_finished_by_the_next() {
         ]);
     }
 }
+
+/// A rebase onto upstream after a rewrite and an outside commit: the
+/// unfolded edit and the pending one both stay pending.
+#[test]
+fn rebase_after_a_rewrite_keeps_edits_pending() {
+    run(&[
+        Op::Rebuild(0, 0, 0, false),
+        Op::External(0, vec![(2, false)]),
+        Op::Write(0, 0, false),
+        Op::Integrate(0, 0, vec![]),
+    ]);
+}
+
+/// A rebase onto a commit inside a segment, after a deletion and an outside
+/// re-creation: the split recovers the record's id as the reference does.
+#[test]
+fn rebase_inside_a_segment_recovers_the_split_records_id() {
+    run(&[
+        Op::External(0, vec![(0, true)]),
+        Op::Integrate(0, 0, vec![]),
+        Op::Commit(0),
+        Op::External(0, vec![(0, false)]),
+        Op::Integrate(0, 0, vec![]),
+        Op::Integrate(0, 1, vec![]),
+    ]);
+}
+
+/// A rebase whose local commit was made outside the database: its file is
+/// in another writer's layout, and the record values are what's compared.
+#[test]
+fn rebase_of_an_outside_commit_compares_values() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::Integrate(0, 0, vec![(0, false)]),
+        Op::Integrate(0, 0, vec![]),
+    ]);
+}
+
+/// An outside commit's deletion, unfolded: the tombstone the scan left
+/// names the record, which a later write continues.
+#[test]
+fn rebase_of_an_outside_deletion_keeps_its_id() {
+    run(&[
+        Op::External(0, vec![(0, false)]),
+        Op::Write(0, 2, false),
+        Op::Integrate(0, 0, vec![(1, true)]),
+        Op::Integrate(0, 0, vec![]),
+        Op::Write(0, 1, false),
+    ]);
+}
+
+/// A deletion unfolded where upstream has the record with the id a split
+/// gave it: the tombstone deletes that record.
+#[test]
+fn rebase_tombstone_deletes_what_the_rebuilt_chain_shows() {
+    run(&[
+        Op::Write(0, 1, true),
+        Op::Commit(0),
+        Op::Integrate(0, 0, vec![]),
+        Op::Commit(0),
+        Op::Integrate(0, 1, vec![]),
+        Op::Write(0, 1, false),
+    ]);
+}
+
+/// A deletion unfolded after the rebuild is linked over the chain's row.
+#[test]
+fn rebase_tombstone_hides_the_rebuilt_row() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::Integrate(0, 0, vec![(1, true)]),
+        Op::Integrate(0, 0, vec![]),
+    ]);
+}
+
+/// A record an outside commit re-created after git-sync deleted it takes
+/// the row's id, not the stale rollup's.
+#[test]
+fn rebase_prefers_the_row_to_a_stale_rollup() {
+    run(&[
+        Op::External(0, vec![(0, true)]),
+        Op::Integrate(0, 0, vec![]),
+        Op::Commit(0),
+        Op::External(0, vec![(0, false)]),
+        Op::Write(0, 1, false),
+        Op::Integrate(0, 1, vec![]),
+    ]);
+}
+
+/// A section the local commits emptied is one writer's empty map and
+/// another's nothing.
+#[test]
+fn rebase_of_an_emptied_section() {
+    run(&[
+        Op::Rebuild(0, 0, 1, false),
+        Op::External(0, vec![(0, false)]),
+        Op::Write(0, 0, false),
+        Op::Integrate(0, 0, vec![(1, true)]),
+        Op::Integrate(0, 0, vec![]),
+    ]);
+}
+
+/// A move onto a key an outside commit emptied: the edit there and the
+/// deletion it leaves are one record, which the draft can't hold twice.
+#[test]
+fn rebase_of_a_move_onto_an_emptied_key_is_refused() {
+    run(&[
+        Op::External(0, vec![(2, true)]),
+        Op::Commit(0),
+        Op::Move(0, 5, false),
+        Op::Integrate(0, 1, vec![]),
+    ]);
+}
+
+/// A move, edited too, onto a key an outside commit emptied: refused, as
+/// the unedited one is.
+#[test]
+fn rebase_of_an_edited_move_onto_an_emptied_key_is_refused() {
+    run(&[
+        Op::External(0, vec![(2, true)]),
+        Op::Commit(0),
+        Op::Move(0, 5, true),
+        Op::Integrate(0, 1, vec![]),
+    ]);
+}
+
+/// A rebase onto an empty tree a fork shares: the rebuilt head is placed
+/// as the reference places it.
+#[test]
+fn rebase_onto_an_empty_base_a_fork_shares() {
+    run(&[
+        Op::Rebuild(0, 0, 0, true),
+        Op::Fork(0, 0),
+        Op::Write(104, 0, false),
+        Op::Commit(30),
+        Op::Integrate(56, 0, vec![]),
+    ]);
+}
+
+/// A rebase onto an empty tree the worktree's own segment holds: split
+/// there as the reference splits it.
+#[test]
+fn rebase_onto_an_empty_base_inside_a_segment() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Rebuild(0, 0, 0, true),
+        Op::Fork(0, 0),
+        Op::External(71, vec![(0, false)]),
+        Op::Write(104, 1, false),
+        Op::Write(0, 2, false),
+        Op::Commit(72),
+        Op::Integrate(13, 0, vec![]),
+    ]);
+}
