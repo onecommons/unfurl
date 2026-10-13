@@ -719,6 +719,30 @@ pub async fn read_branch_heads(
     conn.mget(&keys).await
 }
 
+/// What became of pushing each watch's `(branch, commit)`, a cloudmap
+/// commit, as the background push records it (`Config::push_key`), in the
+/// order given; `None` where nothing is recorded, which is so for any
+/// commit not committed by this server's cloudmap writes.
+pub async fn read_push_outcomes(
+    conn: &mut redis::aio::MultiplexedConnection,
+    config: &Config,
+    project_id: &str,
+    watches: &[(String, String)],
+) -> Result<Vec<Option<JsonValue>>, redis::RedisError> {
+    if watches.is_empty() {
+        return Ok(Vec::new());
+    }
+    let keys: Vec<String> = watches
+        .iter()
+        .map(|(branch, commit)| config.push_key(project_id, branch, commit))
+        .collect();
+    let raw: Vec<Option<String>> = conn.mget(&keys).await?;
+    Ok(raw
+        .into_iter()
+        .map(|r| r.and_then(|r| serde_json::from_str(&r).ok()))
+        .collect())
+}
+
 /// The queueid a raw queue value records, whatever its shape.
 pub fn recorded_queueid(raw: &str) -> i64 {
     match raw.split_once(',') {

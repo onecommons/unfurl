@@ -2272,10 +2272,16 @@ def clear_project(query: ClearProjectQuery) -> ResponseReturnValue:
 
 
 def _commits_ahead(path: str) -> Union[int, str]:
-    """How many commits the clone at ``path`` has that no remote-tracking
-    branch does, or why that can't be told."""
+    """How many commits the clone at ``path`` has, on HEAD or any of its
+    branches, that no remote-tracking branch does, or why that can't be
+    told. A branch counts: the rust server keeps commits a push was refused
+    for on one, and a clone made again wouldn't have them."""
     try:
-        return int(git.Repo(path).git.rev_list("HEAD", "--not", "--remotes", "--count"))
+        return int(
+            git.Repo(path).git.rev_list(
+                "HEAD", "--branches", "--not", "--remotes", "--count"
+            )
+        )
     except Exception as e:
         logger.warning("can't count the unpushed commits of %s", path, exc_info=True)
         return f"can't tell: {e}"

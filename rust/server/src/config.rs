@@ -305,6 +305,16 @@ pub struct Config {
     )]
     pub pull_timeout: i64,
 
+    /// The fewest seconds between two pushes of a cloudmap checkout's
+    /// commits: a commit sooner after the last push waits for this, and
+    /// is pushed with those made meanwhile.
+    #[arg(
+        long = "push-interval",
+        env = "UNFURL_PUSH_INTERVAL",
+        default_value_t = 60
+    )]
+    pub push_interval: u64,
+
     /// With a clone root, a cloudmap repository a request naming no
     /// project reads, as `<project>[#branch]` (its default branch without
     /// one): cloned at startup like those the database tracks. Repeatable,
@@ -563,7 +573,13 @@ impl Config {
     /// reached neither path leaves it stale -- so it reports movement,
     /// not truth.
     pub fn head_key(&self, project_id: &str, branch: &str) -> String {
-        format!("{}head:{}:{}", self.cache_key_prefix, project_id, branch)
+        head_key(&self.cache_key_prefix, project_id, branch)
+    }
+
+    /// Redis key of what became of pushing `commit`, a cloudmap commit on
+    /// `branch`, which `/events` reports to a branch watch on it.
+    pub fn push_key(&self, project_id: &str, branch: &str, commit: &str) -> String {
+        push_key(&self.cache_key_prefix, project_id, branch, commit)
     }
 
     /// Redis key holding the backend's error body for a discarded batch,
@@ -598,6 +614,16 @@ fn redact_url(url: &str) -> String {
         }
     }
     url.to_string()
+}
+
+/// [`Config::head_key`], with the cache key prefix `prefix`.
+pub fn head_key(prefix: &str, project_id: &str, branch: &str) -> String {
+    format!("{prefix}head:{project_id}:{branch}")
+}
+
+/// [`Config::push_key`], with the cache key prefix `prefix`.
+pub fn push_key(prefix: &str, project_id: &str, branch: &str, commit: &str) -> String {
+    format!("{prefix}push:{project_id}:{branch}:{commit}")
 }
 
 #[cfg(test)]
@@ -664,6 +690,7 @@ mod tests {
             cloudmap_recover: false,
             trust_checkouts: false,
             pull_timeout: 120,
+            push_interval: 60,
             default_cloudmaps: Vec::new(),
             cloudmap_skip_scan: false,
             scan_abort_level: ScanAbortLevel::Report,

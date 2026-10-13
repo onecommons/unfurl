@@ -61,6 +61,7 @@ otherwise `/cloudmap` is proxied to Python):
 | Trust the own git config of the checkouts under `--clone-root`, which python writes too. Without it, git-sync ignores it but for remote urls, the server's git commands override hooks, fsmonitor, credential helpers and proxies, and a checkout whose config sets filter or diff drivers, includes, extra headers, url rewrites or `core.worktree` isn't pulled or served (`docs/credentials.md` §2.6). A configured `--cloudmap-repo`, and serving a local path, are trusted anyway | `--trust-checkouts` | `UNFURL_TRUST_CHECKOUTS` | `false` |
 | How many seconds since python last pulled a project's clone a cached `/export` or `/types` made at the clone's HEAD may be served for a request naming no `latest_commit` (python's setting, read the same way; `stale=ok` or `stale=never` on the request override it). 0 serves none, -1 any; needs `--clone-root`. Also how old a cloudmap checkout's last pull may be before a request pulls it: see **Freshness** below | `--pull-timeout` | `CACHE_DEFAULT_PULL_TIMEOUT` | `120` |
 | With a clone root: a cloudmap repository a request naming no project reads, as `<project>[#branch]` (its default branch without one). It's cloned at startup like the worktrees the database tracks, or pulled if its checkout is there; such a read spans their worktrees, so it returns no `commit` or `version` and refuses `since_version`. Without one, python's default, the public cloudmap on `main`; if none is served, a read naming no project goes to python | `--default-cloudmap` (repeatable) | `UNFURL_DEFAULT_CLOUDMAPS` (comma-separated) | `onecommons/cloudmap#main` |
+| The fewest seconds between two pushes of a cloudmap checkout's commits: see **Pushing** below | `--push-interval` | `UNFURL_PUSH_INTERVAL` | `60` |
 | Serve the index as it stands, without scanning at startup | `--cloudmap-skip-scan` | `UNFURL_CLOUDMAP_SKIP_SCAN` | `false` |
 | Smallest refusal that aborts the startup scan (`report`, `file`, `record`) | `--scan-abort-level` | `UNFURL_SCAN_ABORT_LEVEL` | `report` |
 | Cloud server whose projects `auth_project` names | `--cloud-server` | `UNFURL_CLOUD_SERVER` | `https://unfurl.cloud` |
@@ -114,6 +115,48 @@ it. The startup clone or pull of each checkout brings it up the same
 way, but for one whose remote can't be reached, which is served as it is.
 Python's own pulls differ in one way: one that fails for any reason
 deletes the clone to clone it again, unless it holds unpushed work.
+
+**Pushing.** Outside dev mode, a cloudmap write that commits
+(`commit: true`) answers at once, with the local commit; the commit is
+pushed in the background, with the request's credentials, or else its
+project's most recent grant. A checkout is pushed at most once per
+`--push-interval` seconds: a commit sooner after its last push waits,
+and goes with those made meanwhile. A push carries the checkout's branch
+and the `git-sync/` branches made in it, such as an export's, that the
+remote lacks. Commits a pull finds the checkout holding that the remote
+lacks -- python's, or those of a push that failed -- are pushed first,
+with a grant only: never the credentials of the request that happened to
+find them. A push holds the checkout's git lock, and a commit holds the
+lock the checkout's pulls and pushes do, so none runs git in it
+meanwhile. Only a checkout under the clone root is pushed, never the
+configured `--cloudmap-repo`; and only from its own branch, to its own
+project: one on another branch, or whose remote names another project,
+isn't. A push that fails is tried again on its own the interval after (a
+second at the least): with the same credentials if the remote couldn't
+be reached, else a grant.
+
+| The push | Done | `/events` reports |
+|---|---|---|
+| is taken | the branch head recorded, as python records it | `pushed` |
+| finds the remote's branch moved on, and it merges cleanly | merged in memory (`git merge-tree`), the merge committed and checked out, and pushed | `pushed` |
+| finds it moved on and conflicting, or is rejected (a protected branch, a hook) | the commits pushed to a new branch, `git-sync/diverted-<commit>`, for a developer to merge, and the checkout reset to its remote and rescanned | `diverted` |
+| is rejected on that new branch too | the commits kept on a local branch, `git-sync/refused-<commit>`, never pushed, and the checkout reset to its remote and rescanned | `refused` |
+| has its credentials refused, or can't reach the remote | left for the next push, with a grant; no grant is forgotten, as one may still read | nothing yet |
+| can't be reset, its working tree holding changes, or is on another branch | left as it is, nothing pushed or kept, and tried again each interval, with a warning | nothing yet |
+
+Since the gateway lets only a project's developers write, a refusal of
+credentials means they were revoked within its TTL: another developer's
+grant may push the write. Records the database has staged survive a
+reset: the rescan keeps them, to commit onto the remote's branch. Merging
+needs git 2.38 or later (`merge-tree --write-tree`); with an older one,
+every push the remote moved on from is diverted, with a warning. A diverted commit's records leave the branch's view until
+its branch is merged; the merge comes in with the next pull. What came of
+a commit's push is kept in Redis, `<prefix>push:<project>:<branch>:<commit>`,
+and a `/events` branch watch on that commit reports it once the push is
+tried, rather than `moved`. This is the "Pushing" of git-sync's design
+(§4.15), but for its in-database rebase: a clean merge in git stands in
+for it, and what doesn't merge is diverted. It's done here, not in
+git-sync, since gix can't push and the server holds the credentials.
 
 **Creating the Postgres database:** `unfurl-server create-database`
 creates the role and database `UNFURL_CLOUDMAP_DB_URL` names and exits,

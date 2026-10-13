@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
 //! Keeping the checkouts served as fresh as python keeps its clones, by
-//! the pull record python keeps for each: see "Freshness" in the README.
+//! the pull record python keeps for each, and pushing their commits: see
+//! "Freshness" and "Pushing" in the README.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -17,17 +18,48 @@ use crate::clone::{self, RequestAccess};
 use crate::gitlock::{self, GitLocks};
 use crate::grants::{Credentials, GrantStore};
 
-/// Where pull records are kept: python's cache, or this process alone.
+/// Where pull records, branch heads and push outcomes are kept: python's
+/// cache, or this process alone.
 enum PullRecords {
     Redis(redis::aio::MultiplexedConnection),
-    Memory(std::sync::Mutex<HashMap<String, (f64, String)>>),
+    Memory {
+        pulls: std::sync::Mutex<HashMap<String, (f64, String)>>,
+        values: std::sync::Mutex<HashMap<String, String>>,
+    },
 }
 
 impl PullRecords {
     async fn get(&self, key: &str) -> Option<(f64, String)> {
         match self {
             PullRecords::Redis(conn) => cache::pull_record_at(&mut conn.clone(), key).await,
-            PullRecords::Memory(records) => records.lock().expect("records").get(key).cloned(),
+            PullRecords::Memory { pulls, .. } => pulls.lock().expect("records").get(key).cloned(),
+        }
+    }
+
+    /// Set `key` to `value`, to expire after `ttl` seconds, or never with 0.
+    async fn put(&self, key: &str, value: &str, ttl: u64) {
+        match self {
+            PullRecords::Redis(conn) => {
+                let mut conn = conn.clone();
+                let set: Result<(), _> = match ttl {
+                    0 => conn.set(key, value).await,
+                    ttl => conn.set_ex(key, value, ttl).await,
+                };
+                if let Err(e) = set {
+                    tracing::warn!(key, error = %e, "can't record a push");
+                }
+            }
+            PullRecords::Memory { values, .. } => {
+                let mut values = values.lock().expect("records");
+                values.insert(key.to_string(), value.to_string());
+            }
+        }
+    }
+
+    async fn value(&self, key: &str) -> Option<String> {
+        match self {
+            PullRecords::Redis(conn) => conn.clone().get(key).await.ok().flatten(),
+            PullRecords::Memory { values, .. } => values.lock().expect("records").get(key).cloned(),
         }
     }
 
@@ -41,9 +73,9 @@ impl PullRecords {
                     tracing::warn!(key, error = %e, "can't record a pull");
                 }
             }
-            PullRecords::Memory(records) => {
-                let mut records = records.lock().expect("records");
-                records.insert(key.to_string(), (now, outcome.to_string()));
+            PullRecords::Memory { pulls, .. } => {
+                let mut pulls = pulls.lock().expect("records");
+                pulls.insert(key.to_string(), (now, outcome.to_string()));
             }
         }
     }
@@ -59,6 +91,8 @@ fn now() -> f64 {
 struct Tracked {
     /// Its pull record's key.
     key: String,
+    /// Its project on the cloud server, or its origin.
+    project: String,
     origin: String,
     /// Its project's url on the cloud server.
     url: String,
@@ -68,9 +102,25 @@ struct Tracked {
     /// Under `private/`: pulled with a grant without a request's
     /// credentials.
     private: bool,
-    /// Held by its pull: one at a time.
+    /// Held by its pull or push: one at a time.
     pulling: Arc<tokio::sync::Mutex<()>>,
+    /// When it was last pushed, whatever came of it.
+    last_push: std::sync::Mutex<Option<std::time::Instant>>,
+    /// Whether a push of it is waiting to run.
+    push_scheduled: std::sync::atomic::AtomicBool,
 }
+
+/// Whether a push is tried again, and with what.
+enum Again {
+    No,
+    /// Its remote couldn't be reached: with the same credentials.
+    Same,
+    /// Its credentials were refused: with a grant.
+    WithAGrant,
+}
+
+/// The least a push waits to be tried again, whatever the interval.
+const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// What the checkouts are pulled with.
 pub struct Settings {
@@ -82,6 +132,11 @@ pub struct Settings {
     pub grants: Option<Arc<GrantStore>>,
     pub locks: Option<GitLocks>,
     pub trust: Trust,
+    /// The fewest seconds between two pushes of a checkout.
+    pub push_interval: u64,
+    /// How long a branch head or push outcome is kept, in seconds; 0 for
+    /// ever.
+    pub record_ttl: u64,
 }
 
 /// Pulls the checkouts served when python would pull its clones.
@@ -93,6 +148,7 @@ pub struct Freshener {
     /// By worktree id.
     tracked: std::sync::Mutex<HashMap<i64, Arc<Tracked>>>,
     pulls: AtomicUsize,
+    pushes: AtomicUsize,
 }
 
 impl Freshener {
@@ -106,18 +162,238 @@ impl Freshener {
         Freshener {
             records: match redis {
                 Some(conn) => PullRecords::Redis(conn),
-                None => PullRecords::Memory(Default::default()),
+                None => PullRecords::Memory {
+                    pulls: Default::default(),
+                    values: Default::default(),
+                },
             },
             settings,
             accept: Box::new(accept),
             tracked: Default::default(),
             pulls: AtomicUsize::new(0),
+            pushes: AtomicUsize::new(0),
         }
     }
 
     /// How many pulls have started.
     pub fn pulls_started(&self) -> usize {
         self.pulls.load(Ordering::SeqCst)
+    }
+
+    /// How many pushes have started.
+    pub fn pushes_started(&self) -> usize {
+        self.pushes.load(Ordering::SeqCst)
+    }
+
+    /// What became of pushing `commit`, a commit of `handle`'s checkout:
+    /// its push record, as `/events` reports it.
+    pub async fn push_outcome(&self, handle: &SyncedRepo, commit: &str) -> Option<String> {
+        let tracked = self.tracked(handle).await?;
+        let key = self.push_key(&tracked, commit);
+        self.records.value(&key).await
+    }
+
+    fn push_key(&self, tracked: &Tracked, commit: &str) -> String {
+        let prefix = &self.settings.cache_key_prefix;
+        crate::config::push_key(prefix, &tracked.project, &tracked.branch, commit)
+    }
+
+    /// After `handle`'s checkout committed `commit` for a request with
+    /// `access`: its push recorded as pending, and made in the background,
+    /// no sooner than the push interval after the last, with the request's
+    /// credentials.
+    pub async fn committed(
+        self: &Arc<Self>,
+        handle: &Arc<SyncedRepo>,
+        commit: &str,
+        access: &RequestAccess,
+    ) {
+        let Some(tracked) = self.tracked(handle).await else {
+            return;
+        };
+        // the configured checkout, the operator's own, isn't pushed
+        if !tracked.cloned {
+            return;
+        }
+        let pending = serde_json::json!({"status": "pending"});
+        self.record_push(&tracked, &[commit.to_string()], &pending)
+            .await;
+        let credentials = access.credentials.clone();
+        self.schedule_push(tracked, handle.clone(), credentials);
+    }
+
+    /// Push `tracked`'s checkout in the background, unless a push of it is
+    /// waiting already, which takes whatever it has by then.
+    fn schedule_push(
+        self: &Arc<Self>,
+        tracked: Arc<Tracked>,
+        handle: Arc<SyncedRepo>,
+        credentials: Option<Credentials>,
+    ) {
+        if tracked.push_scheduled.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let me = self.clone();
+        tokio::spawn(async move {
+            // waited for holding its lock, so that a push in progress has
+            // recorded its time
+            let _held = loop {
+                let held = tracked.pulling.clone().lock_owned().await;
+                match me.push_wait(&tracked) {
+                    wait if wait.is_zero() => break held,
+                    wait => {
+                        drop(held);
+                        tokio::time::sleep(wait).await;
+                    }
+                }
+            };
+            // a commit from now on needs a push of its own
+            tracked.push_scheduled.store(false, Ordering::SeqCst);
+            let path = handle.repo_path();
+            let lock = gitlock::hold(me.settings.locks.as_ref(), path, gitlock::TTL).await;
+            let again = match lock {
+                Ok(lock) => {
+                    let again = me.push_locked(&tracked, &handle, credentials.clone()).await;
+                    gitlock::release(lock).await;
+                    again
+                }
+                Err(e) => {
+                    tracing::info!(checkout = %path.display(), error = e.as_str(), "not pushed");
+                    Again::Same
+                }
+            };
+            drop(_held);
+            // tried again after the interval, but never at once
+            let credentials = match again {
+                Again::No => return,
+                Again::Same => credentials,
+                Again::WithAGrant => None,
+            };
+            tokio::time::sleep(RETRY_DELAY).await;
+            me.schedule_push(tracked, handle, credentials);
+        });
+    }
+
+    /// How long until `tracked`'s checkout may be pushed again.
+    fn push_wait(&self, tracked: &Tracked) -> std::time::Duration {
+        let interval = std::time::Duration::from_secs(self.settings.push_interval);
+        let last = *tracked.last_push.lock().expect("last push");
+        last.map_or(std::time::Duration::ZERO, |last| {
+            last.checked_add(interval)
+                .map_or(std::time::Duration::MAX, |due| {
+                    due.saturating_duration_since(std::time::Instant::now())
+                })
+        })
+    }
+
+    /// Push `handle`'s checkout, holding its git lock: with `credentials`,
+    /// a request's, or else a grant for it. A commit set aside or diverted
+    /// leaves the checkout reset to its remote, and rescanned. Whether to
+    /// try again: it couldn't be pushed, and may be later.
+    async fn push_locked(
+        &self,
+        tracked: &Tracked,
+        handle: &SyncedRepo,
+        credentials: Option<Credentials>,
+    ) -> Again {
+        // the configured checkout, the operator's own, isn't pushed
+        if !tracked.cloned {
+            return Again::No;
+        }
+        let credentials = match (credentials, &self.settings.grants) {
+            (Some(credentials), _) => Some(credentials),
+            (None, Some(grants)) => grants
+                .latest_credentials(&tracked.origin)
+                .await
+                .ok()
+                .flatten(),
+            _ => None,
+        };
+        let push = crate::push::Push {
+            path: handle.repo_path(),
+            url: &tracked.url,
+            branch: &tracked.branch,
+            credentials: credentials.as_ref(),
+            trust: self.settings.trust,
+        };
+        let pushed = crate::push::push(&push).await;
+        // one that failed counts too, so a failing remote isn't hammered;
+        // one with nothing to push doesn't
+        if !matches!(pushed, Ok((crate::push::Pushed::Nothing, _))) {
+            *tracked.last_push.lock().expect("last push") = Some(std::time::Instant::now());
+            self.pushes.fetch_add(1, Ordering::SeqCst);
+        }
+        match pushed {
+            Ok((pushed, commits)) => {
+                self.pushed(tracked, handle, &pushed, &commits).await;
+                Again::No
+            }
+            // credentials refused -- the gateway let a developer write,
+            // so whose were stale -- or no answer: another grant may push
+            // it; a grant is kept, which may still read
+            Err(e) => {
+                tracing::warn!(
+                    checkout = %handle.repo_path().display(),
+                    error = %e,
+                    "can't push this cloudmap checkout; pushed again later"
+                );
+                match e.refused() {
+                    true => Again::WithAGrant,
+                    false => Again::Same,
+                }
+            }
+        }
+    }
+
+    /// Record what came of pushing `commits`: the branch's head, if
+    /// pushed, or else a rescan of the checkout reset to its remote.
+    async fn pushed(
+        &self,
+        tracked: &Tracked,
+        handle: &SyncedRepo,
+        pushed: &crate::push::Pushed,
+        commits: &[String],
+    ) {
+        use crate::push::Pushed;
+        let Some(status) = pushed.status() else {
+            return;
+        };
+        let mut outcome = serde_json::json!({"status": status});
+        match pushed {
+            Pushed::Pushed { head } | Pushed::Merged { head } => {
+                let prefix = &self.settings.cache_key_prefix;
+                let key = crate::config::head_key(prefix, &tracked.project, &tracked.branch);
+                self.records.put(&key, head, self.settings.record_ttl).await;
+                outcome["new_commit"] = head.as_str().into();
+            }
+            Pushed::Diverted { branch } => outcome["to_branch"] = branch.as_str().into(),
+            Pushed::Refused { branch, error } => {
+                outcome["to_branch"] = branch.as_str().into();
+                outcome["message"] = error.as_str().into();
+            }
+            Pushed::Nothing => {}
+        }
+        // HEAD moved: merged, or reset to the remote
+        if !matches!(pushed, Pushed::Pushed { .. }) {
+            self.rescan(handle).await;
+        }
+        self.record_push(tracked, commits, &outcome).await;
+    }
+
+    /// Record `outcome` as what became of pushing each of `commits`.
+    async fn record_push(
+        &self,
+        tracked: &Tracked,
+        commits: &[String],
+        outcome: &serde_json::Value,
+    ) {
+        let value = outcome.to_string();
+        for commit in commits {
+            let key = self.push_key(tracked, commit);
+            self.records
+                .put(&key, &value, self.settings.record_ttl)
+                .await;
+        }
     }
 
     /// Before `handle` serves a request with `access`: pulled first if it
@@ -173,6 +449,11 @@ impl Freshener {
         }
     }
 
+    /// The lock `handle`'s checkout's pulls and pushes hold.
+    pub async fn checkout_lock(&self, handle: &SyncedRepo) -> Option<Arc<tokio::sync::Mutex<()>>> {
+        Some(self.tracked(handle).await?.pulling.clone())
+    }
+
     async fn has(&self, handle: &SyncedRepo, commit: &str) -> bool {
         clone::has_commit(handle.repo_path(), commit, self.settings.trust).await
     }
@@ -213,12 +494,15 @@ impl Freshener {
         };
         let tracked = Arc::new(Tracked {
             key: cache::pull_key(&s.cache_key_prefix, &project, path),
+            project: project.clone(),
             url: format!("{}/{project}.git", s.cloud_server.trim_end_matches('/')),
             cloned: under("public") || under("private"),
             private: under("private"),
             origin: worktree.origin,
             branch: worktree.branch,
             pulling: Default::default(),
+            last_push: Default::default(),
+            push_scheduled: Default::default(),
         });
         let mut all = self.tracked.lock().expect("tracked");
         Some(all.entry(id).or_insert(tracked).clone())
@@ -243,6 +527,11 @@ impl Freshener {
         };
         // python may have pulled it while this waited
         if forced || self.stale(&tracked.key).await {
+            // its commits the remote lacks first, with a grant only: they
+            // may be another's
+            if self.push_wait(tracked).is_zero() {
+                self.push_locked(tracked, handle, None).await;
+            }
             self.pulls.fetch_add(1, Ordering::SeqCst);
             let outcome = self.refresh(tracked, handle, credentials).await;
             self.records.set(&tracked.key, outcome).await;

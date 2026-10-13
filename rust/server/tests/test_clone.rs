@@ -892,6 +892,16 @@ impl World {
     /// [`Self::serve_with_cloner`], pulling what it serves when its last
     /// pull is `timeout` seconds old.
     async fn serve_fresh(&self, timeout: i64) -> unfurl_server::cloudmap::CloudMapState {
+        self.serve_pushing(timeout, 60).await
+    }
+
+    /// [`Self::serve_fresh`], pushing no more often than every
+    /// `push_interval` seconds.
+    async fn serve_pushing(
+        &self,
+        timeout: i64,
+        push_interval: u64,
+    ) -> unfurl_server::cloudmap::CloudMapState {
         let settings = unfurl_server::fresh::Settings {
             timeout,
             cache_key_prefix: "test:".into(),
@@ -900,6 +910,8 @@ impl World {
             grants: None,
             locks: None,
             trust: unfurl_git_sync::git::Trust::Reduced,
+            push_interval,
+            record_ttl: 0,
         };
         let fresh = unfurl_server::fresh::Freshener::new(None, settings, |_| true);
         self.serve_with_cloner().await.with_freshener(fresh)
@@ -1200,20 +1212,23 @@ async fn a_checkout_with_nothing_unpushed_is_reset_to_a_rewritten_remote() {
     assert!(eventually(async || head(&served).await == rewritten).await);
 }
 
-/// One holding a commit its remote lacks is left as it is.
+/// One holding a commit its remote lacks is pushed before it's pulled;
+/// its remote having moved on, the commit goes to a new branch there, and
+/// the checkout is reset to its remote.
 #[tokio::test]
-async fn a_checkout_with_unpushed_work_is_left_diverged() {
+async fn a_commit_its_remote_moved_on_from_is_diverted() {
     let world = World::new().await;
     let cm = world.serve_fresh(0).await;
     std::fs::write(world.public().join("mine.txt"), "mine").expect("write");
     git(&world.public(), &["add", "."]);
     git(&world.public(), &["commit", "-q", "-m", "mine"]);
     let mine = git(&world.public(), &["rev-parse", "HEAD"]);
-    world.rewrite_upstream();
+    let rewritten = world.rewrite_upstream();
     serve_proj(&cm, None).await;
-    assert!(eventually(async || cm.pulls_started() == 1).await);
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), mine);
+    assert!(eventually(async || git(&world.public(), &["rev-parse", "HEAD"]) == rewritten).await);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let diverted = format!("refs/heads/git-sync/diverted-{}", &mine[..12]);
+    assert_eq!(git(&bare, &["rev-parse", &diverted]), mine);
 }
 
 /// A broken checkout is moved aside, not deleted, and cloned again.
@@ -1316,6 +1331,8 @@ async fn the_pull_record_is_pythons() {
         grants: None,
         locks: None,
         trust: unfurl_git_sync::git::Trust::Reduced,
+        push_interval: 60,
+        record_ttl: 0,
     };
     let fresh = unfurl_server::fresh::Freshener::new(Some(conn.clone()), settings, |_| true);
     let cm = world.serve_with_cloner().await.with_freshener(fresh);
@@ -1370,6 +1387,8 @@ async fn a_pull_python_made_while_waiting_isnt_made_again() {
         grants: None,
         locks: Some(locks.clone()),
         trust: unfurl_git_sync::git::Trust::Reduced,
+        push_interval: 60,
+        record_ttl: 0,
     };
     let fresh = unfurl_server::fresh::Freshener::new(Some(conn.clone()), settings, |_| true);
     let cm = world.serve_with_cloner().await.with_freshener(fresh);
@@ -1563,6 +1582,8 @@ async fn a_configured_checkout_is_freshened_for_its_own_project_only() {
         grants: None,
         locks: None,
         trust: unfurl_git_sync::git::Trust::Full,
+        push_interval: 60,
+        record_ttl: 0,
     };
     let cm = cm.with_freshener(unfurl_server::fresh::Freshener::new(None, settings, |_| {
         true
@@ -1614,6 +1635,8 @@ async fn a_detached_checkout_isnt_pulled_for_a_missing_commit() {
         grants: None,
         locks: None,
         trust: unfurl_git_sync::git::Trust::Reduced,
+        push_interval: 60,
+        record_ttl: 0,
     };
     let fresh = unfurl_server::fresh::Freshener::new(Some(conn.clone()), settings, |_| true);
     let cm = world.serve_with_cloner().await.with_freshener(fresh);
@@ -1626,6 +1649,335 @@ async fn a_detached_checkout_isnt_pulled_for_a_missing_commit() {
     serve_proj(&cm, Some(&new)).await;
     let _: () = conn.clone().del(&key).await.expect("del");
     assert_eq!(cm.pulls_started(), 0);
+}
+
+/// A record written and committed in `cm`'s checkout, as a write with
+/// `commit: true` does, and handed to its background push: the commit.
+async fn write_and_commit(cm: &unfurl_server::cloudmap::CloudMapState, key: &str) -> String {
+    cm.synced()
+        .create_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            &format!("git://example.com/{key}.git"),
+            serde_json::json!({"name": key}),
+            None,
+            false,
+        )
+        .await
+        .expect("create");
+    // as a write commits: holding the checkout, which pulls and pushes do
+    let held = cm.hold_checkout(std::time::Duration::from_secs(30)).await;
+    let commit = cm.commit(key).await.expect("commit").expect("a commit");
+    cm.committed(&commit, &Default::default()).await;
+    drop(held);
+    commit
+}
+
+/// The server's `main`.
+fn upstream(world: &World) -> String {
+    git(
+        &world.tmp.path().join("server/org/proj.git"),
+        &["rev-parse", "main"],
+    )
+}
+
+/// A write's commit is pushed in the background, its outcome recorded for
+/// `/events`.
+#[tokio::test]
+async fn a_commit_is_pushed_in_the_background() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 60).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let commit = write_and_commit(&cm, "mine").await;
+    let pushed = async || {
+        cm.push_outcome(&commit)
+            .await
+            .is_some_and(|o| o.contains("pushed"))
+    };
+    assert!(eventually(pushed).await);
+    assert_eq!(upstream(&world), commit);
+    assert_eq!(cm.pushes_started(), 1);
+}
+
+/// Commits made within the push interval of the last push wait for it, and
+/// go in one push.
+#[tokio::test]
+async fn pushes_are_no_more_often_than_the_interval() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 2).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let first = write_and_commit(&cm, "first").await;
+    assert!(eventually(async || upstream(&world) == first).await);
+    let _second = write_and_commit(&cm, "second").await;
+    let third = write_and_commit(&cm, "third").await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(upstream(&world), first, "not yet");
+    assert!(cm
+        .push_outcome(&third)
+        .await
+        .is_some_and(|o| o.contains("pending")));
+    assert!(eventually(async || upstream(&world) == third).await);
+    // counted once each push is done
+    assert!(eventually(async || cm.pushes_started() == 2).await);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(cm.pushes_started(), 2);
+}
+
+/// A push its remote refuses leaves the commit on a local branch, never
+/// pushed, and the checkout reset to its remote.
+#[tokio::test]
+async fn a_refused_push_is_set_aside() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let hook = bare.join("hooks/pre-receive");
+    std::fs::write(&hook, "#!/bin/sh\nexit 1\n").expect("hook");
+    std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("chmod");
+    let before = upstream(&world);
+    let commit = write_and_commit(&cm, "refused").await;
+    let refused = async || {
+        cm.push_outcome(&commit)
+            .await
+            .is_some_and(|o| o.contains("refused"))
+    };
+    assert!(eventually(refused).await);
+    let outcome = cm.push_outcome(&commit).await.expect("a push record");
+    assert!(outcome.contains("message"), "the reason: {outcome}");
+    let aside = format!("git-sync/refused-{}", &commit[..12]);
+    assert_eq!(git(&world.public(), &["rev-parse", &aside]), commit);
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), before);
+    // a later push carries only its own
+    std::fs::remove_file(&hook).expect("unhook");
+    let next = write_and_commit(&cm, "next").await;
+    assert!(eventually(async || upstream(&world) == next).await);
+    let remote_refs = git(&bare, &["for-each-ref", "--format=%(refname)"]);
+    assert!(!remote_refs.contains("refused"), "{remote_refs}");
+    let pushed = git(&bare, &["rev-list", "main"]);
+    assert!(!pushed.contains(&commit), "the refused commit stayed here");
+}
+
+/// A write's commit its remote has moved on from, with changes that merge
+/// cleanly, is merged and pushed; the checkout follows.
+#[tokio::test]
+async fn a_commit_behind_its_remote_is_merged_when_it_merges_cleanly() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let theirs = world.push_upstream("theirs");
+    let commit = write_and_commit(&cm, "mine").await;
+    let pushed = async || {
+        cm.push_outcome(&commit)
+            .await
+            .is_some_and(|o| o.contains("pushed"))
+    };
+    assert!(eventually(pushed).await);
+    let merge = upstream(&world);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let parents = git(&bare, &["rev-list", "--parents", "-n", "1", &merge]);
+    assert_eq!(parents, format!("{merge} {commit} {theirs}"));
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), merge);
+    assert!(world.public().join("theirs").exists());
+    // the database took the merge in
+    assert!(eventually(async || head(&cm).await == merge).await);
+}
+
+/// One that conflicts goes to a new branch there instead, and the
+/// checkout is reset to its remote, with nothing of the merge on disk.
+#[tokio::test]
+async fn a_commit_behind_its_remote_that_conflicts_is_diverted() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let seed = world.tmp.path().join("seed/org/proj");
+    std::fs::write(seed.join("cloudmap.yaml"), "repositories:\n  theirs: {}\n").expect("write");
+    git(&seed, &["commit", "-q", "-am", "theirs"]);
+    git(&seed, &["push", "-q", "origin", "main"]);
+    let theirs = git(&seed, &["rev-parse", "HEAD"]);
+    let commit = write_and_commit(&cm, "mine").await;
+    let diverted = async || {
+        cm.push_outcome(&commit)
+            .await
+            .is_some_and(|o| o.contains("diverted"))
+    };
+    assert!(eventually(diverted).await);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let branch = format!("refs/heads/git-sync/diverted-{}", &commit[..12]);
+    assert_eq!(git(&bare, &["rev-parse", &branch]), commit);
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), theirs);
+    let on_disk = std::fs::read_to_string(world.public().join("cloudmap.yaml")).expect("read");
+    assert!(!on_disk.contains("<<<<<<<"), "{on_disk}");
+}
+
+/// One its remote's branch rejects -- protected, say -- goes to a new
+/// branch there too.
+#[tokio::test]
+async fn a_commit_a_protected_branch_rejects_is_diverted() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let hook = bare.join("hooks/pre-receive");
+    let script = "#!/bin/sh\nwhile read old new name; do\n  [ \"$name\" = refs/heads/main ] && exit 1\ndone\nexit 0\n";
+    std::fs::write(&hook, script).expect("hook");
+    std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("chmod");
+    let before = upstream(&world);
+    let commit = write_and_commit(&cm, "mine").await;
+    let diverted = async || {
+        cm.push_outcome(&commit)
+            .await
+            .is_some_and(|o| o.contains("diverted"))
+    };
+    assert!(eventually(diverted).await);
+    let branch = format!("refs/heads/git-sync/diverted-{}", &commit[..12]);
+    assert_eq!(git(&bare, &["rev-parse", &branch]), commit);
+    assert_eq!(upstream(&world), before);
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), before);
+    assert!(eventually(async || head(&cm).await == before).await);
+}
+
+/// A `git-sync/` branch made in the checkout, as an export makes one, goes
+/// with the next push.
+#[tokio::test]
+async fn a_git_sync_branch_is_pushed_too() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    git(&world.public(), &["branch", "git-sync/exported", "HEAD"]);
+    let commit = write_and_commit(&cm, "mine").await;
+    assert!(eventually(async || upstream(&world) == commit).await);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let exported = git(
+        &bare,
+        &[
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/heads/git-sync/",
+        ],
+    );
+    assert_eq!(exported, "refs/heads/git-sync/exported");
+}
+
+/// A pull that finds nothing to push doesn't count as a push: a commit
+/// right after it is pushed at once.
+#[tokio::test]
+async fn a_pull_with_nothing_to_push_doesnt_hold_up_a_commit() {
+    let world = World::new().await;
+    let cm = world.serve_pushing(0, 60).await;
+    let served = serve_proj(&cm, None).await;
+    assert!(eventually(async || cm.pulls_started() == 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let commit = write_and_commit(&served, "mine").await;
+    assert!(eventually(async || upstream(&world) == commit).await);
+}
+
+/// A push records the branch's head where python records it, for
+/// `/events` branch watches. Needs `UNFURL_TEST_REDIS_URL`.
+#[tokio::test]
+async fn a_push_records_the_branch_head() {
+    use redis::AsyncCommands;
+    let Some(url) = std::env::var("UNFURL_TEST_REDIS_URL")
+        .ok()
+        .filter(|u| !u.is_empty())
+    else {
+        eprintln!("skip: UNFURL_TEST_REDIS_URL not set");
+        return;
+    };
+    let conn = redis::Client::open(url.as_str())
+        .expect("url")
+        .get_multiplexed_async_connection()
+        .await
+        .expect("connect");
+    let world = World::new().await;
+    let prefix = format!("test-push-head-{}:", std::process::id());
+    let settings = unfurl_server::fresh::Settings {
+        timeout: 3600,
+        cache_key_prefix: prefix.clone(),
+        cloud_server: world.server(),
+        clone_root: Some(world.root()),
+        grants: None,
+        locks: None,
+        trust: unfurl_git_sync::git::Trust::Reduced,
+        push_interval: 0,
+        record_ttl: 60,
+    };
+    let fresh = unfurl_server::fresh::Freshener::new(Some(conn.clone()), settings, |_| true);
+    let cm = world.serve_with_cloner().await.with_freshener(fresh);
+    let served = serve_proj(&cm, None).await;
+    let commit = write_and_commit(&served, "mine").await;
+    assert!(eventually(async || upstream(&world) == commit).await);
+    let head_key = unfurl_server::config::head_key(&prefix, "org/proj", "main");
+    let push_key = unfurl_server::config::push_key(&prefix, "org/proj", "main", &commit);
+    let mut head: Option<String> = None;
+    for _ in 0..100 {
+        head = conn.clone().get(&head_key).await.expect("get");
+        if head.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let ttl: i64 = conn.clone().ttl(&head_key).await.expect("ttl");
+    let _: () = conn
+        .clone()
+        .del(&[&head_key, &push_key])
+        .await
+        .expect("del");
+    assert_eq!(head.as_deref(), Some(commit.as_str()));
+    assert!(ttl > 0 && ttl <= 60, "{ttl}");
+}
+
+/// A divert completes though the database holds records staged since the
+/// commit, which the reset doesn't touch: they stay staged, to commit
+/// onto the remote's branch.
+#[tokio::test]
+async fn a_divert_keeps_records_staged_since() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let seed = world.tmp.path().join("seed/org/proj");
+    std::fs::write(seed.join("cloudmap.yaml"), "repositories:\n  theirs: {}\n").expect("write");
+    git(&seed, &["commit", "-q", "-am", "theirs"]);
+    git(&seed, &["push", "-q", "origin", "main"]);
+    let theirs = git(&seed, &["rev-parse", "HEAD"]);
+    let create = async |key: &str| {
+        cm.synced()
+            .create_record(
+                Some("cloudmap.yaml"),
+                "/repositories",
+                &format!("git://example.com/{key}.git"),
+                serde_json::json!({"name": key}),
+                None,
+                false,
+            )
+            .await
+            .expect("create");
+    };
+    create("mine").await;
+    let commit = cm.commit("mine").await.expect("commit").expect("a commit");
+    create("staged").await;
+    cm.committed(&commit, &Default::default()).await;
+    let diverted = async || {
+        cm.push_outcome(&commit)
+            .await
+            .is_some_and(|o| o.contains("diverted"))
+    };
+    assert!(eventually(diverted).await);
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), theirs);
+    assert!(eventually(async || head(&cm).await == theirs).await);
+    assert!(
+        cm.synced().has_uncommitted().await.expect("uncommitted"),
+        "still staged"
+    );
 }
 
 /// A checkout in the clone root whose remote names another project, for
@@ -1645,4 +1997,160 @@ async fn a_checkout_whose_remote_names_another_project_isnt_pulled() {
     assert!(eventually(async || cm.pulls_started() == 1).await);
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), before);
+}
+
+/// A write through the handler, in clone mode, has its commit pushed
+/// after it answers.
+#[tokio::test]
+async fn a_write_through_the_handler_is_pushed() {
+    use axum::routing::post;
+    use clap::Parser;
+    use tower::util::ServiceExt;
+    let world = World::new().await;
+    let cm = world.serve_pushing(3600, 0).await;
+    let served = serve_proj(&cm, None).await;
+    drop(
+        served
+            .hold_checkout(std::time::Duration::from_secs(30))
+            .await,
+    );
+    // where a record the write creates goes
+    let file = Some("cloudmap.yaml");
+    served
+        .synced()
+        .set_default_file_path(file)
+        .await
+        .expect("default");
+    let config = unfurl_server::config::Config::parse_from([
+        "unfurl-server",
+        "--cloud-server",
+        &world.server(),
+    ]);
+    let state = unfurl_server::AppState {
+        config: std::sync::Arc::new(config),
+        client: reqwest::Client::new(),
+        redis: None,
+        cloudmap: Some(cm),
+        grants: None,
+    };
+    let app = axum::Router::new()
+        .route(
+            "/cloudmap",
+            post(unfurl_server::cloudmap::post_cloudmap_local),
+        )
+        .with_state(state);
+    let body = serde_json::json!({
+        "commit": true,
+        "repositories": { "git://example.com/mine.git": { "name": "mine" } },
+    });
+    let req = axum::http::Request::builder()
+        .method("POST")
+        .uri("/cloudmap?auth_project=org/proj")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.expect("handler");
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .expect("body");
+    let response: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+    assert_eq!(status, axum::http::StatusCode::OK, "{response}");
+    let commit = response["commit"].as_str().expect("a commit").to_string();
+    assert!(eventually(async || upstream(&world) == commit).await);
+}
+
+/// A checkout whose working tree holds changes isn't diverted: a reset
+/// would lose them. Nothing is pushed or kept, and it's tried again.
+#[tokio::test]
+async fn a_checkout_with_changes_on_disk_isnt_diverted() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 1).await, None).await;
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let seed = world.tmp.path().join("seed/org/proj");
+    std::fs::write(seed.join("cloudmap.yaml"), "repositories:\n  theirs: {}\n").expect("write");
+    git(&seed, &["commit", "-q", "-am", "theirs"]);
+    git(&seed, &["push", "-q", "origin", "main"]);
+    let theirs = git(&seed, &["rev-parse", "HEAD"]);
+    std::fs::write(world.public().join("mine.txt"), "mine").expect("write");
+    let commit = write_and_commit(&cm, "mine").await;
+    assert!(eventually(async || cm.pushes_started() >= 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let branches = git(&bare, &["for-each-ref", "--format=%(refname)"]);
+    assert!(!branches.contains("git-sync/"), "{branches}");
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), commit);
+    assert!(world.public().join("mine.txt").exists());
+    assert_eq!(upstream(&world), theirs);
+    // tried again on its own, the interval after
+    assert!(eventually(async || cm.pushes_started() >= 2).await);
+}
+
+/// A checkout on another branch than its own isn't pushed: its HEAD would
+/// go onto its branch.
+#[tokio::test]
+async fn a_checkout_on_another_branch_isnt_pushed() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let before = upstream(&world);
+    // a commit on its branch, made before it went to another, as python
+    // could: git-sync commits only on the branch it tracks
+    cm.synced()
+        .create_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "git://example.com/mine.git",
+            serde_json::json!({"name": "mine"}),
+            None,
+            false,
+        )
+        .await
+        .expect("create");
+    let commit = cm.commit("mine").await.expect("commit").expect("a commit");
+    git(&world.public(), &["checkout", "-q", "-b", "elsewhere"]);
+    cm.committed(&commit, &Default::default()).await;
+    assert!(eventually(async || cm.pushes_started() >= 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(upstream(&world), before);
+    let pending = cm.push_outcome(&commit).await.expect("a push record");
+    assert!(pending.contains("pending"), "{pending}");
+}
+
+/// A checkout whose push url names another project isn't pushed there.
+#[tokio::test]
+async fn a_push_to_another_project_is_refused() {
+    let world = World::new().await;
+    world.host("org/other", "main");
+    let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let other = world.tmp.path().join("server/org/other.git");
+    let other_url = format!("{}/org/other.git", world.server());
+    git(
+        &world.public(),
+        &["config", "remote.origin.pushurl", &other_url],
+    );
+    let before = git(&other, &["rev-parse", "main"]);
+    write_and_commit(&cm, "mine").await;
+    assert!(eventually(async || cm.pushes_started() >= 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(git(&other, &["rev-parse", "main"]), before);
+    let refs = git(&other, &["for-each-ref", "--format=%(refname)"]);
+    assert!(!refs.contains("git-sync/"), "{refs}");
+}
+
+/// A push that can't reach the remote is tried again on its own, the
+/// interval after, without another write or pull.
+#[tokio::test]
+async fn a_failed_push_is_tried_again() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_pushing(3600, 1).await, None).await;
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let hidden = bare.with_extension("gone");
+    std::fs::rename(&bare, &hidden).expect("hide");
+    let commit = write_and_commit(&cm, "mine").await;
+    assert!(eventually(async || cm.pushes_started() >= 1).await);
+    std::fs::rename(&hidden, &bare).expect("restore");
+    assert!(eventually(async || upstream(&world) == commit).await);
 }

@@ -633,6 +633,27 @@ def test_a_failed_pull_removes_only_its_own_clean_clone(clone_root):
         assert os.path.isdir(other)
 
 
+def test_clear_project_keeps_a_clone_with_a_branch_its_remote_lacks(clone_root):
+    """A clone whose HEAD its remote has, but with a branch holding commits
+    it lacks -- as the rust server keeps those a push was refused for --
+    isn't removed."""
+    remote = _remote(clone_root)
+    with server.app.app_context():
+        kept = server._get_project_repo_dir("org/proj", "main", {})
+        _git(clone_root, "clone", "-q", str(remote), kept)
+        _git(kept, "checkout", "-q", "-b", "git-sync/refused-abc")
+        with open(os.path.join(kept, "cloudmap.yaml"), "a") as f:
+            f.write("# refused\n")
+        _git(kept, "commit", "-q", "-am", "refused")
+        _git(kept, "checkout", "-q", "main")
+
+        got = server._clear_project("org/proj")
+        assert [(k["path"], k["reason"]) for k in got["kept"]] == [
+            ("public/org/proj/main", "1 commit not pushed")
+        ]
+        assert os.path.isdir(kept)
+
+
 def test_a_clone_of_a_rewritten_remote_isnt_kept_as_diverged(clone_root):
     """A clean clone whose remote's history was rewritten holds no work
     the remote lacks, though its old commits are on no remote-tracking

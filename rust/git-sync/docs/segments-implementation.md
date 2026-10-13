@@ -419,11 +419,33 @@ phase's behaviour changes applied.
       after export: taking in commits made to an exported branch's ref,
       and deleting its worktree when the ref goes. Until then an
       exported branch's view stays at its export commit, which only a
-      read across worktrees sees, and its worktree outlives its ref.
+      read across worktrees sees, and its worktree outlives its ref. With
+      it, a branch the server diverts a push to becomes a checkout-less
+      fork at the diverted commits, so their records stay readable on it;
+      its ref is a remote-tracking one, which a fetch moves and
+      `--prune` removes.
    3. **Pull:** fetch and fast-forward, then the unfold and the rebase in
-      the database.
+      the database. The first half is built in the server (`clone.rs`,
+      "Freshness" in its README), with the git command line; the unfold
+      and rebase aren't started.
    4. **Push:** push support (the `git` CLI or git2; gix can't push),
-      the retry, and diverting to a new ref.
+      the retry, and diverting to a new ref. Built in the server instead
+      (`push.rs`, "Pushing" in its README): what the remote moved
+      on from is merged in git when it merges cleanly, and diverted when
+      it doesn't, pending the rebase.
+
+   **Transport and integration.** Fetching and pushing stay in the
+   server, which holds the credentials and the distrust policy for the
+   git command line. Integrating what a fetch brought -- the
+   fast-forward, the merge, the unfold and the rebase -- moves into
+   git-sync with step 3, as an `integrate(upstream)` that changes the
+   working tree through a trait the server implements with its own git,
+   so the policy stays in one place.
+
+   **Order from here:** step 2, with diverted branches kept readable;
+   then phase 4, so a merged diverted or exported branch keeps its
+   records' ids; then step 3's unfold and rebase, for conflicts between
+   records that the merge in git can only divert.
 
    Appendix C adds the cross-worktree fold and the unfold. Operations:
    Export, Pull, Push, Divert.

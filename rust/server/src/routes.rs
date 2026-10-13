@@ -1264,6 +1264,56 @@ fn poll_interval(watches: &[Watch], config: &crate::config::Config) -> std::time
     }
 }
 
+/// The frame each of the branch `watches` settles to now, in the order
+/// given, or `None` for one still waiting.
+async fn branch_frames(
+    conn: &mut redis::aio::MultiplexedConnection,
+    config: &crate::config::Config,
+    project_id: &str,
+    watches: &[Watch],
+) -> Result<Vec<Option<JsonValue>>, redis::RedisError> {
+    let branches: Vec<String> = watches.iter().map(|w| w.branch.clone()).collect();
+    let heads = queue::read_branch_heads(conn, config, project_id, &branches).await?;
+    let commits: Vec<(String, String)> = watches
+        .iter()
+        .map(|w| (w.branch.clone(), w.commit.clone()))
+        .collect();
+    let pushes = queue::read_push_outcomes(conn, config, project_id, &commits).await?;
+    Ok(watches
+        .iter()
+        .zip(heads)
+        .zip(pushes)
+        .map(|((watch, head), push)| branch_frame(watch, head, push))
+        .collect())
+}
+
+/// The frame branch watch `watch` settles to, given its branch's `head`
+/// and its commit's `push` record, or `None` while it waits.
+///
+/// A cloudmap commit this server made reports what came of its push, once
+/// tried, rather than the head the push may not have moved yet. Otherwise
+/// it's reported when the branch has moved off the commit the client
+/// named, and dropped after, because that commit is no longer what the
+/// client holds and the watch would be asking about a baseline it has left.
+fn branch_frame(watch: &Watch, head: Option<String>, push: Option<JsonValue>) -> Option<JsonValue> {
+    if let Some(mut push) = push {
+        if push.get("status")?.as_str()? == "pending" {
+            return None;
+        }
+        let frame = push.as_object_mut()?;
+        frame.insert("branch".into(), watch.branch.clone().into());
+        frame.insert("latest_commit".into(), watch.commit.clone().into());
+        return Some(push);
+    }
+    let head = head.filter(|head| *head != watch.commit)?;
+    Some(json!({
+        "status": "moved",
+        "branch": watch.branch,
+        "latest_commit": watch.commit,
+        "new_commit": head,
+    }))
+}
+
 /// One `data:` frame.
 fn settled_event(payload: JsonValue) -> Result<Event, std::convert::Infallible> {
     Ok(Event::default().data(payload.to_string()))
@@ -1321,33 +1371,22 @@ pub async fn handle_events(
                 std::mem::take(&mut watches)
                     .into_iter()
                     .partition(|w| w.queueid == 0);
-            let branches: Vec<String> = branch_watches.iter().map(|w| w.branch.clone()).collect();
-            let heads =
-                match queue::read_branch_heads(&mut conn, &config, &project_id, &branches).await {
-                    Ok(heads) => heads,
-                    Err(e) => {
-                        tracing::error!("read_branch_heads Redis error: {}", e);
-                        break;
-                    }
-                };
-            for (watch, head) in branch_watches.into_iter().zip(heads) {
-                // Reported when the branch has moved off the commit the
-                // client named. Dropped after, because that commit is no
-                // longer what the client holds and the watch would be
-                // asking about a baseline it has left.
-                match head {
-                    Some(head) if head != watch.commit => {
-                        let payload = json!({
-                            "status": "moved",
-                            "branch": watch.branch,
-                            "latest_commit": watch.commit,
-                            "new_commit": head,
-                        });
+            let frames = match branch_frames(&mut conn, &config, &project_id, &branch_watches).await
+            {
+                Ok(frames) => frames,
+                Err(e) => {
+                    tracing::error!("branch watch Redis error: {}", e);
+                    break;
+                }
+            };
+            for (watch, frame) in branch_watches.into_iter().zip(frames) {
+                match frame {
+                    Some(payload) => {
                         if tx.send(settled_event(payload)).await.is_err() {
                             return;
                         }
                     }
-                    _ => pending.push(watch),
+                    None => pending.push(watch),
                 }
             }
             watches = write_watches;
@@ -1799,6 +1838,28 @@ mod tests {
             queueid,
             superseded_reported: false,
         }
+    }
+
+    /// A branch watch on a commit with a push record waits while it's
+    /// pending and then reports it, whatever the head; one without reports
+    /// the head moving off it.
+    #[test]
+    fn a_branch_watch_settles_to_its_push_or_the_head() {
+        use super::branch_frame;
+        let w = watch(0);
+        let head = || Some("bbb".to_string());
+        let pending = json!({"status": "pending"});
+        assert_eq!(branch_frame(&w, head(), Some(pending)), None);
+        let pushed = json!({"status": "pushed", "new_commit": "aaa"});
+        let frame = branch_frame(&w, head(), Some(pushed)).expect("pushed");
+        assert_eq!(frame["status"], "pushed");
+        assert_eq!(frame["latest_commit"], "aaa");
+        assert_eq!(frame["branch"], "main");
+        let moved = branch_frame(&w, head(), None).expect("moved");
+        assert_eq!(moved["status"], "moved");
+        assert_eq!(moved["new_commit"], "bbb");
+        assert_eq!(branch_frame(&w, Some("aaa".into()), None), None);
+        assert_eq!(branch_frame(&w, None, None), None);
     }
 
     #[test]

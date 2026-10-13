@@ -34,6 +34,7 @@ pub(crate) fn refused(error: &str) -> bool {
 
 /// How git reaches the cloud server: its protocol, and credentials for its
 /// host, as config in git's environment, which it doesn't store.
+#[derive(Clone)]
 pub(crate) struct Access {
     protocol: String,
     env: Vec<(String, String)>,
@@ -52,6 +53,12 @@ impl Access {
 
     pub(crate) fn trusting(mut self, trust: Trust) -> Self {
         self.trust = trust;
+        self
+    }
+
+    /// This, with `vars` in git's environment too.
+    pub(crate) fn with_env(mut self, vars: &[(String, String)]) -> Self {
+        self.env.extend(vars.iter().cloned());
         self
     }
 
@@ -264,7 +271,7 @@ fn untrusted(name: &str) -> bool {
 }
 
 /// `text` with any credentials in a url's userinfo taken out.
-fn redact(text: &str) -> String {
+pub(crate) fn redact(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find("//") {
@@ -299,6 +306,25 @@ fn protocol_of(url: &str) -> String {
 /// or global git config, such as a credential helper or a url rewrite --
 /// reaches a clone of a user's repository.
 pub(crate) async fn git(dir: &Path, access: &Access, args: &[&str]) -> Result<String, String> {
+    let out = run_git(dir, access, args).await?;
+    match out.status.success() {
+        true => Ok(String::from_utf8_lossy(&out.stdout).trim().to_string()),
+        // without any credentials git might show in a url
+        false => Err(redact(&format!(
+            "git {}: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))),
+    }
+}
+
+/// `git args` in `dir`, as [`git`] runs it: its output, whether or not it
+/// succeeded, or why it couldn't be run.
+pub(crate) async fn run_git(
+    dir: &Path,
+    access: &Access,
+    args: &[&str],
+) -> Result<std::process::Output, String> {
     let distrusted: &[&str] = match access.trust {
         Trust::Reduced => &DISTRUSTED,
         _ => &[],
@@ -332,19 +358,10 @@ pub(crate) async fn git(dir: &Path, access: &Access, args: &[&str]) -> Result<St
         .env("LC_ALL", "C")
         .kill_on_drop(true)
         .output();
-    let out = tokio::time::timeout(GIT_TIMEOUT, run)
+    tokio::time::timeout(GIT_TIMEOUT, run)
         .await
         .map_err(|_| format!("git {}: no answer in {GIT_TIMEOUT:?}", args.join(" ")))?
-        .map_err(|e| format!("git: {e}"))?;
-    match out.status.success() {
-        true => Ok(String::from_utf8_lossy(&out.stdout).trim().to_string()),
-        // without any credentials git might show in a url
-        false => Err(redact(&format!(
-            "git {}: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        ))),
-    }
+        .map_err(|e| format!("git: {e}"))
 }
 
 #[cfg(test)]

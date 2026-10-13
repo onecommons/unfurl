@@ -500,10 +500,33 @@ impl World {
             grants,
             locks: None,
             trust: unfurl_git_sync::git::Trust::Reduced,
+            // every pull may push
+            push_interval: 0,
+            record_ttl: 0,
         };
         cm.with_freshener(unfurl_server::fresh::Freshener::new(None, settings, |_| {
             true
         }))
+    }
+
+    /// Whether the private checkout reaches `commit` within twenty seconds
+    /// of requests to `cm` with `access`, made until it does: a request
+    /// finding a pull of it running leaves the pull to that one.
+    async fn requested_until_pulled_to(
+        &self,
+        cm: &unfurl_server::cloudmap::CloudMapState,
+        access: &unfurl_server::clone::RequestAccess,
+        commit: &str,
+    ) -> bool {
+        for _ in 0..40 {
+            cm.project_check(Some("org/proj"), None, false, access, None)
+                .await
+                .expect("check");
+            if self.pulled_to(commit).await {
+                return true;
+            }
+        }
+        false
     }
 
     /// Whether the private checkout reaches `commit` within ten seconds.
@@ -568,10 +591,11 @@ async fn a_stale_private_checkout_is_pulled_with_the_requests_credentials() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     let head = git(&world.checkout("private"), &["rev-parse", "HEAD"]);
     assert_ne!(head, upstream, "not without credentials");
-    cm.project_check(Some("org/proj"), None, false, &access, None)
-        .await
-        .expect("check");
-    assert!(world.pulled_to(&upstream).await);
+    assert!(
+        world
+            .requested_until_pulled_to(&cm, &access, &upstream)
+            .await
+    );
 }
 
 /// A grant git refuses during a pull is forgotten, as at startup, so the
@@ -703,4 +727,132 @@ async fn a_grant_refused_cloning_a_broken_checkout_again_is_forgotten() {
         world.pulled_to(&upstream).await,
         "cloned again with the one before"
     );
+}
+
+/// Commits a checkout is found holding that its remote lacks -- python's,
+/// or a push's that failed -- are pushed with a grant before a pull, never
+/// with the credentials of the request that found them: those are its
+/// own, and the commits may be another's.
+#[tokio::test(flavor = "multi_thread")]
+async fn commits_found_ahead_are_pushed_with_a_grant_only() {
+    let world = World::new().await;
+    world.server.make_private("org/proj.git");
+    let bare = world.tmp.path().join("served/org/proj.git");
+    git(&bare, &["config", "http.receivepack", "true"]);
+    let grants = std::sync::Arc::new(world.grants().await);
+    let grant = world.grant(&grants, USER, TOKEN).await;
+    let cm = world.serve_fresh(Some(grants.clone())).await;
+    // a commit made in the checkout, as python's cloudmap writes make one
+    let checkout = world.checkout("private");
+    std::fs::write(checkout.join("theirs.txt"), "theirs").expect("write");
+    git(&checkout, &["add", "."]);
+    git(&checkout, &["commit", "-q", "-m", "theirs"]);
+    let theirs = git(&checkout, &["rev-parse", "HEAD"]);
+    let upstream = || git(&bare, &["rev-parse", "main"]);
+
+    // without a grant, a request's credentials don't push it
+    grants.forget(&grant).await.expect("forget");
+    let mut headers = axum::http::HeaderMap::new();
+    let token = base64::engine::general_purpose::STANDARD.encode(format!("{USER}:{TOKEN}"));
+    headers.insert("x-git-credentials", token.parse().unwrap());
+    let access = unfurl_server::cloudmap::request_access(&headers, None, None);
+    cm.project_check(Some("org/proj"), None, false, &access, None)
+        .await
+        .expect("check");
+    for _ in 0..200 {
+        if cm.pulls_started() >= 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_ne!(upstream(), theirs, "not with the request's credentials");
+
+    // with one, the next pull pushes it first
+    world.grant(&grants, USER, TOKEN).await;
+    let mut pushed = false;
+    for _ in 0..200 {
+        if upstream() == theirs {
+            pushed = true;
+            break;
+        }
+        cm.project_check(Some("org/proj"), None, false, &Default::default(), None)
+            .await
+            .expect("check");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(pushed);
+}
+
+/// A write whose own credentials its remote refuses -- stale, as the
+/// gateway let a developer write -- has its commit left to push, which a
+/// grant then does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_commit_whose_credentials_are_refused_is_pushed_with_a_grant() {
+    let world = World::new().await;
+    world.server.make_private("org/proj.git");
+    let bare = world.tmp.path().join("served/org/proj.git");
+    git(&bare, &["config", "http.receivepack", "true"]);
+    let grants = std::sync::Arc::new(world.grants().await);
+    world.grant(&grants, USER, TOKEN).await;
+    let cm = world.serve_fresh(Some(grants.clone())).await;
+    // the checkout `cm` serves, without a request, which would pull it
+    let served = cm.clone();
+    served
+        .synced()
+        .create_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "git://example.com/mine.git",
+            serde_json::json!({"name": "mine"}),
+            None,
+            false,
+        )
+        .await
+        .expect("create");
+    let commit = served
+        .commit("mine")
+        .await
+        .expect("commit")
+        .expect("a commit");
+    let wrong = unfurl_server::clone::RequestAccess {
+        private: true,
+        credentials: Some(unfurl_server::grants::Credentials {
+            grant: String::new(),
+            user: USER.into(),
+            secret: "wrong".into(),
+        }),
+        username: "mallory".into(),
+    };
+    served.committed(&commit, &wrong).await;
+    let mut tried = false;
+    for _ in 0..400 {
+        if served.pushes_started() >= 1 {
+            tried = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(tried);
+    let pending = served.push_outcome(&commit).await.expect("a push record");
+    assert!(pending.contains("pending"), "{pending}");
+    let checkout = world.checkout("private");
+    assert_eq!(
+        git(&checkout, &["rev-parse", "HEAD"]),
+        commit,
+        "not set aside"
+    );
+    // the next pull pushes it first, with the grant
+    let mut pushed = false;
+    for _ in 0..200 {
+        if git(&bare, &["rev-parse", "main"]) == commit {
+            pushed = true;
+            break;
+        }
+        cm.project_check(Some("org/proj"), None, false, &Default::default(), None)
+            .await
+            .expect("check");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(pushed);
 }

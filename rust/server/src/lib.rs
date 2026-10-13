@@ -12,6 +12,7 @@ pub mod gitlock;
 pub mod grants;
 pub mod patch;
 pub mod proxy;
+pub mod push;
 pub mod queue;
 pub mod routes;
 pub mod stash;

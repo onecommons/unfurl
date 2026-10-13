@@ -541,6 +541,18 @@ class QueuedWriteEvent(BaseModel):
             "reached neither leaves it stale and a client that treats this "
             "as the definition of the branch head will be wrong in the case "
             "it most wants to be right; "
+            "``pushed`` -- for a branch watch on a cloudmap commit the rust "
+            "server made, its push, in the background after the write, "
+            "reached the remote, merged if the remote had moved on, with "
+            "``new_commit`` the branch's head; "
+            "``diverted`` -- the remote's branch had moved on and conflicts, "
+            "or rejected it: it was pushed to the new branch ``to_branch`` "
+            "there, to merge, and the branch reset to the remote, so its "
+            "records are gone from the view until then; "
+            "``refused`` -- the remote rejected that new branch too: it was "
+            "kept on the server's local branch ``to_branch``, with the "
+            "remote's reason in ``message``. Until its push "
+            "is tried, such a watch reports nothing; "
             "``done`` -- terminal, the client should close the stream.\n\n"
             "No frame should advance a stored commit unless the client "
             "also refetched the content. ``superseded`` and ``moved`` "
@@ -573,6 +585,10 @@ class QueuedWriteEvent(BaseModel):
     )
     batch_queueid: Optional[int] = Field(
         default=None, description="The failed batch's last queueid."
+    )
+    to_branch: Optional[str] = Field(
+        default=None,
+        description="Where a commit went instead (``refused``, ``diverted``).",
     )
     code: Optional[str] = None
     message: Optional[str] = None

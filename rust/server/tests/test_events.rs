@@ -51,6 +51,7 @@ fn test_config(prefix: &str) -> Config {
         cloudmap_recover: false,
         trust_checkouts: false,
         pull_timeout: 120,
+        push_interval: 60,
         default_cloudmaps: Vec::new(),
         cloudmap_skip_scan: false,
         scan_abort_level: unfurl_server::config::ScanAbortLevel::Report,
@@ -511,6 +512,56 @@ async fn a_branch_watch_reports_the_head_moving() {
 
     let _: () = redis::cmd("DEL")
         .arg(&head)
+        .query_async(&mut conn)
+        .await
+        .expect("cleanup");
+}
+
+/// A branch watch on a cloudmap commit this server made reports what came
+/// of its push, once tried, rather than the head the push hasn't moved
+/// yet: nothing while it's pending, then `pushed` or `refused`.
+#[tokio::test]
+async fn a_branch_watch_reports_its_commits_push() {
+    let Some((router, mut conn, config)) = fixture("events_push").await else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let head = config.head_key("proj", "main");
+    let push = config.push_key("proj", "main", "ccc");
+    let set = async |conn: &mut redis::aio::MultiplexedConnection, key: &str, value: &str| {
+        let _: () = redis::cmd("SET")
+            .arg(key)
+            .arg(value)
+            .query_async(conn)
+            .await
+            .expect("plant");
+    };
+    // the head is an older commit: a push not yet made
+    set(&mut conn, &head, "bbb").await;
+    set(&mut conn, &push, r#"{"status":"pending"}"#).await;
+    let pending = body_text(get(&router, "/events?auth_project=proj&watch=main:ccc:").await).await;
+    assert!(!pending.contains(r#""status":"moved""#), "{pending}");
+    assert!(!pending.contains(r#""status":"pushed""#), "{pending}");
+
+    set(
+        &mut conn,
+        &push,
+        r#"{"status":"pushed","new_commit":"ccc"}"#,
+    )
+    .await;
+    let pushed = body_text(get(&router, "/events?auth_project=proj&watch=main:ccc:").await).await;
+    assert!(pushed.contains(r#""status":"pushed""#), "{pushed}");
+    assert!(pushed.contains(r#""latest_commit":"ccc""#), "{pushed}");
+
+    let refused = r#"{"status":"refused","to_branch":"git-sync/refused-ccc"}"#;
+    set(&mut conn, &push, refused).await;
+    let refused = body_text(get(&router, "/events?auth_project=proj&watch=main:ccc:").await).await;
+    assert!(refused.contains(r#""status":"refused""#), "{refused}");
+    assert!(refused.contains("git-sync/refused-ccc"), "{refused}");
+
+    let _: () = redis::cmd("DEL")
+        .arg(&head)
+        .arg(&push)
         .query_async(&mut conn)
         .await
         .expect("cleanup");

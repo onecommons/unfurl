@@ -348,6 +348,9 @@ fn freshened(
             Some(_) => unfurl_git_sync::git::Trust::Full,
             None => config.checkout_trust(),
         },
+        push_interval: config.push_interval,
+        // as long as python keeps a branch head
+        record_ttl: config.queue_key_ttl_secs,
     };
     let abort_level = config.scan_abort_level;
     let accept = move |outcome: &unfurl_git_sync::SyncOutcome| !report_scan(outcome, abort_level);

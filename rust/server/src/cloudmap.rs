@@ -712,6 +712,47 @@ impl CloudMapState {
         self.fresh.as_ref().map_or(0, |fresh| fresh.pulls_started())
     }
 
+    /// How many pushes have started.
+    pub fn pushes_started(&self) -> usize {
+        self.fresh
+            .as_ref()
+            .map_or(0, |fresh| fresh.pushes_started())
+    }
+
+    /// What became of pushing `commit`, a commit of the checkout this
+    /// serves, as `/events` reports it.
+    pub async fn push_outcome(&self, commit: &str) -> Option<String> {
+        self.fresh.as_ref()?.push_outcome(&self.inner, commit).await
+    }
+
+    /// The lock of the checkout this serves that its pulls and pushes
+    /// hold, waited for up to `wait`: a commit holds it, so neither runs
+    /// git in the checkout meanwhile. `Ok(None)` where nothing pulls or
+    /// pushes it.
+    pub async fn hold_checkout(
+        &self,
+        wait: Duration,
+    ) -> Result<Option<tokio::sync::OwnedMutexGuard<()>>, String> {
+        let Some(lock) = (match &self.fresh {
+            Some(fresh) => fresh.checkout_lock(&self.inner).await,
+            None => None,
+        }) else {
+            return Ok(None);
+        };
+        tokio::time::timeout(wait, lock.lock_owned())
+            .await
+            .map(Some)
+            .map_err(|_| format!("a pull or push of the checkout held it for {wait:?}"))
+    }
+
+    /// After a commit of the checkout this serves, for a request with
+    /// `access`: pushed in the background.
+    pub async fn committed(&self, commit: &str, access: &RequestAccess) {
+        if let Some(fresh) = &self.fresh {
+            fresh.committed(&self.inner, commit, access).await;
+        }
+    }
+
     /// `handle`, freshened before it serves a request with `access` and
     /// `latest_commit`.
     async fn freshen(
@@ -2179,7 +2220,7 @@ pub async fn post_cloudmap_local(
             Ok(ValidatedJson(body)) => body,
             Err(rejection) => return rejection,
         };
-    match post_cloudmap_apply(&cm, body, author).await {
+    match post_cloudmap_apply(&cm, body, author, &access).await {
         Ok(response) => response.into_response(),
         Err(err) => err.into_response(),
     }
@@ -2191,6 +2232,7 @@ async fn post_cloudmap_apply(
     cm: &CloudMapState,
     body: unfurl_types::PostCloudmapRequest,
     author: Option<String>,
+    access: &RequestAccess,
 ) -> Result<Json<Value>, ApiError> {
     // Reject unknown top-level keys (sections or envelope) the same
     // way the Python handler does — they end up in the typed
@@ -2256,7 +2298,7 @@ async fn post_cloudmap_apply(
     };
 
     let commit = commit_requested.then_some(commit_msg.as_str());
-    let (result, committed) = apply_and_commit(cm, body, atomic, meta, commit).await?;
+    let (result, committed) = apply_and_commit(cm, body, atomic, meta, commit, access).await?;
     // `commit` reports where the repository is now, matching the python
     // handlers: the commit just made, or the unchanged HEAD when this request
     // only staged records (the client's OCC token for staged writes is
@@ -2456,10 +2498,16 @@ async fn apply_and_commit(
     atomic: bool,
     meta: TxnMeta,
     commit: Option<&str>,
+    access: &RequestAccess,
 ) -> Result<(WriteOutcome, Option<String>), WriteError> {
     let Some(message) = commit else {
         return Ok((apply_writes(cm, body, atomic, meta).await?, None));
     };
+    // before the git lock, in the order a pull or push takes them
+    let held = cm
+        .hold_checkout(cm.commit_wait)
+        .await
+        .map_err(WriteError::Busy)?;
     let lock = cm
         .lock_git(cm.commit_wait)
         .await
@@ -2475,7 +2523,12 @@ async fn apply_and_commit(
             .map_err(|e| WriteError::Internal(format!("commit_repository: {e}"))),
         Err(_) => Ok(None),
     };
+    if let Ok(Some(commit)) = &committed {
+        // pushed in the background, after this has answered
+        cm.committed(commit, access).await;
+    }
     gitlock::release(lock).await;
+    drop(held);
     Ok((applied?, committed?))
 }
 

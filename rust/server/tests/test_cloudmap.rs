@@ -162,6 +162,7 @@ fn default_config() -> Config {
         cloudmap_recover: false,
         trust_checkouts: false,
         pull_timeout: 120,
+        push_interval: 60,
         default_cloudmaps: Vec::new(),
         cloudmap_skip_scan: false,
         scan_abort_level: unfurl_server::config::ScanAbortLevel::Report,
@@ -1682,6 +1683,41 @@ async fn post_with_commit_flag_commits() {
     // The change reached the file on disk, too.
     let on_disk = std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read");
     assert!(on_disk.contains("committed-by-handler"), "{on_disk}");
+}
+
+/// The configured checkout, the operator's own, isn't pushed: a write's
+/// commit there gets no push, or record of one.
+#[tokio::test]
+async fn a_configured_checkouts_commit_isnt_pushed() {
+    let (cm, _synced, _tmp) = open_two_file_state().await;
+    let settings = unfurl_server::fresh::Settings {
+        timeout: 3600,
+        cache_key_prefix: "test:".into(),
+        cloud_server: "https://unfurl.cloud".into(),
+        clone_root: None,
+        grants: None,
+        locks: None,
+        trust: unfurl_git_sync::git::Trust::Full,
+        push_interval: 3600,
+        record_ttl: 0,
+    };
+    let cm = cm.with_freshener(unfurl_server::fresh::Freshener::new(None, settings, |_| {
+        true
+    }));
+    let app = router(make_state(cm.clone()));
+    let (status, response) = post_json(
+        app,
+        serde_json::json!({
+            "commit": true,
+            "repositories": { "git://unfurl.cloud/onecommons/std.git": { "name": "pushed-later" } },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    let oid = response["commit"].as_str().expect("a commit oid");
+    assert_eq!(cm.push_outcome(oid).await, None);
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(cm.pushes_started(), 0);
 }
 
 /// A read reports the head it was made at, not the older commit its
