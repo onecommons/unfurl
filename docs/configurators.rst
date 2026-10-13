@@ -335,6 +335,14 @@ Inputs
   :poll: (*Default: 0*) Minimum seconds between polling cycles when running in background mode.
          If 0, the task resumes on the next job loop cycle. Set this to reduce overhead for
          commands that are expected to take a while. Only used when ``background`` is true.
+  :stop_grace_period: (*Default: 5*) Seconds (may be fractional, e.g. 0.5) to wait for the command to exit
+                      after SIGTERM. When the command times out, or the job is cancelled or interrupted,
+                      Unfurl sends it SIGTERM, then SIGKILL if it's still running after this period.
+                      This lets commands like ``terraform`` stop their own child processes. Set to 0 to send SIGKILL immediately.
+                      A command can therefore run for up to ``timeout`` plus this period.
+                      With ``shell: true`` (the default if ``command`` is a string), SIGTERM is sent to the shell:
+                      a single command is usually run in place of the shell so it receives the signal,
+                      but the child processes of a multi-command script don't, unless the script traps TERM and forwards it.
   :done: As as `done` defined by the `Template` configurator.
   :outputsTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` or runtime expression that is processed after shell command completes, with same variables as ``resultTemplate``. The template should evaluate to a map to be used as the operation's outputs or null to skip.
   :resultTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` or runtime expression that is processed after shell command completes, it will have the following template variables:

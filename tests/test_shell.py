@@ -1,6 +1,11 @@
+import logging
+import os
+import signal
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +15,66 @@ from unfurl.job import JobOptions, Runner
 from unfurl.yamlmanifest import YamlManifest
 
 from .utils import isolated_lifecycle, DEFAULT_STEPS
+
+
+# like terraform, stops its child (a provider plugin) on SIGTERM
+STUB_TERRAFORM = """#!/bin/sh
+trap 'touch "$1.term"; kill $child; wait $child; exit 143' TERM
+sleep 300 &
+child=$!
+echo $child > "$1"
+wait
+"""
+
+STUB_IGNORES_SIGTERM = """#!/bin/sh
+trap '' TERM
+echo $$ > "$1"
+exec sleep 300
+"""
+
+
+def write_stub(directory: Path, contents: str = STUB_TERRAFORM) -> Path:
+    """Write an executable "terraform" that writes a pid to the file named by its first argument."""
+    stub = directory / "terraform"
+    stub.write_text(contents)
+    stub.chmod(0o755)
+    return stub
+
+
+# runs unfurl's CLI entry point with a command that runs the stub terraform
+SIGTERM_SCRIPT = """
+import sys
+import unfurl.__main__
+from unfurl.configurators.shell import ShellConfigurator
+
+def cli(**kwargs):
+    ShellConfigurator().run_process(cmd=sys.argv[1:])
+
+unfurl.__main__.cli = cli
+unfurl.__main__.main()
+"""
+
+
+def read_pid(pid_file: Path, wait: float = 10) -> int:
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        if pid_file.exists() and pid_file.read_text().strip():
+            return int(pid_file.read_text())
+        time.sleep(0.05)
+    pytest.fail(f"{pid_file} wasn't written")
+
+
+def assert_process_exits(pid: int, wait: float = 5, context: str = "") -> None:
+    """Assert that ``pid`` is gone within ``wait`` seconds, killing it if not."""
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    os.kill(pid, signal.SIGKILL)
+    pytest.fail(f"process {pid} outlived the command that started it {context}")
 
 
 class TestShellConfigurator:
@@ -37,6 +102,93 @@ class TestShellConfigurator:
         err = configurator.run_process(cmd="sleep 5", timeout=1)
 
         assert isinstance(err, subprocess.TimeoutExpired)
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+    @pytest.mark.parametrize("echo", [True, False])
+    def test_timeout_lets_command_stop_its_children(self, tmp_path, echo):
+        pid_file = tmp_path / "child.pid"
+        configurator = ShellConfigurator()
+
+        err = configurator.run_process(
+            cmd=[str(write_stub(tmp_path)), str(pid_file)], timeout=2, echo=echo
+        )
+
+        assert isinstance(err, subprocess.TimeoutExpired)
+        assert_process_exits(read_pid(pid_file))
+        assert (tmp_path / "child.pid.term").exists()
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+    def test_timeout_kills_command_ignoring_sigterm(self, tmp_path):
+        pid_file = tmp_path / "stub.pid"
+        stub = write_stub(tmp_path, STUB_IGNORES_SIGTERM)
+        start = time.monotonic()
+
+        err = ShellConfigurator().run_process(
+            cmd=[str(stub), str(pid_file)], timeout=1, stop_grace_period=0.5
+        )
+
+        assert isinstance(err, subprocess.TimeoutExpired)
+        assert time.monotonic() - start < 4
+        assert_process_exits(read_pid(pid_file), wait=1)
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+    @pytest.mark.parametrize("grace_period", ["0.5", "2"])
+    def test_stop_grace_period_input(self, tmp_path, grace_period):
+        pid_file = tmp_path / "stub.pid"
+        stub = write_stub(tmp_path, STUB_IGNORES_SIGTERM)
+        ensemble = ENSEMBLE_TIMEOUT.replace(
+            "command: sleep 15",
+            f"command: [{stub}, {pid_file}]\n      stop_grace_period: {grace_period}",
+        )
+        start = time.monotonic()
+
+        job = Runner(YamlManifest(ensemble)).run(JobOptions(instance="test_node"))
+
+        elapsed = time.monotonic() - start
+        assert job.status == Status.error
+        # timeout: 1 plus the grace period, short of the default grace period
+        assert 1 + float(grace_period) <= elapsed < 3.5 + float(grace_period), elapsed
+        assert_process_exits(read_pid(pid_file), wait=1)
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+    def test_stop_grace_period_zero_kills_immediately(self, tmp_path):
+        pid_file = tmp_path / "child.pid"
+        ensemble = ENSEMBLE_TIMEOUT.replace(
+            "command: sleep 15",
+            f"command: [{write_stub(tmp_path)}, {pid_file}]\n      stop_grace_period: 0",
+        )
+
+        job = Runner(YamlManifest(ensemble)).run(JobOptions(instance="test_node"))
+
+        assert job.status == Status.error
+        child = read_pid(pid_file)
+        assert not (tmp_path / "child.pid.term").exists()
+        # like the SIGKILL-only behaviour before stop_grace_period, the stub couldn't stop its child
+        try:
+            os.kill(child, 0)
+        finally:
+            os.kill(child, signal.SIGKILL)
+
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+    def test_sigterm_lets_command_stop_its_children(self, tmp_path):
+        pid_file = tmp_path / "child.pid"
+        script = tmp_path / "run_unfurl.py"
+        script.write_text(SIGTERM_SCRIPT)
+        # coverage's subprocess startup (tox sets COVERAGE_PROCESS_START, and .coveragerc
+        # has sigterm = True) installs its own SIGTERM handler, which unfurl leaves alone
+        env = {k: v for k, v in os.environ.items() if k != "COVERAGE_PROCESS_START"}
+        parent = subprocess.Popen(
+            [sys.executable, str(script), str(write_stub(tmp_path)), str(pid_file)],
+            env=env,
+        )
+        try:
+            child = read_pid(pid_file, wait=60)
+            parent.send_signal(signal.SIGTERM)
+            returncode = parent.wait(timeout=30)
+        finally:
+            parent.kill()
+        assert_process_exits(child, context=f"(unfurl exited with {returncode})")
+        assert returncode == 128 + signal.SIGTERM
 
     @pytest.mark.skipif(sys.version_info < (3, 7, 5), reason="requires Python 3.7.5")
     def test_timeout_with_ensemble(self):
@@ -473,6 +625,38 @@ def test_background_cancel_on_task_timeout():
     assert "stderr" in result
     assert "stdout" in result
     assert result["timeout"] == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+def test_background_timeout_lets_command_stop_its_children(tmp_path):
+    pid_file = tmp_path / "child.pid"
+    ensemble = ENSEMBLE_BACKGROUND_TIMEOUT.replace(
+        "command: sleep 30", f"command: [{write_stub(tmp_path)}, {pid_file}]"
+    )
+    runner = Runner(YamlManifest(ensemble))
+    job = runner.run(JobOptions(instance="test_node", startTime=1, skip_save=True))
+    assert job.status == Status.error
+    assert_process_exits(read_pid(pid_file))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX signals")
+def test_background_abandoned_lets_command_stop_its_children(tmp_path):
+    pid_file = tmp_path / "child.pid"
+    task = SimpleNamespace(
+        inputs={},
+        configSpec=SimpleNamespace(timeout=None),
+        logger=logging.getLogger("test_shell"),
+        suspend=lambda pause: None,
+    )
+    run = ShellConfigurator()._run_subprocess_background(
+        task, [str(write_stub(tmp_path)), str(pid_file)], echo=False
+    )
+    next(run)
+    child = read_pid(pid_file)
+
+    run.close()
+
+    assert_process_exits(child)
 
 
 

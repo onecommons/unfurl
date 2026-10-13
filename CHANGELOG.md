@@ -240,6 +240,8 @@ Enhancements to make connection more flexible and intuitive to use. See the [con
 
 * Add `--save-secrets-only` flag to the "commit" command to encrypt secret files to ".secrets" directories instead of committing to git.
 
+* The ``unfurl`` command now handles SIGTERM and SIGHUP like an interrupt: it stops the commands it's running and then exits with status 128 + the signal number, instead of exiting immediately and leaving them running.
+
 * **Debugger Support**: Set `UNFURL_DEBUGPY=<port>` or `UNFURL_DEBUGPY=1` (defaults to 5678) to wait for remote debugger on startup. (Requires [debugpy](https://pypi.org/project/debugpy/) to be installed.)
 
 #### Unfurl Project Creation
@@ -306,6 +308,7 @@ Enhancements to make connection more flexible and intuitive to use. See the [con
   - Added support for using "input" operation input as stdin, plus saving rendered shell commands as scripts for troubleshooting.
   - support arguments and outputs mapping: add outputsTemplate input parameter, The template should evaluate to a map to be used as the operation's outputs.
   - save rendered shell command as a script for troubleshooting.
+  - On a timeout or interrupt, send the command SIGTERM, then SIGKILL only if it's still running after the new ``stop_grace_period`` input (default 5 seconds; 0 restores the immediate SIGKILL). This lets commands like ``terraform`` stop their own child processes instead of orphaning them; a command can now run for up to its timeout plus this period. This also applies to configurators built on it, such as Terraform and Kompose.
 
 * **packages and repositories** 
   - have package rules with a revision set to "HEAD" lock packages.

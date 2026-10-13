@@ -17,10 +17,12 @@ import os.path
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import traceback
 from pathlib import Path
+from types import FrameType
 from typing import Any, Optional, List, Tuple, Union, TYPE_CHECKING
 from typing_extensions import Literal
 from click import Context
@@ -2358,7 +2360,25 @@ click.rich_click.COMMAND_GROUPS["unfurl"] = [
 ]
 
 
+def _exit_on_signal(signum: int, frame: Optional[FrameType]) -> None:
+    # restore the default so a second signal terminates immediately
+    signal.signal(signum, signal.SIG_DFL)
+    raise SystemExit(128 + signum)
+
+
+def _install_termination_handlers() -> None:
+    """Turn SIGTERM and SIGHUP into SystemExit so cleanup handlers run."""
+    # otherwise a signal sent to unfurl alone (kill, docker stop) orphans the commands it's running
+    sigs = [signal.SIGTERM]
+    if hasattr(signal, "SIGHUP"):  # not on Windows
+        sigs.append(signal.SIGHUP)
+    for sig in sigs:
+        if signal.getsignal(sig) == signal.SIG_DFL:
+            signal.signal(sig, _exit_on_signal)
+
+
 def main():
+    _install_termination_handlers()
     obj = {"standalone_mode": False}
     try:
         rv = cli(standalone_mode=False, obj=obj)
