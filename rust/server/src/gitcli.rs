@@ -151,7 +151,7 @@ const KEPT_ENV: [&str; 16] = [
 
 /// What every git command overrides in a checkout's own config, when it
 /// isn't trusted: what runs a program, or sends a credential elsewhere.
-const DISTRUSTED: [&str; 14] = [
+const DISTRUSTED: [&str; 18] = [
     "-c",
     "core.hooksPath=/dev/null",
     "-c",
@@ -167,6 +167,11 @@ const DISTRUSTED: [&str; 14] = [
     "submodule.recurse=false",
     "-c",
     "fetch.recurseSubmodules=false",
+    // a signed push runs gpg; one recursing pushes submodules
+    "-c",
+    "push.gpgSign=false",
+    "-c",
+    "push.recurseSubmodules=no",
 ];
 
 /// Refuse the checkout at `path` if it redirects git, by its own config
@@ -201,14 +206,48 @@ pub(crate) async fn refuse_untrusted_config(path: &Path, access: &Access) -> Res
     }
 }
 
+/// Refuse the checkout at `path` unless its remote, `origin`, is `url`, for
+/// fetching and pushing alike: credentials for `url`'s host would
+/// otherwise reach whichever other project it names.
+pub(crate) async fn refuse_other_origin(
+    path: &Path,
+    access: &Access,
+    url: &str,
+) -> Result<(), String> {
+    let expected = unfurl_git_sync::git::normalize_git_url_hard(url);
+    for args in [
+        &["remote", "get-url", "origin"][..],
+        &["remote", "get-url", "--push", "origin"],
+    ] {
+        let named = git(path, access, args).await?;
+        if unfurl_git_sync::git::normalize_git_url_hard(&named) != expected {
+            return Err(format!(
+                "{}: its remote is {}, not its project's, which isn't trusted",
+                path.display(),
+                redact(&named)
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Whether config key `name`, as `git config --name-only` lists it, is
 /// one [`refuse_untrusted_config`] refuses.
 fn untrusted(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
-    // any http setting: a url-specific one wins over the overrides
-    ["filter.", "diff.", "include.", "includeif.", "http."]
-        .iter()
-        .any(|section| name.starts_with(section))
+    // any http setting: a url-specific one wins over the overrides; a
+    // merge driver or gpg program runs a command
+    [
+        "filter.",
+        "diff.",
+        "merge.",
+        "gpg.",
+        "include.",
+        "includeif.",
+        "http.",
+    ]
+    .iter()
+    .any(|section| name.starts_with(section))
         || (name.starts_with("url.")
             && (name.ends_with(".insteadof") || name.ends_with(".pushinsteadof")))
         || (name.starts_with("remote.")
@@ -311,6 +350,45 @@ pub(crate) async fn git(dir: &Path, access: &Access, args: &[&str]) -> Result<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Config that would run a command in a merge is refused. A push url is
+    /// left to [`refuse_other_origin`].
+    #[test]
+    fn config_that_runs_a_merge_driver_or_redirects_a_push_is_untrusted() {
+        for name in ["merge.evil.driver", "merge.verifySignatures", "gpg.program"] {
+            assert!(untrusted(name), "{name}");
+        }
+        assert!(!untrusted("remote.origin.pushurl"));
+        assert!(!untrusted("branch.main.merge"));
+    }
+
+    /// A checkout whose remote names another project, for fetching or
+    /// pushing, is refused; one naming its own, credentials and all, isn't.
+    #[tokio::test]
+    async fn a_remote_naming_another_project_is_refused() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let run = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(tmp.path())
+                .output()
+                .expect("git");
+            assert!(out.status.success(), "{out:?}");
+        };
+        run(&["init", "-q"]);
+        let url = "https://unfurl.cloud/org/proj.git";
+        let access = Access::anonymous(url);
+        let ours = "https://user:token@unfurl.cloud/org/proj";
+        run(&["remote", "add", "origin", ours]);
+        assert!(refuse_other_origin(tmp.path(), &access, url).await.is_ok());
+        let theirs = "https://unfurl.cloud/victim/other.git";
+        run(&["config", "remote.origin.pushurl", theirs]);
+        let refused = refuse_other_origin(tmp.path(), &access, url).await;
+        assert!(refused.is_err_and(|e| e.contains("victim/other")));
+        run(&["config", "--unset", "remote.origin.pushurl"]);
+        run(&["remote", "set-url", "origin", theirs]);
+        assert!(refuse_other_origin(tmp.path(), &access, url).await.is_err());
+    }
 
     /// The lock file goes with its work, however that ends: dropped
     /// unfinished, as a request a client gave up on is.

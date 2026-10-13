@@ -15,7 +15,9 @@ use unfurl_git_sync::model::{PRIVATE, PUBLIC};
 use unfurl_git_sync::{Db, DbConfig, Worktree, WorktreeFilter};
 
 use crate::cloudmap::CloudMapState;
-use crate::gitcli::{git, holding_lock_file, refuse_untrusted_config, refused, Access};
+use crate::gitcli::{
+    git, holding_lock_file, refuse_other_origin, refuse_untrusted_config, refused, Access,
+};
 use crate::gitlock::{self, GitLocks};
 use crate::grants::{Credentials, GrantStore};
 
@@ -838,6 +840,12 @@ async fn refresh_with(r: &Refresh<'_>, access: &Access) -> Result<(Refreshed, bo
     }
     if let Some(why) = unreadable(r.path, access).await {
         return reclone(r, access, &why).await;
+    }
+    // one in the clone root: its credentials are for its project alone
+    if r.reclone {
+        refuse_other_origin(r.path, access, r.url)
+            .await
+            .map_err(RefreshError::Untrusted)?;
     }
     let head = async || {
         git(r.path, access, &["rev-parse", "HEAD"])

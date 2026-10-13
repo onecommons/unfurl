@@ -106,6 +106,7 @@ How each pull ends:
 | It can't fast-forward, holding nothing its remote lacks (its upstream was rewritten) | reset to its upstream | `pulled` |
 | It can't fast-forward, holding work its remote lacks: uncommitted changes, commits on no remote-tracking branch before the fetch, or records the database hasn't committed | served as it is until the work is pushed | `diverged` |
 | It's broken: no longer a git checkout, or one git can't read | under the clone root, moved aside to `<directory>.broken-<unix time>` -- logged as an error -- and cloned again; the configured `--cloudmap-repo` isn't | `cloned` |
+| Its own config sets what runs a command (a filter, diff or merge driver, a gpg program) or redirects it, or, under the clone root, its remote names another project than its own, for fetching or pushing | refused: neither pulled nor moved aside, as its credentials are for its own project | `failed` |
 | On no branch with an upstream | none | `detached` |
 
 A grant git refuses is forgotten, so the next pull tries the one before

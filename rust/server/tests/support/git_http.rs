@@ -22,6 +22,7 @@ pub struct GitHttp {
     private: Arc<Mutex<HashSet<String>>>,
     hidden: Arc<std::sync::atomic::AtomicBool>,
     anonymous: Arc<AtomicUsize>,
+    down: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl GitHttp {
@@ -33,22 +34,25 @@ impl GitHttp {
             private: Arc::default(),
             hidden: Arc::default(),
             anonymous: Arc::default(),
+            down: Arc::default(),
         };
         let expected = format!(
             "Basic {}",
             base64::engine::general_purpose::STANDARD.encode(format!("{user}:{token}"))
         );
-        let (root, private, hidden, anonymous) = (
+        let (root, private, hidden, anonymous, down) = (
             root.to_path_buf(),
             server.private.clone(),
             server.hidden.clone(),
             server.anonymous.clone(),
+            server.down.clone(),
         );
         let state = Served {
             root,
             private,
             hidden,
             anonymous,
+            down,
             expected,
         };
         let app = axum::Router::new()
@@ -74,6 +78,12 @@ impl GitHttp {
         self.hidden.store(true, Ordering::SeqCst);
     }
 
+    /// Answer every request with 502, as a server that can't be reached
+    /// through its proxy does; or, with `false`, answer again.
+    pub fn go_down(&self, down: bool) {
+        self.down.store(down, Ordering::SeqCst);
+    }
+
     /// How many requests came with no credentials.
     pub fn anonymous_requests(&self) -> usize {
         self.anonymous.load(Ordering::SeqCst)
@@ -94,6 +104,7 @@ struct Served {
     private: Arc<Mutex<HashSet<String>>>,
     hidden: Arc<std::sync::atomic::AtomicBool>,
     anonymous: Arc<AtomicUsize>,
+    down: Arc<std::sync::atomic::AtomicBool>,
     expected: String,
 }
 
@@ -101,6 +112,11 @@ async fn handle(
     axum::extract::State(served): axum::extract::State<Arc<Served>>,
     req: Request,
 ) -> Response {
+    if served.down.load(Ordering::SeqCst) {
+        let mut down = Response::new(Body::from("bad gateway"));
+        *down.status_mut() = StatusCode::BAD_GATEWAY;
+        return down;
+    }
     let authorization = req
         .headers()
         .get(header::AUTHORIZATION)

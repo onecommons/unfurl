@@ -1627,3 +1627,22 @@ async fn a_detached_checkout_isnt_pulled_for_a_missing_commit() {
     let _: () = conn.clone().del(&key).await.expect("del");
     assert_eq!(cm.pulls_started(), 0);
 }
+
+/// A checkout in the clone root whose remote names another project, for
+/// pushing or fetching, isn't pulled: its credentials are for its own.
+#[tokio::test]
+async fn a_checkout_whose_remote_names_another_project_isnt_pulled() {
+    let world = World::new().await;
+    let cm = world.serve_fresh(0).await;
+    let before = git(&world.public(), &["rev-parse", "HEAD"]);
+    let other = format!("{}/org/other.git", world.server());
+    git(
+        &world.public(),
+        &["config", "remote.origin.pushurl", &other],
+    );
+    world.push_upstream("later");
+    serve_proj(&cm, None).await;
+    assert!(eventually(async || cm.pulls_started() == 1).await);
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), before);
+}

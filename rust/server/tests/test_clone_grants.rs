@@ -634,15 +634,6 @@ async fn credentials_git_didnt_take_arent_kept() {
         world.tmp.path(),
         &["clone", "-q", &url, checkout.to_str().unwrap()],
     );
-    git(
-        &checkout,
-        &[
-            "remote",
-            "set-url",
-            "origin",
-            "http://127.0.0.1:1/org/secret.git",
-        ],
-    );
     world.server.make_private("org/secret.git");
     let grants = std::sync::Arc::new(world.grants().await);
     let cm = world.serve_fresh(None).await;
@@ -656,6 +647,7 @@ async fn credentials_git_didnt_take_arent_kept() {
         |_| true,
     );
     let cm = cm.with_cloner(cloner);
+    world.server.go_down(true);
     let access = unfurl_server::clone::RequestAccess {
         private: true,
         credentials: Some(unfurl_server::grants::Credentials {
