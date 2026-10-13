@@ -148,6 +148,7 @@ Expression Functions
   `and`                            [test+]
   `div`                            [a, b]
   `eq`                             [a, b]
+  :std:ref:`escape_chars`          string or map or list
   `external <external_func>`       name
   `file`                           (see below)
   :std:ref:`find_connection`       expr
@@ -263,6 +264,27 @@ sub
 ^^^
 
   Returns the result of subtracting the second value from the first value.
+
+escape_chars
+^^^^^^^^^^^^
+
+  Replace ``find`` with ``replace`` in the given string, or in the strings of the given map or list.
+  By default ``$`` is replaced with ``$$``, escaping it so Docker Compose doesn't interpolate it.
+  This example evaluates to "pa$$word":
+
+  .. code-block:: YAML
+
+    eval:
+      escape_chars: pa$word
+
+  ========= ===============================
+  Key       Value
+  ========= ===============================
+  find?     The string to replace (Default: "$")
+  replace?  Its replacement (Default: "$$")
+  ========= ===============================
+
+  Also available as a jinja2 filter, e.g. ``{{ password | escape_chars }}`` or ``{{ value | escape_chars('%', '%%') }}``.
 
 .. _external_func:
 

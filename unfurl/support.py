@@ -84,6 +84,7 @@ from .util import (
     sensitive,
     filter_env,
     env_var_value,
+    escape_chars,
 )
 from .merge import intersect_dict, merge_dicts
 
@@ -250,6 +251,14 @@ set_eval_func("python", eval_python)
 set_eval_func(
     "sensitive", lambda arg, ctx: wrap_sensitive_value(map_value(arg, ctx)), safe=True
 )
+
+
+def _escape_chars(arg, ctx: RefContext):
+    kw = {k: map_value(v, ctx) for k, v in ctx.kw.items() if k in ("find", "replace")}
+    return escape_chars(map_value(arg, ctx), **kw)
+
+
+set_eval_func("escape_chars", _escape_chars, safe=True)
 
 
 set_eval_func(

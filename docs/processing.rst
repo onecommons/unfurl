@@ -126,7 +126,7 @@ Filters
   :which: Returns the full path to the given executable, like the ``which`` shell command.
 
   In addition, the following eval expression functions can be used as Jinja2 filters:
-  :std:ref:`abspath`, :std:ref:`get_dir`, :std:ref:`inert`,
+  :std:ref:`abspath`, :std:ref:`escape_chars`, :std:ref:`get_dir`, :std:ref:`inert`,
   :std:ref:`scalar`, :std:ref:`sensitive`,
   :std:ref:`to_label`,
   :std:ref:`to_dns_label`,

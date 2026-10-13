@@ -20,7 +20,7 @@ from unfurl.eval import (
 )
 from unfurl.support import apply_template, TopologyMap, _sandboxed_template
 from unfurl.tosca_plugins.functions import to_dns_label
-from unfurl.util import sensitive_str, substitute_env, sensitive_list
+from unfurl.util import escape_chars, sensitive_str, substitute_env, sensitive_list
 from unfurl.runtime import NodeInstance
 from ruamel.yaml.comments import CommentedMap
 
@@ -963,6 +963,23 @@ SUB: '1'
         assert "x--foo--bar" == map_value(
             "{{ __unfurl.to_dns_label('_foo/_bar'.split('/')) }}", ctx
         )
+
+    def test_escape_chars(self):
+        ctx = SafeRefContext(self._getTestResource())
+        assert map_value("{{ 'pa$word ${X} $$' | escape_chars }}", ctx) == "pa$$word $${X} $$$$"
+        escaped = escape_chars(
+            {"env": {"A": "$(X)", "B": sensitive_str("pa$word"), "C": None}, "cmd": ["a$b", 1]}
+        )
+        assert escaped == {"env": {"A": "$$(X)", "B": "pa$$word", "C": None}, "cmd": ["a$$b", 1]}
+        assert isinstance(escaped["env"]["B"], sensitive_str)
+        assert isinstance(escape_chars(sensitive_list(["$"])), sensitive_list)
+        assert map_value("{{ ['50%', {'a': '%'}] | escape_chars('%', '%%') }}", ctx) == ["50%%", {"a": "%%"}]
+        assert map_value({"eval": {"escape_chars": ["a$b", "$"]}}, ctx) == ["a$$b", "$$"]
+        assert map_value({"eval": {"escape_chars": "a$b"}}, ctx) == "a$$b"
+        assert map_value({"eval": {"escape_chars": "50%", "find": "%", "replace": "%%"}}, ctx) == "50%%"
+        # Jinja's builtin escape filter isn't shadowed
+        assert map_value("{{ '<a$>' | escape }}", ctx) == "&lt;a$&gt;"
+        assert map_value("{{ '<a$>' | escape }}", RefContext(self._getTestResource())) == "&lt;a$&gt;"
 
     def test_urljoin(self):
         resource = self._getTestResource()

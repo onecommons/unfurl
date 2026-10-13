@@ -273,6 +273,40 @@ class sensitive_list(list, sensitive):
     """Transparent wrapper class to mark a list as sensitive"""
 
 
+@overload
+def escape_chars(value: str, find: str = "$", replace: str = "$$") -> str: ...
+
+
+@overload
+def escape_chars(
+    value: Dict[str, JsonValue], find: str = "$", replace: str = "$$"
+) -> Dict[str, JsonValue]: ...
+
+
+@overload
+def escape_chars(
+    value: JsonValue, find: str = "$", replace: str = "$$"
+) -> JsonValue: ...
+
+
+def escape_chars(value: JsonValue, find: str = "$", replace: str = "$$") -> JsonValue:
+    """Replace ``find`` with ``replace`` in a string, or in the strings of a list or dict.
+    The defaults escape ``$`` so Docker Compose doesn't interpolate it."""
+    sensitive_input = isinstance(value, sensitive)
+    if isinstance(value, str):
+        escaped = value.replace(find, replace)
+        return sensitive_str(escaped) if sensitive_input else escaped
+    if isinstance(value, Mapping):
+        escaped_dict = {
+            key: escape_chars(item, find, replace) for key, item in value.items()
+        }
+        return sensitive_dict(escaped_dict) if sensitive_input else escaped_dict
+    if isinstance(value, MutableSequence):
+        escaped_list = [escape_chars(item, find, replace) for item in value]
+        return sensitive_list(escaped_list) if sensitive_input else escaped_list
+    return value
+
+
 def to_yaml_text(
     val: object,
 ) -> Union[sensitive, ScalarString, FoldedScalarString, str]:

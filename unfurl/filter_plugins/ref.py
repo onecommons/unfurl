@@ -10,7 +10,7 @@ from unfurl.tosca_plugins.functions import (
     to_kubernetes_label,
     to_label,
 )
-from unfurl.util import which, wrap_sensitive_value, to_text, to_native
+from unfurl.util import which, wrap_sensitive_value, to_text, to_native, escape_chars
 from unfurl.result import InertValue
 from jinja2 import pass_context
 from unfurl.yamlloader import cleartext_yaml
@@ -101,6 +101,7 @@ SAFE_FILTERS = {
     "to_googlecloud_label": to_googlecloud_label,
     "scalar": scalar,
     "to_yaml": to_yaml,
+    "escape_chars": escape_chars,
 }
 
 ALL_FILTERS = dict(
