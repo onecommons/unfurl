@@ -59,6 +59,14 @@ from pathlib import Path
 
 TIMEOUT = int(os.getenv("UNFURL_KOMPOSE_TIMEOUT") or 180)  # default timeout in seconds (3 minutes)
 NAMEMAX = 52  # max service name length
+# a compose pull_policy, or a Kubernetes imagePullPolicy, by lowercased name
+PULL_POLICIES = {
+    "always": "Always",
+    "never": "Never",
+    "missing": "IfNotPresent",
+    "if_not_present": "IfNotPresent",
+    "ifnotpresent": "IfNotPresent",
+}
 
 if TYPE_CHECKING:
     from .templates.docker import unfurl_datatypes_DockerContainer
@@ -240,9 +248,14 @@ class KomposeConfigurator(ShellConfigurator):
                 if labels[key] is None and main_service.get("ports"):
                     # port isn't specified, set the service's port
                     labels[key] = PortSpec.make(main_service["ports"][0])["source"]
-        labels["kompose.image-pull-policy"] = main_service.get(
-            "pull_policy", "Always"
-        ).title()
+        # kompose rejects compose's pull_policy key, so it's set with kompose's label
+        pull_policy = str(main_service.pop("pull_policy", None) or "always")
+        if pull_policy.lower() not in PULL_POLICIES:
+            raise UnfurlTaskError(
+                task,
+                f'pull_policy "{pull_policy}" isn\'t supported on Kubernetes: use one of always, never or missing',
+            )
+        labels["kompose.image-pull-policy"] = PULL_POLICIES[pull_policy.lower()]
         # create the output directory:
         output_dir = cwd.get_current_path(self._output_dir)
         if not os.path.isdir(output_dir):
