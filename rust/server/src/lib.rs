@@ -7,6 +7,7 @@ pub mod clone;
 pub mod cloudmap;
 pub mod config;
 pub mod fresh;
+pub mod gitcli;
 pub mod gitlock;
 pub mod grants;
 pub mod patch;
