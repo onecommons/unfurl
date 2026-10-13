@@ -282,7 +282,9 @@ Enhancements to make connection more flexible and intuitive to use. See the [con
   - Add ``overlays`` input parameter for customizing generated kubernetes resources
   - Add ``init_containers`` input parameter, rendered as the workload's ``initContainers``. They can only mount volumes the container also mounts.
   - Add ``UNFURL_KOMPOSE_TIMEOUT`` environment variable to override the default resource creation timeout (in seconds).
+  - Require kompose 1.28.0 or later (tested with 1.38.0, which is installed automatically if ``kompose`` isn't on the PATH). See Breaking Changes.
   - Declare the named volumes a container mounts, which kompose 1.38 requires.
+  - Pass a ``$`` in a container's ``command`` to Kubernetes literally: kompose 1.28 and later rewrite ``$VAR`` in arguments to Kubernetes' ``$(VAR)`` syntax, which the configurator now undoes.
 
 * **helm installer**
   - smarter check operation
@@ -402,7 +404,12 @@ Enhancements to make connection more flexible and intuitive to use. See the [con
 
 ### Breaking Changes
 
-Drop Python 3.8 support.
+* Drop Python 3.8 support.
+* The kompose configurator requires kompose 1.28.0 or later (tested with 1.38.0) and fails with an error on an older one. Converting with these versions changes the generated resources:
+  - Named volumes in a ``docker-compose.yml`` supplied in ``files`` must be declared in its top-level ``volumes`` section, or the conversion fails.
+  - A container's ``user`` and ``read_only`` settings now produce a ``securityContext``.
+  - ``networks`` no longer produce a ``NetworkPolicy``.
+  - The docker-compose file generated from ``container`` no longer has a ``version`` key.
 
 ## v1.2.0 - 2024-11-22
 

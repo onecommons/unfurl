@@ -16,6 +16,7 @@ from unfurl.job import JobOptions, Runner
 from unfurl.runtime import Status
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.configurators.k8s import get_kubectl_args
+from unfurl.configurators import kompose
 from unfurl.configurators.kompose import render_compose
 from unfurl.result import serialize_value
 
@@ -482,7 +483,7 @@ def test_kompose_without_init_containers():
     assert "initContainers" not in definitions["app-deployment"]["spec"]["template"]["spec"]
 
 
-LITERAL_DOLLARS = ["pa$word", "${X}", "$$", "$(X)"]
+LITERAL_DOLLARS = ["pa$word", "${X}", "$$", "$(X)", "$", "a $ b"]
 
 KOMPOSE_DOLLARS = f"""
 apiVersion: unfurl/v1alpha1
@@ -502,6 +503,7 @@ spec:
                     service_name: app
                     container:
                       image: busybox
+                      entrypoint: {json.dumps(["sh", *LITERAL_DOLLARS])}
                       command: {json.dumps(["echo", *LITERAL_DOLLARS])}
                       environment: {json.dumps({f"C{i}": v for i, v in enumerate(LITERAL_DOLLARS)})}
                       volumes: ["/var/app/pa$th:/data"]
@@ -525,6 +527,7 @@ def test_kompose_dollars_are_literal(monkeypatch):
     definitions = tasks[0].target.attributes["definitions"]
     pod_spec = definitions["app-deployment"]["spec"]["template"]["spec"]
     container = pod_spec["containers"][0]
+    assert container["command"] == ["sh", *LITERAL_DOLLARS]
     assert container["args"] == ["echo", *LITERAL_DOLLARS]
     env = {e["name"]: e["value"] for e in container["env"]}
     for i, value in enumerate(LITERAL_DOLLARS):
@@ -540,11 +543,17 @@ def test_kompose_dollars_are_literal(monkeypatch):
     ]
 
 
-def test_kompose_container_without_image(caplog):
-    unnamed = KOMPOSE_INIT.replace("service_name: app", "").replace("image: wordpress:6", "")
-    tasks, errors = _render_kompose(unnamed)
-    assert not tasks and errors
-    assert "does not specify a container image" in caplog.text
+@pytest.mark.skipif(
+    not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
+)
+def test_kompose_pod_args_are_literal():
+    as_pod = KOMPOSE_DOLLARS.replace(
+        "image: busybox\n", 'image: busybox\n                      restart: "no"\n', 1
+    )
+    tasks, errors = _render_kompose(as_pod)
+    assert tasks and not errors
+    pod = tasks[0].target.attributes["definitions"]["app-pod"]
+    assert pod["spec"]["containers"][0]["args"] == ["echo", *LITERAL_DOLLARS]
 
 
 def test_render_compose_declares_named_volumes():
@@ -578,6 +587,83 @@ def test_kompose_named_volume():
     assert html_mount["mountPath"] == "/html"
     assert claims[html_mount["name"]] == "html"
 
+
+KOMPOSE_STUB = """#!/bin/sh
+echo "$@" >> "$KOMPOSE_STUB_LOG"
+if [ "$1" = version ]; then echo "$KOMPOSE_STUB_VERSION"; fi
+"""
+
+
+@pytest.fixture
+def kompose_stub(tmp_path, monkeypatch):
+    """Put a fake ``kompose`` first on PATH and return the file logging its invocations."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "kompose"
+    stub.write_text(KOMPOSE_STUB)
+    stub.chmod(0o755)
+    log = tmp_path / "kompose.log"
+    log.touch()
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("KOMPOSE_STUB_LOG", str(log))
+    monkeypatch.setattr(kompose, "_kompose_versions", {})
+    return log
+
+
+def _stub_calls(log: Path) -> list:
+    return [line.split()[0] for line in log.read_text().splitlines()]
+
+
+@pytest.mark.parametrize("version", ["1.26.1 (a9d05d509)", "v1.27.0"])
+def test_kompose_too_old(kompose_stub, monkeypatch, caplog, version):
+    monkeypatch.setenv("KOMPOSE_STUB_VERSION", version)
+    tasks, errors = _render_kompose(KOMPOSE_INIT)
+    assert not tasks and errors
+    found = version.split()[0].lstrip("v")
+    assert f"kompose {found} is too old: Unfurl requires kompose 1.28.0 or later (found " in caplog.text
+    assert _stub_calls(kompose_stub) == ["version"]
+
+
+@pytest.mark.parametrize("version", ["1.28.0", "1.38.0 (a8f5d1cbd)"])
+def test_kompose_new_enough(kompose_stub, monkeypatch, version):
+    monkeypatch.setenv("KOMPOSE_STUB_VERSION", version)
+    tasks, errors = _render_kompose(KOMPOSE_INIT)
+    assert tasks and not errors
+    assert _stub_calls(kompose_stub) == ["version", "convert"]
+
+
+def test_kompose_unknown_version(kompose_stub, monkeypatch, caplog):
+    monkeypatch.setenv("KOMPOSE_STUB_VERSION", "dev build")
+    tasks, errors = _render_kompose(KOMPOSE_INIT)
+    assert tasks and not errors
+    assert "Could not determine the version of kompose" in caplog.text
+    assert _stub_calls(kompose_stub) == ["version", "convert"]
+
+
+def test_kompose_version_checked_once(kompose_stub, monkeypatch, tmp_path):
+    monkeypatch.setenv("KOMPOSE_STUB_VERSION", "1.38.0")
+    Runner(YamlManifest(KOMPOSE_INIT)).static_plan()
+    assert _stub_calls(kompose_stub) == []
+    for _ in range(2):
+        tasks, errors = _render_kompose(KOMPOSE_INIT)
+        assert tasks and not errors
+    assert _stub_calls(kompose_stub) == ["version", "convert", "convert"]
+    # a different kompose on PATH is checked again
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "kompose").write_text(KOMPOSE_STUB)
+    (other / "kompose").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{other}{os.pathsep}{os.environ['PATH']}")
+    tasks, errors = _render_kompose(KOMPOSE_INIT)
+    assert tasks and not errors
+    assert _stub_calls(kompose_stub) == ["version", "convert", "convert", "version", "convert"]
+
+
+def test_kompose_container_without_image(caplog):
+    unnamed = KOMPOSE_INIT.replace("service_name: app", "").replace("image: wordpress:6", "")
+    tasks, errors = _render_kompose(unnamed)
+    assert not tasks and errors
+    assert "does not specify a container image" in caplog.text
 
 
 def _with_pull_policy(policy: str) -> str:

@@ -199,7 +199,7 @@ Kompose
 
 The ``Kompose`` configurator uses `kompose <https://kompose.io>`_ to convert Docker Compose configurations into Kubernetes resources. It can generate Kubernetes manifests from either a ``docker-compose.yml`` file or an inline container definition, and then deploys the resulting resources.
 
-Kompose will be automatically installed if it is not found on the system.
+Unfurl requires kompose 1.28.0 or later (tested with 1.38.0). Kompose 1.38.0 will be automatically installed if it is not found on the system.
 
 Example
 -------

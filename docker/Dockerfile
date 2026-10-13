@@ -7,7 +7,7 @@ RUN apt-get -qq update && \
 ARG TERRAFORM_VERSION=1.1.4
 ARG HELM_VERSION=3.7.1
 ARG GCLOUD_VERSION=499.0.0
-ARG KOMPOSE_VERSION=v1.27.0
+ARG KOMPOSE_VERSION=v1.38.0
 # `TARGETARCH` and `TARGETOS` are supplied automatically by Docker
 # Buildx for multi-platform builds (e.g. `--platform linux/arm64`).
 # A plain `docker build` without buildx leaves them empty, so we
