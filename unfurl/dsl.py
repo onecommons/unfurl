@@ -110,14 +110,18 @@ _N = TypeVar("_N", bound=tosca.Namespace)
 _warned_edited_yaml: Set[str] = set()
 
 
-def is_python_file_newer(yaml_contents: str, path: str) -> Optional[str]:
+def is_python_file_newer(
+    yaml_contents: str, path: str, repo_view: Optional[RepoView], base_dir: str
+) -> Optional[str]:
     yaml_path = Path(path)
     python_path = yaml_path.parent / (yaml_path.stem + ".py")
     if not WritePolicy.is_auto_generated(yaml_contents):  # or don't overwrite
         return None
     if not python_path.exists():
         return None
-    if is_newer_than(path, python_path):
+    if is_newer_than(path, python_path) and _was_converted_as(
+        yaml_contents, path, str(python_path), repo_view, base_dir
+    ):
         return ""  # skip if yaml file is newer
     # only overwrite if the yaml file wasn't modified by another process
     if not WritePolicy.ok_to_modify_auto_generated(yaml_contents, path):
@@ -136,10 +140,35 @@ def is_python_file_newer(yaml_contents: str, path: str) -> Optional[str]:
     return str(python_path)
 
 
-def is_yaml_file_newer(yaml_contents: str, yaml_path, python_path) -> bool:
+def is_yaml_file_newer(
+    yaml_contents: str,
+    yaml_path: str,
+    python_path: str,
+    repo_view: Optional[RepoView],
+    base_dir: str,
+) -> bool:
     if not WritePolicy.is_auto_generated(yaml_contents):
         return False  # don't use yaml
-    return is_newer_than(yaml_path, python_path)
+    return is_newer_than(yaml_path, python_path) and _was_converted_as(
+        yaml_contents, yaml_path, python_path, repo_view, base_dir
+    )
+
+
+def _was_converted_as(
+    yaml_contents: str,
+    yaml_path: str,
+    python_path: str,
+    repo_view: Optional[RepoView],
+    base_dir: str,
+) -> bool:
+    """Whether YAML generated from ``python_path`` was converted as the module that ``convert_to_yaml()`` would convert it as now."""
+    if not WritePolicy.ok_to_modify_auto_generated(yaml_contents, yaml_path):
+        return True  # edited after it was generated, so keep it
+    try:
+        module_name = get_module_name(python_path, repo_view, base_dir)
+    except ValueError:
+        return True  # outside base_dir, so it can't be regenerated
+    return WritePolicy.generated_module_name(yaml_contents) == module_name
 
 
 def maybe_reconvert(
@@ -151,7 +180,7 @@ def maybe_reconvert(
 ) -> Optional[dict]:
     "If the YAML was generated from a Python file, regenerate if Python file is newer."
     # path is a yaml file
-    python_path = is_python_file_newer(yaml_contents, path)
+    python_path = is_python_file_newer(yaml_contents, path, repo_view, base_dir)
     if not python_path:
         return None
     # reconstruct context
@@ -184,23 +213,9 @@ def get_allowed_modules():
     return tosca.loader.get_allowed_modules(packages)
 
 
-def convert_to_yaml(
-    import_resolver: "ImportResolver",
-    contents: str,
-    path: str,
-    repo_view: Optional[RepoView],
-    base_dir: str,
-    yaml_path: str,
-    yaml_dict=dict,
-) -> dict:
-    from .yamlloader import yaml_dict_type, yaml
-
-    tosca._tosca.yaml_cls = yaml_dict
+def get_module_name(path: str, repo_view: Optional[RepoView], base_dir: str) -> str:
+    """The name of the module that ``convert_to_yaml()`` converts the Python file at ``path`` as."""
     path = os.path.abspath(path)
-    namespace: Dict[str, Any] = dict(__file__=path)
-    logger.trace(
-        f"converting Python to YAML: {path} {'in ' + repo_view.repository.name if repo_view and repo_view.repository else ''} (base: {base_dir})"
-    )
     if repo_view and repo_view.repository:
         if repo_view.repo:
             root_path = repo_view.working_dir
@@ -220,9 +235,29 @@ def convert_to_yaml(
         package = "service_template"
     if relpath:
         package += "." + relpath
+    return package + "." + Path(path).stem
+
+
+def convert_to_yaml(
+    import_resolver: "ImportResolver",
+    contents: str,
+    path: str,
+    repo_view: Optional[RepoView],
+    base_dir: str,
+    yaml_path: str,
+    yaml_dict=dict,
+) -> dict:
+    from .yamlloader import yaml_dict_type, yaml
+
+    tosca._tosca.yaml_cls = yaml_dict
+    path = os.path.abspath(path)
+    namespace: Dict[str, Any] = dict(__file__=path)
+    logger.trace(
+        f"converting Python to YAML: {path} {'in ' + repo_view.repository.name if repo_view and repo_view.repository else ''} (base: {base_dir})"
+    )
+    module_name = get_module_name(path, repo_view, base_dir)
     safe_mode = import_resolver.get_safe_mode()
     write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "auto"]
-    module_name = package + "." + Path(path).stem
     tosca.loader.install(import_resolver, base_dir)
     if import_resolver.manifest.modules is None:
         import_resolver.manifest.modules = get_allowed_modules()
@@ -240,7 +275,7 @@ def convert_to_yaml(
         import_resolver,
     )
     if write_policy.can_overwrite(path, yaml_path):
-        _write_yaml(write_policy, yaml_src, path, yaml_path)
+        _write_yaml(write_policy, yaml_src, path, yaml_path, module_name)
     logger.verbose("Saving imported python module as YAML at %s", yaml_path)
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
         output = io.StringIO()

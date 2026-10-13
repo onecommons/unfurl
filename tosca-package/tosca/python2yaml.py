@@ -322,7 +322,9 @@ class PythonToYaml:
             self.write_policy,
             self.import_resolver,
         )
-        _write_yaml(self.write_policy, yaml_dict, str(path), str(yaml_path))
+        _write_yaml(
+            self.write_policy, yaml_dict, str(path), str(yaml_path), module.__name__
+        )
         logger.info("saving imported python module as YAML at %s", yaml_path)
         return yaml_path
 
@@ -1181,7 +1183,7 @@ def python_to_yaml(
             sys.path.pop(sys.path.index(base_dir))
         except ValueError:
             pass
-    _write_yaml(write_policy, tosca_tpl, src_path, dest_path)
+    _write_yaml(write_policy, tosca_tpl, src_path, dest_path, module_name)
     if dest_path:
         logger.info("converted Python to YAML at %s", dest_path)
     return tosca_tpl
@@ -1192,6 +1194,7 @@ def _write_yaml(
     tosca_tpl: dict,
     src_path: str,
     dest_path: Optional[str] = None,
+    module_name: str = "",
 ):
     try:
         from unfurl import yamlloader
@@ -1199,7 +1202,9 @@ def _write_yaml(
         import yaml as _yaml
     else:
         _yaml = yamlloader.yaml
-    prologue = write_policy.generate_comment("tosca.python2yaml", src_path)
+    prologue = write_policy.generate_comment(
+        "tosca.python2yaml", src_path, module_name
+    )
     if dest_path:
         output = io.StringIO()
         _yaml.dump(tosca_tpl, output)

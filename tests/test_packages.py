@@ -1,9 +1,11 @@
 import json
 import os
 import shutil
+import sys
 import traceback
 from click.testing import CliRunner
 from unfurl.__main__ import cli
+from unfurl.job import JobOptions, Runner
 import git
 import pytest
 from toscaparser.common.exception import FatalToscaImportError
@@ -553,6 +555,81 @@ def test_local_head_rule_python(head_pkg):
     assert path and os.path.samefile(path, pkg)
     assert os.path.samefile(project / "tosca_repositories" / "std", pkg)
     _assert_untouched(pkg, project)
+
+
+_COMPUTED_ENSEMBLE = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
+    repositories:
+      %(name)s:
+        url: https://unfurl.cloud/onecommons/widgets.git
+    imports:
+      - file: widgets.py
+        repository: %(name)s
+    topology_template:
+      node_templates:
+        widget:
+          type: Widget
+        consumer:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation: Template
+                  inputs:
+                    done:
+                      outputs:
+                        out:
+                          eval: ::widget::label
+"""
+
+_WIDGETS_PY = """
+import tosca
+
+class Widget(tosca.nodes.Root):
+    def _label(self) -> str:
+        return "computed label"
+
+    label: str = tosca.Computed(factory=_label)
+"""
+
+
+@pytest.mark.parametrize("subdir", ["", "widgets"])
+def test_local_head_rule_python_computed(tmp_path, monkeypatch, subdir):
+    # the same checkout used in place by projects that name its repository differently
+    monkeypatch.setattr(sys, "dont_write_bytecode", False)
+    monkeypatch.setattr(sys, "pycache_prefix", None)
+    git.Repo.init(tmp_path / "checkout")
+    pkg = tmp_path / "checkout" / subdir
+    pkg.mkdir(exist_ok=True)
+    (pkg / "widgets.py").write_text(_WIDGETS_PY)
+    # so the first project's conversion is newer even if written within the same second
+    old = os.stat(pkg / "widgets.py").st_mtime - 60
+    os.utime(pkg / "widgets.py", (old, old))
+    rule = f"unfurl.cloud/onecommons/widgets {pkg}#HEAD"
+    for name in ("first", "second"):
+        project = tmp_path / name
+        project.mkdir()
+        (project / "unfurl.yaml").write_text(
+            "apiVersion: unfurl/v1alpha1\nkind: Project\n"
+        )
+        path = project / "ensemble.yaml"
+        path.write_text(_COMPUTED_ENSEMBLE % dict(name=name))
+        local_env = LocalEnv(
+            str(path), homePath="", overrides={"UNFURL_PACKAGE_RULES": rule}
+        )
+        job = Runner(local_env.get_manifest()).run(JobOptions(skip_save=True))
+        assert job
+        (task,) = [t for t in job.workDone.values() if t.target.name == "consumer"]
+        assert task.result.success
+        assert task.outputs == {"out": "computed label"}
+        # the module the runtime imports to compute the property
+        cached = (pkg / "__pycache__" / "widgets.yaml").read_text()
+        assert f"tosca_repositories.{name}.widgets:Widget._label" in cached
 
 
 def test_local_head_rule_safe_mode(head_pkg):

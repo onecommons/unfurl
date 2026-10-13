@@ -762,7 +762,10 @@ def test_convert():
     path = os.path.dirname(__file__) + "/fixtures/autogenerate."
     os.system(f"touch -d 2025-04-26T15:47:36 {path}yaml")
     with open(path + "yaml") as f:
-        assert is_python_file_newer(f.read(), path + "yaml") == path + "py"
+        assert (
+            is_python_file_newer(f.read(), path + "yaml", None, os.path.dirname(path))
+            == path + "py"
+        )
 
 
 
