@@ -481,6 +481,64 @@ def test_kompose_without_init_containers():
     assert "initContainers" not in definitions["app-deployment"]["spec"]["template"]["spec"]
 
 
+LITERAL_DOLLARS = ["pa$word", "${X}", "$$", "$(X)"]
+
+KOMPOSE_DOLLARS = f"""
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        app:
+          type: tosca:Root
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation: Kompose
+                  inputs:
+                    service_name: app
+                    container:
+                      image: busybox
+                      command: {json.dumps(["echo", *LITERAL_DOLLARS])}
+                      environment: {json.dumps({f"C{i}": v for i, v in enumerate(LITERAL_DOLLARS)})}
+                      volumes: ["/var/app/pa$th:/data"]
+                    env: {json.dumps({f"E{i}": v for i, v in enumerate(LITERAL_DOLLARS)})}
+                    labels: {json.dumps({f"L{i}": v for i, v in enumerate(LITERAL_DOLLARS)})}
+                    init_containers:
+                      - image: busybox
+                        environment: {json.dumps({f"I{i}": v for i, v in enumerate(LITERAL_DOLLARS)})}
+                        volumes: ["/var/app/pa$th:/data"]
+"""
+
+
+@pytest.mark.skipif(
+    not os.getenv("CI") and not which("kompose"), reason="kompose command not found"
+)
+def test_kompose_dollars_are_literal(monkeypatch):
+    """A ``$`` in a container value reaches Kubernetes as a literal ``$``."""
+    monkeypatch.setenv("X", "interpolated")
+    tasks, errors = _render_kompose(KOMPOSE_DOLLARS)
+    assert tasks and not errors
+    definitions = tasks[0].target.attributes["definitions"]
+    pod_spec = definitions["app-deployment"]["spec"]["template"]["spec"]
+    container = pod_spec["containers"][0]
+    assert container["args"] == ["echo", *LITERAL_DOLLARS]
+    env = {e["name"]: e["value"] for e in container["env"]}
+    for i, value in enumerate(LITERAL_DOLLARS):
+        assert env[f"C{i}"] == value
+        assert env[f"E{i}"] == value
+    annotations = definitions["app-deployment"]["metadata"]["annotations"]
+    for i, value in enumerate(LITERAL_DOLLARS):
+        assert annotations[f"L{i}"] == value
+    init_env = {e["name"]: e["value"] for e in pod_spec["initContainers"][0]["env"]}
+    assert init_env == {f"I{i}": v for i, v in enumerate(LITERAL_DOLLARS)}
+    assert pod_spec["initContainers"][0]["volumeMounts"] == [
+        dict(mountPath="/data", name=container["volumeMounts"][0]["name"])
+    ]
+
+
 def test_kompose_container_without_image(caplog):
     unnamed = KOMPOSE_INIT.replace("service_name: app", "").replace("image: wordpress:6", "")
     tasks, errors = _render_kompose(unnamed)

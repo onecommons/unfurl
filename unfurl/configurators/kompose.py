@@ -45,7 +45,7 @@ from ..planrequests import ConfigurationSpecKeywords
 from ..spec import EntitySpec
 from .shell import ShellConfigurator, ShellInputs
 from .k8s import make_pull_secret, mark_sensitive, ClusterScoped_Kinds
-from ..util import UnfurlTaskError, which
+from ..util import UnfurlTaskError, escape_chars, which
 from ..yamlloader import yaml
 from ..merge import merge_dicts
 from ..projectpaths import Folders
@@ -123,13 +123,13 @@ def render_compose(
     env: Optional[dict] = None,
 ):
     service: Dict[str, Any] = dict(restart="always")
-    service.update({k: v for k, v in container.items() if v is not None})
+    service.update({k: escape_chars(v) for k, v in container.items() if v is not None})
     if image:
         service["image"] = image
     else:
         image = service.get("image", "")
     if env:
-        service.setdefault("environment", {}).update(env)
+        service.setdefault("environment", {}).update(escape_chars(env))
     if not service_name:
         service_name = container.get("container_name") or ContainerImage.split(image)[0]
     # without an image the service may be unnamed; KomposeConfigurator._validate rejects it
@@ -271,7 +271,7 @@ class KomposeConfigurator(ShellConfigurator):
             labels["kompose.service.expose"] = (
                 "true" if isinstance(expose, bool) else expose
             )
-        _add_labels(main_service, labels)
+        _add_labels(main_service, escape_chars(labels))
 
         # map "files" to configmap
         # XXX
@@ -296,8 +296,12 @@ class KomposeConfigurator(ShellConfigurator):
         if not self._handle_result(task, result, cwd.cwd):
             raise UnfurlTaskError(task, "kompose convert failed")
         init_containers = task.inputs.get_copy("init_containers") or []
+        # init container volumes aren't compose syntax, so compare them with the unescaped paths
+        volumes = [
+            escape_chars(v, "$$", "$") for v in main_service.get("volumes") or []
+        ]
         definitions = self.save_definitions(
-            task, output_dir, extras, init_containers, main_service.get("volumes") or []
+            task, output_dir, extras, init_containers, volumes
         )
         task.target.attributes["definitions"] = definitions
         return definitions
