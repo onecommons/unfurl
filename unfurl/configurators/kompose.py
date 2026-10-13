@@ -53,7 +53,9 @@ from ..support import ContainerImage
 from ..runtime import EntityInstance
 import os
 import os.path
+import re
 import shlex
+import subprocess
 from pathlib import Path
 
 
@@ -67,6 +69,13 @@ PULL_POLICIES = {
     "if_not_present": "IfNotPresent",
     "ifnotpresent": "IfNotPresent",
 }
+# kompose rewrites each "$NAME" in args as Kubernetes' "$(NAME)" after compose has
+# interpolated the file, so every "$" left in args was escaped and is literal
+KOMPOSE_ARG_VAR = re.compile(r"\$\(([a-zA-Z0-9]*)\)")
+# the first version with that rewrite
+MIN_KOMPOSE_VERSION = (1, 28, 0)
+# by resolved path, None if its version couldn't be parsed
+_kompose_versions: Dict[str, Optional[Tuple[int, int, int]]] = {}
 
 if TYPE_CHECKING:
     from .templates.docker import unfurl_datatypes_DockerContainer
@@ -123,6 +132,7 @@ def _get_service(compose: dict, service_name: Optional[str] = None) -> dict:
 def _add_labels(service: dict, labels: dict):
     service.setdefault("labels", {}).update(labels)
 
+
 def _named_volumes(volumes: List[Union[str, dict]]) -> List[str]:
     """Return the named volume sources in compose ``volumes`` (not host paths or anonymous volumes)."""
     names = []
@@ -136,7 +146,6 @@ def _named_volumes(volumes: List[Union[str, dict]]) -> List[str]:
         if source and source[0] not in "/.~" and source not in names:
             names.append(source)
     return names
-
 
 
 def render_compose(
@@ -166,6 +175,42 @@ def render_compose(
     if named_volumes:
         compose["volumes"] = {name: {} for name in named_volumes}
     return compose
+
+
+def _kompose_version(path: str) -> Optional[Tuple[int, int, int]]:
+    """Return the version of the kompose at ``path``, running ``kompose version`` once per path."""
+    if path not in _kompose_versions:
+        try:
+            output = subprocess.run(
+                [path, "version"], capture_output=True, text=True, timeout=60
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            output = ""
+        match = re.match(r"\s*v?(\d+)\.(\d+)\.(\d+)", output)
+        _kompose_versions[path] = (
+            (int(match[1]), int(match[2]), int(match[3])) if match else None
+        )
+    return _kompose_versions[path]
+
+
+def _check_kompose_version(task: TaskView, command: str) -> None:
+    path = which(command)
+    if not path:
+        return  # running it reports that it's missing
+    version = _kompose_version(os.path.realpath(path))
+    required = ".".join(str(n) for n in MIN_KOMPOSE_VERSION)
+    if version is None:
+        task.logger.warning(
+            'Could not determine the version of kompose at "%s": Unfurl requires kompose %s or later',
+            path,
+            required,
+        )
+    elif version < MIN_KOMPOSE_VERSION:
+        found = ".".join(str(n) for n in version)
+        raise UnfurlTaskError(
+            task,
+            f"kompose {found} is too old: Unfurl requires kompose {required} or later (found {path})",
+        )
 
 
 def get_ingress_extras(task, ingress_extras):
@@ -242,9 +287,6 @@ class KomposeConfigurator(ShellConfigurator):
         service_name = self._validate(task, compose)
         # XXX can be more than one service
         task.target.attributes["name"] = service_name
-        if "version" not in compose:
-            # kompose fails without this
-            compose["version"] = "3.7"
 
         # save in secrets folder cuz generated templates can include k8s secrets or sensitive env vars
         cwd = task.set_work_folder(Folders.tasks)
@@ -269,7 +311,7 @@ class KomposeConfigurator(ShellConfigurator):
                 if labels[key] is None and main_service.get("ports"):
                     # port isn't specified, set the service's port
                     labels[key] = PortSpec.make(main_service["ports"][0])["source"]
-        # kompose rejects compose's pull_policy key, so it's set with kompose's label
+        # kompose ignores compose's pull_policy key, so it's set with kompose's label
         pull_policy = str(main_service.pop("pull_policy", None) or "always")
         if pull_policy.lower() not in PULL_POLICIES:
             raise UnfurlTaskError(
@@ -318,6 +360,7 @@ class KomposeConfigurator(ShellConfigurator):
         composed = serialize_value(compose, resolveExternal=True)
         task.logger.debug("writing docker-compose:\n%s", composed)
         cwd.write_file(composed, "docker-compose.yml")
+        _check_kompose_version(task, cmd[0])
         result = self.run_process(cmd + ["convert", "-o", output_dir], cwd=cwd.cwd)
         ingress_extras = get_ingress_extras(
             task, task.inputs.get_copy("ingress_extras")
@@ -482,6 +525,15 @@ def _render_init_containers(
     return rendered
 
 
+def _pod_spec(definition: dict) -> Optional[dict]:
+    spec = definition.get("spec") or {}
+    if definition["kind"] == "Pod":
+        return spec
+    if definition["kind"] == "CronJob":
+        spec = (spec.get("jobTemplate") or {}).get("spec") or {}
+    return (spec.get("template") or {}).get("spec")
+
+
 def _load_resource_file(
     task,
     out_path,
@@ -494,8 +546,12 @@ def _load_resource_file(
         definition_str = f.read()
     definition = yaml.load(definition_str)
     assert isinstance(definition, dict)
-    if init_containers and definition["kind"] in WORKLOAD_KINDS:
-        pod_spec = definition["spec"]["template"]["spec"]
+    pod_spec = _pod_spec(definition)
+    if pod_spec:
+        for container in pod_spec.get("containers") or []:
+            if container.get("args"):
+                container["args"] = [KOMPOSE_ARG_VAR.sub(r"$\1", arg) for arg in container["args"]]
+    if init_containers and pod_spec and definition["kind"] in WORKLOAD_KINDS:
         pod_spec["initContainers"] = _render_init_containers(
             task, init_containers, volumes or [], pod_spec
         )
