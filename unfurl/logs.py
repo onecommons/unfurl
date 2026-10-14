@@ -9,7 +9,7 @@ import re
 import tempfile
 import time
 import types
-from typing import Any, Union, Set, List, Optional, cast
+from typing import Any, Hashable, Union, Set, List, Optional, cast
 
 import rich
 from rich.console import Console
@@ -155,14 +155,15 @@ def is_sensitive(obj: object) -> bool:
 class LogOnceFilter(logging.Filter):
     """Filter that prevents duplicate log messages from being logged.
 
-    Tracks messages by their message string and arguments. When a log record
-    has extra={'log_once': True}, it will only be logged the first time that
-    combination of message and args is seen.
+    When a log record has extra={'log_once': True}, it is only logged the first
+    time that combination of message and args is seen. If ``log_once`` is any
+    other hashable value, that value is the key instead: the record is only
+    logged the first time that key is seen, whatever its message and args.
     """
 
     def __init__(self, name: str = ""):
         super().__init__(name)
-        self._logged_messages: Set[tuple] = set()
+        self._logged_messages: Set[Hashable] = set()
 
     def filter(self, record: logging.LogRecord) -> bool:
         """Filter out messages that have already been logged.
@@ -173,12 +174,14 @@ class LogOnceFilter(logging.Filter):
         Returns:
             True if the message should be logged, False otherwise
         """
-        # Only filter if log_once is explicitly set to True
-        if not getattr(record, "log_once", False):
+        # Only filter if log_once is set
+        msg_key = getattr(record, "log_once", False)
+        if not msg_key:
             return True
 
         # Create a hashable key from the message and args
-        msg_key = self._make_key(record.msg, record.args)
+        if isinstance(msg_key, bool):
+            msg_key = self._make_key(record.msg, record.args)
 
         # Check if we've seen this message before
         if msg_key in self._logged_messages:

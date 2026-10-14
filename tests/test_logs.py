@@ -388,6 +388,25 @@ def test_log_once_basic(caplog_with_filters):
         assert "Different message" in caplog_with_filters.text
 
 
+def test_log_once_with_key(caplog_with_filters):
+    """Test that a log_once key, rather than the message and its arguments, decides what's a repeat."""
+    logger = getLogger("test_log_once_key")
+
+    with caplog_with_filters.at_level(logging.INFO):
+        logger.info("First %s", "a", extra={"log_once": ("k", 1)})
+        logger.info("Second %s", "b", extra={"log_once": ("k", 1)})
+        logger.info("First %s", "a", extra={"log_once": ("k", 2)})
+        logger.info("Plain once", extra={"log_once": True})
+        logger.info("Other once", extra={"log_once": True})
+
+    assert [r.getMessage() for r in caplog_with_filters.records] == [
+        "First a",
+        "First a",
+        "Plain once",
+        "Other once",
+    ]
+
+
 def test_log_once_with_args(caplog_with_filters):
     """Test that log_once considers message arguments."""
     logger = getLogger("test_log_once_args")
