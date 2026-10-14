@@ -14,6 +14,7 @@ from ruamel.yaml import YAML
 
 from unfurl.job import JobOptions, Runner
 from unfurl.localenv import LocalEnv
+from unfurl.logs import LogOnceFilter
 from unfurl.support import Status
 import unfurl.configurators.terraform as terraform_module
 from unfurl.configurators.terraform import (
@@ -1002,10 +1003,13 @@ def _write_cli_stub(directory, name, version_line):
 
 
 @pytest.fixture
-def fresh_cli_state(monkeypatch):
+def fresh_cli_state(monkeypatch, caplog):
     monkeypatch.setattr(terraform_module, "_tf_cli_versions", {})
-    monkeypatch.setattr(terraform_module, "_tf_cli_warned", set())
-    monkeypatch.setattr(terraform_module, "_migration_warned", set())
+    # the filter unfurl's console handlers use, so log_once applies
+    log_once = LogOnceFilter()
+    caplog.handler.addFilter(log_once)
+    yield
+    caplog.handler.removeFilter(log_once)
 
 
 class _CliTask:
@@ -1068,12 +1072,19 @@ def test_check_tf_cli_terraform_is_unsupported(tmp_path, fresh_cli_state, caplog
     assert cli == ("terraform", (1, 1, 4))
     (warning,) = _warnings(caplog)
     assert "Running HashiCorp Terraform 1.1.4" in warning
-    assert "Unfurl supports only OpenTofu" in warning
+    assert "via the `command` input" in warning
 
 
-def test_check_tf_cli_rejects_old_terraform(tmp_path, fresh_cli_state):
-    with pytest.raises(UnfurlTaskError, match="Terraform 0.15.5 .* is too old"):
-        _check(tmp_path, "terraform", "Terraform v0.15.5")
+def test_check_tf_cli_terraform_without_command_input(tmp_path, fresh_cli_state, caplog):
+    _write_cli_stub(tmp_path / "bin", "terraform", "Terraform v1.5.7")
+    with caplog.at_level(logging.WARNING):
+        cli = _check_tf_cli(_CliTask(tmp_path / "bin"), "terraform", via_input=False)
+    assert cli == ("terraform", (1, 5, 7))
+    assert not _warnings(caplog)
+
+
+def test_check_tf_cli_accepts_old_terraform(tmp_path, fresh_cli_state):
+    assert _check(tmp_path, "terraform", "Terraform v0.15.5") == ("terraform", (0, 15, 5))
 
 
 def test_check_tf_cli_warns_on_unknown_output(tmp_path, fresh_cli_state, caplog):
@@ -1305,7 +1316,7 @@ def _migration_warnings(caplog):
 
 def _run_migration_job(caplog, startTime=1, **options):
     caplog.clear()
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         job = Runner(LocalEnv().get_manifest()).run(
             JobOptions(startTime=startTime, **options)
         )
@@ -1313,10 +1324,19 @@ def _run_migration_job(caplog, startTime=1, **options):
     return job, _migration_warnings(caplog)
 
 
+# enough for sh, sed and git, but no terraform or tofu
+_SYSTEM_PATH = os.pathsep.join(["/usr/bin", "/bin"])
+
+
+def _set_path(monkeypatch, *dirs):
+    """Make PATH ``dirs`` plus the system directories, so the runner's terraform or tofu isn't found."""
+    monkeypatch.setenv("PATH", os.pathsep.join([str(d) for d in dirs] + [_SYSTEM_PATH]))
+
+
 @pytest.fixture
 def stub_tofu(tmp_path, monkeypatch, fresh_cli_state):
     _write_cli_stub(tmp_path / "bin", "tofu", "OpenTofu v1.13.1")
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    _set_path(monkeypatch, tmp_path / "bin")
 
 
 @pytest.mark.parametrize(
@@ -1343,22 +1363,92 @@ def test_migration_warning(stub_tofu, caplog, inputs, state, undo):
         assert len(warnings) == 1, warnings
 
 
-def test_no_migration_warning_after_migration(stub_tofu, caplog):
-    with CliRunner().isolated_filesystem():
-        _setup_tf114(lock=False)
-        state = "active/secrets/migrate-node/terraform.tfstate.yaml"
-        with open(state) as f:
+def _migrate_tf114():
+    """Rewrite the placed tf114 state and lock as OpenTofu would."""
+    for path in [
+        "active/secrets/migrate-node/terraform.tfstate.yaml",
+        "active/artifacts/migrate-node/.terraform.lock.hcl",
+    ]:
+        with open(path) as f:
             contents = f.read()
-        with open(state, "w") as f:
+        with open(path, "w") as f:
             f.write(contents.replace("registry.terraform.io", "registry.opentofu.org"))
-        _write_migration_ensemble()
-        job, warnings = _run_migration_job(caplog, dryrun=True)
-        assert len(job.workDone) == 1, job.summary()
-        assert not warnings
+
+
+# records the commands it's given, other than "version", in calls.log next to it
+_RECORDING_STUB = """#!/bin/sh
+if [ "$1" = version ]; then
+  echo "%s"
+else
+  echo "$(basename "$0") $1" >> "$(dirname "$0")/calls.log"
+fi
+"""
+
+
+def _write_recording_stubs(directory, names):
+    directory.mkdir()
+    for name in names:
+        version = "OpenTofu v1.13.1" if name == "tofu" else "Terraform v1.5.7"
+        stub = directory / name
+        stub.write_text(_RECORDING_STUB % version)
+        stub.chmod(0o755)
+
+
+def _binaries_run(directory):
+    calls = directory / "calls.log"
+    if not calls.exists():
+        return set()
+    return {line.split()[0] for line in calls.read_text().splitlines()}
+
+
+@pytest.mark.parametrize(
+    "deployment,inputs,installed,runs,migrates",
+    [
+        # terraform-written, terraform installed: keep using terraform
+        ("terraform", {}, ["tofu", "terraform"], "terraform", False),
+        # terraform-written, no terraform: migrate
+        ("terraform", {}, ["tofu"], "tofu", True),
+        # migrating deliberately
+        ("terraform", {"command": "tofu"}, ["tofu", "terraform"], "tofu", True),
+        ("terraform", {"command": "terraform"}, ["tofu", "terraform"], "terraform", False),
+        ("new", {}, ["tofu", "terraform"], "tofu", False),
+        ("migrated", {}, ["tofu", "terraform"], "tofu", False),
+    ],
+)
+def test_binary_selection(
+    tmp_path, monkeypatch, fresh_cli_state, caplog, deployment, inputs, installed, runs, migrates
+):
+    bin_dir = tmp_path / "bin"
+    _write_recording_stubs(bin_dir, installed)
+    _set_path(monkeypatch, bin_dir)
+    with CliRunner().isolated_filesystem():
+        if deployment != "new":
+            _setup_tf114()
+        if deployment == "migrated":
+            _migrate_tf114()
+        _write_migration_ensemble(**inputs)
+        # the stubs change nothing, so a second job sees the same deployment
+        for start_time in (1, 2):
+            job, warnings = _run_migration_job(
+                caplog, startTime=start_time, check=True, force=True
+            )
+            if start_time == 1:
+                # check then configure: two tasks on the instance
+                assert len(job.workDone) == 2, job.summary()
+            assert len(warnings) == int(migrates), warnings
+            messages = [r.getMessage() for r in caplog.records]
+            kept = [m for m in messages if "because its deployment hasn't migrated" in m]
+            # once per job, though check and configure both render
+            assert len(kept) == int(runs == "terraform" and not inputs), messages
+            if start_time == 1:
+                unsupported = [m for m in messages if "via the `command` input" in m]
+                assert bool(unsupported) == (inputs.get("command") == "terraform"), messages
+    assert _binaries_run(bin_dir) == {runs}
 
 
 def test_no_migration_warning_for_terraform(tmp_path, monkeypatch, fresh_cli_state, caplog):
     terraform = _write_cli_stub(tmp_path / "bin", "terraform", "Terraform v1.5.7")
+    _set_path(monkeypatch)
     with CliRunner().isolated_filesystem():
         _setup_tf114()
         _write_migration_ensemble(command=str(terraform))
@@ -1382,7 +1472,7 @@ def test_dry_run_keeps_saved_lock(tmp_path, monkeypatch, fresh_cli_state, caplog
     stub.parent.mkdir()
     stub.write_text(_INIT_STUB)
     stub.chmod(0o755)
-    monkeypatch.setenv("PATH", str(stub.parent) + os.pathsep + os.environ["PATH"])
+    _set_path(monkeypatch, stub.parent)
     with CliRunner().isolated_filesystem():
         _setup_tf114()
         _write_migration_ensemble()
@@ -1402,13 +1492,20 @@ def _tf114_resource_id():
 @unittest.skipIf(
     "terraform" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
 )
-@unittest.skipUnless(shutil.which("tofu"), "tofu not installed")
 class TerraformMigrationTest(unittest.TestCase):
     """Migrate the deployment Terraform 1.1.4 made of tests/fixtures/terraform/tf114 with the tofu on PATH."""
 
     @pytest.fixture(autouse=True)
-    def _caplog(self, caplog, fresh_cli_state):
+    def _setup(self, caplog, fresh_cli_state, tmp_path, monkeypatch):
         self.caplog = caplog
+        self.tofu = shutil.which("tofu")
+        if not self.tofu:
+            pytest.skip(f"tofu not on PATH: {os.environ.get('PATH')}")
+        self.terraform = shutil.which("terraform")
+        self.bin_dir = tmp_path / "bin"
+        _link_binaries(self.bin_dir, tofu=self.tofu)
+        # without terraform, so the deployment migrates
+        _set_path(monkeypatch, self.bin_dir)
 
     def _saved_state(self):
         with open("active/secrets/migrate-node/terraform.tfstate.yaml") as f:
@@ -1429,40 +1526,52 @@ class TerraformMigrationTest(unittest.TestCase):
         with CliRunner().isolated_filesystem():
             _setup_tf114()
             _write_migration_ensemble()
-            # check then configure: two tasks on the instance, one warning
-            job, warnings = _run_migration_job(self.caplog, check=True, force=True)
-            assert job.status == Status.ok, job.summary()
-            assert len(job.workDone) == 2, job.summary()
-            assert len(warnings) == 1, warnings
+            self._deploy_migrates()
 
-            state = self._saved_state()
-            resource = state["resources"][0]
-            assert resource["provider"] == (
-                'provider["registry.opentofu.org/hashicorp/null"]'
-            )
-            # the resource terraform created, not a new one
-            assert resource["instances"][0]["attributes"]["id"] == _tf114_resource_id()
-            tofu = terraform_module._tf_cli_version(
-                os.path.realpath(shutil.which("tofu")), os.environ
-            )
-            assert tofu and tofu[0] == "tofu"
-            assert state["terraform_version"] == ".".join(str(n) for n in tofu[1])
-            if tofu[1] >= terraform_module.TOFU_LOCK_SHIM_VERSION:
-                # the version terraform locked, and nothing left that needs registry.terraform.io
-                locked = _locked_providers(
-                    "active/artifacts/migrate-node/.terraform.lock.hcl"
-                )
-                assert locked == {
-                    "registry.opentofu.org/hashicorp/null": _locked_providers(
-                        os.path.join(_TF114_DIR, ".terraform.lock.hcl")
-                    )[_NULL]
-                }, locked
+    def test_command_tofu_migrates(self):
+        if not self.terraform:
+            pytest.skip("terraform not installed")
+        _link_binaries(self.bin_dir, terraform=self.terraform)
+        with CliRunner().isolated_filesystem():
+            _setup_tf114()
+            _write_migration_ensemble(command="tofu")
+            self._deploy_migrates()
 
-            # migrated, so the next run doesn't warn
-            job, warnings = _run_migration_job(self.caplog, 2, force=True)
-            assert job.status == Status.ok, job.summary()
-            assert len(job.workDone) == 1, job.summary()
-            assert not warnings
+    def _deploy_migrates(self):
+        # check then configure: two tasks on the instance, one warning
+        job, warnings = _run_migration_job(self.caplog, check=True, force=True)
+        assert job.status == Status.ok, job.summary()
+        assert len(job.workDone) == 2, job.summary()
+        assert len(warnings) == 1, warnings
+
+        state = self._saved_state()
+        resource = state["resources"][0]
+        assert resource["provider"] == (
+            'provider["registry.opentofu.org/hashicorp/null"]'
+        )
+        # the resource terraform created, not a new one
+        assert resource["instances"][0]["attributes"]["id"] == _tf114_resource_id()
+        tofu = terraform_module._tf_cli_version(
+            os.path.realpath(self.tofu), os.environ
+        )
+        assert tofu and tofu[0] == "tofu"
+        assert state["terraform_version"] == ".".join(str(n) for n in tofu[1])
+        if tofu[1] >= terraform_module.TOFU_LOCK_SHIM_VERSION:
+            # the version terraform locked, and nothing left that needs registry.terraform.io
+            locked = _locked_providers(
+                "active/artifacts/migrate-node/.terraform.lock.hcl"
+            )
+            assert locked == {
+                "registry.opentofu.org/hashicorp/null": _locked_providers(
+                    os.path.join(_TF114_DIR, ".terraform.lock.hcl")
+                )[_NULL]
+            }, locked
+
+        # migrated, so the next run doesn't warn
+        job, warnings = _run_migration_job(self.caplog, 2, force=True)
+        assert job.status == Status.ok, job.summary()
+        assert len(job.workDone) == 1, job.summary()
+        assert not warnings
 
     def test_remote_state_warning(self):
         with CliRunner().isolated_filesystem():
@@ -1471,6 +1580,56 @@ class TerraformMigrationTest(unittest.TestCase):
             job, warnings = _run_migration_job(self.caplog, dryrun=True)
             assert len(warnings) == 1, warnings
             assert _REMOTE_UNDO in warnings[0]
+
+
+def _link_binaries(directory, **binaries):
+    """Symlink each path in ``binaries`` into ``directory`` under its keyword's name."""
+    directory.mkdir(exist_ok=True)
+    for name, path in binaries.items():
+        os.symlink(path, directory / name)
+
+
+@unittest.skipIf(
+    "terraform" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
+)
+class TerraformKeepsTerraformTest(unittest.TestCase):
+    """Deploy the deployment Terraform 1.1.4 made of tests/fixtures/terraform/tf114 with the terraform on PATH."""
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, caplog, fresh_cli_state, tmp_path, monkeypatch):
+        self.caplog = caplog
+        tofu, self.terraform = shutil.which("tofu"), shutil.which("terraform")
+        if not (tofu and self.terraform):
+            pytest.skip(f"terraform or tofu not on PATH: {os.environ.get('PATH')}")
+        bin_dir = tmp_path / "bin"
+        _link_binaries(bin_dir, tofu=tofu, terraform=self.terraform)
+        _set_path(monkeypatch, bin_dir)
+
+    def test_deploy_keeps_terraform(self):
+        with CliRunner().isolated_filesystem():
+            _setup_tf114()
+            _write_migration_ensemble()
+            job, warnings = _run_migration_job(self.caplog, check=True, force=True)
+            assert job.status == Status.ok, job.summary()
+            assert len(job.workDone) == 2, job.summary()
+            assert not warnings
+
+            with open("active/secrets/migrate-node/terraform.tfstate.yaml") as f:
+                state = YAML().load(f)
+            resource = state["resources"][0]
+            assert resource["provider"] == (
+                'provider["registry.terraform.io/hashicorp/null"]'
+            )
+            assert resource["instances"][0]["attributes"]["id"] == _tf114_resource_id()
+            terraform = terraform_module._tf_cli_version(
+                os.path.realpath(self.terraform), os.environ
+            )
+            assert terraform and terraform[0] == "terraform"
+            assert state["terraform_version"] == ".".join(str(n) for n in terraform[1])
+            locked = _locked_providers("active/artifacts/migrate-node/.terraform.lock.hcl")
+            assert locked == _locked_providers(
+                os.path.join(_TF114_DIR, ".terraform.lock.hcl")
+            )
 
 
 def _regenerate_tf114(terraform: str) -> None:

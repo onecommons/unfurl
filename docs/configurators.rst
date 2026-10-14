@@ -396,7 +396,8 @@ The Terraform configurator will be invoked on any `node template` with the type 
 It can also be used to implement any operation regardless of the node type by setting the ``implementation`` to ``Terraform``.
 It runs `OpenTofu <https://opentofu.org>`_ (``tofu``), invoking the appropriate command (e.g "apply" or "destroy") based on the job's workflow.
 If ``tofu`` isn't found, Unfurl installs OpenTofu 1.13.1 with asdf.
-Unfurl requires OpenTofu 1.6 or later; 1.12 or later is recommended (see `Migrating from Terraform`_).
+Deployments created by HashiCorp Terraform keep running ``terraform`` if it's installed (see `Migrating from Terraform`_).
+Unfurl requires OpenTofu 1.6 or later (1.12 or later is recommended).
 
 Unless you set the ``stateLocation`` input parameter to "remote", the Terraform configurator manages the Terraform state file itself
 and commits it to the ensemble's repository so you don't use Terraform's remote state -- it will be self-contained and sharable like the rest of the Ensemble.
@@ -425,9 +426,10 @@ Inputs
   :stateLocation: If set to "secrets" (the default) the Terraform state file will be encrypted and saved into the instance's "secrets" folder.
                   If set to "artifacts", it will be saved in the instance's "artifacts" folder with only sensitive values encrypted inline.
                   If set to "remote", Unfurl will not manage the Terraform state at all.
-  :command: The executable to run instead of ``tofu``. Unfurl supports only OpenTofu. Setting this to HashiCorp Terraform (or anything else) is not supported,
-            and you're responsible for keeping the deployment's Terraform state compatible with the tool you choose.
-            Unfurl won't install it, and it doesn't stop a deployment that OpenTofu has already migrated from being run by Terraform, or the reverse.
+  :command: The executable to run, overriding Unfurl's choice of ``tofu`` or ``terraform`` (see `Migrating from Terraform`_).
+            Set it to ``tofu`` to migrate a Terraform deployment while Terraform is installed.
+            Unfurl won't install anything else you name here, and you're responsible for keeping the deployment's Terraform state compatible with it:
+            Unfurl doesn't stop a deployment that OpenTofu has already migrated from being run by Terraform.
   :dryrun_mode: How to run during a dry run job. If set to "plan" just generate the Terraform plan. If set to "real", run the task without any dry run logic. Default: "plan"
   :dryrun_outputs: During a dry run job, this map of outputs will be used simulate the task's outputs (otherwise outputs will be empty).
   :resultTemplate: A Jinja2 template or runtime expression that is processed with the Terraform state JSON file as its variables as well as the `resultTemplate` variables documented above for `Shell`.
@@ -462,15 +464,28 @@ found the way OpenTofu finds it, or else to ``~/.terraform.d/plugin-cache``. Set
 Migrating from Terraform
 ------------------------
 
-Earlier Unfurl releases ran HashiCorp Terraform 1.1.4. Each existing deployment migrates to OpenTofu the next time it's deployed:
+Earlier Unfurl releases ran HashiCorp Terraform 1.1.4. For each deployment, Unfurl chooses what to run:
+
+- If the ``command`` input is set, Unfurl runs it.
+- If the deployment's Terraform state (or, if that has no resources or is remote, its committed ``.terraform.lock.hcl``) still references ``registry.terraform.io`` providers,
+  and ``terraform`` is on the ``PATH``, Unfurl keeps running Terraform.
+  The Unfurl Docker image ships Terraform 1.5.7, the last release under the MPL license.
+- Otherwise, Unfurl runs OpenTofu. For a deployment created by Terraform, that migrates it.
+
+To migrate a deployment while Terraform is installed, set ``command: tofu``.
+
+When a deployment migrates:
 
 - OpenTofu rewrites the provider addresses in the deployment's Terraform state and lock file from ``registry.terraform.io`` to ``registry.opentofu.org`` the first time it applies or destroys.
   For a deployment whose state Unfurl manages (``stateLocation`` "secrets" or "artifacts"), the updated ``terraform.tfstate.yaml`` and ``.terraform.lock.hcl`` are committed to the ensemble's repository.
-- Until then, every plan, dry run and deployment logs a warning that the run migrates the deployment.
+- Until then, every plan, dry run and deployment that runs OpenTofu logs a warning that the run migrates the deployment.
 - OpenTofu 1.10 and later keep the provider versions locked for ``hashicorp/*`` providers. Other providers, and every provider with OpenTofu before 1.10, resolve again to the newest version their constraints allow, so check the first plan for changes.
+- The first ``tofu init`` on a Terraform lock file contacts registry.opentofu.org for the providers' checksums, even if they're in the plugin cache,
+  so an air-gapped installation needs a `provider mirror <https://opentofu.org/docs/cli/config/config-file/#provider-installation>`_ to migrate.
 
-**Upgrade every Unfurl installation that works on an ensemble** (CI runners, teammates, Unfurl Cloud) before deploying it with this release.
+**Upgrade every Unfurl installation that works on a migrated deployment** (CI runners, teammates, Unfurl Cloud) before deploying it with this release.
 Older releases run Terraform 1.1.4, which can't run a migrated deployment reliably: Terraform tries to download the ``registry.opentofu.org`` providers the migrated state references and may fail, or rewrite the addresses back.
+Deployments that haven't migrated aren't affected.
 
 To revert a migration:
 
@@ -487,7 +502,7 @@ OpenTofu versions:
 - 1.6 to 1.11 no longer receive upstream security fixes.
 
 Earlier releases installed Terraform with asdf and added a ``terraform 1.1.4`` line to the project's ``.tool-versions``.
-That line keeps Terraform on the ``PATH`` for the ``command`` input; you can delete it once no deployment needs it.
+That line keeps Terraform on the ``PATH``, so the project's Terraform deployments keep running Terraform 1.1.4; delete it to let them migrate.
 
 Note on HCL in YAML
 -------------------

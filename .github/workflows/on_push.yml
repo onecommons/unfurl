@@ -3,6 +3,7 @@ on: [push]
 env:
   # NOTE keep versions in sync with dev_images.yml and version in TOSCA templates
   TOFU_VERSION: 1.13.1 # sync with tosca_plugins/artifacts.yaml
+  TERRAFORM_VERSION: 1.5.7 # the last MPL release, for deployments that haven't migrated to OpenTofu
   HELM_VERSION: 3.7.1 # sync with configurators/helm-template.yaml
   GCLOUD_VERSION: 499.0.0 # sync with tosca_plugins/artifacts.yaml and Dockerfile
   KOMPOSE_VERSION: v1.38.0 # sync with Dockerfile and the kompose artifact in unfurl/tosca_plugins/artifacts.yaml
@@ -196,6 +197,52 @@ jobs:
           git config --global init.defaultBranch main
           UNFURL_TEST_SKIP_BUILD_RUST=1 tox -e py314 -- -vv -ra tests/test_terraform.py tests/test_leak_sweep.py
 
+  terraform:
+    # deployments that haven't migrated keep running terraform
+    runs-on: ubuntu-latest
+    env:
+      UNFURL_LOGGING: info
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.14"
+          check-latest: true
+      - name: Setup Rust
+        # tox's editable install builds the rust extension
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+            toolchain: stable
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: ${{ env.TOFU_VERSION }}
+          tofu_wrapper: false
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - name: Cache providers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # tox.ini's TF_PLUGIN_CACHE_DIR
+          path: .tox/.terraform-plugin-cache
+          key: terraform-providers-${{ runner.os }}-${{ hashFiles('tests/fixtures/terraform/**', 'tests/examples/terraform-*.yaml') }}
+          restore-keys: terraform-providers-${{ runner.os }}-
+      - name: Install Tox
+        run: pip install tox==3.28.0
+      - name: Run Tox
+        run: |
+          git config --global user.email "unittest@onecommons.org"
+          git config --global user.name "Test Robot"
+          git config --global init.defaultBranch main
+          UNFURL_TEST_SKIP_BUILD_RUST=1 tox -e py314 -- -vv -ra tests/test_terraform.py
+
   rust:
     runs-on: ubuntu-latest
     env:
@@ -363,6 +410,7 @@ jobs:
           build-args: |
             HELM_VERSION=${{ env.HELM_VERSION }}
             TOFU_VERSION=${{ env.TOFU_VERSION }}
+            TERRAFORM_VERSION=${{ env.TERRAFORM_VERSION }}
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -518,6 +566,7 @@ jobs:
           build-args: |
             HELM_VERSION=${{ env.HELM_VERSION }}
             TOFU_VERSION=${{ env.TOFU_VERSION }}
+            TERRAFORM_VERSION=${{ env.TERRAFORM_VERSION }}
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
             UNFURL_TAG=${{ steps.get_tag_name.outputs.tag }}

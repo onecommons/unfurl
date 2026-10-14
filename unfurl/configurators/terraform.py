@@ -6,7 +6,6 @@ from typing import (
     List,
     Mapping,
     Optional,
-    Set,
     Tuple,
     Union,
     Dict,
@@ -53,13 +52,10 @@ RECOMMENDED_TOFU_VERSION: Version = (1, 12, 0)
 # carries hashicorp/* lock entries over from a Terraform lock file
 TOFU_LOCK_SHIM_VERSION: Version = (1, 10, 0)
 TOFU_XDG_CONFIG_VERSION: Version = (1, 7, 0)
-MIN_TERRAFORM_VERSION: Version = (1, 1, 0)
 
 # by resolved path, None if its version couldn't be parsed
 _tf_cli_versions: Dict[str, Optional[TfCli]] = {}
-_tf_cli_warned: Set[str] = set()
 # (job id, instance key)
-_migration_warned: Set[Tuple[str, str]] = set()
 
 
 def _version_str(version: Version) -> str:
@@ -92,42 +88,33 @@ def _tf_cli_version(path: str, env: Mapping[str, str]) -> Optional[TfCli]:
     return _tf_cli_versions[path]
 
 
-def _warn_once(path: str, msg: str, *args: object) -> None:
-    if path not in _tf_cli_warned:
-        _tf_cli_warned.add(path)
-        logger.warning(msg, *args)
-
-
-def _check_tf_cli(task: TaskView, command: str) -> Optional[TfCli]:
-    """Return the kind and version of ``command``, raising :class:`UnfurlTaskError` if it's too old."""
+def _check_tf_cli(task: TaskView, command: str, via_input: bool = True) -> Optional[TfCli]:
+    """Return the kind and version of ``command``, raising :class:`UnfurlTaskError` if it's too old.
+    ``via_input`` means the ``command`` input named it."""
     found = which(command, path=task.environ.get("PATH"))
     if not found:
         return None  # running it reports that it's missing
     path = os.path.realpath(found)
     cli = _tf_cli_version(path, task.environ)
     if cli is None:
-        _warn_once(
-            path,
+        logger.warning(
             'Could not determine the version of "%s": Unfurl supports only OpenTofu %s or later',
             found,
             _version_str(MIN_TOFU_VERSION),
+            extra={"log_once": True},
         )
         return None
     kind, version = cli
     if kind == "terraform":
-        if version < MIN_TERRAFORM_VERSION:
-            raise UnfurlTaskError(
-                task,
-                f"Terraform {_version_str(version)} at {found} is too old: the command input requires Terraform {_version_str(MIN_TERRAFORM_VERSION)} or later",
+        if via_input:
+            logger.warning(
+                "Running HashiCorp Terraform %s (%s) via the `command` input: "
+                "you're responsible for this deployment's state compatibility. Running Terraform on state OpenTofu has written "
+                "makes Terraform try to install the registry.opentofu.org providers it references (see the Unfurl upgrade notes).",
+                _version_str(version),
+                found,
+                extra={"log_once": True},
             )
-        _warn_once(
-            path,
-            "Running HashiCorp Terraform %s (%s) via the `command` input. Unfurl supports only OpenTofu: "
-            "you're responsible for this deployment's state compatibility. Running Terraform on state OpenTofu has written "
-            "makes Terraform try to install the registry.opentofu.org providers it references (see the Unfurl upgrade notes).",
-            _version_str(version),
-            found,
-        )
     elif version < MIN_TOFU_VERSION:
         raise UnfurlTaskError(
             task,
@@ -141,14 +128,14 @@ def _check_tf_cli(task: TaskView, command: str) -> Optional[TfCli]:
             else " before 1.10: it doesn't carry locked hashicorp/* provider versions over from a Terraform lock file, "
             "so they re-resolve to the newest matching version on migration;"
         )
-        _warn_once(
-            path,
+        logger.warning(
             "OpenTofu %s at %s is older than 1.12: it checks `required_version` in .tf files against its own version, "
             "so modules written for Terraform may be rejected;%s and it no longer receives upstream security fixes. "
             "Upgrade to 1.12 or later.",
             _version_str(version),
             found,
             lock_clause,
+            extra={"log_once": True},
         )
     return cli
 
@@ -701,19 +688,9 @@ class TerraformConfigurator(ShellConfigurator):
             task.logger.debug("Couldn't find terraform.tfstate file at %s", yamlPath)
         return "terraform.tfstate", state
 
-    def _warn_migration(
-        self, task: TaskView, state: Optional[Mapping[str, Any]], remote: bool
-    ) -> None:
+    def _warn_migration(self, task: TaskView, remote: bool) -> None:
         """Warn, once per instance per job, that this run migrates the instance's state to OpenTofu."""
-        key = (task.job.changeId if task.job else "", task.target.key)
-        if key in _migration_warned:
-            return
-        lock_file = task.set_work_folder(Folders.artifacts).permanent_path(
-            ".terraform.lock.hcl", False
-        )
-        if not _needs_migration(state, lock_file):
-            return
-        _migration_warned.add(key)
+        job_id = task.job.changeId if task.job else ""
         if remote:
             undo = (
                 "Unfurl doesn't hold this state, so it can't be reverted with git. "
@@ -732,6 +709,7 @@ class TerraformConfigurator(ShellConfigurator):
             "and older Unfurl versions can't run the migrated deployment reliably (see the upgrade notes). %s",
             task.target.name,
             undo,
+            extra={"log_once": ("terraform migration", task.target.key, job_id)},
         )
 
     def _get_plan_path(self, task, cwd: WorkFolder):
@@ -749,18 +727,38 @@ class TerraformConfigurator(ShellConfigurator):
                 task.dry_run = False
         cwd = task.set_work_folder(workdir, preserve=True)
 
-        _, terraformcmd = self._cmd(
-            task.inputs.get("command", self._default_cmd), task.inputs.get("keeplines")
-        )
-
-        cli = _check_tf_cli(task, terraformcmd[0])
-
         # write out any needed files to cwd, eg. main.tf.json
         mainpath, varfilePath = self._prepare_workspace(task, cwd)
         # write the state file to local if necessary
         statePath, state = self._prepare_state(task, cwd)
-        if cli and cli[0] == "tofu":
-            self._warn_migration(task, state, not statePath)
+        lock_file = task.set_work_folder(Folders.artifacts).permanent_path(
+            ".terraform.lock.hcl", False
+        )
+        unmigrated = _needs_migration(state, lock_file)
+
+        command = task.inputs.get("command")
+        if command:
+            _, terraformcmd = self._cmd(command, task.inputs.get("keeplines"))
+            cli = _check_tf_cli(task, terraformcmd[0])
+        elif unmigrated and which("terraform", path=task.environ.get("PATH")):
+            terraformcmd = ["terraform"]
+            cli = _check_tf_cli(task, "terraform", via_input=False)
+            logger.info(
+                "Running Terraform for %s because its deployment hasn't migrated to OpenTofu",
+                task.target.name,
+                extra={
+                    "log_once": (
+                        "terraform kept",
+                        task.target.key,
+                        task.job.changeId if task.job else "",
+                    )
+                },
+            )
+        else:
+            terraformcmd = [self._default_cmd]
+            cli = _check_tf_cli(task, self._default_cmd)
+        if unmigrated and cli and cli[0] == "tofu":
+            self._warn_migration(task, not statePath)
 
         planPath = self._get_plan_path(task, cwd)
         # build the command line and run it

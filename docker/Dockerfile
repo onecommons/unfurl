@@ -5,6 +5,8 @@ RUN apt-get -qq update && \
     apt-get -qq clean -y && rm -rf /var/lib/apt/lists/*
 
 ARG TOFU_VERSION=1.13.1
+# the last MPL release, for deployments that haven't migrated to OpenTofu
+ARG TERRAFORM_VERSION=1.5.7
 ARG HELM_VERSION=3.7.1
 ARG GCLOUD_VERSION=499.0.0
 ARG KOMPOSE_VERSION=v1.38.0
@@ -28,6 +30,12 @@ RUN GCLOUD_ARCH="$(case "$TARGETARCH" in amd64) echo x86 ;; arm64) echo arm ;; *
     "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_${TARGETOS}_${TARGETARCH}.zip" && \
     unzip /tofu.zip tofu -d /usr/local/bin && \
     rm -f /tofu.zip && \
+    \
+    echo "Installing Terraform (${TARGETOS}/${TARGETARCH})" && \
+    wget -qO /terraform.zip \
+    "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_${TARGETOS}_${TARGETARCH}.zip" && \
+    unzip /terraform.zip terraform -d /usr/local/bin && \
+    rm -f /terraform.zip && \
     \
     echo "Installing Helm (${TARGETOS}/${TARGETARCH})" && \
     wget -qO /helm.tar.gz \

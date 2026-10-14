@@ -3,6 +3,7 @@ on: [push]
 env:
   # NOTE keep versions in sync with on_push.yml and version in TOSCA templates
   TOFU_VERSION: 1.13.1 # sync with tosca_plugins/artifacts.yaml
+  TERRAFORM_VERSION: 1.5.7 # the last MPL release, for deployments that haven't migrated to OpenTofu
   HELM_VERSION: 3.7.1 # sync with configurators/helm-template.yaml
   GCLOUD_VERSION: 499.0.0 # sync with tosca_plugins/artifacts.yaml and Dockerfile
   KOMPOSE_VERSION: v1.38.0 # sync with Dockerfile and the kompose artifact in unfurl/tosca_plugins/artifacts.yaml
@@ -72,6 +73,7 @@ jobs:
           build-args: |
             HELM_VERSION=${{ env.HELM_VERSION }}
             TOFU_VERSION=${{ env.TOFU_VERSION }}
+            TERRAFORM_VERSION=${{ env.TERRAFORM_VERSION }}
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -167,6 +169,7 @@ jobs:
           build-args: |
             HELM_VERSION=${{ env.HELM_VERSION }}
             TOFU_VERSION=${{ env.TOFU_VERSION }}
+            TERRAFORM_VERSION=${{ env.TERRAFORM_VERSION }}
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
