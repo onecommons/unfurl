@@ -19,21 +19,21 @@ use crate::scan::HeadFile;
 use crate::sync::SyncedRepo;
 
 /// One place the local commits changed, unfolded into an edit.
-struct Unfolded {
-    place: Place,
+pub(crate) struct Unfolded {
+    pub(crate) place: Place,
     /// The value at the merge base, which the edit is based on.
-    was: Option<serde_json::Value>,
+    pub(crate) was: Option<serde_json::Value>,
     /// The value at HEAD; `None` for a deletion.
-    now: Option<serde_json::Value>,
-    key_id: Option<i64>,
-    version: Option<i64>,
+    pub(crate) now: Option<serde_json::Value>,
+    pub(crate) key_id: Option<i64>,
+    pub(crate) version: Option<i64>,
 }
 
 /// Where an unfolded edit's id and version come from.
-struct Ids {
+pub(crate) struct Ids {
     /// This family's rollup lines between the base and HEAD.
     named: BTreeMap<Place, TxnRecord>,
-    /// The live rows the chain holds at HEAD.
+    /// The rows the chain holds at HEAD, tombstones included.
     chain: BTreeMap<Place, RecordRow>,
 }
 
@@ -144,20 +144,12 @@ impl SyncedRepo {
         head: CommitId,
         local: &[CommitId],
     ) -> Result<std::result::Result<Vec<Unfolded>, String>> {
-        let named = named(history, local);
-        let chain: BTreeMap<Place, RecordRow> =
-            crate::fork::chain_rows(self.db(), self.worktree_id())
-                .await?
-                .into_iter()
-                .filter(|r| !r.deleted)
-                .map(|r| (Place::from(&r), r))
-                .collect();
+        let ids = self.ids(named(history, local)).await?;
         let (at_base, at_head) = (
             git::tree_entries(history.repo(), base)?,
             git::tree_entries(history.repo(), head)?,
         );
         let mut edits = Vec::new();
-        let ids = Ids { named, chain };
         let paths: BTreeSet<&String> = at_base.keys().chain(at_head.keys()).collect();
         for file in paths {
             if at_base.get(file) == at_head.get(file) {
@@ -174,15 +166,52 @@ impl SyncedRepo {
                 Err(why) => return Ok(Err(why)),
             }
         }
-        if moved(&edits) {
+        if moved(&edits.iter().collect::<Vec<_>>()) {
             return Ok(Err("the local commits moved a record".into()));
         }
         Ok(Ok(edits))
     }
 
+    /// Where the edits of the `local` commits take their ids and versions:
+    /// `named` by their rollups, and the chain's rows.
+    pub(crate) async fn ids(&self, named: BTreeMap<Place, TxnRecord>) -> Result<Ids> {
+        // tombstones too: one names the record a deletion took, where no
+        // rollup does and a merge has no rebuild to name it
+        let chain: BTreeMap<Place, RecordRow> =
+            crate::fork::chain_rows(self.db(), self.worktree_id())
+                .await?
+                .into_iter()
+                .map(|r| (Place::from(&r), r))
+                .collect();
+        Ok(Ids { named, chain })
+    }
+
     /// The edits the local commits made to `file`, which is at both `base`
     /// and `head`, or why they can't be unfolded.
     fn file_edits(
+        &self,
+        history: &mut History<'_>,
+        base: CommitId,
+        head: CommitId,
+        file: &str,
+        ids: &Ids,
+    ) -> Result<std::result::Result<Vec<Unfolded>, String>> {
+        let ours = match self.record_edits(history, base, head, file, ids)? {
+            Ok(ours) => ours,
+            Err(why) => return Ok(Err(why)),
+        };
+        Ok(
+            match self.unrepresented(history, base, head, file, &ours)? {
+                Some(why) => Err(why),
+                None => Ok(ours),
+            },
+        )
+    }
+
+    /// The records `file` changed in, from `base` to `head`, as edits; why
+    /// not, where it isn't a document a format reads at both, or a record
+    /// validation rejects changed.
+    pub(crate) fn record_edits(
         &self,
         history: &mut History<'_>,
         base: CommitId,
@@ -214,12 +243,7 @@ impl SyncedRepo {
                 place,
             });
         }
-        Ok(
-            match self.unrepresented(history, base, head, file, &ours)? {
-                Some(why) => Err(why),
-                None => Ok(ours),
-            },
-        )
+        Ok(Ok(ours))
     }
 
     /// Why `file` at `head` isn't `base`'s with `edits` applied, if it isn't:
@@ -227,7 +251,7 @@ impl SyncedRepo {
     /// doesn't hold. Layout, comments, key order and empty maps aren't
     /// compared: the commit onto upstream renders the edits onto
     /// upstream's bytes.
-    fn unrepresented(
+    pub(crate) fn unrepresented(
         &self,
         history: &History<'_>,
         base: CommitId,
@@ -258,7 +282,7 @@ impl SyncedRepo {
 
     /// `e` as a draft row based at commit `base`, with `version` where it
     /// has none.
-    fn edit_row(&self, e: &Unfolded, base: CommitId, version: i64) -> RecordRow {
+    pub(crate) fn edit_row(&self, e: &Unfolded, base: CommitId, version: i64) -> RecordRow {
         RecordRow {
             id: 0,
             key_id: e.key_id.unwrap_or(0),
@@ -298,7 +322,7 @@ fn pruned(v: serde_json::Value) -> serde_json::Value {
 /// gone from one file where the same section and key of another changed,
 /// as a scan pairs them (§3.5) -- its id may be gone with the tombstone a
 /// fold purged. The draft holds one edit per record.
-fn moved(edits: &[Unfolded]) -> bool {
+pub(crate) fn moved(edits: &[&Unfolded]) -> bool {
     let ids: Vec<i64> = edits.iter().filter_map(|e| e.key_id).collect();
     let gone = edits.iter().filter(|e| e.now.is_none());
     ids.iter().collect::<BTreeSet<_>>().len() < ids.len()
@@ -317,7 +341,7 @@ fn refused(why: &str) -> Rebased {
 
 /// Why the working tree isn't commit `head`'s tree, if it isn't: a file of
 /// the tree or the index whose content isn't the tree's.
-fn dirty(repo: &gix::Repository, head: CommitId) -> Result<Option<String>> {
+pub(crate) fn dirty(repo: &gix::Repository, head: CommitId) -> Result<Option<String>> {
     let tree = git::tree_blobs(repo, head)?;
     let root = repo
         .workdir()
@@ -341,7 +365,7 @@ fn dirty(repo: &gix::Repository, head: CommitId) -> Result<Option<String>> {
 
 /// The record lines this family's rollups in `local` hold, the newest
 /// write of each place.
-fn named(history: &History<'_>, local: &[CommitId]) -> BTreeMap<Place, TxnRecord> {
+pub(crate) fn named(history: &History<'_>, local: &[CommitId]) -> BTreeMap<Place, TxnRecord> {
     let mut named: BTreeMap<Place, TxnRecord> = BTreeMap::new();
     for c in local {
         let Some(rollup) = git::commit_message(history.repo(), *c)
@@ -370,7 +394,7 @@ fn named(history: &History<'_>, local: &[CommitId]) -> BTreeMap<Place, TxnRecord
 
 /// `e` into draft `d`, based at commit `base`, as record `key_id`, or a
 /// new one.
-async fn insert_edit<DB: Store>(
+pub(crate) async fn insert_edit<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     d: i64,

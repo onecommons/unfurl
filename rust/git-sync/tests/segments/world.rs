@@ -44,6 +44,10 @@ enum Op {
     /// below its head, onto an outside commit off it with changes `.2`
     /// (C.21), then reset its checkout there and scan.
     Integrate(u8, u8, Vec<(Key, bool)>),
+    /// Merge into a worktree an outside commit off `history[.1]`, counted
+    /// back from below its head, with changes `.2`, record by record where
+    /// both sides changed one (C.22), then reset its checkout there and scan.
+    MergeUpstream(u8, u8, Vec<(Key, bool)>),
     /// An export that fails after one of its steps, `.0 % 3`, from the
     /// worktree `.0 / 3` picks: its branch holds the edits uncommitted
     /// until the next export from that worktree finishes it.
@@ -102,6 +106,10 @@ fn merge_op(key: std::ops::Range<Key>) -> impl Strategy<Value = Op> {
         .prop_map(|(w, s, kind, picks, extra)| Op::Merge(w, s, kind, picks, extra))
 }
 
+/// Each place a worktree's local commits changed: (value at the base,
+/// value at HEAD, id).
+type LocalChanges = BTreeMap<Key, (Option<Ver>, Option<Ver>, Ver)>;
+
 /// C.21's deletions, added after the rebuild: each `(key, value at the
 /// base, version, id the rollup names)`.
 #[derive(Default)]
@@ -122,6 +130,19 @@ fn integrate_op() -> impl Strategy<Value = Op> {
         3 => any::<u8>().prop_map(Op::Commit),
         3 => (any::<u8>(), 0u8..4, prop::collection::vec((key, prop::bool::weighted(0.2)), 0..3))
             .prop_map(|(w, b, c)| Op::Integrate(w, b, c)),
+    ]
+}
+
+/// [`op`] with record-by-record merges of upstream (C.22), on a strategy
+/// of their own so the seeds saved under the others replay as before.
+fn merge_upstream_op() -> impl Strategy<Value = Op> {
+    let key = 0..KEYS;
+    prop_oneof![
+        3 => op(),
+        4 => (any::<u8>(), key.clone(), prop::bool::weighted(0.2)).prop_map(|(w, k, d)| Op::Write(w, k, d)),
+        3 => any::<u8>().prop_map(Op::Commit),
+        3 => (any::<u8>(), 0u8..4, prop::collection::vec((key, prop::bool::weighted(0.2)), 0..3))
+            .prop_map(|(w, b, c)| Op::MergeUpstream(w, b, c)),
     ]
 }
 
@@ -877,25 +898,34 @@ impl World {
     /// outside commit off that one with `extra`. Refused, with nothing
     /// done, for a working tree that isn't its HEAD, or local commits that
     /// moved a record.
-    fn integrate(&mut self, w: Wt, back: u8, extra: &[(Key, bool)]) {
+    /// The local commits of `w` since a commit `b` below its head, as
+    /// C.21 and C.22 take them: for each place they changed, (value at `b`,
+    /// value at HEAD, id). `None` where there's nothing to do, or where the
+    /// implementation must refuse: then upstream, `b` with `extra`, is made
+    /// anyway, to ask it.
+    fn local_changes(
+        &mut self,
+        w: Wt,
+        back: u8,
+        extra: &[(Key, bool)],
+    ) -> Option<(usize, CommitId, LocalChanges)> {
         self.refused = false;
         let history = self.imp.wts[w].history.clone();
         let len = history.len();
         let m = &self.model.wts[w];
         if len < 2 {
-            return;
+            return None;
         }
         // users' edits over the versions the unfold copies are phase 3's,
         // with the entries a merge's old versions need (§4.9)
         if self.model.wts.iter().any(|u| u.user && u.alive) {
-            return;
+            return None;
         }
         let pos = len - 2 - back as usize % (len - 1);
         let b = history[pos];
         let (at_b, at_l) = (self.git.commits[b].clone(), m.committed.clone());
         let ids_b = self.ids_at(w, b);
-        // each place the local commits changed: (value at b, value at l, id)
-        let local: BTreeMap<Key, (Option<Ver>, Option<Ver>, Ver)> = (0..KEYS)
+        let local: LocalChanges = (0..KEYS)
             .filter(|k| at_b.get(k) != at_l.get(k))
             .map(|k| {
                 let id = m.ids.get(&k).or(ids_b.get(&k)).copied().expect("a record");
@@ -911,27 +941,130 @@ impl World {
             let other = local.get(&other_file(k));
             was.is_some() && now.is_none() && other.is_some_and(|&(_, n, _)| n.is_some())
         });
-        let draft_ids: BTreeSet<Ver> = m.draft.values().map(|d| d.id).collect();
-        // an edit of the record pending at another place
-        let elsewhere = local
-            .iter()
-            .any(|(k, &(_, _, id))| !m.draft.contains_key(k) && draft_ids.contains(&id));
         let dirty = m.disk != m.committed;
-        if ids.len() < local.len() || paired || elsewhere || dirty || !m.conflicts.is_empty() {
-            let mut tree = at_b;
-            for &(k, deleted) in extra {
-                if deleted {
-                    tree.remove(&k);
-                } else {
-                    let v = self.ver();
-                    tree.insert(k, v);
-                }
+        if ids.len() < local.len() || paired || dirty {
+            self.refuse(b, extra);
+            return None;
+        }
+        Some((pos, b, local))
+    }
+
+    /// Whether `w` holds an edit of a record at `keys` at another key, or a
+    /// conflict at one of them: the implementation refuses either.
+    fn held_elsewhere(&self, w: Wt, keys: &LocalChanges) -> bool {
+        let m = &self.model.wts[w];
+        let draft_ids: BTreeSet<Ver> = m.draft.values().map(|d| d.id).collect();
+        keys.iter().any(|(k, &(_, _, id))| {
+            m.conflicts.contains_key(k) || (!m.draft.contains_key(k) && draft_ids.contains(&id))
+        })
+    }
+
+    /// The implementation refuses: upstream, `b` with `extra`, is made
+    /// anyway, to ask it.
+    fn refuse(&mut self, b: CommitId, extra: &[(Key, bool)]) {
+        self.upstream(b, extra);
+        self.refused = true;
+    }
+
+    /// The id the implementation can find for the record `w` deleted at
+    /// `k` since `b`: the row its chain shows there, a tombstone included,
+    /// else the one the latest of its commits since `b` with a rollup names.
+    fn named_by_rows(&self, w: Wt, b: CommitId, k: Key) -> Option<Ver> {
+        let chain = self.imp.chain_set(w);
+        if let Some(r) = self.imp.visible(&chain, Some(k)).first() {
+            return Some(self.imp.rows[r].id);
+        }
+        let head = *self.imp.wts[w].history.last().unwrap();
+        let below = self.ancestors(b);
+        let mut local: Vec<CommitId> =
+            self.ancestors(head).into_iter().filter(|c| !below.contains(c)).collect();
+        local.sort_unstable();
+        local
+            .into_iter()
+            .rev()
+            .find_map(|c| self.git.rollups[c].as_ref().and_then(|r| r.get(&k).copied()))
+    }
+
+    /// An outside commit off `b` with `extra`, never checked out: no rollup
+    /// names its records.
+    fn upstream(&mut self, b: CommitId, extra: &[(Key, bool)]) -> CommitId {
+        let tree = self.upstream_tree(b, extra);
+        // the versions `upstream_tree` showed, drawn now
+        for &(_, deleted) in extra {
+            if !deleted {
+                self.ver();
             }
-            self.git.commit(tree, vec![b]);
-            // never checked out, and no rollup names its records
-            self.commit_ids.push(BTreeMap::new());
-            self.refused = true;
+        }
+        let u = self.git.commit(tree, vec![b]);
+        self.commit_ids.push(BTreeMap::new());
+        u
+    }
+
+    /// The tree [`Self::upstream`] makes, without drawing its versions.
+    fn upstream_tree(&self, b: CommitId, extra: &[(Key, bool)]) -> BTreeMap<Key, Ver> {
+        let mut tree = self.git.commits[b].clone();
+        let mut next = self.next_ver;
+        for &(k, deleted) in extra {
+            if deleted {
+                tree.remove(&k);
+            } else {
+                next += 1;
+                tree.insert(k, next);
+            }
+        }
+        tree
+    }
+
+    /// C.22: `w`'s HEAD merged with an outside commit off a commit `b`
+    /// below it, with `extra`: where both changed a key to different
+    /// values, upstream's goes in the merge and `w`'s is held as a pending
+    /// edit based at `b`.
+    fn merge_upstream(&mut self, w: Wt, back: u8, extra: &[(Key, bool)]) {
+        let Some((_, b, local)) = self.local_changes(w, back, extra) else {
             return;
+        };
+        // the records both changed, to different values: upstream's is merged
+        let theirs = self.upstream_tree(b, extra);
+        let held: LocalChanges = local
+            .into_iter()
+            .filter(|(k, (was, now, _))| {
+                let t = theirs.get(k).copied();
+                t != *was && t != *now
+            })
+            .collect();
+        if self.held_elsewhere(w, &held) {
+            return self.refuse(b, extra);
+        }
+        let u = self.upstream(b, extra);
+        self.fill_origins();
+        for (&k, &(was, now, id)) in &held {
+            // an edit pending there is in conflict with upstream's already
+            if self.model.wts[w].draft.contains_key(&k) {
+                continue;
+            }
+            // a deletion names its record only as the implementation can
+            // find it: no rebuild names it, and a purged tombstone forgot it
+            let id = match now {
+                Some(_) => id,
+                None => self.named_by_rows(w, b, k).unwrap_or_else(|| self.imp.private_ver()),
+            };
+            let ver = match now {
+                Some(v) => v,
+                None => self.ver(),
+            };
+            self.model.wts[w].unfold(k, was, now, ver, id);
+            self.imp.unfold(w, b, &[(k, was, now, id)]);
+        }
+        // every pick upstream's
+        self.merge(w, vec![u], MergeKind::Regular, u8::MAX, &[]);
+    }
+
+    fn integrate(&mut self, w: Wt, back: u8, extra: &[(Key, bool)]) {
+        let Some((pos, b, local)) = self.local_changes(w, back, extra) else {
+            return;
+        };
+        if self.held_elsewhere(w, &local) || !self.model.wts[w].conflicts.is_empty() {
+            return self.refuse(b, extra);
         }
         // a pending edit takes its base whatever it is; a deletion is
         // added once the chain is rebuilt
@@ -1219,6 +1352,10 @@ impl World {
             Op::Integrate(n, back, ref extra) => {
                 let w = self.pick(n, false).unwrap();
                 self.integrate(w, back, extra);
+            }
+            Op::MergeUpstream(n, back, ref extra) => {
+                let w = self.pick(n, false).unwrap();
+                self.merge_upstream(w, back, extra);
             }
             Op::FailedExport(n) => self.export(n / 3, Some(n % 3)),
             Op::NewUser => {

@@ -791,6 +791,34 @@ pub struct Committed {
     pub exported: Option<Exported>,
 }
 
+/// What [`crate::SyncedRepo::merge_upstream`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MergedUpstream {
+    /// The merge commit, which no ref names yet: fast-forward to it while
+    /// HEAD is still `head`, then push and scan. `held` are the records both
+    /// sides changed, upstream's value in the merge and ours held as a
+    /// pending edit in conflict with it.
+    Merged {
+        commit: CommitId,
+        head: CommitId,
+        held: Vec<HeldRecord>,
+    },
+    /// HEAD is upstream or behind it: fast-forward instead.
+    FastForward,
+    /// Upstream is in HEAD's history already.
+    Ahead,
+    /// Nothing changed: why the merge can't be made, so the caller diverts.
+    Refused(String),
+}
+
+/// A record both sides of a merge changed: the file, section and key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeldRecord {
+    pub file_path: String,
+    pub path: String,
+    pub key: String,
+}
+
 /// What [`crate::SyncedRepo::rebase_onto`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Rebased {

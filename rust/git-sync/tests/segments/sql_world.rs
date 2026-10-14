@@ -14,6 +14,7 @@ fn sql_supports(op: &Op) -> bool {
         Op::DiskEdit(_, _, _, wins) => !matches!(wins, FileWins::Diverged),
         Op::Fork(..) | Op::Rebuild(..) | Op::Rebase(..) | Op::Delete(_) => true,
         Op::Export(_) | Op::FailedExport(_) | Op::Merge(..) | Op::Integrate(..) => true,
+        Op::MergeUpstream(..) => true,
         _ => false,
     }
 }
@@ -63,6 +64,7 @@ impl Before {
             | Op::Rebase(n, ..)
             | Op::Merge(n, ..)
             | Op::Integrate(n, ..)
+            | Op::MergeUpstream(n, ..)
             | Op::Export(n) => Some(n),
             Op::FailedExport(n) => Some(n / 3),
             _ => None,
@@ -258,6 +260,7 @@ impl SqlWorld {
                     .unwrap();
             }
             Op::Export(_) | Op::FailedExport(_) => self.export(op, world, mirror, before),
+            Op::MergeUpstream(..) => self.merge_upstream(world, mirror, before),
             Op::Integrate(..) => {
                 // nothing to rebase onto: a user branch, which SQL doesn't
                 // have yet, or nothing below HEAD
@@ -297,6 +300,59 @@ impl SqlWorld {
                 }
             }
             _ => unreachable!("unsupported ops aren't run"),
+        }
+    }
+
+    /// C.22 in `before.w`: `git merge-tree` of its HEAD and upstream, the
+    /// last commit the model made before its merge, then the
+    /// implementation's merge, which the mirror takes as the model's.
+    fn merge_upstream(&mut self, world: &World, mirror: &mut GitMirror, before: &Before) {
+        let w = before.w;
+        let made = world.git.commits.len();
+        if made == before.commits {
+            return;
+        }
+        // refused: upstream is the last commit; otherwise the merge is
+        let (end, l, u) = match world.refused {
+            true => {
+                let l = *world.imp.wts[w].history.last().unwrap();
+                (made, l, made - 1)
+            }
+            false => {
+                let m = made - 1;
+                (m, world.git.parents[m][0], world.git.parents[m][1])
+            }
+        };
+        mirror.make_commits_upto(world, end);
+        let (l, u) = (mirror.oids[l].clone(), mirror.oids[u].clone());
+        let out = std::process::Command::new("git")
+            .args(["merge-tree", "--write-tree", "--name-only", &l, &u])
+            .current_dir(&mirror.root)
+            .output()
+            .expect("git");
+        assert!(matches!(out.status.code(), Some(0 | 1)), "merge-tree: {out:?}");
+        let text = String::from_utf8(out.stdout).unwrap();
+        let mut lines = text.lines();
+        let tree = gix::ObjectId::from_hex(lines.next().unwrap().as_bytes()).unwrap();
+        let conflicted: Vec<String> = lines
+            .take_while(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect();
+        let merged = self
+            .rt
+            .block_on(self.repos[&w].merge_upstream(u.parse().unwrap(), tree, &conflicted))
+            .unwrap();
+        match (merged, world.refused) {
+            (unfurl_git_sync::MergedUpstream::Refused(_), true) => {}
+            (unfurl_git_sync::MergedUpstream::Merged { commit, .. }, false) => {
+                // the caller's fast-forward, while HEAD is still `l`
+                let dir = mirror.checkouts[&w].dir.clone();
+                git(&dir, &["merge", "-q", "--ff-only", &commit.to_string()], None);
+                mirror.adopt(&world.git, w, end, &commit.to_string());
+                mirror.sync(world);
+                self.scan(w, false);
+            }
+            (merged, refused) => panic!("the model refused: {refused}; the implementation: {merged:?}"),
         }
     }
 

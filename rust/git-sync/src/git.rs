@@ -416,6 +416,19 @@ pub fn commit_files_onto(
     files: &[(String, Option<Vec<u8>>)],
     message: &str,
 ) -> Result<CommitId> {
+    commit_tree_with(repo, tree_of(repo, parent)?, files, &[parent], message)
+}
+
+/// A commit of tree `tree` with `files` overlaid, onto `parents`, first
+/// parent first, that moves no ref and touches neither the working tree
+/// nor the index.
+pub(crate) fn commit_tree_with(
+    repo: &gix::Repository,
+    tree: gix::ObjectId,
+    files: &[(String, Option<Vec<u8>>)],
+    parents: &[CommitId],
+    message: &str,
+) -> Result<CommitId> {
     let mut updates: Vec<TreeUpdate> = Vec::with_capacity(files.len());
     for (rel, bytes) in files {
         let blob = bytes
@@ -425,7 +438,7 @@ pub fn commit_files_onto(
             .map_err(git_err)?;
         updates.push((path_segments(rel)?, blob));
     }
-    let tree = build_tree_with_updates(repo, Some(tree_of(repo, parent)?), &updates)?;
+    let tree = build_tree_with_updates(repo, Some(tree), &updates)?;
     let author = repo
         .author()
         .ok_or_else(|| Error::Git("no author configured".to_string()))?
@@ -440,7 +453,7 @@ pub fn commit_files_onto(
         author: author.into(),
         committer: committer.into(),
         encoding: None,
-        parents: std::iter::once(parent.oid()).collect(),
+        parents: parents.iter().map(CommitId::oid).collect(),
         extra_headers: Vec::new(),
     };
     Ok(repo.write_object(&commit).map_err(git_err)?.detach().into())
@@ -832,13 +845,21 @@ pub(crate) fn tree_entries(
     repo: &gix::Repository,
     commit: CommitId,
 ) -> Result<HashMap<String, (gix::object::tree::EntryMode, gix::ObjectId)>> {
-    use gix::object::tree::diff::{Action, Change};
-    use std::ops::ControlFlow;
-
     let Ok(commit) = repo.find_commit(commit.oid()) else {
         return Ok(HashMap::new());
     };
-    let tree = commit.tree().map_err(git_err)?;
+    tree_entries_of(repo, commit.tree_id().map_err(git_err)?.detach())
+}
+
+/// Every entry but a tree's in tree `tree`, by path: its mode and id.
+pub(crate) fn tree_entries_of(
+    repo: &gix::Repository,
+    tree: gix::ObjectId,
+) -> Result<HashMap<String, (gix::object::tree::EntryMode, gix::ObjectId)>> {
+    use gix::object::tree::diff::{Action, Change};
+    use std::ops::ControlFlow;
+
+    let tree = repo.find_tree(tree).map_err(git_err)?;
     let mut out = HashMap::new();
     let mut visit = |change: Change<'_, '_, '_>| -> gix::Result<Action> {
         if let Change::Addition {

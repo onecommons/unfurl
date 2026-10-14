@@ -129,7 +129,12 @@ impl GitMirror {
 
     /// Make the commits `world` has that the repository doesn't.
     fn make_commits(&mut self, world: &World) {
-        for c in self.oids.len()..world.git.commits.len() {
+        self.make_commits_upto(world, world.git.commits.len());
+    }
+
+    /// Make those before model commit `end`.
+    fn make_commits_upto(&mut self, world: &World, end: usize) {
+        for c in self.oids.len()..end {
             let oid = self.make_commit(&world.git, c);
             self.oids.push(oid);
         }

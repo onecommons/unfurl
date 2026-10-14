@@ -159,6 +159,38 @@ impl<'s> History<'s> {
         })
     }
 
+    /// The records blob `blob` of `file` holds: `(path, key)` → value.
+    pub(crate) fn blob_records(&mut self, file: &str, blob: gix::ObjectId) -> Result<Records> {
+        if !self.blobs.contains_key(&blob) {
+            let parsed = self.parse(file, blob)?;
+            self.blobs.insert(blob, parsed);
+        }
+        Ok(self.blobs[&blob].records.clone())
+    }
+
+    /// Whether blob `blob` of `file` is a document a format reads whole,
+    /// and, if it is, whether a scan takes in its record at `path`, `key`:
+    /// validation rejects neither it nor its section.
+    pub(crate) fn blob_takes(
+        &mut self,
+        file: &str,
+        blob: gix::ObjectId,
+        path: &str,
+        key: &str,
+    ) -> Result<(bool, bool)> {
+        if Syntax::for_extension(&extract_ext(file)).is_none() {
+            return Ok((false, false));
+        }
+        if !self.blobs.contains_key(&blob) {
+            let parsed = self.parse(file, blob)?;
+            self.blobs.insert(blob, parsed);
+        }
+        let p = &self.blobs[&blob];
+        let takes = !p.skip_paths.contains(path)
+            && !p.rejected.contains(&(path.to_string(), key.to_string()));
+        Ok((!p.whole, takes))
+    }
+
     /// Whether `rollup` is this database's, for this family: key_ids are
     /// the database's, so another family's would take over a record of
     /// its own.

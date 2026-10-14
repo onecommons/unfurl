@@ -2309,3 +2309,62 @@ fn rebase_onto_an_empty_base_inside_a_segment() {
         Op::Integrate(13, 0, vec![]),
     ]);
 }
+
+/// Upstream changed a record next to the one the local commit did: git
+/// may not merge the lines, but nothing conflicts as records.
+#[test]
+fn upstream_merge_of_neighbouring_records() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::MergeUpstream(0, 0, vec![(1, false)]),
+    ]);
+}
+
+/// Both sides changed one record: upstream's value is merged, ours held as
+/// a pending edit in conflict with it.
+#[test]
+fn upstream_merge_holds_a_record_both_changed() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::MergeUpstream(0, 0, vec![(0, false)]),
+    ]);
+}
+
+/// A record our side deleted, through an earlier merge, that upstream then
+/// changed: the held deletion names the record as the database can, and
+/// upstream's version takes that id.
+#[test]
+fn upstream_merge_holds_a_deletion_of_a_record_upstream_changed() {
+    run(&[
+        Op::Write(0, 1, false),
+        Op::Commit(0),
+        Op::Write(0, 0, false),
+        Op::MergeUpstream(0, 0, vec![(2, true)]),
+        Op::MergeUpstream(0, 0, vec![(2, false)]),
+    ]);
+}
+
+/// A merge with an edit pending at a record both sides changed: the
+/// pending edit is the one held.
+#[test]
+fn upstream_merge_keeps_a_pending_edit_both_changed() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::Write(0, 0, false),
+        Op::MergeUpstream(0, 0, vec![(0, false)]),
+    ]);
+}
+
+/// An outside commit deleted a record a fork shares, and upstream changed
+/// it: no rollup names the record, but the tombstone the scan kept does.
+#[test]
+fn upstream_merge_names_a_deletion_by_its_tombstone() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::External(0, vec![(2, true)]),
+        Op::MergeUpstream(0, 0, vec![(2, false)]),
+    ]);
+}

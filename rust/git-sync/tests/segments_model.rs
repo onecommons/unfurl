@@ -64,6 +64,11 @@ proptest! {
     }
 
     #[test]
+    fn upstream_merges_agree_with_the_model(ops in prop::collection::vec(merge_upstream_op(), 1..40)) {
+        run(&ops);
+    }
+
+    #[test]
     fn integrates_agree_with_the_model(ops in prop::collection::vec(integrate_op(), 1..40)) {
         run(&ops);
     }

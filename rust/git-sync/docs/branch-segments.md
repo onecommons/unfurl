@@ -3442,3 +3442,55 @@ WHERE worktree_id = :w AND path = ANY(SELECT file_path FROM unfolded);
 
 `:local` is every commit between `:b` and `:l`. Conflict rows in `:d`
 stay: the scan renews them against `:u`'s values.
+
+### C.22 Merge upstream, record by record where git can't
+
+[§4.15](#415-remotes-pulling-pushing-and-conflicts); `src/merge.rs`. W's
+HEAD `:l` has commits its remote lacks, the remote's branch `:u` has
+moved on, and `:b` is their merge base. Where C.21 rewrites the local
+commits, this keeps them: the result is a merge commit `:m` with parents
+`:l` and `:u`, so no commit is rewritten, no txn is unstamped, and W's
+cursors survive (the scan of `:m` is a fast-forward). A file built from
+records (step 3) is `:u`'s text with `:l`'s record values, so comments
+and layout `:l` changed there are dropped, as in C.21. In order:
+
+1. **git merges,** in the caller: `merge-tree --write-tree` gives the
+   merged tree, and the files it couldn't merge.
+2. **Check what git merged.** Each file it merged that both sides
+   changed must parse, without a duplicate key (YAML refuses one;
+   JSON's parser keeps the last, so its keys are checked separately);
+   each record only one side changed must have that side's value, so a
+   hunk applied in a shifted context can't move a key; and each record
+   both sides changed, which git may have merged field by field, must
+   pass its format's validation. A file that fails joins those git
+   couldn't merge.
+3. **Build those files from records:** `:u`'s bytes with the records
+   only `:l` changed since `:b` applied (`render_onto`). A record both
+   sides changed, to different values, keeps `:u`'s value there and is
+   held (step 4). Refused, so the caller diverts, where C.21 refuses:
+   the local commits change something in such a file that isn't a
+   record, add or remove a file git couldn't merge, change a mode or a
+   submodule, or move a record (judged over every file `:b` and `:l`
+   differ in, since a move can leave a merged file for a built one).
+4. **Hold the records both changed,** in one transaction holding the
+   family lock, before anything else moves: each as a pending edit of
+   `:l`'s value, based at `:b` with the value there (C.21's edit rows);
+   a pending edit already at the place is left as it is, based at `:l`,
+   so in conflict with `:u`'s value already. Refused if a held record
+   has a conflict already or an edit pending at another place. `:l`
+   must still be W's `commit_id` and HEAD.
+   Step 5 runs first, so a failure writing `:m` holds nothing.
+5. **Commit** `:m`: the merged tree with the built files over it,
+   parents `:l` and `:u`, written as git-sync's own commits are, with
+   no rollup: no ref names it until the caller's fast-forward, and
+   phase 4's walk finds each record's id through it.
+6. **The caller** fast-forwards to `:m` while HEAD is still `:l`
+   (`Merged::head`), pushes, and scans. The scan
+   classifies each held edit against `:m`, which has `:u`'s value: a
+   record conflict, which a client resolves as any other.
+
+A failure after step 4 loses nothing: until the fast-forward, HEAD is
+`:l`, whose value each inserted edit already is, so a scan finds no
+conflict, and the edits are no-ops the next commit folds; an edit that
+was pending already is untouched. The caller
+holds the checkout from step 1 through the scan, as a push already does.

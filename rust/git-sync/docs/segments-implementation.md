@@ -229,6 +229,11 @@ impl SyncedRepo {
     /// (C.21); the caller then resets the checkout to `upstream`, and scans
     /// and commits. Fetching, pushing and the reset stay in the server.
     pub async fn rebase_onto(&self, upstream: &str) -> Result<Rebased>;
+    /// Built: merge `upstream` into HEAD record by record where git can't
+    /// (C.22), given git's merged tree and the files it couldn't merge;
+    /// the caller fast-forwards to the merge, pushes and scans.
+    pub async fn merge_upstream(&self, upstream: CommitId, merged: gix::ObjectId,
+        conflicted: &[String]) -> Result<MergedUpstream>;
 }
 pub struct CommitOptions { pub conflicts_to_branch: Option<String> }
 /// What one call committed: to the current branch, and to the exported
@@ -238,6 +243,7 @@ pub struct Committed { pub commit: Option<String>, pub exported: Option<Exported
 /// moved there.
 pub struct Exported { pub branch: String, pub commit: String, pub records: Vec<TxnRecord> }
 pub enum Rebased { Unfolded { base: String, edits: usize }, FastForward, Ahead, Refused(String) }
+pub enum MergedUpstream { Merged { commit: CommitId, held: Vec<HeldRecord> }, FastForward, Ahead, Refused(String) }
 ```
 
 A checkout-less branch is a `worktree` row like any other, marked not to
@@ -446,9 +452,10 @@ phase's behaviour changes applied.
 
    **Order from here:** phase 4's id lookup is built, so a merged
    diverted or exported branch keeps its records' ids, and step 3's
-   unfold and rebase is built in git-sync. Then the server using it in
-   place of the merge in git; then the server exporting conflicts, as a
-   request option; then the sweep.
+   unfold and rebase, and the merge record by record (C.22), are built
+   in git-sync. Then the server merging with it in place of the merge in
+   git alone; then the server exporting conflicts, as a request option;
+   then the sweep.
 
    Appendix C adds the cross-worktree fold and the unfold. Operations:
    Export, Pull, Push, Divert.
@@ -844,6 +851,39 @@ Not built:
 - **Restamping on a heal.** A rebase that heals leaves its batches
   outstanding, so the next commit's rollup names them again.
 - **The server's use of it,** next.
+
+### 7.6 Phase 5, step 3: the merge record by record, built in git-sync
+
+`merge_upstream` is C.22, the server's way to take in an upstream that
+moved on: where C.21 rewrites the local commits, this merges, so no
+commit is rewritten, no batch is unstamped, and clients' cursors
+survive. Files it builds from records lose comments and layout the
+local commits changed there, as C.21's do.
+`rebase_onto` stays, unused by the server. The harness runs it as
+`MergeUpstream` (the model's `merge` with upstream's side picked for a
+key both changed, after holding ours), on its own strategy; 300 random
+histories and 6 seeded ones agree with the reference, with the mirror
+running `git merge-tree` for SQL. `test_merge` checks git's textual
+conflict between different records, a record both changed, fields git
+merges, a duplicate key git made in YAML and in JSON, a merged tree
+missing a change of ours, a conflict elsewhere left alone, and each
+refusal, on both backends.
+
+What the harness found:
+- **A held deletion names its record as the database can:** the row or
+  tombstone the chain holds at its place, else this family's rollup
+  line, else a new id. With no rebuild to name it, a purged tombstone's
+  record gets a new id, and upstream's version of it takes that id.
+- **The id lookup keeps tombstones,** which C.21 didn't need: a
+  deletion an outside commit made has no rollup line.
+
+Open: C.21 moves an already-pending edit's base before its reset, so a
+rebase stopped there leaves that edit in conflict with the worktree's
+own commit; the merge leaves such an edit as it is instead.
+
+Not built: the server's use of it, next; a diverged freshness pull,
+which keeps serving the checkout until the next push merges; and a
+field-by-field merge of a record both sides changed where git couldn't.
 
 ## 8. For review
 
