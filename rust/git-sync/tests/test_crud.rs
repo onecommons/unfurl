@@ -3524,3 +3524,35 @@ async fn hashing_a_blob_matches_git_and_writes_nothing() {
         .expect("get")
         .is_some());
 }
+
+/// A commit keeps the executable bit of a file it rewrites.
+async fn a_commit_keeps_a_files_mode(sync: &SyncedRepo, tmp: &TempDir) {
+    git(tmp.path(), &["update-index", "--chmod=+x", "cloudmap.yaml"]);
+    git(tmp.path(), &["commit", "-q", "-m", "mode"]);
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("sync");
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "x"}),
+        None,
+        false,
+    )
+    .await
+    .expect("write");
+    sync.commit_repository("x", Default::default())
+        .await
+        .expect("commit");
+    let out = std::process::Command::new("git")
+        .args(["ls-tree", "HEAD", "cloudmap.yaml"])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git");
+    assert!(
+        String::from_utf8_lossy(&out.stdout).starts_with("100755"),
+        "{out:?}"
+    );
+}
+crud_test!(a_commit_keeps_a_files_mode);

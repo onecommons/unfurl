@@ -661,10 +661,18 @@ fn build_tree_with_updates(
     for (name, oid) in here_updates {
         match oid {
             Some(oid) => {
+                let executable = entries
+                    .get(&name)
+                    .is_some_and(|e| e.mode.kind() == EntryKind::BlobExecutable);
+                let kind = if executable {
+                    EntryKind::BlobExecutable
+                } else {
+                    EntryKind::Blob
+                };
                 entries.insert(
                     name.clone(),
                     Entry {
-                        mode: EntryMode::from(EntryKind::Blob),
+                        mode: EntryMode::from(kind),
                         filename: name.into(),
                         oid,
                     },
