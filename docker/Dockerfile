@@ -4,7 +4,7 @@ RUN apt-get -qq update && \
     apt-get -qq install -y --no-install-recommends git curl unzip wget expect build-essential && \
     apt-get -qq clean -y && rm -rf /var/lib/apt/lists/*
 
-ARG TERRAFORM_VERSION=1.1.4
+ARG TOFU_VERSION=1.13.1
 ARG HELM_VERSION=3.7.1
 ARG GCLOUD_VERSION=499.0.0
 ARG KOMPOSE_VERSION=v1.38.0
@@ -23,11 +23,11 @@ ENV PATH="${PATH}:/google-cloud-sdk/bin:$HOME/.cargo/bin" \
 # others all use `linux-arm64` / `linux-amd64` directly.
 RUN GCLOUD_ARCH="$(case "$TARGETARCH" in amd64) echo x86 ;; arm64) echo arm ;; *) echo "unsupported TARGETARCH=$TARGETARCH" >&2; exit 1 ;; esac)" && \
     \
-    echo "Installing Terraform (${TARGETOS}/${TARGETARCH})" && \
-    wget -qO /terraform.zip \
-    "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_${TARGETOS}_${TARGETARCH}.zip" && \
-    unzip /terraform.zip -d /usr/local/bin && \
-    rm -f /terraform.zip && \
+    echo "Installing OpenTofu (${TARGETOS}/${TARGETARCH})" && \
+    wget -qO /tofu.zip \
+    "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_${TARGETOS}_${TARGETARCH}.zip" && \
+    unzip /tofu.zip tofu -d /usr/local/bin && \
+    rm -f /tofu.zip && \
     \
     echo "Installing Helm (${TARGETOS}/${TARGETARCH})" && \
     wget -qO /helm.tar.gz \
