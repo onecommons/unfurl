@@ -1,6 +1,16 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import TYPE_CHECKING, List, Optional, Tuple, Union, Dict, Any, cast
+from typing import (
+    TYPE_CHECKING,
+    Iterable,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    Dict,
+    Any,
+    cast,
+)
 from typing_extensions import Literal
 
 from ..planrequests import ConfigurationSpecKeywords
@@ -117,25 +127,60 @@ def mark_block(schema, items, task, sensitive_names):
                         mark_block(blockSchema["block"], value, task, sensitive_names)
 
 
+_provider_address_re = re.compile(r'provider\["([^"]+)"\]')
+_legacy_provider_address_re = re.compile(r"provider\.([\w-]+)")
+
+_public_registries = ("registry.terraform.io", "registry.opentofu.org")
+
+
+def find_provider_schema_key(
+    provider: str, schema_keys: Iterable[str]
+) -> Optional[str]:
+    """Return the key in ``schema_keys`` for the state's provider address ``provider``
+    (e.g. ``module.main.provider["registry.terraform.io/hashicorp/aws"].west``)."""
+    match = _provider_address_re.search(provider)
+    if not match:
+        match = _legacy_provider_address_re.search(provider)
+    if not match:
+        return None
+    source = match.group(1)
+    keys = set(schema_keys)
+    if source in keys:
+        return source
+    # the cached schema may come from the other binary (terraform or tofu),
+    # which keys providers by its own registry's hostname
+    host, _, name = source.partition("/")
+    if host in _public_registries:
+        for other_host in _public_registries:
+            if f"{other_host}/{name}" in keys:
+                return f"{other_host}/{name}"
+    return None
+
+
 def mark_sensitive(schemas, state, task, sensitive_names=()):
     for name, attrs in state["outputs"].items():
         value = attrs["value"]
         if attrs.get("sensitive") or name in sensitive_names:
             state["outputs"][name]["value"] = task.sensitive(value)
 
+    # without a vault password the state would be saved with the values redacted
+    if not task._manifest.yaml.representer.vault.secrets:
+        return state
+
     # XXX use sensitive_attributes to find attributes to mark sensitive
     for resource in state["resources"]:
         provider = resource["provider"]
         type = resource["type"]
-        providerSchema = schemas.get(provider) or schemas.get(
-            provider.lstrip("provider.")
-        )
-        if providerSchema:
-            schema = providerSchema["resource_schemas"].get(type)
+        schema_key = find_provider_schema_key(provider, schemas)
+        if schema_key:
+            schema = schemas[schema_key]["resource_schemas"].get(type)
             if schema:
-                mark_block(
-                    schema["block"], resource["instances"], task, sensitive_names
-                )
+                instance_attributes = [
+                    instance["attributes"]
+                    for instance in resource["instances"]
+                    if instance.get("attributes")
+                ]
+                mark_block(schema["block"], instance_attributes, task, sensitive_names)
             else:
                 task.logger.warning(
                     "resource type '%s' not found in terraform schema", type

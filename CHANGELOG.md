@@ -399,6 +399,7 @@ Enhancements to make connection more flexible and intuitive to use. See the [con
 * **runtime:** change identifier encoding so we don't have to worry about the leading character
 * **runtime:** after resolving a manifest path from a location in the config, look for a project in the same directory as the manifest.
 * **terraform:** improve check operation status heuristics
+* **terraform:** With ``stateLocation: artifacts``, resource attributes the provider schema marks sensitive (and attributes named like ``password`` or ``private_key``) are now encrypted in the saved state file when a vault password is configured; without one, the saved state is unchanged. Schema-based marking never ran before, so only outputs were encrypted.
 * **tosca:** fix get_artifact function when a container image name contains its registry.
 * **job:**: When searching for connection properties to add as env vars only  evaluate properties when needed.
 * **job:**: remove empty digest heuristic in during the reconfigure digest check.

@@ -1,7 +1,12 @@
+import logging
 import os
 import shutil
 import time
 import unittest
+from io import StringIO
+from types import SimpleNamespace
+
+import pytest
 
 from click.testing import CliRunner
 from ruamel.yaml import YAML
@@ -9,7 +14,9 @@ from ruamel.yaml import YAML
 from unfurl.job import JobOptions, Runner
 from unfurl.localenv import LocalEnv
 from unfurl.support import Status
-from unfurl.util import sensitive_str
+from unfurl.configurators.terraform import TerraformConfigurator, mark_sensitive
+from unfurl.util import sensitive, sensitive_str, wrap_sensitive_value
+from unfurl.yamlloader import make_vault_lib, make_yaml
 
 from .utils import lifecycle, MotoTest
 
@@ -623,3 +630,162 @@ class TerraformMotoTest(MotoTest):
                     ],
                 },
             )
+
+
+class _SensitiveTask:
+    sensitive = staticmethod(wrap_sensitive_value)
+    logger = logging.getLogger("unfurl.test_terraform")
+
+    def __init__(self, vault_password="vaultpass"):
+        self._manifest = SimpleNamespace(yaml=make_yaml(make_vault_lib(vault_password)))
+
+
+def _dump_state(task, state):
+    out = StringIO()
+    task._manifest.yaml.dump(state, out)
+    return out.getvalue()
+
+
+def _access_key_schema():
+    # aws_iam_access_key's schema, trimmed, plus a nested block
+    return {
+        "resource_schemas": {
+            "aws_iam_access_key": {
+                "version": 0,
+                "block": {
+                    "attributes": {
+                        "id": {"type": "string", "computed": True},
+                        "user": {"type": "string", "required": True},
+                        "secret": {
+                            "type": "string",
+                            "computed": True,
+                            "sensitive": True,
+                        },
+                    },
+                    "block_types": {
+                        "rotation": {
+                            "nesting_mode": "list",
+                            "block": {
+                                "attributes": {
+                                    "token": {"type": "string", "sensitive": True},
+                                    "days": {"type": "number"},
+                                }
+                            },
+                        }
+                    },
+                },
+            }
+        }
+    }
+
+
+def _access_key_state(provider):
+    return {
+        "version": 4,
+        "outputs": {},
+        "resources": [
+            {
+                "mode": "managed",
+                "type": "aws_iam_access_key",
+                "name": "key",
+                "provider": provider,
+                "instances": [
+                    {
+                        "schema_version": 0,
+                        "attributes": {
+                            "id": "AKIAEXAMPLE",
+                            "user": "deployer",
+                            "secret": "s3cr3t",
+                            "rotation": [{"token": "t0ken", "days": 30}],
+                        },
+                        "sensitive_attributes": [],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "provider,schema_key",
+    [
+        (
+            'provider["registry.terraform.io/hashicorp/aws"]',
+            "registry.terraform.io/hashicorp/aws",
+        ),
+        (
+            'provider["registry.terraform.io/hashicorp/aws"].west',
+            "registry.terraform.io/hashicorp/aws",
+        ),
+        (
+            'module.main.provider["registry.terraform.io/hashicorp/aws"]',
+            "registry.terraform.io/hashicorp/aws",
+        ),
+        (
+            'provider["registry.opentofu.org/hashicorp/aws"]',
+            "registry.opentofu.org/hashicorp/aws",
+        ),
+        # schema cached by terraform, state written by tofu
+        (
+            'provider["registry.opentofu.org/hashicorp/aws"].west',
+            "registry.terraform.io/hashicorp/aws",
+        ),
+    ],
+)
+def test_mark_sensitive_uses_provider_schema(provider, schema_key):
+    state = mark_sensitive(
+        {schema_key: _access_key_schema()},
+        _access_key_state(provider),
+        _SensitiveTask(),
+        TerraformConfigurator.sensitive_names,
+    )
+    attributes = state["resources"][0]["instances"][0]["attributes"]
+    assert isinstance(attributes["secret"], sensitive)
+    assert attributes["secret"] == "s3cr3t"
+    assert isinstance(attributes["rotation"][0]["token"], sensitive)
+    for name in ("id", "user"):
+        assert not isinstance(attributes[name], sensitive)
+    assert not isinstance(attributes["rotation"][0]["days"], sensitive)
+
+
+def test_mark_sensitive_saves_encrypted_state():
+    task = _SensitiveTask()
+    state = mark_sensitive(
+        {"registry.terraform.io/hashicorp/aws": _access_key_schema()},
+        _access_key_state('provider["registry.terraform.io/hashicorp/aws"]'),
+        task,
+    )
+    saved = _dump_state(task, state)
+    assert "s3cr3t" not in saved
+    assert "!vault" in saved
+
+
+def test_mark_sensitive_skips_resources_without_vault():
+    task = _SensitiveTask(vault_password="")
+    state = _access_key_state('provider["registry.terraform.io/hashicorp/aws"]')
+    state["outputs"] = {"secret": {"value": "out-s3cr3t", "sensitive": True}}
+    state = mark_sensitive(
+        {"registry.terraform.io/hashicorp/aws": _access_key_schema()},
+        state,
+        task,
+        TerraformConfigurator.sensitive_names,
+    )
+    attributes = state["resources"][0]["instances"][0]["attributes"]
+    assert not isinstance(attributes["secret"], sensitive)
+    assert not isinstance(attributes["rotation"][0]["token"], sensitive)
+    # outputs are still marked, as before
+    assert isinstance(state["outputs"]["secret"]["value"], sensitive)
+    saved = _dump_state(task, state["resources"])
+    assert "s3cr3t" in saved
+    assert "t0ken" in saved
+    assert sensitive_str.redacted_str not in saved
+
+
+def test_mark_sensitive_ignores_other_registries():
+    state = mark_sensitive(
+        {"registry.terraform.io/hashicorp/aws": _access_key_schema()},
+        _access_key_state('provider["example.com/hashicorp/aws"]'),
+        _SensitiveTask(),
+    )
+    attributes = state["resources"][0]["instances"][0]["attributes"]
+    assert not isinstance(attributes["secret"], sensitive)
