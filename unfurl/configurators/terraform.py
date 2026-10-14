@@ -4,7 +4,9 @@ from typing import (
     TYPE_CHECKING,
     Iterable,
     List,
+    Mapping,
     Optional,
+    Set,
     Tuple,
     Union,
     Dict,
@@ -16,6 +18,7 @@ from typing_extensions import Literal
 from ..planrequests import ConfigurationSpecKeywords
 from ..configurator import TaskView
 from ..spec import EntitySpec
+from ..logs import getLogger
 from ..util import UnfurlTaskError, which
 from .shell import ShellConfigurator, ShellInputs, clean_output, make_regex_filter
 from ..support import Status
@@ -25,8 +28,12 @@ import json
 import os
 import os.path
 import re
+import subprocess
 import tempfile
 import tosca
+
+# not task.logger, which demotes warnings while rendering
+logger = getLogger("unfurl")
 
 
 class TerraformInputs(ShellInputs):
@@ -38,27 +45,201 @@ class TerraformInputs(ShellInputs):
     dryrun_output: Union[None, str, Dict[str, Any]] = None
 
 
-def _default_plugin_cache_dir() -> Optional[str]:
-    """Plugin cache to use when ``TF_PLUGIN_CACHE_DIR`` isn't set in the
-    environment. Honors ``plugin_cache_dir`` in ``~/.terraformrc`` if present
-    (returns that path), otherwise falls back to terraform's conventional
-    ``~/.terraform.d/plugin-cache`` location."""
-    rcfile = os.path.expanduser("~/.terraformrc")
+Version = Tuple[int, int, int]
+TfCli = Tuple[Literal["tofu", "terraform"], Version]
+
+MIN_TOFU_VERSION: Version = (1, 6, 0)
+RECOMMENDED_TOFU_VERSION: Version = (1, 12, 0)
+# carries hashicorp/* lock entries over from a Terraform lock file
+TOFU_LOCK_SHIM_VERSION: Version = (1, 10, 0)
+TOFU_XDG_CONFIG_VERSION: Version = (1, 7, 0)
+MIN_TERRAFORM_VERSION: Version = (1, 1, 0)
+
+# by resolved path, None if its version couldn't be parsed
+_tf_cli_versions: Dict[str, Optional[TfCli]] = {}
+_tf_cli_warned: Set[str] = set()
+# (job id, instance key)
+_migration_warned: Set[Tuple[str, str]] = set()
+
+
+def _version_str(version: Version) -> str:
+    return ".".join(str(n) for n in version)
+
+
+def _tf_cli_version(path: str, env: Mapping[str, str]) -> Optional[TfCli]:
+    """Return the kind and version of the executable at ``path``, running ``<path> version`` once per path."""
+    if path not in _tf_cli_versions:
+        try:
+            output = subprocess.run(
+                [path, "version"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                # terraform otherwise asks checkpoint-api.hashicorp.com for the latest version
+                env={**env, "CHECKPOINT_DISABLE": "1"},
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            output = ""
+        match = re.match(r"\s*(OpenTofu|Terraform) v(\d+)\.(\d+)\.(\d+)", output)
+        _tf_cli_versions[path] = (
+            (
+                "tofu" if match[1] == "OpenTofu" else "terraform",
+                (int(match[2]), int(match[3]), int(match[4])),
+            )
+            if match
+            else None
+        )
+    return _tf_cli_versions[path]
+
+
+def _warn_once(path: str, msg: str, *args: object) -> None:
+    if path not in _tf_cli_warned:
+        _tf_cli_warned.add(path)
+        logger.warning(msg, *args)
+
+
+def _check_tf_cli(task: TaskView, command: str) -> Optional[TfCli]:
+    """Return the kind and version of ``command``, raising :class:`UnfurlTaskError` if it's too old."""
+    found = which(command, path=task.environ.get("PATH"))
+    if not found:
+        return None  # running it reports that it's missing
+    path = os.path.realpath(found)
+    cli = _tf_cli_version(path, task.environ)
+    if cli is None:
+        _warn_once(
+            path,
+            'Could not determine the version of "%s": Unfurl supports only OpenTofu %s or later',
+            found,
+            _version_str(MIN_TOFU_VERSION),
+        )
+        return None
+    kind, version = cli
+    if kind == "terraform":
+        if version < MIN_TERRAFORM_VERSION:
+            raise UnfurlTaskError(
+                task,
+                f"Terraform {_version_str(version)} at {found} is too old: the command input requires Terraform {_version_str(MIN_TERRAFORM_VERSION)} or later",
+            )
+        _warn_once(
+            path,
+            "Running HashiCorp Terraform %s (%s) via the `command` input. Unfurl supports only OpenTofu: "
+            "you're responsible for this deployment's state compatibility. Running Terraform on state OpenTofu has written "
+            "makes Terraform try to install the registry.opentofu.org providers it references (see the Unfurl upgrade notes).",
+            _version_str(version),
+            found,
+        )
+    elif version < MIN_TOFU_VERSION:
+        raise UnfurlTaskError(
+            task,
+            f"OpenTofu {_version_str(version)} at {found} is too old: Unfurl requires OpenTofu {_version_str(MIN_TOFU_VERSION)} or later "
+            f"({_version_str(RECOMMENDED_TOFU_VERSION)} or later recommended)",
+        )
+    elif version < RECOMMENDED_TOFU_VERSION:
+        lock_clause = (
+            ""
+            if version >= TOFU_LOCK_SHIM_VERSION
+            else " before 1.10: it doesn't carry locked hashicorp/* provider versions over from a Terraform lock file, "
+            "so they re-resolve to the newest matching version on migration;"
+        )
+        _warn_once(
+            path,
+            "OpenTofu %s at %s is older than 1.12: it checks `required_version` in .tf files against its own version, "
+            "so modules written for Terraform may be rejected;%s and it no longer receives upstream security fixes. "
+            "Upgrade to 1.12 or later.",
+            _version_str(version),
+            found,
+            lock_clause,
+        )
+    return cli
+
+
+_TERRAFORM_REGISTRY = "registry.terraform.io/"
+
+
+def _needs_migration(state: Optional[Mapping[str, Any]], lock_file: str) -> bool:
+    """Return whether the state, or if it has no resources the lock file, has Terraform registry provider addresses."""
+    resources = state.get("resources") if state else None
+    if resources:
+        return any(
+            _TERRAFORM_REGISTRY in str(resource.get("provider", ""))
+            for resource in resources
+        )
+    return any(
+        address.startswith(_TERRAFORM_REGISTRY)
+        for address in _locked_providers(lock_file)
+    )
+
+
+def _cli_config_files(env: Mapping[str, str], cli: Optional[TfCli]) -> List[str]:
+    """Return the CLI config files ``cli`` reads, in order of precedence."""
+    override = env.get("TF_CLI_CONFIG_FILE") or env.get("TERRAFORM_CONFIG")
+    if override:
+        return [override]  # the config directory isn't read either
+    home = env.get("HOME") or os.path.expanduser("~")
+    tofurc = os.path.join(home, ".tofurc")
+    terraformrc = os.path.join(home, ".terraformrc")
+    config_dir = os.path.join(home, ".terraform.d")
+    xdg_config = None
+    if cli and cli[0] == "terraform":
+        main = terraformrc
+    else:
+        if cli and cli[1] >= TOFU_XDG_CONFIG_VERSION:
+            xdg_config = env.get("XDG_CONFIG_HOME")
+        if xdg_config and not os.path.exists(terraformrc) and not os.path.exists(tofurc):
+            main = os.path.join(xdg_config, "opentofu", "tofurc")
+        elif os.path.exists(terraformrc) and not os.path.exists(tofurc):
+            main = terraformrc
+        else:
+            main = tofurc
+        if xdg_config and not os.path.exists(config_dir):
+            config_dir = os.path.join(xdg_config, "opentofu")
+    try:
+        names = sorted(os.listdir(config_dir))
+    except OSError:
+        names = []
+    return [main] + [
+        os.path.join(config_dir, name)
+        for name in names
+        if name.endswith(".tfrc") or name.endswith(".tfrc.json")
+    ]
+
+
+def _read_plugin_cache_dir(rcfile: str) -> Optional[str]:
+    """Return the ``plugin_cache_dir`` set in the CLI config file ``rcfile``, if any."""
     try:
         with open(rcfile) as f:
-            m = re.search(
-                r'^\s*plugin_cache_dir\s*=\s*"([^"]*)"',
-                f.read(),
-                re.MULTILINE,
-            )
-        if m:
-            return os.path.expanduser(m.group(1)) if m.group(1) else None
+            contents = f.read()
     except OSError:
-        pass
+        return None
+    if rcfile.endswith(".json"):
+        try:
+            config = json.loads(contents)
+        except ValueError:
+            return None
+        value = config.get("plugin_cache_dir") if isinstance(config, dict) else None
+        return value if isinstance(value, str) else None
+    m = re.search(r'^\s*plugin_cache_dir\s*=\s*"([^"]*)"', contents, re.MULTILINE)
+    return m.group(1) if m else None
+
+
+def _default_plugin_cache_dir(
+    env: Mapping[str, str], cli: Optional[TfCli] = None
+) -> Optional[str]:
+    """Return the ``plugin_cache_dir`` that ``cli``'s CLI config sets, None if it's
+    set to "", otherwise ``~/.terraform.d/plugin-cache``."""
+    for rcfile in _cli_config_files(env, cli):
+        cache_dir = _read_plugin_cache_dir(rcfile)
+        if cache_dir:
+            return os.path.expanduser(os.path.expandvars(cache_dir))
+        if cache_dir == "":
+            # opts out of unfurl's default
+            return None
     return os.path.expanduser("~/.terraform.d/plugin-cache")
 
 
-def _get_env(env: Dict[str, str], verbose: int, dataDir: str) -> Dict[str, str]:
+def _get_env(
+    env: Dict[str, str], verbose: int, dataDir: str, cli: Optional[TfCli] = None
+) -> Dict[str, str]:
     env["TF_IN_AUTOMATION"] = "1"
     env["TF_INPUT"] = "0"
     # see https://www.terraform.io/plugin/log/managing
@@ -72,9 +253,9 @@ def _get_env(env: Dict[str, str], verbose: int, dataDir: str) -> Dict[str, str]:
     env["TF_DATA_DIR"] = dataDir
     # Auto-populate TF_PLUGIN_CACHE_DIR so concurrent terraform tasks share
     # a provider cache (and unfurl knows to serialize init on it). Honors
-    # an existing env var or ``~/.terraformrc`` setting first.
+    # an existing env var or CLI config file setting first.
     if not env.get("TF_PLUGIN_CACHE_DIR"):
-        default = _default_plugin_cache_dir()
+        default = _default_plugin_cache_dir(env, cli)
         if default:
             env["TF_PLUGIN_CACHE_DIR"] = default
     # When TF_PLUGIN_CACHE_DIR is set, terraform >=1.4 refuses by default to
@@ -283,11 +464,11 @@ def generate_main(relpath, tfvars, outputs):
 
 
 def _needs_init(msg):
-    return re.search(r"terraform\W+init", msg)
+    return re.search(r"(terraform|tofu)\W+init", msg)
 
 
 class TerraformConfigurator(ShellConfigurator):
-    _default_cmd = "terraform"
+    _default_cmd = "tofu"
     attribute_output_metadata_key = "tfoutput"
 
     # provider schemas don't always mark keys as sensitive that they should, so just in case:
@@ -303,8 +484,8 @@ class TerraformConfigurator(ShellConfigurator):
     def set_config_spec_args(
         cls, kw: ConfigurationSpecKeywords, template: EntitySpec
     ) -> ConfigurationSpecKeywords:
-        if not which("terraform"):
-            artifact = template.find_or_create_artifact("terraform", predefined=True)
+        if not (kw.get("inputs") or {}).get("command") and not which(cls._default_cmd):
+            artifact = template.find_or_create_artifact("opentofu", predefined=True)
             if artifact:
                 kw.setdefault("dependencies", []).append(artifact)
         # add_path_transform(kw, "main", template)
@@ -325,8 +506,8 @@ class TerraformConfigurator(ShellConfigurator):
         folder: WorkFolder,
         env: Dict[str, str],
     ) -> bool:
-        """Run ``terraform init`` in ``folder``. Persists the resulting
-        ``.terraform.lock.hcl`` to the task's artifact folder so subsequent
+        """Run ``terraform init`` in ``folder``. Unless it's a dry run, persists the
+        resulting ``.terraform.lock.hcl`` to the task's artifact folder so subsequent
         runs reuse the same provider selections. Returns True on success."""
         cwd = folder.cwd
         lock_file = task.set_work_folder(Folders.artifacts).permanent_path(
@@ -343,7 +524,9 @@ class TerraformConfigurator(ShellConfigurator):
         if not self._handle_result(task, result, cwd, env=env):
             return False
 
-        if os.path.exists(folder.get_current_path(".terraform.lock.hcl", False)):
+        if not task.dry_run and os.path.exists(
+            folder.get_current_path(".terraform.lock.hcl", False)
+        ):
             folder.copy_to(lock_file)
         return True
 
@@ -494,16 +677,20 @@ class TerraformConfigurator(ShellConfigurator):
             task.inputs.get("stateLocation") or Folders.secrets
         )  # XXX global option for secrets
 
-    def _prepare_state(self, task: TaskView, cwd):
+    def _prepare_state(
+        self, task: TaskView, cwd
+    ) -> Tuple[str, Optional[Mapping[str, Any]]]:
+        """Write the instance's saved state to ``cwd`` and return its file name and contents."""
         # the terraform state file is associate with the current instance
         # read the (possible encrypted) version from the repository
         # and write out it as plaintext json into the local directory
         folderName = self._get_workfolder_name(task)
         if folderName == "remote":  # don't use local state file
-            return ""
+            return "", None
         yamlPath = task.set_work_folder(folderName).permanent_path(
             "terraform.tfstate.yaml", False
         )
+        state = None
         if os.path.exists(yamlPath):
             task.logger.debug("Found existing terraform.tfstate file at %s", yamlPath)
             # if exists in home, load and write out state file as json
@@ -512,7 +699,40 @@ class TerraformConfigurator(ShellConfigurator):
             cwd.write_file(state, "terraform.tfstate")
         else:
             task.logger.debug("Couldn't find terraform.tfstate file at %s", yamlPath)
-        return "terraform.tfstate"
+        return "terraform.tfstate", state
+
+    def _warn_migration(
+        self, task: TaskView, state: Optional[Mapping[str, Any]], remote: bool
+    ) -> None:
+        """Warn, once per instance per job, that this run migrates the instance's state to OpenTofu."""
+        key = (task.job.changeId if task.job else "", task.target.key)
+        if key in _migration_warned:
+            return
+        lock_file = task.set_work_folder(Folders.artifacts).permanent_path(
+            ".terraform.lock.hcl", False
+        )
+        if not _needs_migration(state, lock_file):
+            return
+        _migration_warned.add(key)
+        if remote:
+            undo = (
+                "Unfurl doesn't hold this state, so it can't be reverted with git. "
+                "Back it up first (e.g. `terraform state pull > backup.tfstate`) if you may need to go back."
+            )
+        else:
+            undo = (
+                "To undo before any infrastructure changes, `git revert` the commit that updates terraform.tfstate.yaml "
+                "and .terraform.lock.hcl. If infrastructure has changed since, run "
+                "`terraform state replace-provider registry.opentofu.org/<ns>/<type> registry.terraform.io/<ns>/<type>` "
+                "for each provider."
+            )
+        logger.warning(
+            "This run migrates %s from Terraform to OpenTofu. OpenTofu rewrites the provider addresses in its "
+            "Terraform state and lock file (registry.terraform.io → registry.opentofu.org) when it next applies, "
+            "and older Unfurl versions can't run the migrated deployment reliably (see the upgrade notes). %s",
+            task.target.name,
+            undo,
+        )
 
     def _get_plan_path(self, task, cwd: WorkFolder):
         # the terraform state file is associate with the current instance
@@ -533,10 +753,14 @@ class TerraformConfigurator(ShellConfigurator):
             task.inputs.get("command", self._default_cmd), task.inputs.get("keeplines")
         )
 
+        cli = _check_tf_cli(task, terraformcmd[0])
+
         # write out any needed files to cwd, eg. main.tf.json
         mainpath, varfilePath = self._prepare_workspace(task, cwd)
         # write the state file to local if necessary
-        statePath = self._prepare_state(task, cwd)
+        statePath, state = self._prepare_state(task, cwd)
+        if cli and cli[0] == "tofu":
+            self._warn_migration(task, state, not statePath)
 
         planPath = self._get_plan_path(task, cwd)
         # build the command line and run it
@@ -575,7 +799,7 @@ class TerraformConfigurator(ShellConfigurator):
         if varfilePath:
             cmd.append("-var-file=" + varfilePath)
 
-        return [cmd, terraformcmd, statePath]
+        return [cmd, terraformcmd, statePath, cli]
 
     def _ensure_provider_schema(
         self,
@@ -692,12 +916,12 @@ class TerraformConfigurator(ShellConfigurator):
 
     def run(self, task: TaskView):
         cwd = task.get_work_folder(Folders.tasks)
-        cmd, terraform, statePath = task.rendered
+        cmd, terraform, statePath, cli = task.rendered
         # Per-task TF_DATA_DIR isolates each task's .terraform/ so per-cwd
         # init state (modules, backend, lock.hcl) cannot collide across tasks.
         dataDir = os.path.join(cwd.cwd, ".terraform")
-        env = _get_env(task.environ, task.verbose, dataDir)
-        # Shared TF_PLUGIN_CACHE_DIR (set explicitly, via ~/.terraformrc, or
+        env = _get_env(task.environ, task.verbose, dataDir, cli)
+        # Shared TF_PLUGIN_CACHE_DIR (set explicitly, via the CLI config file, or
         # to the default location by _get_env) caches provider binaries
         # across tasks: cold init writes there, warm init just symlinks into
         # the per-cwd .terraform/. We serialize init invocations on the

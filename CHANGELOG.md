@@ -327,6 +327,8 @@ Enhancements to make connection more flexible and intuitive to use. See the [con
 
 ### Notable Bug Fixes
 
+* **terraform:** Retrying after a "run init" error, and the plugin-cache lookup, now work with OpenTofu.
+* **terraform:** A dry run no longer saves the lock file that ``init`` updated.
 * **runtime:** jinja2 template processing fixes:
 
     * Ignore wantList context setting (because the result will be part of a string)
@@ -415,6 +417,14 @@ Enhancements to make connection more flexible and intuitive to use. See the [con
   - A container's ``user`` and ``read_only`` settings now produce a ``securityContext``.
   - ``networks`` no longer produce a ``NetworkPolicy``.
   - The docker-compose file generated from ``container`` no longer has a ``version`` key.
+* **The Terraform configurator now runs OpenTofu.**
+  - The configurator runs `tofu`, and installs OpenTofu 1.13.1 with asdf if it isn't found. HashiCorp Terraform is no longer installed or supported.
+  - Each existing deployment migrates on its next run: OpenTofu rewrites the provider addresses in its Terraform state and lock file (`registry.terraform.io` → `registry.opentofu.org`), and Unfurl warns before this happens. To undo, `git revert` the updated state and lock if no infrastructure changed, or run `terraform state replace-provider`. Remote state can't be reverted with git.
+  - Upgrade every Unfurl installation that works on an ensemble before deploying it with this release: older releases run Terraform 1.1.4, which can't run migrated deployments reliably.
+  - Requires OpenTofu 1.6 or later (1.12 or later recommended; 1.6–1.11 log a warning).
+  - The `command` input can still name another executable, such as `terraform`, but that is unsupported and you're responsible for state compatibility.
+  - The Docker image ships `tofu` instead of `terraform`.
+  - Type, input and configurator names are unchanged.
 
 ## v1.2.0 - 2024-11-22
 

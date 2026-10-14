@@ -1,20 +1,29 @@
-# This file is maintained automatically by "terraform init".
+# This file is maintained automatically by "tofu init".
 # Manual edits may be lost in future updates.
 
-provider "registry.terraform.io/hashicorp/aws" {
-  version = "3.74.0"
+provider "registry.opentofu.org/hashicorp/aws" {
+  version     = "4.17.1"
+  constraints = "~> 4.17.1"
   hashes = [
-    "h1:y9b9LluBQGrZHURGY1Xmrhb+zQ6qRit3oqFSLijkGe0=",
-    "zh:00767509c13c0d1c7ad6af702c6942e6572aa6d529b40a00baacc0e73faafea2",
-    "zh:03aafdc903ad49c2eda03889f927f44212674c50e475a9c6298850381319eec2",
-    "zh:2de8a6a97b180f909d652f215125aa4683e99db15fcf3b28d62e3d542f875ed6",
-    "zh:3ac29ebc3af99028f4230a79f56606a0c2954b68767bd749b921a76eb4f3bd30",
-    "zh:50add2e2d118a15a644360eabc5a34cec59f2560b491f8fabf9c52ab83ca7b09",
-    "zh:85dd8e81910ab79f841a4a595fdd8ac358fbfe460956144afb0be3d81f91fe10",
-    "zh:895de83d0f0941fde31bfc53fa6b1ea276901f006bec221bbdee4771a04f3693",
-    "zh:a15c9724aac52d1ba5001d2d83e42843099b52b1638ea29d84e20be0f45fa4f1",
-    "zh:c982a64463bd73e9bff2589de214b1de0a571438d9015001f9eae45cfc3a2559",
-    "zh:e9ef973c18078324e43213ea1252c12b9441e566bf054ddfdbff5dd62f3035d9",
-    "zh:f297e705b0f339c8baa27ae70db5df9aa6578adfe1ea3d2ba8edc186512464eb",
+    "h1:86g9lgrE1AX5E3ScB4ypu9/ycuT2XXH76n6kVXi6SgI=",
+    "h1:9Tx9esiYscuYzmWFm0IubG9SjYl93YSV6xOj9e6UwQk=",
+    "h1:JXFb6Lb9mrQbxUfb1Ya8eurPymEP0UGJV11rfHkKGo8=",
+    "h1:T/ASYaqLrnZvDqCUeyVah2jQQB4O6UBRB1b7Nu/gu5M=",
+    "h1:VvM4s1klB4BaMHmR1NkrahduqUn8KPw0l8VFCe5rCPU=",
+    "h1:W5DGOl5TR9eEJIQhfu5RnOWMM9O7pl3kgXcV9a8rVWE=",
+    "h1:dz+zGh73FRouTaMMIYyWqtwhxM9kughy3aJx1hhaNWA=",
+    "h1:fqW/mZ4bEl05SWOaVdEA7TXMh1+N4+0skGZjfi5cgEc=",
+    "h1:hHTrHwpb8BDIyJeSBg5BL1X0Ps0RI197ofSV39AIofw=",
+    "h1:q/pRCh0zjD8ndjx3gixETXQ033dZi51GoGxxkIjOlQg=",
+    "zh:1dd108f6e0ce6b009caeb51a53bd1c3513d2acddb9567354d2336796a25abe69",
+    "zh:4c9228a518c4d1e7923cb9cee6e492b6e916a97968bec4c68f54276a15d8f8af",
+    "zh:52b0292a29e0b70975d4485924f9dfd548d1bd94fcb84a4b9696627800f3bc8f",
+    "zh:57b353986551f3710318d64876838ce1ee41fc4489f2910ea5c394c62b37d990",
+    "zh:a1b8051881561ddd8d33233e71cf342a3da19bfb9ddbe5dad9ef6cc2bbbcb6ad",
+    "zh:ace181732c53763bcfe3dce933c3229a9a38cc45c35afd040f402be913e6f562",
+    "zh:afa311a6977f9f82bd30a9cf0650a9ca656807dfcc15335adc42dfd3faeb4558",
+    "zh:bdbac99206c12137acb1a7f6b74142ce8d33aaf8394c749ca15bd64967065e99",
+    "zh:d9102d617bfbc115d3af2399791bf97ea6ca04f665cfce950e655347cfb1dbf3",
+    "zh:e8398e1d71b3840b482c5efec8602bd88166a976f84cab530933d798c0898e96",
   ]
 }

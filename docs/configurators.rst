@@ -338,7 +338,7 @@ Inputs
   :stop_grace_period: (*Default: 5*) Seconds (may be fractional, e.g. 0.5) to wait for the command to exit
                       after SIGTERM. When the command times out, or the job is cancelled or interrupted,
                       Unfurl sends it SIGTERM, then SIGKILL if it's still running after this period.
-                      This lets commands like ``terraform`` stop their own child processes. Set to 0 to send SIGKILL immediately.
+                      This lets commands like ``tofu`` stop their own child processes. Set to 0 to send SIGKILL immediately.
                       A command can therefore run for up to ``timeout`` plus this period.
                       With ``shell: true`` (the default if ``command`` is a string), SIGTERM is sent to the shell:
                       a single command is usually run in place of the shell so it receives the signal,
@@ -394,7 +394,9 @@ Terraform
 
 The Terraform configurator will be invoked on any `node template` with the type :ref:`unfurl.nodes.Installer.Terraform<unfurl_types>`.
 It can also be used to implement any operation regardless of the node type by setting the ``implementation`` to ``Terraform``.
-It will invoke the appropriate terraform command (e.g "apply" or "destroy") based on the job's workflow.
+It runs `OpenTofu <https://opentofu.org>`_ (``tofu``), invoking the appropriate command (e.g "apply" or "destroy") based on the job's workflow.
+If ``tofu`` isn't found, Unfurl installs OpenTofu 1.13.1 with asdf.
+Unfurl requires OpenTofu 1.6 or later; 1.12 or later is recommended (see `Migrating from Terraform`_).
 
 Unless you set the ``stateLocation`` input parameter to "remote", the Terraform configurator manages the Terraform state file itself
 and commits it to the ensemble's repository so you don't use Terraform's remote state -- it will be self-contained and sharable like the rest of the Ensemble.
@@ -423,7 +425,9 @@ Inputs
   :stateLocation: If set to "secrets" (the default) the Terraform state file will be encrypted and saved into the instance's "secrets" folder.
                   If set to "artifacts", it will be saved in the instance's "artifacts" folder with only sensitive values encrypted inline.
                   If set to "remote", Unfurl will not manage the Terraform state at all.
-  :command: Path to the ``terraform`` executable. Default: "terraform"
+  :command: The executable to run instead of ``tofu``. Unfurl supports only OpenTofu. Setting this to HashiCorp Terraform (or anything else) is not supported,
+            and you're responsible for keeping the deployment's Terraform state compatible with the tool you choose.
+            Unfurl won't install it, and it doesn't stop a deployment that OpenTofu has already migrated from being run by Terraform, or the reverse.
   :dryrun_mode: How to run during a dry run job. If set to "plan" just generate the Terraform plan. If set to "real", run the task without any dry run logic. Default: "plan"
   :dryrun_outputs: During a dry run job, this map of outputs will be used simulate the task's outputs (otherwise outputs will be empty).
   :resultTemplate: A Jinja2 template or runtime expression that is processed with the Terraform state JSON file as its variables as well as the `resultTemplate` variables documented above for `Shell`.
@@ -451,6 +455,39 @@ Environment Variables
 ---------------------
 
 If the ``TF_DATA_DIR`` environment variable is not defined it will be set to ``.terraform`` relative to the current working directory.
+
+If ``TF_PLUGIN_CACHE_DIR`` is not defined it will be set to the ``plugin_cache_dir`` in OpenTofu's `CLI configuration <https://opentofu.org/docs/cli/config/config-file/>`_,
+found the way OpenTofu finds it, or else to ``~/.terraform.d/plugin-cache``. Setting ``plugin_cache_dir = ""`` there leaves it unset.
+
+Migrating from Terraform
+------------------------
+
+Earlier Unfurl releases ran HashiCorp Terraform 1.1.4. Each existing deployment migrates to OpenTofu the next time it's deployed:
+
+- OpenTofu rewrites the provider addresses in the deployment's Terraform state and lock file from ``registry.terraform.io`` to ``registry.opentofu.org`` the first time it applies or destroys.
+  For a deployment whose state Unfurl manages (``stateLocation`` "secrets" or "artifacts"), the updated ``terraform.tfstate.yaml`` and ``.terraform.lock.hcl`` are committed to the ensemble's repository.
+- Until then, every plan, dry run and deployment logs a warning that the run migrates the deployment.
+- OpenTofu 1.10 and later keep the provider versions locked for ``hashicorp/*`` providers. Other providers, and every provider with OpenTofu before 1.10, resolve again to the newest version their constraints allow, so check the first plan for changes.
+
+**Upgrade every Unfurl installation that works on an ensemble** (CI runners, teammates, Unfurl Cloud) before deploying it with this release.
+Older releases run Terraform 1.1.4, which can't run a migrated deployment reliably: Terraform tries to download the ``registry.opentofu.org`` providers the migrated state references and may fail, or rewrite the addresses back.
+
+To revert a migration:
+
+- If no infrastructure has changed since, ``git revert`` the commit that updated ``terraform.tfstate.yaml`` and ``.terraform.lock.hcl``.
+- Otherwise, run ``terraform state replace-provider registry.opentofu.org/<namespace>/<type> registry.terraform.io/<namespace>/<type>`` for each provider.
+- With ``stateLocation: remote``, Unfurl doesn't hold the state, so it can't be reverted with git. Back it up first (e.g. ``terraform state pull > backup.tfstate``) if you may need to go back.
+
+OpenTofu versions:
+
+- OpenTofu before 1.6 is rejected.
+- Before 1.12, OpenTofu checks ``required_version`` in ``.tf`` files against its own version, so modules written for Terraform may be rejected. From 1.12 it checks ``required_version`` only in ``.tofu`` files.
+  To constrain the OpenTofu version, put ``language { compatible_with { opentofu = ">= 1.12" } }`` in a file such as ``versions.tofu``, which Terraform ignores.
+- Before 1.10, OpenTofu doesn't carry locked ``hashicorp/*`` provider versions over from a Terraform lock file.
+- 1.6 to 1.11 no longer receive upstream security fixes.
+
+Earlier releases installed Terraform with asdf and added a ``terraform 1.1.4`` line to the project's ``.tool-versions``.
+That line keeps Terraform on the ``PATH`` for the ``command`` input; you can delete it once no deployment needs it.
 
 Note on HCL in YAML
 -------------------

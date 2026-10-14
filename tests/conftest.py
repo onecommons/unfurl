@@ -1,4 +1,4 @@
-"""Kill processes the tests leaked, e.g. terraform and its provider plugins, when the session ends."""
+"""Kill processes the tests leaked, e.g. tofu and its provider plugins, when the session ends."""
 
 import os
 import sys
@@ -13,7 +13,7 @@ except ImportError:
     psutil = None
 
 SESSION_ENV_VAR = "UNFURL_TEST_SESSION_ID"
-LEAKABLE_PREFIXES = ("terraform", "kompose")  # includes terraform-provider-*
+LEAKABLE_PREFIXES = ("terraform", "tofu", "kompose")  # includes terraform-provider-*
 
 
 def pytest_configure(config: pytest.Config) -> None:

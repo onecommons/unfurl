@@ -141,11 +141,11 @@ configurator_artifacts: Node = unfurl.nodes.LocalRepository(
 )
 setattr(
     configurator_artifacts,
-    "terraform",
+    "opentofu",
     artifact_AsdfTool(
-        "terraform",
-        file="terraform",
-        version="1.1.4",
+        "opentofu",
+        file="opentofu",
+        version="1.13.1",
     ),
 )
 setattr(

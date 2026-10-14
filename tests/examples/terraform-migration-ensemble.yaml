@@ -1,0 +1,23 @@
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    imports:
+      - repository: unfurl
+        file: tosca_plugins/artifacts.yaml
+
+    topology_template:
+      node_templates:
+        migrate-node:
+          type: unfurl.nodes.Installer.Terraform
+          interfaces:
+            defaults:
+              outputs:
+                test_output:
+              inputs:
+                main: { get_env: terraform_dir }
+                tfvars:
+                  tag: migrate
+            Standard:
+              operations:
+                configure:

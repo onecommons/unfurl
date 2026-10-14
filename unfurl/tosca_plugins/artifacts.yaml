@@ -136,11 +136,11 @@ topology_template:
       directives:
         - default # we need this so that this node template is imported
       artifacts:
-        terraform:
+        opentofu:
           type: artifact.AsdfTool
-          file: terraform
+          file: opentofu
           properties:
-            version: 1.1.4
+            version: 1.13.1
 
         rclone:
           type: artifact.AsdfTool
