@@ -51,6 +51,7 @@ from ..merge import merge_dicts
 from ..projectpaths import Folders
 from ..support import ContainerImage
 from ..runtime import EntityInstance
+from ..logs import getLogger
 import os
 import os.path
 import re
@@ -76,6 +77,9 @@ KOMPOSE_ARG_VAR = re.compile(r"\$\(([a-zA-Z0-9]*)\)")
 MIN_KOMPOSE_VERSION = (1, 28, 0)
 # by resolved path, None if its version couldn't be parsed
 _kompose_versions: Dict[str, Optional[Tuple[int, int, int]]] = {}
+
+# not task.logger, which demotes warnings while rendering
+logger = getLogger("unfurl")
 
 if TYPE_CHECKING:
     from .templates.docker import unfurl_datatypes_DockerContainer
@@ -200,7 +204,7 @@ def _check_kompose_version(task: TaskView, command: str) -> None:
     version = _kompose_version(os.path.realpath(path))
     required = ".".join(str(n) for n in MIN_KOMPOSE_VERSION)
     if version is None:
-        task.logger.warning(
+        logger.warning(
             'Could not determine the version of kompose at "%s": Unfurl requires kompose %s or later',
             path,
             required,

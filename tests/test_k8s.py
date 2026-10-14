@@ -1,3 +1,4 @@
+import logging
 import os
 import os.path
 import re
@@ -636,7 +637,11 @@ def test_kompose_unknown_version(kompose_stub, monkeypatch, caplog):
     monkeypatch.setenv("KOMPOSE_STUB_VERSION", "dev build")
     tasks, errors = _render_kompose(KOMPOSE_INIT)
     assert tasks and not errors
-    assert "Could not determine the version of kompose" in caplog.text
+    assert any(
+        "Could not determine the version of kompose" in r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+    )
     assert _stub_calls(kompose_stub) == ["version", "convert"]
 
 
