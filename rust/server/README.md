@@ -141,8 +141,8 @@ pull pushes again.
 | The push | Done | `/events` reports |
 |---|---|---|
 | is taken | the branch head recorded, as python records it | `pushed` |
-| finds the remote's branch moved on, and it merges cleanly | merged in memory (`git merge-tree`), the merge committed and checked out, and pushed | `pushed` |
-| finds it moved on and conflicting, or is rejected (a protected branch, a hook) | a worktree of a new branch, `git-sync/diverted-<commit>`, forked at the commit the database has, so its records stay readable by id; the commits pushed to it, for a developer to merge; and the checkout reset to its remote and rescanned. The fork is only a convenience: one that fails doesn't stop the divert | `diverted` |
+| finds the remote's branch moved on | merged: in memory by `git merge-tree`, and record by record where it can't be (git-sync's `merge_upstream`); the merge committed, checked out, pushed and rescanned. A record both sides changed takes the remote's value, and the checkout's is held in the database as a pending edit in conflict with it, to resolve as any other | `pushed`, or `conflicted` for a commit that wrote a record held |
+| finds it moved on and can't merge it even record by record (a change that isn't a record's in a file git couldn't merge, a file added on both sides, a record moved, a conflict already at a record both changed...), or is rejected (a protected branch, a hook) | a worktree of a new branch, `git-sync/diverted-<commit>`, forked at the commit the database has, so its records stay readable by id; the commits pushed to it, for a developer to merge; and the checkout reset to its remote and rescanned. The fork is only a convenience: one that fails doesn't stop the divert | `diverted` |
 | is rejected on that new branch too | the fork deleted, and the commits kept on a local branch, `git-sync/refused-<commit>`, never pushed, and the checkout reset to its remote and rescanned | `refused` |
 | has its credentials refused | tried again with a grant; no grant is forgotten, as one may still read | nothing yet |
 | can't reach the remote | tried again with the same credentials | nothing yet |
@@ -152,9 +152,12 @@ pull pushes again.
 Since the gateway lets only a project's developers write, a refusal of
 credentials means they were revoked within its TTL: another developer's
 grant may push the write. Records the database has staged survive a
-reset: the rescan keeps them, to commit onto the remote's branch. Merging
-needs git 2.38 or later (`merge-tree --write-tree`); with an older one,
-every push the remote moved on from is diverted, with a warning. A diverted commit's records leave the branch's view until
+reset: the rescan keeps them, to commit onto the remote's branch. A file
+merged record by record is the remote's text with the checkout's record
+values, so comments and layout the checkout changed in it are dropped.
+Merging needs git 2.38 or later (`merge-tree --write-tree`); with an
+older one, every push the remote moved on from is diverted, with a
+warning. A diverted commit's records leave the branch's view until
 its branch is merged; the merge comes in with the next pull. What came of
 a commit's push is kept in Redis, `<prefix>push:<project>:<branch>:<commit>`,
 and a `/events` branch watch on that commit reports it once the push is
@@ -167,8 +170,8 @@ built yet; so does one a retried divert forked before it was refused,
 which only the call that made it deletes. A `git-sync/refused-<commit>` branch stays in the clone, which
 python then keeps as holding unpushed work, until an operator recovers
 its commits and deletes it (`git branch -D`). This is the "Pushing" of git-sync's design
-(§4.15), but for its in-database rebase: a clean merge in git stands in
-for it, and what doesn't merge is diverted. It's done here, not in
+(§4.15), with its merge (C.22) in place of its in-database rebase (C.21),
+so no commit is rewritten; what doesn't merge is diverted. It's done here, not in
 git-sync, since gix can't push and the server holds the credentials.
 
 **Creating the Postgres database:** `unfurl-server create-database`

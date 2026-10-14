@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use redis::AsyncCommands;
 use unfurl_git_sync::git::Trust;
-use unfurl_git_sync::{ScanOptions, SyncOutcome, SyncedRepo};
+use unfurl_git_sync::{HeldRecord, ScanOptions, SyncOutcome, SyncedRepo};
 
 use crate::cache;
 use crate::clone::{self, RefreshError, RequestAccess};
@@ -341,6 +341,7 @@ impl Freshener {
             branch: &tracked.branch,
             credentials: credentials.as_ref(),
             trust: self.settings.trust,
+            sync: handle,
         };
         let pushed = match crate::push::push(&push).await {
             Ok((crate::push::Pushed::MustDivert { head }, commits)) => {
@@ -441,7 +442,7 @@ impl Freshener {
         };
         let mut outcome = serde_json::json!({"status": status});
         match pushed {
-            Pushed::Pushed { head } | Pushed::Merged { head } => {
+            Pushed::Pushed { head } | Pushed::Merged { head, .. } => {
                 let prefix = &self.settings.cache_key_prefix;
                 let key = crate::config::head_key(prefix, &tracked.project, &tracked.branch);
                 self.records.put(&key, head, self.settings.record_ttl).await;
@@ -458,7 +459,17 @@ impl Freshener {
         if !matches!(pushed, Pushed::Pushed { .. } | Pushed::MustDivert { .. }) {
             self.rescan(handle).await;
         }
-        self.record_push(tracked, commits, &outcome).await;
+        let held = match pushed {
+            Pushed::Merged { held, .. } => wrote_held(handle, self.settings.trust, commits, held),
+            _ => Vec::new(),
+        };
+        let (conflicted, rest): (Vec<String>, Vec<String>) =
+            commits.iter().cloned().partition(|c| held.contains(c));
+        self.record_push(tracked, &rest, &outcome).await;
+        if !conflicted.is_empty() {
+            outcome["status"] = "conflicted".into();
+            self.record_push(tracked, &conflicted, &outcome).await;
+        }
     }
 
     /// Record `outcome` as what became of pushing each of `commits`.
@@ -723,6 +734,39 @@ fn backoff(interval: u64, failures: u32) -> std::time::Duration {
     let base = std::time::Duration::from_secs(interval).max(RETRY_DELAY);
     let doubled = base.saturating_mul(1 << failures.saturating_sub(1).min(16));
     doubled.min(RETRY_MAX)
+}
+
+/// Those of `commits` whose rollup names a record of `held`. A commit
+/// without one, which git-sync didn't make, isn't watched.
+fn wrote_held(
+    handle: &SyncedRepo,
+    trust: Trust,
+    commits: &[String],
+    held: &[HeldRecord],
+) -> Vec<String> {
+    if held.is_empty() {
+        return Vec::new();
+    }
+    let path = handle.repo_path();
+    let repo = match unfurl_git_sync::git::Opener::new(path, trust).and_then(|o| o.open(path)) {
+        Ok(repo) => repo,
+        Err(e) => {
+            tracing::warn!(error = %e, "can't read which pushed commits wrote a held record");
+            return Vec::new();
+        }
+    };
+    let wrote = |c: &String| {
+        let rollup = c
+            .parse()
+            .ok()
+            .and_then(|c| unfurl_git_sync::git::commit_message(&repo, c))
+            .and_then(|m| unfurl_git_sync::parse_commit_rollup(&m).ok().flatten());
+        rollup.is_some_and(|r| {
+            let mut records = r.txns.iter().flat_map(|t| &t.records).chain(&r.records);
+            records.any(|t| held.iter().any(|h| h.path == t.path && h.key == t.key))
+        })
+    };
+    commits.iter().filter(|c| wrote(c)).cloned().collect()
 }
 
 #[cfg(test)]

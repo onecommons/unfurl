@@ -6,6 +6,7 @@
 use std::path::Path;
 
 use unfurl_git_sync::git::Trust;
+use unfurl_git_sync::{CommitId, HeldRecord, MergedUpstream, SyncedRepo};
 
 use crate::clone::RefreshError;
 use crate::gitcli::{
@@ -20,11 +21,13 @@ pub enum Pushed {
     Nothing,
     /// Its remote took its branch, now at `head`.
     Pushed { head: String },
-    /// Its remote's branch had moved on, and merged cleanly: the merge,
-    /// `head`, is checked out and pushed.
-    Merged { head: String },
-    /// Its remote's branch had moved on and doesn't merge cleanly, or
-    /// rejected them (a protected branch, a hook): they're to be diverted,
+    /// Its remote's branch had moved on, and merged, record by record
+    /// where git couldn't: the merge, `head`, is checked out and pushed.
+    /// `held` are the records both sides changed: the remote's value is
+    /// merged, and the checkout's held in conflict with it.
+    Merged { head: String, held: Vec<HeldRecord> },
+    /// Its remote's branch had moved on and doesn't merge, record by
+    /// record either, or rejected them (a protected branch, a hook): they're to be diverted,
     /// by [`divert`], from `head`.
     MustDivert { head: String },
     /// Its commits went to a new `branch` there, and it was reset to its
@@ -57,6 +60,8 @@ pub struct Push<'a> {
     pub branch: &'a str,
     pub credentials: Option<&'a Credentials>,
     pub trust: Trust,
+    /// Its records, which a merge with its remote's branch takes in.
+    pub sync: &'a SyncedRepo,
 }
 
 impl Push<'_> {
@@ -107,7 +112,7 @@ async fn push_with(p: &Push<'_>, access: &Access) -> Result<(Pushed, Vec<String>
 }
 
 /// Merge the remote's branch, which has moved on, into the checkout at
-/// `head` and push the merge, if it merges cleanly; otherwise it's to be
+/// `head` and push the merge, if it merges; otherwise it's to be
 /// diverted.
 async fn merge_or_divert(
     p: &Push<'_>,
@@ -115,7 +120,7 @@ async fn merge_or_divert(
     main: &str,
     head: &str,
 ) -> Result<Pushed, RefreshError> {
-    let Some(merge) = merge_upstream(p, access).await? else {
+    let Some((merge, held)) = merge_upstream(p, access).await? else {
         return Ok(Pushed::MustDivert {
             head: head.to_string(),
         });
@@ -125,15 +130,19 @@ async fn merge_or_divert(
         None => Err(RefreshError::Remote(format!("git push: {stderr}"))),
         // moved on again, or rejected
         Some(('!', _)) => Ok(Pushed::MustDivert { head: merge }),
-        Some(_) => Ok(Pushed::Merged { head: merge }),
+        Some(_) => Ok(Pushed::Merged { head: merge, held }),
     }
 }
 
-/// Fetch, and merge the remote's branch into HEAD if it merges cleanly:
-/// the merge, made in memory, committed onto both and the checkout
-/// fast-forwarded to it. `None` where it doesn't merge cleanly, which
-/// leaves the checkout as it is.
-async fn merge_upstream(p: &Push<'_>, access: &Access) -> Result<Option<String>, RefreshError> {
+/// Fetch, and merge the remote's branch into HEAD: in memory by git,
+/// and record by record where it can't (git-sync's `merge_upstream`),
+/// the checkout fast-forwarded to the merge. With the records both sides
+/// changed; `None` where it can't be merged, which leaves the checkout as
+/// it is.
+async fn merge_upstream(
+    p: &Push<'_>,
+    access: &Access,
+) -> Result<Option<(String, Vec<HeldRecord>)>, RefreshError> {
     let local = async |args: &[&str]| git(p.path, access, args).await.map_err(RefreshError::Local);
     let mut fetch = vec!["fetch", "-q", "origin"];
     // a merge needs the history a shallow clone of python's lacks
@@ -143,87 +152,65 @@ async fn merge_upstream(p: &Push<'_>, access: &Access) -> Result<Option<String>,
     git(p.path, access, &fetch)
         .await
         .map_err(RefreshError::Remote)?;
-    let merged = run_git(
-        p.path,
-        access,
-        &["merge-tree", "--write-tree", "HEAD", "@{upstream}"],
-    )
-    .await
-    .map_err(RefreshError::Local)?;
-    match merged.status.code() {
-        Some(0) => {}
-        // conflicts
-        Some(1) => return Ok(None),
-        // can't merge them at all: unrelated histories, or a git without
-        // `merge-tree --write-tree` (2.38)
-        _ => {
-            tracing::warn!(
+    let args = [
+        "merge-tree",
+        "--write-tree",
+        "--name-only",
+        "HEAD",
+        "@{upstream}",
+    ];
+    let merged = run_git(p.path, access, &args)
+        .await
+        .map_err(RefreshError::Local)?;
+    // 1: files it couldn't merge, for git-sync to
+    if !matches!(merged.status.code(), Some(0 | 1)) {
+        // unrelated histories, or a git without `merge-tree --write-tree`
+        // (2.38)
+        tracing::warn!(
+            checkout = %p.path.display(),
+            error = redact(String::from_utf8_lossy(&merged.stderr).trim()).as_str(),
+            "can't merge this cloudmap checkout with its remote"
+        );
+        return Ok(None);
+    }
+    let stdout = String::from_utf8_lossy(&merged.stdout);
+    let mut lines = stdout.lines();
+    let tree = lines.next().unwrap_or_default();
+    let conflicted: Vec<String> = lines
+        .take_while(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+    let upstream = local(&["rev-parse", "@{upstream}"]).await?;
+    let unparsed = |what: &str| RefreshError::Local(format!("git printed {what:?}"));
+    let tree = gix::ObjectId::from_hex(tree.as_bytes()).map_err(|_| unparsed(tree))?;
+    let upstream: CommitId = upstream.parse().map_err(|_| unparsed(&upstream))?;
+    let local_err = |e: unfurl_git_sync::Error| RefreshError::Local(e.to_string());
+    let (commit, head, held) = match p.sync.merge_upstream(upstream, tree, &conflicted).await {
+        Ok(MergedUpstream::Merged { commit, head, held }) => (commit, head, held),
+        Ok(MergedUpstream::Refused(why)) => {
+            tracing::info!(
                 checkout = %p.path.display(),
-                error = redact(String::from_utf8_lossy(&merged.stderr).trim()).as_str(),
-                "can't merge this cloudmap checkout with its remote"
+                reason = why.as_str(),
+                "can't merge this cloudmap checkout with its remote, record by record either"
             );
             return Ok(None);
         }
-    }
-    let stdout = String::from_utf8_lossy(&merged.stdout);
-    let tree = stdout.lines().next().unwrap_or_default().to_string();
-    let upstream = local(&["rev-parse", "@{upstream}"]).await?;
-    let message = format!("Merge {upstream} into {}", p.branch);
-    let committing = access.clone().with_env(identity().await);
-    let args = [
-        "commit-tree",
-        &tree,
-        "-p",
-        "HEAD",
-        "-p",
-        &upstream,
-        "-m",
-        &message,
-    ];
-    let commit = git(p.path, &committing, &args)
-        .await
-        .map_err(RefreshError::Local)?;
-    let fast_forward = ["merge", "-q", "--ff-only", &commit];
-    holding_lock_file(p.path, local(&fast_forward))
+        // its push was refused as behind, so HEAD or its remote moved since
+        Ok(MergedUpstream::FastForward | MergedUpstream::Ahead) => return Ok(None),
+        Err(e) => return Err(local_err(e)),
+    };
+    let (commit, head) = (commit.to_string(), head.to_string());
+    let fast_forward = async || {
+        // the caller's git lock keeps HEAD where the merge took it from
+        if local(&["rev-parse", "HEAD"]).await? != head {
+            return Err(RefreshError::Local("HEAD moved during a merge".into()));
+        }
+        local(&["merge", "-q", "--ff-only", &commit]).await
+    };
+    holding_lock_file(p.path, fast_forward())
         .await
         .map_err(RefreshError::Local)??;
-    Ok(Some(commit))
-}
-
-/// The identity the server commits a merge as: its own git identity, as
-/// git-sync's commits take it, or `unfurl-server`.
-async fn identity() -> &'static [(String, String)] {
-    static IDENTITY: tokio::sync::OnceCell<Vec<(String, String)>> =
-        tokio::sync::OnceCell::const_new();
-    IDENTITY
-        .get_or_init(async || {
-            // outside any repository, whose config would say otherwise
-            let ident = tokio::process::Command::new("git")
-                .args(["var", "GIT_COMMITTER_IDENT"])
-                .current_dir("/")
-                .output()
-                .await
-                .ok()
-                .filter(|out| out.status.success())
-                .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string());
-            let (name, email) = ident
-                .as_deref()
-                .and_then(|ident| {
-                    let (name, rest) = ident.split_once(" <")?;
-                    Some((name.to_string(), rest.split_once('>')?.0.to_string()))
-                })
-                .unwrap_or_else(|| ("unfurl-server".into(), "unfurl-server@localhost".into()));
-            ["AUTHOR", "COMMITTER"]
-                .iter()
-                .flat_map(|who| {
-                    [
-                        (format!("GIT_{who}_NAME"), name.clone()),
-                        (format!("GIT_{who}_EMAIL"), email.clone()),
-                    ]
-                })
-                .collect()
-        })
-        .await
+    Ok(Some((commit, held)))
 }
 
 /// Refuse a checkout that isn't one, whose own config isn't trusted,

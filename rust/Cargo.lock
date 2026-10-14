@@ -4893,6 +4893,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "gix",
  "hmac",
  "http",
  "libc",

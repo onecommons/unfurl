@@ -1790,8 +1790,13 @@ async fn a_commit_behind_its_remote_is_merged_when_it_merges_cleanly() {
     assert!(eventually(async || head(&cm).await == merge).await);
 }
 
-/// One that conflicts goes to a new branch there instead, and the
-/// checkout is reset to its remote, with nothing of the merge on disk.
+/// The remote's version of a cloudmap the commit changed, that git can't
+/// merge, isn't merged record by record either if it doesn't parse.
+const UNPARSEABLE: &str = "repositories: [\n";
+
+/// One that can't be merged, record by record either, goes to a new
+/// branch there instead, and the checkout is reset to its remote, with
+/// nothing of the merge on disk.
 #[tokio::test]
 async fn a_commit_behind_its_remote_that_conflicts_is_diverted() {
     let world = World::new().await;
@@ -1799,7 +1804,7 @@ async fn a_commit_behind_its_remote_that_conflicts_is_diverted() {
     // the pull a checkout never pulled gets, done
     drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
     let seed = world.tmp.path().join("seed/org/proj");
-    std::fs::write(seed.join("cloudmap.yaml"), "repositories:\n  theirs: {}\n").expect("write");
+    std::fs::write(seed.join("cloudmap.yaml"), UNPARSEABLE).expect("write");
     git(&seed, &["commit", "-q", "-am", "theirs"]);
     git(&seed, &["push", "-q", "origin", "main"]);
     let theirs = git(&seed, &["rev-parse", "HEAD"]);
@@ -1816,6 +1821,81 @@ async fn a_commit_behind_its_remote_that_conflicts_is_diverted() {
     assert_eq!(git(&world.public(), &["rev-parse", "HEAD"]), theirs);
     let on_disk = std::fs::read_to_string(world.public().join("cloudmap.yaml")).expect("read");
     assert!(!on_disk.contains("<<<<<<<"), "{on_disk}");
+}
+
+/// A cloudmap's header, which a format detects it by: a merge record by
+/// record reads only a document a format reads.
+const HEADER: &str = "apiVersion: unfurl/v1.0.0\nkind: CloudMap\n";
+
+/// Push `text` as the remote's cloudmap.yaml: its new head.
+fn push_upstream_cloudmap(world: &World, text: &str) -> String {
+    let seed = world.tmp.path().join("seed/org/proj");
+    std::fs::write(seed.join("cloudmap.yaml"), text).expect("write");
+    git(&seed, &["commit", "-q", "-am", "theirs"]);
+    git(&seed, &["push", "-q", "origin", "main"]);
+    git(&seed, &["rev-parse", "HEAD"])
+}
+
+/// Records added on both sides, which git can't merge as lines, merge as
+/// records, and the merge is pushed.
+#[tokio::test]
+async fn a_commit_whose_lines_conflict_merges_record_by_record() {
+    let world = World::new().await;
+    push_upstream_cloudmap(&world, &format!("{HEADER}repositories: {{}}\n"));
+    let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let theirs =
+        push_upstream_cloudmap(&world, &format!("{HEADER}repositories:\n  theirs: {{}}\n"));
+    let commit = write_and_commit(&cm, "mine").await;
+    let outcome = async || cm.push_outcome(&commit).await;
+    let tried = async || outcome().await.is_some_and(|o| !o.contains("pending"));
+    assert!(eventually(tried).await);
+    let got = outcome().await.expect("a push record");
+    assert!(got.contains("\"pushed\""), "{got}");
+    let merge = upstream(&world);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let parents = git(&bare, &["rev-list", "--parents", "-n", "1", &merge]);
+    assert_eq!(parents, format!("{merge} {commit} {theirs}"));
+    let pushed = git(&bare, &["show", &format!("{merge}:cloudmap.yaml")]);
+    assert!(
+        pushed.contains("theirs") && pushed.contains("name: mine"),
+        "{pushed}"
+    );
+    assert!(eventually(async || head(&cm).await == merge).await);
+}
+
+/// A record both sides changed has the remote's value in the merge, and
+/// the commit's held in conflict with it: `/events` says `conflicted`.
+#[tokio::test]
+async fn a_record_both_changed_is_held_in_conflict() {
+    let world = World::new().await;
+    push_upstream_cloudmap(&world, &format!("{HEADER}repositories: {{}}\n"));
+    let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    push_upstream_cloudmap(
+        &world,
+        &format!("{HEADER}repositories:\n  git://example.com/mine.git:\n    name: theirs\n"),
+    );
+    let commit = write_and_commit(&cm, "mine").await;
+    let outcome = async || cm.push_outcome(&commit).await;
+    let tried = async || outcome().await.is_some_and(|o| !o.contains("pending"));
+    assert!(eventually(tried).await);
+    let got = outcome().await.expect("a push record");
+    assert!(got.contains("\"conflicted\""), "{got}");
+    let merge = upstream(&world);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let pushed = git(&bare, &["show", &format!("{merge}:cloudmap.yaml")]);
+    assert!(pushed.contains("name: theirs"), "{pushed}");
+    assert!(eventually(async || head(&cm).await == merge).await);
+    let conflicts = cm.synced().list_conflicts(None).await.expect("conflicts");
+    assert!(
+        conflicts
+            .iter()
+            .any(|c| c.key == "git://example.com/mine.git"),
+        "{conflicts:?}"
+    );
 }
 
 /// One its remote's branch rejects -- protected, say -- goes to a new
@@ -1948,7 +2028,7 @@ async fn a_divert_keeps_records_staged_since() {
     // the pull a checkout never pulled gets, done
     drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
     let seed = world.tmp.path().join("seed/org/proj");
-    std::fs::write(seed.join("cloudmap.yaml"), "repositories:\n  theirs: {}\n").expect("write");
+    std::fs::write(seed.join("cloudmap.yaml"), UNPARSEABLE).expect("write");
     git(&seed, &["commit", "-q", "-am", "theirs"]);
     git(&seed, &["push", "-q", "origin", "main"]);
     let theirs = git(&seed, &["rev-parse", "HEAD"]);

@@ -56,12 +56,6 @@ impl Access {
         self
     }
 
-    /// This, with `vars` in git's environment too.
-    pub(crate) fn with_env(mut self, vars: &[(String, String)]) -> Self {
-        self.env.extend(vars.iter().cloned());
-        self
-    }
-
     /// `credentials` for `url`'s whole host: a `url.<...>.insteadOf`
     /// rewrite, as python's `credentials_config`.
     pub(crate) fn with(url: &str, credentials: &Credentials) -> Self {
