@@ -400,6 +400,7 @@ Enhancements to make connection more flexible and intuitive to use. See the [con
 * **runtime:** after resolving a manifest path from a location in the config, look for a project in the same directory as the manifest.
 * **terraform:** improve check operation status heuristics
 * **terraform:** With ``stateLocation: artifacts``, resource attributes the provider schema marks sensitive (and attributes named like ``password`` or ``private_key``) are now encrypted in the saved state file when a vault password is configured; without one, the saved state is unchanged. Schema-based marking never ran before, so only outputs were encrypted.
+* **terraform:** Provider schemas are now cached per command, provider and version (e.g. ``providers-schema-terraform/registry.terraform.io_hashicorp_aws@5.1.0.json`` in the plugin cache directory). A schema is fetched only when a version in the lock file isn't cached, and isn't fetched or saved for the ``secrets`` and ``remote`` state locations. Previously one cache file was shared by every ensemble and provider version, was never refreshed, and could be saved empty.
 * **tosca:** fix get_artifact function when a container image name contains its registry.
 * **job:**: When searching for connection properties to add as env vars only  evaluate properties when needed.
 * **job:**: remove empty digest heuristic in during the reconfigure digest check.

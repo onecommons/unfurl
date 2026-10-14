@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import shutil
@@ -14,7 +15,13 @@ from ruamel.yaml import YAML
 from unfurl.job import JobOptions, Runner
 from unfurl.localenv import LocalEnv
 from unfurl.support import Status
-from unfurl.configurators.terraform import TerraformConfigurator, mark_sensitive
+from unfurl.configurators.terraform import (
+    TerraformConfigurator,
+    _locked_providers,
+    _schema_cache_dir,
+    _schema_cache_file,
+    mark_sensitive,
+)
 from unfurl.util import sensitive, sensitive_str, wrap_sensitive_value
 from unfurl.yamlloader import make_vault_lib, make_yaml
 
@@ -789,3 +796,174 @@ def test_mark_sensitive_ignores_other_registries():
     )
     attributes = state["resources"][0]["instances"][0]["attributes"]
     assert not isinstance(attributes["secret"], sensitive)
+
+
+
+_NULL = "registry.terraform.io/hashicorp/null"
+_AWS = "registry.terraform.io/hashicorp/aws"
+
+
+class _SchemaTask:
+    def __init__(self, stateLocation="artifacts"):
+        self.inputs = {"stateLocation": stateLocation}
+        self.logger = logging.getLogger("unfurl.test_terraform")
+
+
+class _SchemaFolder:
+    def __init__(self, cwd):
+        self.cwd = str(cwd)
+
+    def get_current_path(self, name, mkdir=True):
+        return os.path.join(self.cwd, name)
+
+
+class _StubSchemaConfigurator(TerraformConfigurator):
+    def __init__(self, fetched):
+        self.fetched = fetched
+        self.fetches = 0
+
+    def _run_init(self, task, terraform, folder, env):
+        return True
+
+    def _fetch_provider_schemas(self, task, terraform, folder, env):
+        self.fetches += 1
+        return self.fetched
+
+
+def _write_lock_file(path, locked):
+    # the format terraform writes
+    path.write_text(
+        "# This file is maintained automatically by \"terraform init\".\n\n"
+        + "\n".join(
+            f'provider "{address}" {{\n'
+            f'  version     = "{version}"\n'
+            f'  constraints = ">= 1.0.0"\n'
+            "  hashes = [\n"
+            '    "h1:abc=",\n'
+            "  ]\n"
+            "}\n"
+            for address, version in locked.items()
+        )
+    )
+
+
+def _cache_dir(tmp_path):
+    return _schema_cache_dir(str(tmp_path / "cache"), ["terraform"])
+
+
+def _ensure_schema(tmp_path, fetched, locked, stateLocation="artifacts"):
+    work = tmp_path / "work"
+    work.mkdir(exist_ok=True)
+    _write_lock_file(work / ".terraform.lock.hcl", locked)
+    configurator = _StubSchemaConfigurator(fetched)
+    schemas = configurator._ensure_provider_schema(
+        _SchemaTask(stateLocation),
+        ["terraform"],
+        _SchemaFolder(work),
+        {},
+        cache_dir=_cache_dir(tmp_path),
+    )
+    return configurator, schemas
+
+
+def _cache_path(tmp_path, address, version):
+    return _schema_cache_file(_cache_dir(tmp_path), address, version)
+
+
+def _cached(tmp_path, address, version):
+    with open(_cache_path(tmp_path, address, version)) as f:
+        return json.load(f)
+
+
+def _write_cache(tmp_path, address, version, contents):
+    path = _cache_path(tmp_path, address, version)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(contents)
+
+
+def test_schema_cache_names_per_command_and_version():
+    assert _schema_cache_dir("/c", ["terraform"]) == "/c/providers-schema-terraform"
+    assert _schema_cache_dir("/c", ["/usr/local/bin/tofu", "-chdir=x"]) == (
+        "/c/providers-schema-tofu"
+    )
+    assert _schema_cache_file("/c/d", _AWS, "5.1.0") == (
+        "/c/d/registry.terraform.io_hashicorp_aws@5.1.0.json"
+    )
+
+
+def test_locked_providers_reads_versions(tmp_path):
+    lock_file = tmp_path / ".terraform.lock.hcl"
+    _write_lock_file(lock_file, {_NULL: "3.3.2", _AWS: "5.1.0"})
+    assert _locked_providers(str(lock_file)) == {_NULL: "3.3.2", _AWS: "5.1.0"}
+    assert _locked_providers(str(tmp_path / "missing.hcl")) == {}
+
+
+def test_schema_cache_skips_empty_schema(tmp_path):
+    configurator, schemas = _ensure_schema(tmp_path, {}, {_NULL: "3.3.2"})
+    assert schemas == {}
+    assert configurator.fetches == 1
+    assert not os.path.exists(_cache_path(tmp_path, _NULL, "3.3.2"))
+
+
+def test_schema_cache_refetches_empty_cache(tmp_path):
+    _write_cache(tmp_path, _NULL, "3.3.2", "{}")
+    configurator, schemas = _ensure_schema(
+        tmp_path, {_NULL: {"v": 1}}, {_NULL: "3.3.2"}
+    )
+    assert configurator.fetches == 1
+    assert schemas == {_NULL: {"v": 1}}
+    assert _cached(tmp_path, _NULL, "3.3.2") == {"v": 1}
+
+
+def test_schema_cache_fetches_missing_provider(tmp_path):
+    _write_cache(tmp_path, _NULL, "3.3.2", json.dumps({"v": 1}))
+    configurator, schemas = _ensure_schema(
+        tmp_path, {_NULL: {"v": 1}, _AWS: {"v": 2}}, {_NULL: "3.3.2", _AWS: "5.1.0"}
+    )
+    assert configurator.fetches == 1
+    assert schemas == {_NULL: {"v": 1}, _AWS: {"v": 2}}
+    assert _cached(tmp_path, _AWS, "5.1.0") == {"v": 2}
+
+    # now that every locked provider is cached, it isn't fetched again
+    configurator, schemas = _ensure_schema(
+        tmp_path, {}, {_NULL: "3.3.2", _AWS: "5.1.0"}
+    )
+    assert configurator.fetches == 0
+    assert schemas == {_NULL: {"v": 1}, _AWS: {"v": 2}}
+
+
+def test_schema_cache_keeps_versions_apart(tmp_path):
+    _write_cache(tmp_path, _AWS, "4.67.0", json.dumps({"v": 4}))
+    # a missing version is fetched even though the provider is cached
+    configurator, schemas = _ensure_schema(tmp_path, {_AWS: {"v": 5}}, {_AWS: "5.1.0"})
+    assert configurator.fetches == 1
+    assert schemas == {_AWS: {"v": 5}}
+    assert _cached(tmp_path, _AWS, "4.67.0") == {"v": 4}
+    assert _cached(tmp_path, _AWS, "5.1.0") == {"v": 5}
+
+    # each deployment gets the schema of the version it locked
+    for version, expected in [("4.67.0", {"v": 4}), ("5.1.0", {"v": 5})]:
+        configurator, schemas = _ensure_schema(tmp_path, {}, {_AWS: version})
+        assert configurator.fetches == 0
+        assert schemas == {_AWS: expected}
+
+
+def test_schema_cache_ignores_corrupt_file(tmp_path):
+    _write_cache(tmp_path, _NULL, "3.3.2", '{"resource_sch')
+    configurator, schemas = _ensure_schema(
+        tmp_path, {_NULL: {"v": 1}}, {_NULL: "3.3.2"}
+    )
+    assert configurator.fetches == 1
+    assert _cached(tmp_path, _NULL, "3.3.2") == {"v": 1}
+
+
+@pytest.mark.parametrize("stateLocation", ["secrets", "remote"])
+def test_schema_cache_unused_without_cleartext_state(tmp_path, stateLocation):
+    _write_cache(tmp_path, _NULL, "3.3.2", json.dumps({"v": 1}))
+    configurator, schemas = _ensure_schema(
+        tmp_path, {_AWS: {"v": 2}}, {_NULL: "3.3.2", _AWS: "5.1.0"}, stateLocation
+    )
+    assert configurator.fetches == 0
+    assert schemas == {}
+    assert not os.path.exists(_cache_path(tmp_path, _AWS, "5.1.0"))

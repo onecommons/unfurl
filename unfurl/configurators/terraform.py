@@ -16,7 +16,7 @@ from typing_extensions import Literal
 from ..planrequests import ConfigurationSpecKeywords
 from ..configurator import TaskView
 from ..spec import EntitySpec
-from ..util import save_to_file, UnfurlTaskError, which
+from ..util import UnfurlTaskError, which
 from .shell import ShellConfigurator, ShellInputs, clean_output, make_regex_filter
 from ..support import Status
 from ..result import Result, wrap_var
@@ -25,6 +25,7 @@ import json
 import os
 import os.path
 import re
+import tempfile
 import tosca
 
 
@@ -98,6 +99,57 @@ def get_echo_args(verbosity):
             levels = "TRACE|DEBUG|INFO|WARN|ERROR"
         stderr_filter = make_regex_filter(logregex, levels.split("|"))
     return dict(echo=True, stderr_filter=stderr_filter)
+
+
+def _schema_cache_dir(schema_dir: str, terraform: List[str]) -> str:
+    """Return the provider schema cache directory for the ``terraform`` command."""
+    name = re.sub(r"[^\w.-]", "_", os.path.basename(terraform[0]))
+    return os.path.join(schema_dir, f"providers-schema-{name}")
+
+
+def _schema_cache_file(cache_dir: str, address: str, version: str) -> str:
+    """Return the cache file for version ``version`` of the provider at ``address``."""
+    name = re.sub(r"[^\w.@-]", "_", f"{address}@{version}")
+    return os.path.join(cache_dir, f"{name}.json")
+
+
+def _load_schema_cache(path: str) -> Optional[Dict[str, Any]]:
+    """Return the provider schema cached at ``path``, or None if it can't be read."""
+    try:
+        with open(path) as f:
+            schema = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return schema if isinstance(schema, dict) and schema else None
+
+
+def _save_schema_cache(path: str, schema: Dict[str, Any]) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # concurrent tasks and processes share the cache, so never expose a partial file
+    with tempfile.NamedTemporaryFile(
+        "w", dir=os.path.dirname(path), suffix=".tmp", delete=False
+    ) as f:
+        json.dump(schema, f)
+    os.replace(f.name, path)
+
+
+def _locked_providers(lock_file: str) -> Dict[str, str]:
+    """Map each provider address in a ``.terraform.lock.hcl`` file to its version."""
+    try:
+        with open(lock_file) as f:
+            contents = f.read()
+    except OSError:
+        return {}
+    providers = {}
+    for block in re.finditer(
+        r'^provider "([^"]+)" \{(.*?)^\}', contents, re.MULTILINE | re.DOTALL
+    ):
+        version = re.search(
+            r'^\s*version\s*=\s*"([^"]+)"', block.group(2), re.MULTILINE
+        )
+        if version:
+            providers[block.group(1)] = version.group(1)
+    return providers
 
 
 def mark_block(schema, items, task, sensitive_names):
@@ -295,26 +347,13 @@ class TerraformConfigurator(ShellConfigurator):
             folder.copy_to(lock_file)
         return True
 
-    def _init_terraform(
+    def _fetch_provider_schemas(
         self,
         task: TaskView,
         terraform: List[str],
         folder: WorkFolder,
         env: Dict[str, str],
-    ):
-        # only retrieve the schema when we need to worry about sensitive data
-        # in the terraform state file.
-        # (though we still try to mark data as sensitive even without it)
-        get_provider_schema = self._get_workfolder_name(task) not in [
-            "remote",
-            "secrets",
-        ]
-        if not self._run_init(task, terraform, folder, env):
-            return None
-
-        if not get_provider_schema:
-            return {}
-
+    ) -> Optional[Dict[str, Any]]:
         cwd = folder.cwd
         timeout = task.configSpec.timeout
         cmd = terraform + "providers schema -json".split(" ")
@@ -545,17 +584,40 @@ class TerraformConfigurator(ShellConfigurator):
         cwd: WorkFolder,
         env: Dict[str, str],
         *,
-        schema_path: str,
+        cache_dir: str,
     ) -> Dict[str, Any]:
-        """Run ``terraform init`` and persist the resulting provider schema
-        to ``schema_path``. Raises :class:`UnfurlTaskError` if init fails."""
-        schema = self._init_terraform(task, terraform, cwd, env)
-        if schema is None:
+        """Run ``terraform init`` and return the schemas of the locked providers,
+        fetching and caching them in ``cache_dir`` if a locked version isn't cached.
+        Raises :class:`UnfurlTaskError` if either command fails."""
+        if not self._run_init(task, terraform, cwd, env):
+            raise UnfurlTaskError(task, f"terraform init failed in {cwd.cwd}")
+        # only needed to encrypt sensitive values in a state file saved in cleartext
+        if self._get_workfolder_name(task) in ["remote", "secrets"]:
+            return {}
+        locked = _locked_providers(cwd.get_current_path(".terraform.lock.hcl", False))
+        schemas: Dict[str, Any] = {}
+        missing: Dict[str, str] = {}
+        for address, version in locked.items():
+            schema = _load_schema_cache(_schema_cache_file(cache_dir, address, version))
+            if schema:
+                schemas[address] = schema
+            else:
+                missing[address] = version
+        if not missing:
+            return schemas
+        # returns the schemas of the versions installed here, i.e. the locked ones
+        fetched = self._fetch_provider_schemas(task, terraform, cwd, env)
+        if fetched is None:
             raise UnfurlTaskError(
-                task, f"terraform init failed in {cwd.cwd}"
+                task, f"terraform providers schema failed in {cwd.cwd}"
             )
-        save_to_file(schema_path, schema)
-        return schema
+        for address, version in missing.items():
+            schema = fetched.get(address)
+            if schema:
+                path = _schema_cache_file(cache_dir, address, version)
+                _save_schema_cache(path, schema)
+                schemas[address] = schema
+        return schemas
 
     def _run_terraform_cmd(
         self,
@@ -655,25 +717,17 @@ class TerraformConfigurator(ShellConfigurator):
         # subsequent tasks can skip the `terraform providers schema -json`
         # call. Falls back to the per-cwd dataDir when no shared cache exists.
         schema_dir = pluginCache or dataDir
-        schema_path = os.path.join(schema_dir, "providers-schema.json")
+        cache_dir = _schema_cache_dir(schema_dir, terraform)
 
         if pluginCache:
             yield from task.acquire_path(pluginCache)
         try:
-            if os.path.exists(schema_path):
-                with open(schema_path) as f:
-                    providerSchema = json.load(f)
-                # this cwd still needs its own init (per-cwd .terraform/);
-                # a warm plugin cache makes this fast (just symlinks)
-                if not self._run_init(task, terraform, cwd, env):
-                    raise UnfurlTaskError(
-                        task, f"terraform init failed in {cwd.cwd}"
-                    )
-            else:
-                providerSchema = self._ensure_provider_schema(
-                    task, terraform, cwd, env,
-                    schema_path=schema_path,
-                )
+            # this cwd still needs its own init (per-cwd .terraform/);
+            # a warm plugin cache makes this fast (just symlinks)
+            providerSchema = self._ensure_provider_schema(
+                task, terraform, cwd, env,
+                cache_dir=cache_dir,
+            )
         finally:
             if pluginCache:
                 task.release_path(pluginCache)
@@ -692,7 +746,7 @@ class TerraformConfigurator(ShellConfigurator):
             try:
                 providerSchema = self._ensure_provider_schema(
                     task, terraform, cwd, env,
-                    schema_path=schema_path,
+                    cache_dir=cache_dir,
                 )
             finally:
                 if pluginCache:
