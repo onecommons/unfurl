@@ -453,9 +453,8 @@ phase's behaviour changes applied.
    **Order from here:** phase 4's id lookup is built, so a merged
    diverted or exported branch keeps its records' ids, and step 3's
    unfold and rebase, and the merge record by record (C.22), are built
-   in git-sync. Then the server merging with it in place of the merge in
-   git alone; then the server exporting conflicts, as a request option;
-   then the sweep.
+   in git-sync, and the server's push merges with it, exporting the
+   records it held. Then the sweep.
 
    Appendix C adds the cross-worktree fold and the unfold. Operations:
    Export, Pull, Push, Divert.
@@ -859,9 +858,27 @@ moved on: where C.21 rewrites the local commits, this merges, so no
 commit is rewritten, no batch is unstamped, and clients' cursors
 survive. Files it builds from records lose comments and layout the
 local commits changed there, as C.21's do.
-`rebase_onto` stays, unused by the server. The harness runs it as
-`MergeUpstream` (the model's `merge` with upstream's side picked for a
-key both changed, after holding ours), on its own strategy; 300 random
+
+When the server pushes a checkout whose remote has moved on, it calls
+`merge_upstream`, where it used to merge in git only and divert what
+git couldn't merge. If the merge held records, the server then scans,
+so they're in conflict, and exports them with `export_held` (which
+exports only the conflicts at the records given) to
+`git-sync/conflicts-<merge>`. One push carries the merge and that
+branch. `/events` reports `conflicted`, naming the branch, for each
+pushed commit that wrote a held record; the server finds the branch by
+the merge's name, not from the push that made it, so a merge pushed
+again after an error, or diverted, reports it as well. `held` lists
+only the records the merge inserted a held edit for: a client's staged
+write at such a record stays in conflict on the branch, unexported, as
+no uncommitted write is. Other conflicts aren't
+exported: on the server most come from a pull landing under writes no
+client has committed yet, and exporting them would push those writes.
+`rebase_onto` stays, unused by the server.
+
+The harness runs `merge_upstream` as `MergeUpstream` (the model's
+`merge` with upstream's side picked for a key both changed, after
+holding ours), on its own strategy; 300 random
 histories and 6 seeded ones agree with the reference, with the mirror
 running `git merge-tree` for SQL. `test_merge` checks git's textual
 conflict between different records, a record both changed, fields git
@@ -877,11 +894,17 @@ What the harness found:
 - **The id lookup keeps tombstones,** which C.21 didn't need: a
   deletion an outside commit made has no rollup line.
 
+Untested: the server's second `export_held`, which finishes an export
+that failed after its records moved, has no server test, since nothing
+there can make the first one fail; git-sync's
+`a_failed_export_of_held_records_finishes` covers the resume it relies
+on.
+
 Open: C.21 moves an already-pending edit's base before its reset, so a
 rebase stopped there leaves that edit in conflict with the worktree's
 own commit; the merge leaves such an edit as it is instead.
 
-Not built: the server's use of it, next; a diverged freshness pull,
+Not built: a diverged freshness pull,
 which keeps serving the checkout until the next push merges; and a
 field-by-field merge of a record both sides changed where git couldn't.
 

@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use unfurl_git_sync::git::Trust;
-use unfurl_git_sync::{CommitId, HeldRecord, MergedUpstream, SyncedRepo};
+use unfurl_git_sync::{CommitId, HeldRecord, MergedUpstream, ScanOptions, SyncedRepo};
 
 use crate::clone::RefreshError;
 use crate::gitcli::{
@@ -24,11 +24,12 @@ pub enum Pushed {
     /// Its remote's branch had moved on, and merged, record by record
     /// where git couldn't: the merge, `head`, is checked out and pushed.
     /// `held` are the records both sides changed: the remote's value is
-    /// merged, and the checkout's held in conflict with it.
+    /// merged, and the checkout's held in conflict with it, exported to
+    /// [`conflicts_branch`] and pushed with it, where that could be done.
     Merged { head: String, held: Vec<HeldRecord> },
     /// Its remote's branch had moved on and doesn't merge, record by
-    /// record either, or rejected them (a protected branch, a hook): they're to be diverted,
-    /// by [`divert`], from `head`.
+    /// record either, or rejected them (a protected branch, a hook):
+    /// they're to be diverted, by [`divert`], from `head`.
     MustDivert { head: String },
     /// Its commits went to a new `branch` there, and it was reset to its
     /// remote.
@@ -125,12 +126,55 @@ async fn merge_or_divert(
             head: head.to_string(),
         });
     };
-    let (stdout, stderr) = push_refs(p, access, Some(main), &[]).await?;
+    let sides = match export_merge_conflicts(p, &merge, &held).await {
+        true => side_branches(p.path, access).await?,
+        false => Vec::new(),
+    };
+    let (stdout, stderr) = push_refs(p, access, Some(main), &sides).await?;
     match ref_status(&stdout, main) {
         None => Err(RefreshError::Remote(format!("git push: {stderr}"))),
         // moved on again, or rejected
         Some(('!', _)) => Ok(Pushed::MustDivert { head: merge }),
         Some(_) => Ok(Pushed::Merged { head: merge, held }),
+    }
+}
+
+/// Export the records the merge `merge` held, once a scan has found them
+/// in conflict, to [`conflicts_branch`]: whether it was made.
+async fn export_merge_conflicts(p: &Push<'_>, merge: &str, held: &[HeldRecord]) -> bool {
+    if held.is_empty() {
+        return false;
+    }
+    let branch = conflicts_branch(merge);
+    let scan = ScanOptions {
+        recover_missing: true,
+        ..Default::default()
+    };
+    if let Err(e) = p.sync.update_from_working_dir(scan).await {
+        tracing::warn!(
+            checkout = %p.path.display(),
+            error = %e,
+            "can't scan this cloudmap checkout after a merge; the records it held stay in conflict"
+        );
+        return false;
+    }
+    // exporting again finishes one that failed after the records moved
+    let mut exported = p.sync.export_held(&branch, held).await;
+    if exported.is_err() {
+        exported = p.sync.export_held(&branch, held).await;
+    }
+    match exported {
+        Ok(exported) => exported.is_some(),
+        Err(e) => {
+            tracing::warn!(
+                checkout = %p.path.display(),
+                branch = branch.as_str(),
+                error = %e,
+                "can't export the records a merge held: they're in conflict here, \
+                 or on the branch, unpushed, should they have moved"
+            );
+            false
+        }
     }
 }
 
@@ -362,7 +406,7 @@ async fn set_aside(
     head: &str,
     error: &str,
 ) -> Result<Pushed, RefreshError> {
-    let branch = format!("git-sync/refused-{}", &head[..12.min(head.len())]);
+    let branch = format!("git-sync/refused-{}", short(head));
     resettable(p, access).await?;
     git(p.path, access, &["branch", "-f", &branch, "HEAD"])
         .await
@@ -381,9 +425,19 @@ async fn set_aside(
     })
 }
 
+/// The first 12 hex digits of `commit`, which name the branches made of it.
+fn short(commit: &str) -> &str {
+    &commit[..12.min(commit.len())]
+}
+
 /// The branch commits from `head` are diverted to.
 pub fn diverted_branch(head: &str) -> String {
-    format!("git-sync/diverted-{}", &head[..12.min(head.len())])
+    format!("git-sync/diverted-{}", short(head))
+}
+
+/// The branch the records the merge `merge` held are exported to.
+pub fn conflicts_branch(merge: &str) -> String {
+    format!("git-sync/conflicts-{}", short(merge))
 }
 
 /// [`resettable`], for a checkout about to be diverted.

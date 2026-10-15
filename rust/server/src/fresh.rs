@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use redis::AsyncCommands;
 use unfurl_git_sync::git::Trust;
-use unfurl_git_sync::{HeldRecord, ScanOptions, SyncOutcome, SyncedRepo};
+use unfurl_git_sync::{ScanOptions, SyncOutcome, SyncedRepo};
 
 use crate::cache;
 use crate::clone::{self, RefreshError, RequestAccess};
@@ -459,17 +459,29 @@ impl Freshener {
         if !matches!(pushed, Pushed::Pushed { .. } | Pushed::MustDivert { .. }) {
             self.rescan(handle).await;
         }
-        let held = match pushed {
-            Pushed::Merged { held, .. } => wrote_held(handle, self.settings.trust, commits, held),
-            _ => Vec::new(),
-        };
-        let (conflicted, rest): (Vec<String>, Vec<String>) =
-            commits.iter().cloned().partition(|c| held.contains(c));
+        // after the rescan, whose `finish_exports` may have made the branch
+        let held = held_by(handle, self.settings.trust, pushed, commits);
+        let (conflicted, rest): (Vec<String>, Vec<String>) = commits
+            .iter()
+            .cloned()
+            .partition(|c| held.wrote.contains(c));
         self.record_push(tracked, &rest, &outcome).await;
-        if !conflicted.is_empty() {
-            outcome["status"] = "conflicted".into();
-            self.record_push(tracked, &conflicted, &outcome).await;
+        if conflicted.is_empty() {
+            return;
         }
+        match (pushed, held.branch) {
+            (Pushed::Diverted { .. } | Pushed::Refused { .. }, Some(branch)) => {
+                outcome["conflicts_branch"] = branch.into();
+            }
+            (Pushed::Diverted { .. } | Pushed::Refused { .. }, None) => {}
+            (_, branch) => {
+                outcome["status"] = "conflicted".into();
+                if let Some(branch) = branch {
+                    outcome["to_branch"] = branch.into();
+                }
+            }
+        }
+        self.record_push(tracked, &conflicted, &outcome).await;
     }
 
     /// Record `outcome` as what became of pushing each of `commits`.
@@ -736,37 +748,91 @@ fn backoff(interval: u64, failures: u32) -> std::time::Duration {
     doubled.min(RETRY_MAX)
 }
 
-/// Those of `commits` whose rollup names a record of `held`. A commit
-/// without one, which git-sync didn't make, isn't watched.
-fn wrote_held(
+/// What a push's merge held: the branch its records went to, where the
+/// remote has it, and the pushed commits that wrote one.
+#[derive(Default)]
+struct Held {
+    branch: Option<String>,
+    wrote: Vec<String>,
+}
+
+/// [`Held`] for a push of `commits` that came to `pushed`. A merge's
+/// records are on [`crate::push::conflicts_branch`] once exported, so a
+/// retried push, a diverted one, or an export finished later, finds them
+/// too; one that wasn't exported is the merge's `held`.
+fn held_by(
     handle: &SyncedRepo,
     trust: Trust,
+    pushed: &crate::push::Pushed,
     commits: &[String],
-    held: &[HeldRecord],
-) -> Vec<String> {
-    if held.is_empty() {
-        return Vec::new();
-    }
+) -> Held {
+    use crate::push::Pushed;
     let path = handle.repo_path();
     let repo = match unfurl_git_sync::git::Opener::new(path, trust).and_then(|o| o.open(path)) {
         Ok(repo) => repo,
         Err(e) => {
             tracing::warn!(error = %e, "can't read which pushed commits wrote a held record");
-            return Vec::new();
+            return Held::default();
         }
     };
-    let wrote = |c: &String| {
-        let rollup = c
-            .parse()
-            .ok()
-            .and_then(|c| unfurl_git_sync::git::commit_message(&repo, c))
-            .and_then(|m| unfurl_git_sync::parse_commit_rollup(&m).ok().flatten());
-        rollup.is_some_and(|r| {
-            let mut records = r.txns.iter().flat_map(|t| &t.records).chain(&r.records);
-            records.any(|t| held.iter().any(|h| h.path == t.path && h.key == t.key))
-        })
+    // the merge: HEAD, or the commit a branch made of it is named for
+    let merge = match pushed {
+        Pushed::Pushed { head } | Pushed::Merged { head, .. } => Some(head.as_str()),
+        Pushed::Diverted { branch } | Pushed::Refused { branch, .. } => branch.rsplit('-').next(),
+        Pushed::Nothing | Pushed::MustDivert { .. } => None,
     };
-    commits.iter().filter(|c| wrote(c)).cloned().collect()
+    let exported = merge
+        .into_iter()
+        .chain(commits.iter().map(String::as_str))
+        .map(crate::push::conflicts_branch)
+        .find_map(|b| Some((unfurl_git_sync::git::branch_tip(&repo, &b).ok()??, b)));
+    let (places, branch) = match (exported, pushed) {
+        (Some((tip, branch)), _) => {
+            let remote = format!("refs/remotes/origin/{branch}");
+            let pushed = repo
+                .try_find_reference(remote.as_str())
+                .ok()
+                .flatten()
+                .is_some();
+            (rollup_places(&repo, tip), pushed.then_some(branch))
+        }
+        (None, Pushed::Merged { held, .. }) => (
+            held.iter()
+                .map(|h| (h.path.clone(), h.key.clone()))
+                .collect(),
+            None,
+        ),
+        (None, _) => return Held::default(),
+    };
+    let wrote = commits
+        .iter()
+        .filter(|c| {
+            c.parse()
+                .is_ok_and(|c| rollup_places(&repo, c).iter().any(|p| places.contains(p)))
+        })
+        .cloned()
+        .collect();
+    Held { branch, wrote }
+}
+
+/// The records commit `commit`'s rollup names: `(path, key)`. None for a
+/// commit git-sync didn't make.
+fn rollup_places(
+    repo: &gix::Repository,
+    commit: unfurl_git_sync::CommitId,
+) -> std::collections::BTreeSet<(String, String)> {
+    let rollup = unfurl_git_sync::git::commit_message(repo, commit)
+        .and_then(|m| unfurl_git_sync::parse_commit_rollup(&m).ok().flatten());
+    rollup
+        .map(|r| {
+            r.txns
+                .iter()
+                .flat_map(|t| &t.records)
+                .chain(&r.records)
+                .map(|t| (t.path.clone(), t.key.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

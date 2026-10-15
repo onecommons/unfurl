@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 use unfurl_git_sync::{DbConfig, FormatRegistry, ScanOptions, SyncedRepo};
 use unfurl_server::clone::{prepare, serve, Checkout, DefaultCloudmap};
-use unfurl_server::cloudmap::ProjectCheck;
+use unfurl_server::cloudmap::{CloudMapState, ProjectCheck};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = std::process::Command::new("git")
@@ -1866,9 +1866,10 @@ async fn a_commit_whose_lines_conflict_merges_record_by_record() {
 }
 
 /// A record both sides changed has the remote's value in the merge, and
-/// the commit's held in conflict with it: `/events` says `conflicted`.
+/// the commit's goes to a branch of its own, pushed with the merge:
+/// `/events` says `conflicted`, and names it.
 #[tokio::test]
-async fn a_record_both_changed_is_held_in_conflict() {
+async fn a_record_both_changed_goes_to_a_branch() {
     let world = World::new().await;
     push_upstream_cloudmap(&world, &format!("{HEADER}repositories: {{}}\n"));
     let cm = serve_proj(&world.serve_pushing(3600, 0).await, None).await;
@@ -1885,17 +1886,110 @@ async fn a_record_both_changed_is_held_in_conflict() {
     let got = outcome().await.expect("a push record");
     assert!(got.contains("\"conflicted\""), "{got}");
     let merge = upstream(&world);
+    let branch = format!("git-sync/conflicts-{}", &merge[..12]);
+    assert!(got.contains(&branch), "{got}");
     let bare = world.tmp.path().join("server/org/proj.git");
     let pushed = git(&bare, &["show", &format!("{merge}:cloudmap.yaml")]);
     assert!(pushed.contains("name: theirs"), "{pushed}");
+    let ours = git(&bare, &["show", &format!("{branch}:cloudmap.yaml")]);
+    assert!(ours.contains("name: mine"), "{ours}");
     assert!(eventually(async || head(&cm).await == merge).await);
     let conflicts = cm.synced().list_conflicts(None).await.expect("conflicts");
-    assert!(
-        conflicts
-            .iter()
-            .any(|c| c.key == "git://example.com/mine.git"),
-        "{conflicts:?}"
+    assert!(conflicts.is_empty(), "{conflicts:?}");
+}
+
+/// Install `script` as the remote's hook `name`.
+fn hook(world: &World, name: &str, script: &str) {
+    let path = world
+        .tmp
+        .path()
+        .join("server/org/proj.git/hooks")
+        .join(name);
+    std::fs::write(&path, script).expect("hook");
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+        .expect("chmod");
+}
+
+/// A checkout whose remote both changed `mine`'s record, and a commit of
+/// `mine` to push: the commit.
+async fn with_mine_changed_on_both_sides(
+    world: &World,
+    push_interval: u64,
+) -> (CloudMapState, String) {
+    push_upstream_cloudmap(world, &format!("{HEADER}repositories: {{}}\n"));
+    let cm = serve_proj(&world.serve_pushing(3600, push_interval).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    push_upstream_cloudmap(
+        world,
+        &format!("{HEADER}repositories:\n  git://example.com/mine.git:\n    name: theirs\n"),
     );
+    let commit = write_and_commit(&cm, "mine").await;
+    (cm, commit)
+}
+
+/// What came of pushing `commit`, once it's tried.
+async fn push_outcome(cm: &CloudMapState, commit: &str) -> String {
+    let tried = async || {
+        cm.push_outcome(commit)
+            .await
+            .is_some_and(|o| !o.contains("pending"))
+    };
+    assert!(eventually(tried).await);
+    cm.push_outcome(commit).await.expect("a push record")
+}
+
+/// A merge whose push the remote rejects is diverted, and the diverted
+/// commit's frame names the branch its held records went to.
+#[tokio::test]
+async fn a_diverted_merge_names_its_conflicts_branch() {
+    let world = World::new().await;
+    let protect = "#!/bin/sh\n[ \"$1\" = refs/heads/main ] && exit 1\nexit 0\n";
+    let (cm, commit) = with_mine_changed_on_both_sides(&world, 0).await;
+    hook(&world, "update", protect);
+    let got = push_outcome(&cm, &commit).await;
+    assert!(got.contains("\"diverted\""), "{got}");
+    let outcome: serde_json::Value = serde_json::from_str(&got).expect("json");
+    let branch = outcome["conflicts_branch"]
+        .as_str()
+        .expect("conflicts_branch");
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let ours = git(&bare, &["show", &format!("{branch}:cloudmap.yaml")]);
+    assert!(ours.contains("name: mine"), "{ours}");
+}
+
+/// A merge whose push the remote didn't answer is pushed again, and still
+/// reported `conflicted`, with its branch.
+#[tokio::test]
+async fn a_merge_pushed_again_still_reports_its_conflicts() {
+    let world = World::new().await;
+    let marker = world.tmp.path().join("hung-up");
+    let hang_up = format!(
+        "#!/bin/sh\ncat >/dev/null\n[ -e {m} ] && exit 0\ntouch {m}\nkill -9 $PPID\n",
+        m = marker.display()
+    );
+    let (cm, commit) = with_mine_changed_on_both_sides(&world, 1).await;
+    hook(&world, "pre-receive", &hang_up);
+    let got = push_outcome(&cm, &commit).await;
+    assert!(marker.exists(), "the first push wasn't answered");
+    assert!(got.contains("\"conflicted\""), "{got}");
+    let merge = upstream(&world);
+    let branch = unfurl_server::push::conflicts_branch(&merge);
+    assert!(got.contains(&branch), "{got}");
+}
+
+/// A conflicts branch the remote rejects isn't named: the records are
+/// on the server's branch only.
+#[tokio::test]
+async fn a_rejected_conflicts_branch_isnt_named() {
+    let world = World::new().await;
+    let reject =
+        "#!/bin/sh\ncase \"$1\" in refs/heads/git-sync/conflicts-*) exit 1;; esac\nexit 0\n";
+    let (cm, commit) = with_mine_changed_on_both_sides(&world, 0).await;
+    hook(&world, "update", reject);
+    let got = push_outcome(&cm, &commit).await;
+    assert!(got.contains("\"conflicted\""), "{got}");
+    assert!(!got.contains("to_branch"), "{got}");
 }
 
 /// One its remote's branch rejects -- protected, say -- goes to a new

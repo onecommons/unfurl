@@ -547,8 +547,10 @@ class QueuedWriteEvent(BaseModel):
             "``new_commit`` the branch's head; "
             "``conflicted`` -- as ``pushed``, but the remote had changed a "
             "record this commit wrote, too: the merge has the remote's "
-            "value, and this commit's is held as a pending edit in "
-            "conflict with it, so re-read, and resolve it to keep it; "
+            "value, and this commit's went to the new branch ``to_branch`` "
+            "there, to merge, so re-read. Without ``to_branch``, the branch "
+            "isn't there (yet), or the value is held on the server as a "
+            "pending edit in conflict: re-read the conflicts; "
             "``diverted`` -- the remote's branch had moved on and conflicts, "
             "or rejected it: it was pushed to the new branch ``to_branch`` "
             "there, to merge, and the branch reset to the remote, so its "
@@ -590,9 +592,20 @@ class QueuedWriteEvent(BaseModel):
     batch_queueid: Optional[int] = Field(
         default=None, description="The failed batch's last queueid."
     )
+    conflicts_branch: Optional[str] = Field(
+        default=None,
+        description=(
+            "For a ``diverted`` or ``refused`` commit whose push had merged "
+            "the remote, which had changed a record it wrote too: the "
+            "branch there holding the commit's value of each such record."
+        ),
+    )
     to_branch: Optional[str] = Field(
         default=None,
-        description="Where a commit went instead (``refused``, ``diverted``).",
+        description=(
+            "Where a commit went instead (``refused``, ``diverted``), or "
+            "its records the remote also changed (``conflicted``)."
+        ),
     )
     code: Optional[str] = None
     message: Optional[str] = None
