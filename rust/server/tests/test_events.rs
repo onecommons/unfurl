@@ -52,6 +52,7 @@ fn test_config(prefix: &str) -> Config {
         trust_checkouts: false,
         pull_timeout: 120,
         push_interval: 60,
+        commit_interval: None,
         default_cloudmaps: Vec::new(),
         cloudmap_skip_scan: false,
         scan_abort_level: unfurl_server::config::ScanAbortLevel::Report,

@@ -2431,14 +2431,18 @@ impl SyncedRepo {
             None => None,
         };
         after_export().await?;
-        let commit = match self.commit_scanned(message, head).await {
+        let (commit, parent) = match self.commit_scanned(message, head).await {
             Err(Error::HeadMoved { .. }) if exported.is_some() => {
                 let (_, head) = self.scan(ScanOptions::default()).await?;
-                self.commit_scanned(message, head).await?
+                (self.commit_scanned(message, head).await?, head)
             }
-            made => made?,
+            made => (made?, head),
         };
-        Ok(Committed { commit, exported })
+        Ok(Committed {
+            commit,
+            parent,
+            exported,
+        })
     }
 
     /// The rest of [`Self::commit_repository`], after a scan that took in

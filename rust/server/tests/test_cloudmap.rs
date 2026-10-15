@@ -163,6 +163,7 @@ fn default_config() -> Config {
         trust_checkouts: false,
         pull_timeout: 120,
         push_interval: 60,
+        commit_interval: None,
         default_cloudmaps: Vec::new(),
         cloudmap_skip_scan: false,
         scan_abort_level: unfurl_server::config::ScanAbortLevel::Report,
@@ -1629,8 +1630,10 @@ fn head_oid(dir: &Path) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
+/// Without a `Freshener`, as in dev mode, a write without `commit` stays
+/// staged.
 #[tokio::test]
-async fn post_without_commit_flag_stages_only() {
+async fn post_without_commit_stays_staged_in_dev_mode() {
     let (cm, _synced, tmp) = open_two_file_state().await;
     let before = head_oid(tmp.path());
     let app = router(make_state(cm));
@@ -1764,6 +1767,7 @@ async fn a_configured_checkouts_commit_isnt_pushed() {
         locks: None,
         trust: unfurl_git_sync::git::Trust::Full,
         push_interval: 3600,
+        commit_interval: 3600,
         record_ttl: 0,
     };
     let cm = cm.with_freshener(unfurl_server::fresh::Freshener::new(None, settings, |_| {
@@ -1783,6 +1787,254 @@ async fn a_configured_checkouts_commit_isnt_pushed() {
     assert_eq!(cm.push_outcome(oid).await, None);
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     assert_eq!(cm.pushes_started(), 0);
+}
+
+/// `cm` with a `Freshener` that commits staged writes at once.
+fn committing_at_once(cm: CloudMapState) -> CloudMapState {
+    let settings = unfurl_server::fresh::Settings {
+        timeout: 3600,
+        cache_key_prefix: "test:".into(),
+        cloud_server: "https://unfurl.cloud".into(),
+        clone_root: None,
+        grants: None,
+        locks: None,
+        trust: unfurl_git_sync::git::Trust::Full,
+        push_interval: 3600,
+        commit_interval: 0,
+        record_ttl: 0,
+    };
+    cm.with_freshener(unfurl_server::fresh::Freshener::new(None, settings, |_| {
+        true
+    }))
+}
+
+/// Whether HEAD moves from `before` within a few seconds.
+async fn head_moves(dir: &Path, before: &str) -> bool {
+    for _ in 0..100 {
+        if head_oid(dir) != before {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    false
+}
+
+/// A write without `commit` is committed in the background; the
+/// configured checkout's commit isn't pushed.
+#[tokio::test]
+async fn post_without_commit_is_committed_later() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let cm = committing_at_once(cm);
+    let before = head_oid(tmp.path());
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({ "repositories": { key: { "name": "later" } } });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    assert_eq!(
+        response["commit"].as_str(),
+        Some(before.as_str()),
+        "answered staged"
+    );
+    assert!(head_moves(tmp.path(), &before).await);
+    let on_disk = std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read");
+    assert!(on_disk.contains("later"), "{on_disk}");
+    assert_eq!(cm.pushes_started(), 0);
+}
+
+/// `commit: false` stages without scheduling a commit.
+#[tokio::test]
+async fn post_with_commit_false_stays_staged() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let cm = committing_at_once(cm);
+    let before = head_oid(tmp.path());
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let app = router(make_state(cm.clone()));
+    let body =
+        serde_json::json!({ "commit": false, "repositories": { key: { "name": "staged" } } });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    assert!(!head_moves(tmp.path(), &before).await, "nothing commits it");
+}
+
+/// A non-atomic write without `commit`, some of whose records failed,
+/// schedules a commit of those that landed.
+#[tokio::test]
+async fn post_non_atomic_without_commit_commits_what_landed_later() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let stale = read_version(cm.clone(), "repositories", key).await;
+    let app = router(make_state(cm.clone()));
+    let _ = post_json(
+        app,
+        serde_json::json!({ "commit": false, "repositories": { key: { "name": "v2" } } }),
+    )
+    .await;
+    let cm = committing_at_once(cm);
+    let before = head_oid(tmp.path());
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "atomic": false,
+        "repositories": {
+            "fresh": { "name": "fresh" },
+            key: { "name": "v3", "unfurl.server.version": stale },
+        },
+    });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{response:?}");
+    assert!(head_moves(tmp.path(), &before).await);
+}
+
+/// A client's `latest_commit` from before the server's own background
+/// commit of its write still passes: the response moves it to the new
+/// HEAD.
+#[tokio::test]
+async fn latest_commit_survives_the_servers_own_commit() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let cm = committing_at_once(cm);
+    let read_at = head_oid(tmp.path());
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "latest_commit": read_at,
+        "repositories": { key: { "name": "first" } },
+    });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    assert_eq!(response["commit"].as_str(), Some(read_at.as_str()));
+    // the database's head, which moves after the commit on disk
+    let mut committed = false;
+    for _ in 0..100 {
+        if cm.head_commit().await.expect("head").as_deref() != Some(read_at.as_str()) {
+            committed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(committed, "committed in the background");
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "latest_commit": read_at,
+        "repositories": { key: { "name": "second" } },
+    });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    assert_eq!(
+        response["commit"].as_str(),
+        Some(head_oid(tmp.path()).as_str())
+    );
+}
+
+/// So does one from before another client's commit through the server.
+#[tokio::test]
+async fn latest_commit_survives_another_clients_commit() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let cm = committing_at_once(cm);
+    let read_at = head_oid(tmp.path());
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "commit": true,
+        "repositories": { "git://example.com/other.git": { "name": "other" } },
+    });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "latest_commit": read_at,
+        "repositories": { "git://unfurl.cloud/onecommons/std.git": { "name": "mine" } },
+    });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+}
+
+/// An outside commit the server's own commit was made on, unscanned
+/// until then, still refuses a `latest_commit` from before it.
+#[tokio::test]
+async fn latest_commit_from_before_an_unscanned_outside_commit_is_refused() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let cm = committing_at_once(cm);
+    let read_at = head_oid(tmp.path());
+    std::fs::write(tmp.path().join("notes.txt"), "outside").expect("write");
+    for args in [
+        &["add", "notes.txt"][..],
+        &["commit", "-q", "-m", "outside"],
+    ] {
+        let out = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .current_dir(tmp.path())
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "{out:?}");
+    }
+    let outside = head_oid(tmp.path());
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({ "repositories": { key: { "name": "first" } } });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    assert!(
+        head_moves(tmp.path(), &outside).await,
+        "committed on the outside one"
+    );
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "latest_commit": read_at,
+        "repositories": { key: { "name": "second" } },
+    });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{response:?}");
+}
+
+/// At startup the configured checkout commits the writes a process
+/// before left staged.
+#[tokio::test]
+async fn a_restart_commits_the_configured_checkouts_staged_writes() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let before = head_oid(tmp.path());
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "commit": false,
+        "repositories": { "git://unfurl.cloud/onecommons/std.git": { "name": "left" } },
+    });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    let cm = committing_at_once(cm);
+    cm.resume_pushes().await;
+    assert!(head_moves(tmp.path(), &before).await);
+}
+
+/// A commit made outside the server still refuses a `latest_commit` from
+/// before it.
+#[tokio::test]
+async fn latest_commit_from_before_an_outside_commit_is_refused() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let cm = committing_at_once(cm);
+    let read_at = head_oid(tmp.path());
+    std::fs::write(tmp.path().join("notes.txt"), "outside").expect("write");
+    for args in [
+        &["add", "notes.txt"][..],
+        &["commit", "-q", "-m", "outside"],
+    ] {
+        let out = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(args)
+            .current_dir(tmp.path())
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "{out:?}");
+    }
+    cm.synced()
+        .update_from_working_dir(Default::default())
+        .await
+        .expect("scan");
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "latest_commit": read_at,
+        "repositories": { "git://unfurl.cloud/onecommons/std.git": { "name": "x" } },
+    });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{response:?}");
 }
 
 /// A read reports the head it was made at, not the older commit its

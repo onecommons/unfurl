@@ -467,6 +467,19 @@ impl World {
         &self,
         grants: Option<std::sync::Arc<GrantStore>>,
     ) -> unfurl_server::cloudmap::CloudMapState {
+        // every pull may push
+        self.serve_pushing(grants, 0, 3600).await
+    }
+
+    /// [`Self::serve_fresh`], pushing no more often than every
+    /// `push_interval` seconds and committing staged writes
+    /// `commit_interval` seconds after they're scheduled.
+    async fn serve_pushing(
+        &self,
+        grants: Option<std::sync::Arc<GrantStore>>,
+        push_interval: u64,
+        commit_interval: u64,
+    ) -> unfurl_server::cloudmap::CloudMapState {
         let checkouts = unfurl_server::clone::prepare(
             &self.db,
             &self.root(),
@@ -500,8 +513,8 @@ impl World {
             grants,
             locks: None,
             trust: unfurl_git_sync::git::Trust::Reduced,
-            // every pull may push
-            push_interval: 0,
+            push_interval,
+            commit_interval,
             record_ttl: 0,
         };
         cm.with_freshener(unfurl_server::fresh::Freshener::new(None, settings, |_| {
@@ -855,4 +868,89 @@ async fn a_commit_whose_credentials_are_refused_is_pushed_with_a_grant() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     assert!(pushed);
+}
+
+/// A push waiting to run when a write with credentials commits -- one a
+/// background commit scheduled, with none -- is made with them.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_waiting_push_takes_the_latest_requests_credentials() {
+    let world = World::new().await;
+    world.server.make_private("org/proj.git");
+    let bare = world.tmp.path().join("served/org/proj.git");
+    git(&bare, &["config", "http.receivepack", "true"]);
+    let grants = std::sync::Arc::new(world.grants().await);
+    let grant = world.grant(&grants, USER, TOKEN).await;
+    let cm = world.serve_pushing(Some(grants.clone()), 3, 0).await;
+    let served = cm.clone();
+    let good = unfurl_server::clone::RequestAccess {
+        private: true,
+        credentials: Some(unfurl_server::grants::Credentials {
+            grant: String::new(),
+            user: USER.into(),
+            secret: TOKEN.into(),
+        }),
+        username: "alice".into(),
+    };
+    let upstream = || git(&bare, &["rev-parse", "main"]);
+    let write = async |key: &str| {
+        served
+            .synced()
+            .create_record(
+                Some("cloudmap.yaml"),
+                "/repositories",
+                &format!("git://example.com/{key}.git"),
+                serde_json::json!({"name": key}),
+                None,
+                false,
+            )
+            .await
+            .expect("create");
+    };
+    // a first push, so the next waits out the interval
+    write("first").await;
+    let first = served
+        .commit("first")
+        .await
+        .expect("commit")
+        .expect("a commit");
+    served.committed(&first, &good).await;
+    let mut pushed = false;
+    for _ in 0..200 {
+        if upstream() == first {
+            pushed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(pushed);
+    // from now on only a request's credentials can push
+    grants.forget(&grant).await.expect("forget");
+    write("staged").await;
+    served.commit_later().await;
+    let checkout = world.checkout("private");
+    let mut committed = false;
+    for _ in 0..200 {
+        if git(&checkout, &["rev-parse", "HEAD"]) != first {
+            committed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(committed, "the background commit, whose push waits");
+    write("last").await;
+    let last = served
+        .commit("last")
+        .await
+        .expect("commit")
+        .expect("a commit");
+    served.committed(&last, &good).await;
+    let mut pushed = false;
+    for _ in 0..200 {
+        if upstream() == last {
+            pushed = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(pushed, "pushed with the request's credentials");
 }

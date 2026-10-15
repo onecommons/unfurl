@@ -62,6 +62,7 @@ otherwise `/cloudmap` is proxied to Python):
 | How many seconds since python last pulled a project's clone a cached `/export` or `/types` made at the clone's HEAD may be served for a request naming no `latest_commit` (python's setting, read the same way; `stale=ok` or `stale=never` on the request override it). 0 serves none, -1 any; needs `--clone-root`. Also how old a cloudmap checkout's last pull may be before a request pulls it: see **Freshness** below | `--pull-timeout` | `CACHE_DEFAULT_PULL_TIMEOUT` | `120` |
 | With a clone root: a cloudmap repository a request naming no project reads, as `<project>[#branch]` (its default branch without one). It's cloned at startup like the worktrees the database tracks, or pulled if its checkout is there; such a read spans their worktrees, so it returns no `commit` or `version` and refuses `since_version`. Without one, python's default, the public cloudmap on `main`; if none is served, a read naming no project goes to python | `--default-cloudmap` (repeatable) | `UNFURL_DEFAULT_CLOUDMAPS` (comma-separated) | `onecommons/cloudmap#main` |
 | The fewest seconds between two pushes of a cloudmap checkout's commits: see **Pushing** below | `--push-interval` | `UNFURL_PUSH_INTERVAL` | `60` |
+| How many seconds a cloudmap write without `commit` waits to be committed: see **Committing** below | `--commit-interval` | `UNFURL_COMMIT_INTERVAL` | `--push-interval`'s |
 | Serve the index as it stands, without scanning at startup | `--cloudmap-skip-scan` | `UNFURL_CLOUDMAP_SKIP_SCAN` | `false` |
 | Smallest refusal that aborts the startup scan (`report`, `file`, `record`) | `--scan-abort-level` | `UNFURL_SCAN_ABORT_LEVEL` | `report` |
 | Cloud server whose projects `auth_project` names | `--cloud-server` | `UNFURL_CLOUD_SERVER` | `https://unfurl.cloud` |
@@ -115,6 +116,25 @@ it. The startup clone or pull of each checkout brings it up the same
 way, but for one whose remote can't be reached, which is served as it is.
 Python's own pulls differ in one way: one that fails for any reason
 deletes the clone to clone it again, unless it holds unpushed work.
+
+**Committing.** A cloudmap write (`POST /cloudmap`) with `commit: true`
+is committed in the request; one with `commit: false` is only staged,
+committed by whatever commit comes next. Outside dev mode, one without
+`commit` is staged and committed in the background `--commit-interval`
+seconds later, with every write staged by then, then pushed as below; in
+dev mode it stays staged, as `commit: false`. The configured checkout's
+commits are made, though it isn't pushed. A commit that fails is tried
+again on its own, backing off as a push does. Staged writes due a commit
+are recorded as `worktree.push_pending`, so a checkout the server stops
+before committing is committed and pushed at the next startup; the
+configured checkout is committed then if it holds staged writes. A push
+uses the credentials of the latest request whose commit it carries, or
+else a grant, so a background commit's push, which has none of its own,
+needs one of those. A write's `latest_commit` from before commits this
+process made, its background ones included, still passes: their writes
+passed their records' checks. It remembers its last 64, so a restart, or
+a commit by another process, a pull or a merge, refuses it, as before;
+the response gives the new head to send next.
 
 **Pushing.** Outside dev mode, a cloudmap write that commits
 (`commit: true`) answers at once, with the local commit; the commit is

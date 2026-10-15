@@ -814,9 +814,13 @@ class PostCloudmapRequest(BaseModel):
     commit: Optional[bool] = Field(
         default=None,
         description=(
-            "Whether to commit the write to git. "
-            "If Commit = true is sent with a body that carries no records at all the "
-            "handler then commits whatever is already pending."
+            "Whether to commit the write to git. ``true``: committed in the "
+            "request; sent with a body that carries no records at all, the "
+            "handler commits whatever is already pending. ``false``: staged, "
+            "for a later commit to take. Absent or null: the python handler "
+            "commits at once; the rust handler stages it and commits it in "
+            "the background, with the writes staged by then (none in dev "
+            "mode, where it stays staged)."
         ),
     )
     username: Optional[str] = Field(

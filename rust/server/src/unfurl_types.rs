@@ -1921,7 +1921,7 @@ pub struct PostCloudmapRequest {
     pub branch: Option<String>,
     /// Path of the cloudmap file inside the repo.
     pub cloudmap_path: Option<String>,
-    /// Whether to commit the write to git. If Commit = true is sent with a body that carries no records at all the handler then commits whatever is already pending.
+    /// Whether to commit the write to git. ``true``: committed in the request; sent with a body that carries no records at all, the handler commits whatever is already pending. ``false``: staged, for a later commit to take. Absent or null: the python handler commits at once; the rust handler stages it and commits it in the background, with the writes staged by then (none in dev mode, where it stays staged).
     pub commit: Option<bool>,
     /// Commit message for the local commit; falls back to a generated default.
     pub commit_msg: Option<String>,

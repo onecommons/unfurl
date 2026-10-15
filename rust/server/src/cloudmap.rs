@@ -184,7 +184,7 @@ pub struct CloudMapState {
 const COMMIT_WAIT: Duration = Duration::from_secs(30);
 
 /// The message of a `POST /cloudmap` commit that names none.
-const DEFAULT_COMMIT_MESSAGE: &str = "Update cloudmap";
+pub(crate) const DEFAULT_COMMIT_MESSAGE: &str = "Update cloudmap";
 
 /// A checkout served with none configured, by its worktree.
 #[derive(Clone)]
@@ -483,11 +483,37 @@ impl CloudMapState {
     /// returning the new commit oid — or `None` when nothing was staged.
     ///
     /// Driven by `commit: true` on `POST /cloudmap`; without it the handler
-    /// leaves records staged and the commit is somebody else's job.
+    /// leaves records staged, committed in the background unless the
+    /// request said `commit: false`.
     pub async fn commit(&self, message: &str) -> Result<Option<String>, unfurl_git_sync::Error> {
-        retry_if_head_moved(|| self.inner.commit_repository(message, Default::default()))
+        let committed =
+            retry_if_head_moved(|| self.inner.commit_repository(message, Default::default()))
+                .await?;
+        if let (Some(fresh), Some(commit), Some(parent)) =
+            (&self.fresh, committed.commit, committed.parent)
+        {
+            let (commit, parent) = (commit.to_string(), parent.to_string());
+            fresh.record_commit(&self.inner, &parent, &commit).await;
+        }
+        Ok(committed.commit.map(|c| c.to_string()))
+    }
+
+    /// The head a request based on `since` is made at, `head` having moved
+    /// on from it, where every commit since is one this process made here,
+    /// each on the one before: `head`, or the head after a commit in
+    /// progress. `None` otherwise, and in dev mode.
+    async fn moved_here(&self, since: &str, head: &str) -> Option<String> {
+        let fresh = self.fresh.as_ref()?;
+        if fresh.made_here(&self.inner, since, head).await {
+            return Some(head.to_string());
+        }
+        // a commit holds the checkout until it's recorded
+        let _held = self.hold_checkout(self.commit_wait).await.ok()?;
+        let head = self.head_commit().await.ok()??;
+        fresh
+            .made_here(&self.inner, since, &head)
             .await
-            .map(|c| c.commit.map(|c| c.to_string()))
+            .then_some(head)
     }
 
     /// Decide whether a request's `auth_project` and `branch` may be served
@@ -719,8 +745,9 @@ impl CloudMapState {
         self.fresh.as_ref().map_or(0, |fresh| fresh.pulls_started())
     }
 
-    /// Push, in the background, each checkout served whose push a process
-    /// before this one hadn't made.
+    /// Commit and push, in the background, each checkout served whose
+    /// commit or push a process before this one hadn't made; the configured
+    /// checkout, which isn't pushed, if it holds staged writes.
     pub async fn resume_pushes(&self) {
         let Some(fresh) = &self.fresh else {
             return;
@@ -731,8 +758,18 @@ impl CloudMapState {
         };
         for handle in handles {
             if handle.get_worktree().await.is_ok_and(|w| w.push_pending) {
-                fresh.resume_push(&handle).await;
+                fresh.resume(&handle).await;
             }
+        }
+        if self.configured && self.inner.has_uncommitted().await.unwrap_or(false) {
+            fresh.resume(&self.inner).await;
+        }
+    }
+
+    /// Commit, in the background, the writes staged in this checkout.
+    pub async fn commit_later(&self) {
+        if let Some(fresh) = &self.fresh {
+            fresh.commit_later(&self.inner).await;
         }
     }
 
@@ -2271,18 +2308,17 @@ async fn post_cloudmap_apply(
     if let Some(unknown) = body.additional_properties.keys().next() {
         return Err(WriteError::BadRequest(format!("unknown section {unknown:?}")).into());
     }
-    // By default the Rust handler only stages records to the SyncedRepo's
-    // database (in-flight, `commit_id IS NULL`) and leaves the commit to the
-    // caller, so the reported `commit` is just the unchanged HEAD. `commit:
-    // true` asks this handler to drive it instead: the staged records are
-    // flushed to disk and committed before responding. Either way we return
+    // Without `commit: true` the Rust handler only stages records to the
+    // SyncedRepo's database (in-flight, `commit_id IS NULL`), so the reported
+    // `commit` is just the unchanged HEAD; they're committed in the
+    // background unless `commit: false`. `commit: true` has this handler
+    // flush them to disk and commit before responding. Either way we return
     // the largest `version` the CRUD
     // calls stamped during this batch as `queueid`: the client can echo it back
     // as `unfurl.server.version` on the next request to gate the
     // optimistic-concurrency check. Versions are monotonic per worktree, so the
     // last write's version is also the largest.
     let atomic = body.atomic.unwrap_or(true);
-    let commit_requested = body.commit.unwrap_or(false);
     // Not scoped to `cloudmap_path`: `commit_repository` commits every file with
     // staged records, which may be more than the one this request named.
     let commit_msg = body
@@ -2292,31 +2328,37 @@ async fn post_cloudmap_apply(
 
     // Repository-level optimistic concurrency, mirroring the python handler:
     // refuse the write if the repository has moved since the commit the client
-    // last saw. Skipped when either side has nothing to compare, same as there.
-    //
-    // This is complementary to the per-record `unfurl.server.{version,commit}`
-    // check, not a substitute: another client's *staged* writes don't move
-    // HEAD, so they slip past this one and are caught per record instead.
+    // last saw, unless only by commits this process made, whose writes the
+    // per-record `unfurl.server.{version,commit}` check already covered.
+    // Skipped when either side has nothing to compare, same as there.
     let head = cm
         .head_commit()
         .await
         .map_err(|e| WriteError::Internal(format!("head_commit: {e}")))?;
-    if let (Some(expected), Some(actual)) = (body.latest_commit.as_deref(), head.as_deref()) {
-        if expected != actual {
-            let body = unfurl_types::ConflictBody {
-                code: "CONFLICT".into(),
-                message: format!(
-                    "cloudmap has changed since latest_commit {expected}, \
-                     current revision is {actual}"
-                ),
-                ..Default::default()
-            };
-            return Err(ApiError {
-                status: StatusCode::CONFLICT,
-                body: conflict_json(&body),
-            });
+    let head = match (body.latest_commit.as_deref(), head) {
+        // moved only by this process's own commits, whose writes passed
+        // their records' checks
+        (Some(expected), Some(actual)) if expected != actual => {
+            match cm.moved_here(expected, &actual).await {
+                Some(head) => Some(head),
+                None => {
+                    let body = unfurl_types::ConflictBody {
+                        code: "CONFLICT".into(),
+                        message: format!(
+                            "cloudmap has changed since latest_commit {expected}, \
+                             current revision is {actual}"
+                        ),
+                        ..Default::default()
+                    };
+                    return Err(ApiError {
+                        status: StatusCode::CONFLICT,
+                        body: conflict_json(&body),
+                    });
+                }
+            }
         }
-    }
+        (_, head) => head,
+    };
 
     // Attribute the batch in git-sync's `txn` table. One git commit
     // carries every batch staged since the last one, so without this the
@@ -2328,7 +2370,11 @@ async fn post_cloudmap_apply(
         message: Some(commit_msg.clone()),
     };
 
-    let commit = commit_requested.then_some(commit_msg.as_str());
+    let commit = match body.commit {
+        Some(true) => Commit::Now(&commit_msg),
+        Some(false) => Commit::Never,
+        None => Commit::Later,
+    };
     let (result, committed) = apply_and_commit(cm, body, atomic, meta, commit, access).await?;
     // `commit` reports where the repository is now, matching the python
     // handlers: the commit just made, or the unchanged HEAD when this request
@@ -2511,23 +2557,52 @@ struct WriteOutcome {
     applied: Vec<unfurl_types::PatchResponseAppliedRecord>,
 }
 
-/// Convert each section of the request body into [`BatchOp`]s, dispatch
-/// to [`SyncedRepo::apply_batch`], then map the outcome → either a
-/// success [`WriteOutcome`] or a [`WriteError::Conflict`] carrying the
-/// per-record applied/failed lists.
-/// [`apply_writes`], then the commit `commit` gives the message of, if
-/// any, holding the checkout's git lock across both: refused before
-/// anything is applied if another holds it.
+/// [`apply_writes`], scheduling a commit of what it wrote when `later`.
+async fn stage(
+    cm: &CloudMapState,
+    body: unfurl_types::PostCloudmapRequest,
+    atomic: bool,
+    meta: TxnMeta,
+    later: bool,
+) -> Result<WriteOutcome, WriteError> {
+    let applied = apply_writes(cm, body, atomic, meta).await;
+    // a non-atomic write some of whose records failed wrote the rest
+    let landed = match &applied {
+        Ok(outcome) => !outcome.applied.is_empty(),
+        Err(WriteError::Conflict(conflict)) => !conflict.applied.is_empty(),
+        Err(_) => false,
+    };
+    if landed && later {
+        cm.commit_later().await;
+    }
+    applied
+}
+
+/// What a `POST /cloudmap` asks for its writes.
+enum Commit<'a> {
+    /// `commit: true`: committed in the request, with this message.
+    Now(&'a str),
+    /// No `commit`: committed in the background.
+    Later,
+    /// `commit: false`: staged, for another commit to take.
+    Never,
+}
+
+/// [`apply_writes`], then the commit `commit` asks for: one in the request
+/// holding the checkout's git lock across both, refused before anything is
+/// applied if another holds it, or one scheduled for later.
 async fn apply_and_commit(
     cm: &CloudMapState,
     body: unfurl_types::PostCloudmapRequest,
     atomic: bool,
     meta: TxnMeta,
-    commit: Option<&str>,
+    commit: Commit<'_>,
     access: &RequestAccess,
 ) -> Result<(WriteOutcome, Option<String>), WriteError> {
-    let Some(message) = commit else {
-        return Ok((apply_writes(cm, body, atomic, meta).await?, None));
+    let message = match commit {
+        Commit::Now(message) => message,
+        Commit::Later => return Ok((stage(cm, body, atomic, meta, true).await?, None)),
+        Commit::Never => return Ok((stage(cm, body, atomic, meta, false).await?, None)),
     };
     // before the git lock, in the order a pull or push takes them
     let held = cm
@@ -2572,6 +2647,10 @@ async fn apply_and_commit(
     }
 }
 
+/// Convert each section of the request body into [`BatchOp`]s, dispatch
+/// to [`SyncedRepo::apply_batch`], then map the outcome → either a
+/// success [`WriteOutcome`] or a [`WriteError::Conflict`] carrying the
+/// per-record applied/failed lists.
 async fn apply_writes(
     cm: &CloudMapState,
     body: unfurl_types::PostCloudmapRequest,
@@ -2904,7 +2983,9 @@ fn classify_failure(err: &unfurl_git_sync::Error) -> (Option<String>, Option<Str
 /// Run `commit` once more if it lost a race with an outside commit:
 /// [`unfurl_git_sync::Error::HeadMoved`] means nothing was committed, and
 /// `commit_repository` scans first, so the retry takes that commit in.
-async fn retry_if_head_moved<T, F, Fut>(mut commit: F) -> Result<T, unfurl_git_sync::Error>
+pub(crate) async fn retry_if_head_moved<T, F, Fut>(
+    mut commit: F,
+) -> Result<T, unfurl_git_sync::Error>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, unfurl_git_sync::Error>>,

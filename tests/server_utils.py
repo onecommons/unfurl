@@ -424,6 +424,8 @@ def _rust_extra_env(name: str = "") -> dict:
         "CACHE_DEFAULT_TIMEOUT": "120",
         # Forward UNFURL_LOGGING so _start_rust_server can map it to RUST_LOG.
         "UNFURL_LOGGING": os.environ.get("UNFURL_LOGGING", "debug"),
+        # a write without `commit` isn't committed in the background mid-test
+        "UNFURL_COMMIT_INTERVAL": "3600",
     }
 
 

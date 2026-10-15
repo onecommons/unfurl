@@ -902,6 +902,17 @@ impl World {
         timeout: i64,
         push_interval: u64,
     ) -> unfurl_server::cloudmap::CloudMapState {
+        self.serve_committing(timeout, push_interval, 3600).await
+    }
+
+    /// [`Self::serve_pushing`], committing staged writes `commit_interval`
+    /// seconds after they're scheduled.
+    async fn serve_committing(
+        &self,
+        timeout: i64,
+        push_interval: u64,
+        commit_interval: u64,
+    ) -> unfurl_server::cloudmap::CloudMapState {
         let settings = unfurl_server::fresh::Settings {
             timeout,
             cache_key_prefix: "test:".into(),
@@ -911,6 +922,7 @@ impl World {
             locks: None,
             trust: unfurl_git_sync::git::Trust::Reduced,
             push_interval,
+            commit_interval,
             record_ttl: 0,
         };
         let fresh = unfurl_server::fresh::Freshener::new(None, settings, |_| true);
@@ -1332,6 +1344,7 @@ async fn the_pull_record_is_pythons() {
         locks: None,
         trust: unfurl_git_sync::git::Trust::Reduced,
         push_interval: 60,
+        commit_interval: 3600,
         record_ttl: 0,
     };
     let fresh = unfurl_server::fresh::Freshener::new(Some(conn.clone()), settings, |_| true);
@@ -1388,6 +1401,7 @@ async fn a_pull_python_made_while_waiting_isnt_made_again() {
         locks: Some(locks.clone()),
         trust: unfurl_git_sync::git::Trust::Reduced,
         push_interval: 60,
+        commit_interval: 3600,
         record_ttl: 0,
     };
     let fresh = unfurl_server::fresh::Freshener::new(Some(conn.clone()), settings, |_| true);
@@ -1583,6 +1597,7 @@ async fn a_configured_checkout_is_freshened_for_its_own_project_only() {
         locks: None,
         trust: unfurl_git_sync::git::Trust::Full,
         push_interval: 60,
+        commit_interval: 3600,
         record_ttl: 0,
     };
     let cm = cm.with_freshener(unfurl_server::fresh::Freshener::new(None, settings, |_| {
@@ -1636,6 +1651,7 @@ async fn a_detached_checkout_isnt_pulled_for_a_missing_commit() {
         locks: None,
         trust: unfurl_git_sync::git::Trust::Reduced,
         push_interval: 60,
+        commit_interval: 3600,
         record_ttl: 0,
     };
     let fresh = unfurl_server::fresh::Freshener::new(Some(conn.clone()), settings, |_| true);
@@ -2085,6 +2101,7 @@ async fn a_push_records_the_branch_head() {
         locks: None,
         trust: unfurl_git_sync::git::Trust::Reduced,
         push_interval: 0,
+        commit_interval: 3600,
         record_ttl: 60,
     };
     let fresh = unfurl_server::fresh::Freshener::new(Some(conn.clone()), settings, |_| true);
@@ -2155,6 +2172,132 @@ async fn a_divert_keeps_records_staged_since() {
         cm.synced().has_uncommitted().await.expect("uncommitted"),
         "still staged"
     );
+}
+
+/// Stage `key`'s record, as a write without `commit` does.
+async fn stage(cm: &CloudMapState, key: &str) {
+    cm.synced()
+        .create_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            &format!("git://example.com/{key}.git"),
+            serde_json::json!({"name": key}),
+            None,
+            false,
+        )
+        .await
+        .expect("create");
+}
+
+/// Whether the checkout's worktree has a commit or push waiting.
+async fn push_pending(cm: &CloudMapState) -> bool {
+    cm.synced()
+        .get_worktree()
+        .await
+        .expect("worktree")
+        .push_pending
+}
+
+/// Staged writes are committed in the background, then pushed: two
+/// scheduled in one interval, in one commit.
+#[tokio::test]
+async fn staged_writes_are_committed_then_pushed() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_committing(3600, 0, 1).await, None).await;
+    // the pull a checkout never pulled gets, done
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let before = upstream(&world);
+    stage(&cm, "one").await;
+    cm.commit_later().await;
+    stage(&cm, "two").await;
+    cm.commit_later().await;
+    assert!(
+        push_pending(&cm).await,
+        "committed and pushed at startup if it stops"
+    );
+    assert!(eventually(async || upstream(&world) != before).await);
+    let pushed = upstream(&world);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let count = git(
+        &bare,
+        &["rev-list", "--count", &format!("{before}..{pushed}")],
+    );
+    assert_eq!(count, "1", "one commit of both");
+    let text = git(&bare, &["show", &format!("{pushed}:cloudmap.yaml")]);
+    assert!(
+        text.contains("name: one") && text.contains("name: two"),
+        "{text}"
+    );
+    assert!(eventually(async || !push_pending(&cm).await).await);
+}
+
+/// A push while a commit is scheduled leaves the work recorded as
+/// pending, so a restart commits it.
+#[tokio::test]
+async fn a_push_keeps_a_scheduled_commit_pending() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_committing(3600, 0, 3600).await, None).await;
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    stage(&cm, "later").await;
+    cm.commit_later().await;
+    let commit = write_and_commit(&cm, "now").await;
+    let pushed = async || {
+        cm.push_outcome(&commit)
+            .await
+            .is_some_and(|o| o.contains("pushed"))
+    };
+    assert!(eventually(pushed).await);
+    assert!(push_pending(&cm).await);
+}
+
+/// A commit with nothing staged by the time it runs leaves nothing
+/// pending.
+#[tokio::test]
+async fn a_commit_with_nothing_staged_leaves_nothing_pending() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_committing(3600, 0, 0).await, None).await;
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    cm.commit_later().await;
+    assert!(push_pending(&cm).await);
+    assert!(eventually(async || !push_pending(&cm).await).await);
+}
+
+/// A restart commits, then pushes, the writes a process before it staged.
+#[tokio::test]
+async fn a_restart_commits_and_pushes_staged_writes() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_committing(3600, 0, 3600).await, None).await;
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let before = upstream(&world);
+    stage(&cm, "staged").await;
+    cm.synced().set_push_pending(true).await.expect("pending");
+    cm.resume_pushes().await;
+    assert!(eventually(async || upstream(&world) != before).await);
+    let bare = world.tmp.path().join("server/org/proj.git");
+    let text = git(&bare, &["show", "main:cloudmap.yaml"]);
+    assert!(text.contains("name: staged"), "{text}");
+}
+
+/// A commit that fails is tried again on its own.
+#[tokio::test]
+async fn a_failed_commit_is_tried_again() {
+    let world = World::new().await;
+    let cm = serve_proj(&world.serve_committing(3600, 0, 0).await, None).await;
+    drop(cm.hold_checkout(std::time::Duration::from_secs(30)).await);
+    let before = upstream(&world);
+    // a file is written by renaming another over it, which a directory
+    // that can't be written to refuses
+    let dir = world.public();
+    let writable = std::fs::metadata(&dir).expect("stat").permissions();
+    let mut read_only = writable.clone();
+    read_only.set_readonly(true);
+    std::fs::set_permissions(&dir, read_only).expect("chmod");
+    stage(&cm, "retried").await;
+    cm.commit_later().await;
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(upstream(&world), before, "the first commit failed");
+    std::fs::set_permissions(&dir, writable).expect("chmod");
+    assert!(eventually(async || upstream(&world) != before).await);
 }
 
 /// A checkout in the clone root whose remote names another project, for
@@ -2371,6 +2514,7 @@ async fn a_pull_doesnt_push_the_configured_checkout() {
         locks: None,
         trust: unfurl_git_sync::git::Trust::Full,
         push_interval: 0,
+        commit_interval: 3600,
         record_ttl: 0,
     };
     let cm = cm.with_freshener(unfurl_server::fresh::Freshener::new(None, settings, |_| {

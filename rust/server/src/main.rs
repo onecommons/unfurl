@@ -349,6 +349,7 @@ fn freshened(
             None => config.checkout_trust(),
         },
         push_interval: config.push_interval,
+        commit_interval: config.commit_interval.unwrap_or(config.push_interval),
         // as long as python keeps a branch head
         record_ttl: config.queue_key_ttl_secs,
     };

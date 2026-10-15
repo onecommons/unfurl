@@ -111,6 +111,15 @@ struct Tracked {
     /// Its pushes that failed since the last that didn't, which back its
     /// retries off.
     push_failures: std::sync::atomic::AtomicU32,
+    /// Whether a commit of its staged writes is waiting to run.
+    commit_scheduled: std::sync::atomic::AtomicBool,
+    /// Its commits that failed since the last that didn't.
+    commit_failures: std::sync::atomic::AtomicU32,
+    /// The commits this process made in it, newest last: each with the one
+    /// it was made on.
+    made: std::sync::Mutex<std::collections::VecDeque<(String, String)>>,
+    /// The latest credentials a request pushing it gave, for its next push.
+    credentials: std::sync::Mutex<Option<Credentials>>,
 }
 
 /// Whether a push is tried again, and with what.
@@ -124,6 +133,10 @@ enum Again {
 
 /// The least a push waits to be tried again, whatever the interval.
 const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// How many of its own commits a checkout remembers, for a `latest_commit`
+/// from before them.
+const MADE_KEPT: usize = 64;
 
 /// The most a push waits to be tried again, however often it failed.
 const RETRY_MAX: std::time::Duration = std::time::Duration::from_secs(3600);
@@ -140,6 +153,8 @@ pub struct Settings {
     pub trust: Trust,
     /// The fewest seconds between two pushes of a checkout.
     pub push_interval: u64,
+    /// How long a write staged without a commit waits for one, in seconds.
+    pub commit_interval: u64,
     /// How long a branch head or push outcome is kept, in seconds; 0 for
     /// ever.
     pub record_ttl: u64,
@@ -240,6 +255,9 @@ impl Freshener {
         handle: Arc<SyncedRepo>,
         credentials: Option<Credentials>,
     ) {
+        if let Some(credentials) = &credentials {
+            *tracked.credentials.lock().expect("credentials") = Some(credentials.clone());
+        }
         if tracked.push_scheduled.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -259,6 +277,9 @@ impl Freshener {
             };
             // a commit from now on needs a push of its own
             tracked.push_scheduled.store(false, Ordering::SeqCst);
+            // the latest a request gave, though another scheduled this push
+            let latest = tracked.credentials.lock().expect("credentials").take();
+            let credentials = latest.or(credentials);
             let path = handle.repo_path();
             let lock = gitlock::hold(me.settings.locks.as_ref(), path, gitlock::TTL).await;
             let again = match lock {
@@ -284,12 +305,134 @@ impl Freshener {
         });
     }
 
-    /// Push `handle`'s checkout in the background, as after a commit, with
-    /// a grant: one whose push this process, or one before it, hadn't made.
-    pub async fn resume_push(self: &Arc<Self>, handle: &Arc<SyncedRepo>) {
-        if let Some(tracked) = self.tracked(handle).await {
-            self.schedule_push(tracked, handle.clone(), None);
+    /// Commit `handle`'s staged writes in the background, the commit
+    /// interval from now, then push them, unless a commit is waiting
+    /// already, which takes these too.
+    pub async fn commit_later(self: &Arc<Self>, handle: &Arc<SyncedRepo>) {
+        let delay = std::time::Duration::from_secs(self.settings.commit_interval);
+        self.commit_after(handle, delay).await;
+    }
+
+    /// Commit and push `handle`'s checkout in the background, with a grant:
+    /// one whose commit or push this process, or one before it, hadn't
+    /// made.
+    pub async fn resume(self: &Arc<Self>, handle: &Arc<SyncedRepo>) {
+        self.commit_after(handle, std::time::Duration::ZERO).await;
+    }
+
+    async fn commit_after(self: &Arc<Self>, handle: &Arc<SyncedRepo>, delay: std::time::Duration) {
+        let Some(tracked) = self.tracked(handle).await else {
+            tracing::warn!(
+                checkout = %handle.repo_path().display(),
+                "can't schedule a commit of this cloudmap checkout's staged writes"
+            );
+            return;
+        };
+        // set first: a push in between keeps `push_pending` for it
+        if tracked.commit_scheduled.swap(true, Ordering::SeqCst) {
+            return;
         }
+        // committed and pushed at startup if this process stops first
+        if tracked.cloned {
+            if let Err(e) = handle.set_push_pending(true).await {
+                tracing::warn!(error = %e, "can't record a commit as pending");
+            }
+        }
+        self.spawn_commit(tracked, handle.clone(), delay);
+    }
+
+    /// The task [`Self::commit_after`] starts, with its flag set.
+    fn spawn_commit(
+        self: &Arc<Self>,
+        tracked: Arc<Tracked>,
+        handle: Arc<SyncedRepo>,
+        delay: std::time::Duration,
+    ) {
+        let me = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            match me.commit_staged(&tracked, &handle).await {
+                Ok(()) => {
+                    tracked.commit_failures.store(0, Ordering::SeqCst);
+                    // the configured checkout, the operator's own, isn't pushed
+                    if tracked.cloned {
+                        me.schedule_push(tracked, handle, None);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        checkout = %handle.repo_path().display(),
+                        error = e.as_str(),
+                        "can't commit this cloudmap checkout's staged writes; tried again later"
+                    );
+                    let failures = tracked.commit_failures.fetch_add(1, Ordering::SeqCst) + 1;
+                    let delay = backoff(me.settings.commit_interval, failures);
+                    me.spawn_commit(tracked, handle, delay);
+                }
+            }
+        });
+    }
+
+    /// Commit `handle`'s staged writes, holding its checkout and git lock;
+    /// its flag is set again where that fails, for the retry.
+    async fn commit_staged(&self, tracked: &Tracked, handle: &SyncedRepo) -> Result<(), String> {
+        let _held = tracked.pulling.clone().lock_owned().await;
+        // a write from now on needs a commit of its own
+        tracked.commit_scheduled.store(false, Ordering::SeqCst);
+        let committed = self.commit_locked(tracked, handle).await;
+        if committed.is_err() {
+            tracked.commit_scheduled.store(true, Ordering::SeqCst);
+        }
+        committed
+    }
+
+    async fn commit_locked(&self, tracked: &Tracked, handle: &SyncedRepo) -> Result<(), String> {
+        let path = handle.repo_path();
+        let lock = gitlock::hold(self.settings.locks.as_ref(), path, gitlock::TTL).await?;
+        let message = crate::cloudmap::DEFAULT_COMMIT_MESSAGE;
+        let committed = crate::cloudmap::retry_if_head_moved(|| {
+            handle.commit_repository(message, Default::default())
+        })
+        .await;
+        gitlock::release(lock).await;
+        if let Ok(unfurl_git_sync::Committed {
+            commit: Some(commit),
+            parent: Some(parent),
+            ..
+        }) = &committed
+        {
+            record(tracked, &parent.to_string(), &commit.to_string());
+        }
+        committed.map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    /// Record `commit`, which this process made in `handle`'s checkout on
+    /// `made_on`.
+    pub async fn record_commit(&self, handle: &SyncedRepo, made_on: &str, commit: &str) {
+        if let Some(tracked) = self.tracked(handle).await {
+            record(&tracked, made_on, commit);
+        }
+    }
+
+    /// Whether every commit from `since` to `head` in `handle`'s checkout is
+    /// one this process made, each on the one before.
+    pub async fn made_here(&self, handle: &SyncedRepo, since: &str, head: &str) -> bool {
+        let Some(tracked) = self.tracked(handle).await else {
+            return false;
+        };
+        let made = tracked.made.lock().expect("made");
+        let mut at = head;
+        // each step takes a pair, so it can't outrun them
+        for _ in 0..made.len() {
+            if at == since {
+                return true;
+            }
+            match made.iter().find(|(commit, _)| commit == at) {
+                Some((_, made_on)) => at = made_on,
+                None => return false,
+            }
+        }
+        at == since
     }
 
     /// How long a failed push of `tracked`'s checkout waits to be tried
@@ -359,7 +502,9 @@ impl Freshener {
         match pushed {
             Ok((pushed, commits)) => {
                 tracked.push_failures.store(0, Ordering::SeqCst);
-                if let Err(e) = handle.set_push_pending(false).await {
+                // a scheduled commit has work the push didn't
+                let committing = tracked.commit_scheduled.load(Ordering::SeqCst);
+                if let Err(e) = handle.set_push_pending(committing).await {
                     tracing::warn!(error = %e, "can't record a push as made");
                 }
                 self.pushed(tracked, handle, &pushed, &commits).await;
@@ -608,6 +753,10 @@ impl Freshener {
             last_push: Default::default(),
             push_scheduled: Default::default(),
             push_failures: Default::default(),
+            commit_scheduled: Default::default(),
+            commit_failures: Default::default(),
+            made: Default::default(),
+            credentials: Default::default(),
         });
         let mut all = self.tracked.lock().expect("tracked");
         Some(all.entry(id).or_insert(tracked).clone())
@@ -742,6 +891,15 @@ impl Freshener {
 
 /// [`Freshener::retry_delay`], after `failures` failed pushes, with a push
 /// interval of `interval` seconds.
+/// Remember `commit`, made on `made_on`, among `tracked`'s own.
+fn record(tracked: &Tracked, made_on: &str, commit: &str) {
+    let mut made = tracked.made.lock().expect("made");
+    if made.len() == MADE_KEPT {
+        made.pop_front();
+    }
+    made.push_back((commit.to_string(), made_on.to_string()));
+}
+
 fn backoff(interval: u64, failures: u32) -> std::time::Duration {
     let base = std::time::Duration::from_secs(interval).max(RETRY_DELAY);
     let doubled = base.saturating_mul(1 << failures.saturating_sub(1).min(16));

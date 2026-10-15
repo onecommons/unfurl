@@ -787,6 +787,9 @@ pub struct Committed {
     /// The new commit on this worktree's branch, or `None` when there was
     /// nothing new to commit.
     pub commit: Option<CommitId>,
+    /// The commit `commit` was made on: HEAD as the commit's own scan found
+    /// it, which may be one no earlier scan took in.
+    pub parent: Option<CommitId>,
     /// The branch the conflicts went to, when they were exported.
     pub exported: Option<Exported>,
 }

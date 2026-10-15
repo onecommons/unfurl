@@ -315,6 +315,12 @@ pub struct Config {
     )]
     pub push_interval: u64,
 
+    /// How many seconds a cloudmap write without ``commit`` waits to be
+    /// committed, with those made meanwhile, then pushed; defaults to
+    /// ``--push-interval``. Not in dev mode, which leaves them staged.
+    #[arg(long = "commit-interval", env = "UNFURL_COMMIT_INTERVAL")]
+    pub commit_interval: Option<u64>,
+
     /// With a clone root, a cloudmap repository a request naming no
     /// project reads, as `<project>[#branch]` (its default branch without
     /// one): cloned at startup like those the database tracks. Repeatable,
@@ -691,6 +697,7 @@ mod tests {
             trust_checkouts: false,
             pull_timeout: 120,
             push_interval: 60,
+            commit_interval: None,
             default_cloudmaps: Vec::new(),
             cloudmap_skip_scan: false,
             scan_abort_level: ScanAbortLevel::Report,
