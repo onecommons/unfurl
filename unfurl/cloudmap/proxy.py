@@ -184,7 +184,8 @@ class CloudMapProxyConflict(CloudMapProxyError):
     contains exactly one entry (matching the singleton section/key).
     In non-atomic mode :attr:`applied` lists every record that
     committed despite the failure, and :attr:`failed` lists every
-    record that did not.
+    record that did not; with ``commit=True``, :attr:`commit` is the git
+    commit of the records applied, if any were.
     """
 
     def __init__(
@@ -195,6 +196,7 @@ class CloudMapProxyConflict(CloudMapProxyError):
         message: Optional[str] = None,
         applied: Optional[List[Tuple[str, str, int]]] = None,
         failed: Optional[List[Tuple[str, str, Optional[str], Optional[str]]]] = None,
+        commit: Optional[str] = None,
     ) -> None:
         super().__init__(message or f"cloudmap conflict on {section}/{key}")
         self.section = section
@@ -202,6 +204,7 @@ class CloudMapProxyConflict(CloudMapProxyError):
         self.actual = actual
         self.applied: List[Tuple[str, str, int]] = applied or []
         self.failed: List[Tuple[str, str, Optional[str], Optional[str]]] = failed or []
+        self.commit = commit
 
 
 class CloudMapCache(CloudMapDB):
@@ -614,6 +617,7 @@ class CloudMapProxy(CloudMapStore):
                 message=str(detail),
                 applied=applied,
                 failed=failed,
+                commit=detail.get("commit"),
             )
         if not r.ok:
             raise CloudMapProxyError(

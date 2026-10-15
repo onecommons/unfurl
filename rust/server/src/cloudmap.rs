@@ -183,6 +183,9 @@ pub struct CloudMapState {
 /// How long a write waits for its checkout's git lock before it's refused.
 const COMMIT_WAIT: Duration = Duration::from_secs(30);
 
+/// The message of a `POST /cloudmap` commit that names none.
+const DEFAULT_COMMIT_MESSAGE: &str = "Update cloudmap";
+
 /// A checkout served with none configured, by its worktree.
 #[derive(Clone)]
 struct ServedCheckout {
@@ -2285,7 +2288,7 @@ async fn post_cloudmap_apply(
     let commit_msg = body
         .commit_msg
         .clone()
-        .unwrap_or_else(|| "Update cloudmap".to_string());
+        .unwrap_or_else(|| DEFAULT_COMMIT_MESSAGE.to_string());
 
     // Repository-level optimistic concurrency, mirroring the python handler:
     // refuse the write if the repository has moved since the commit the client
@@ -2416,40 +2419,45 @@ impl From<WriteError> for ApiError {
                 status: StatusCode::BAD_REQUEST,
                 body: json!({"code": "BAD_REQUEST", "message": msg}),
             },
-            WriteError::Conflict {
-                section,
-                key,
-                actual,
-                applied,
-                failed,
-            } => Self {
-                status: StatusCode::CONFLICT,
-                body: json!({
-                    "code": "CONFLICT",
-                    "message": "a record changed since latest_commit",
-                    "error": "conflict",
-                    "section": section,
-                    "key": key,
-                    "actual": actual,
-                    "applied": applied
-                        .iter()
-                        .map(|a| json!({
-                            "section": a.section,
-                            "key": a.key,
-                            "version": a.version,
-                        }))
-                        .collect::<Vec<_>>(),
-                    "failed": failed
-                        .iter()
-                        .map(|f| json!({
-                            "section": f.section,
-                            "key": f.key,
-                            "actual": f.actual,
-                            "error": f.error,
-                        }))
-                        .collect::<Vec<_>>(),
-                }),
-            },
+            WriteError::Conflict(conflict) => {
+                let Conflicted {
+                    section,
+                    key,
+                    actual,
+                    applied,
+                    failed,
+                    commit,
+                } = *conflict;
+                Self {
+                    status: StatusCode::CONFLICT,
+                    body: json!({
+                        "commit": commit,
+                        "code": "CONFLICT",
+                        "message": "a record changed since latest_commit",
+                        "error": "conflict",
+                        "section": section,
+                        "key": key,
+                        "actual": actual,
+                        "applied": applied
+                            .iter()
+                            .map(|a| json!({
+                                "section": a.section,
+                                "key": a.key,
+                                "version": a.version,
+                            }))
+                            .collect::<Vec<_>>(),
+                        "failed": failed
+                            .iter()
+                            .map(|f| json!({
+                                "section": f.section,
+                                "key": f.key,
+                                "actual": f.actual,
+                                "error": f.error,
+                            }))
+                            .collect::<Vec<_>>(),
+                    }),
+                }
+            }
             WriteError::Unprocessable(msg) => Self {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 body: json!({"code": "VALIDATION_ERROR", "message": msg}),
@@ -2469,28 +2477,33 @@ impl From<WriteError> for ApiError {
     }
 }
 
+/// A [`WriteError::Conflict`]'s records.
+struct Conflicted {
+    /// First conflicting record's section (back-compat with the
+    /// pre-batch response shape).
+    section: String,
+    /// First conflicting record's key.
+    key: String,
+    /// First conflicting record's server-side ``commit_id``.
+    actual: Option<String>,
+    /// All records that committed before the failure (atomic mode
+    /// always rolls back, so this is empty there). Non-atomic
+    /// mode populates this with everything that landed.
+    applied: Vec<unfurl_types::PatchResponseAppliedRecord>,
+    /// All records that did not commit. In atomic mode this is the
+    /// single record that triggered the rollback; in non-atomic
+    /// mode this is every record skipped.
+    failed: Vec<FailedJson>,
+    /// The git commit of `applied`, for a request that asked for one.
+    commit: Option<String>,
+}
+
 enum WriteError {
     BadRequest(String),
     /// A record fails git-sync's `validate_record` -- 422, as APIFlask
     /// answers on the python side.
     Unprocessable(String),
-    Conflict {
-        /// First conflicting record's section (back-compat with the
-        /// pre-batch response shape).
-        section: String,
-        /// First conflicting record's key.
-        key: String,
-        /// First conflicting record's server-side ``commit_id``.
-        actual: Option<String>,
-        /// All records that committed before the failure (atomic mode
-        /// always rolls back, so this is empty there). Non-atomic
-        /// mode populates this with everything that landed.
-        applied: Vec<unfurl_types::PatchResponseAppliedRecord>,
-        /// All records that did not commit. In atomic mode this is the
-        /// single record that triggered the rollback; in non-atomic
-        /// mode this is every record skipped.
-        failed: Vec<FailedJson>,
-    },
+    Conflict(Box<Conflicted>),
     Internal(String),
     /// Another holds the checkout's git lock -- 503, to retry.
     Busy(String),
@@ -2542,12 +2555,18 @@ async fn apply_and_commit(
     // A body carrying no records is legitimate here — it means "commit whatever
     // is already staged". `commit_repository` is itself a no-op returning None
     // when nothing is dirty, so there's no separate emptiness check to make.
-    let committed = match &applied {
-        Ok(_) => cm
+    // a non-atomic write commits what it applied, though some records failed
+    let landed = match &applied {
+        Ok(_) => true,
+        Err(WriteError::Conflict(conflict)) => !conflict.applied.is_empty(),
+        Err(_) => false,
+    };
+    let committed = match landed {
+        true => cm
             .commit(message)
             .await
             .map_err(|e| WriteError::Internal(format!("commit_repository: {e}"))),
-        Err(_) => Ok(None),
+        false => Ok(None),
     };
     if let Ok(Some(commit)) = &committed {
         // pushed in the background, after this has answered
@@ -2555,7 +2574,15 @@ async fn apply_and_commit(
     }
     gitlock::release(lock).await;
     drop(held);
-    Ok((applied?, committed?))
+    let committed = committed?;
+    match applied {
+        Ok(applied) => Ok((applied, committed)),
+        Err(WriteError::Conflict(mut conflict)) => {
+            conflict.commit = committed;
+            Err(WriteError::Conflict(conflict))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 async fn apply_writes(
@@ -2676,13 +2703,14 @@ async fn apply_writes(
                 error: kind,
             });
         }
-        return Err(WriteError::Conflict {
+        return Err(WriteError::Conflict(Box::new(Conflicted {
             section: primary_section,
             key: primary.key.clone(),
             actual: primary_actual,
             applied,
             failed: failed_records,
-        });
+            commit: None,
+        })));
     }
 
     Ok(WriteOutcome {

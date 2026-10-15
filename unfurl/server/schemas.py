@@ -792,8 +792,10 @@ class PostCloudmapRequest(BaseModel):
             "When ``true`` (default), the batch is all-or-nothing: any "
             "per-record OCC failure rolls everything back. When "
             "``false``, per-record failures are skipped and the rest "
-            "of the batch commits; the 409 body lists ``applied`` and "
-            "``failed`` arrays. Honoured by the rust local handler "
+            "of the batch is written; the 409 body lists ``applied`` and "
+            "``failed`` arrays, and, with ``commit: true``, the commit "
+            "of what was applied as ``commit`` (null when nothing was). "
+            "Honoured by the rust local handler "
             "only — the Python YAML fallback is implicitly atomic."
         ),
     )
@@ -1469,7 +1471,7 @@ class AppliedRecord(BaseModel):
 # 409 body as a freeform `serde_json::Value` and the proxy parses it as
 # a raw dict — neither side goes through pydantic, so there's nowhere to
 # attach this model. Defining ConflictBody requires:
-#   * a pydantic model with `{section, key, actual, applied, failed}`
+#   * a pydantic model with `{section, key, actual, applied, failed, commit}`
 #     registered as the 409 response on POST /cloudmap,
 #   * the rust handler emitting through the regenerated typed
 #     `unfurl_types::ConflictBody` instead of `json!(...)`,
@@ -1480,9 +1482,11 @@ class AppliedRecord(BaseModel):
 # class FailedRecord(BaseModel):
 #     """One record that did *not* apply during a CloudMap batch write.
 #
-#     Returned in the 409 conflict body's ``failed`` array (non-atomic
-#     mode only). The atomic-mode 409 body uses the singleton ``section``
-#     / ``key`` / ``actual`` fields and leaves ``failed`` empty.
+#     Returned in the 409 conflict body's ``failed`` array: every record
+#     skipped in non-atomic mode, or in atomic mode the one that rolled
+#     the batch back, also named by the singleton ``section`` / ``key``
+#     / ``actual`` fields. ``commit`` is the commit of ``applied`` when
+#     the request asked for one, else null.
 #     """
 #
 #     section: str = Field(description="CloudMap section, e.g. ``artifacts``.")

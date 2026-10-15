@@ -1868,7 +1868,7 @@ pub struct PostCloudmapRequest {
     pub api_version: Option<String>,
     /// Tangible object that instantiates services or other artifacts. Artifact ID is either a package URL (see <https://github.com/package-url/purl-spec>) or repository URL with path.
     pub artifacts: Option<std::collections::HashMap<String, Box<CloudmapArtifact>>>,
-    /// When ``true`` (default), the batch is all-or-nothing: any per-record OCC failure rolls everything back. When ``false``, per-record failures are skipped and the rest of the batch commits; the 409 body lists ``applied`` and ``failed`` arrays. Honoured by the rust local handler only — the Python YAML fallback is implicitly atomic.
+    /// When ``true`` (default), the batch is all-or-nothing: any per-record OCC failure rolls everything back. When ``false``, per-record failures are skipped and the rest of the batch is written; the 409 body lists ``applied`` and ``failed`` arrays, and, with ``commit: true``, the commit of what was applied as ``commit`` (null when nothing was). Honoured by the rust local handler only — the Python YAML fallback is implicitly atomic.
     pub atomic: Option<bool>,
     /// Branch to write to; defaults to ``main``.
     pub branch: Option<String>,

@@ -776,6 +776,7 @@ def test_save_non_atomic_partial_stamps_applied_and_evicts_failed() -> None:
                     "section": "artifacts",
                     "key": "pkg:oci/bad",
                     "actual": "newer",
+                    "commit": "c0ffee",
                     "applied": [
                         {"section": "artifacts", "key": "pkg:oci/good", "version": 17}
                     ],
@@ -803,6 +804,7 @@ def test_save_non_atomic_partial_stamps_applied_and_evicts_failed() -> None:
     err = excinfo.value
     assert err.applied == [("artifacts", "pkg:oci/good", 17)]
     assert err.failed == [("artifacts", "pkg:oci/bad", "newer", "conflict")]
+    assert err.commit == "c0ffee"
     # Both records dropped from pending writes (good was applied; bad
     # was evicted).
     assert proxy._pending_writes == {}

@@ -1649,6 +1649,71 @@ async fn post_without_commit_flag_stages_only() {
     assert_eq!(head_oid(tmp.path()), before, "HEAD must not have moved");
 }
 
+/// A write `key` failed, its token stale, and `fresh` passing: the
+/// response to `atomic` and `commit: true`.
+async fn post_with_a_stale_record(cm: &CloudMapState, atomic: bool) -> (StatusCode, Value) {
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let stale = read_version(cm.clone(), "repositories", key).await;
+    let app = router(make_state(cm.clone()));
+    let _ = post_json(
+        app,
+        serde_json::json!({ "repositories": { key: { "name": "v2" } } }),
+    )
+    .await;
+    let app = router(make_state(cm.clone()));
+    post_json(
+        app,
+        serde_json::json!({
+            "atomic": atomic,
+            "commit": true,
+            "repositories": {
+                "fresh": { "name": "fresh" },
+                key: { "name": "v3", "unfurl.server.version": stale },
+            },
+        }),
+    )
+    .await
+}
+
+/// A non-atomic write some of whose records failed commits those that
+/// landed, and its 409 names the commit.
+#[tokio::test]
+async fn post_non_atomic_commits_what_landed() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let before = head_oid(tmp.path());
+    let (status, body) = post_with_a_stale_record(&cm, false).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let oid = body["commit"].as_str().expect("a commit oid");
+    assert_ne!(oid, before);
+    assert_eq!(head_oid(tmp.path()), oid);
+    let out = std::process::Command::new("git")
+        .args(["log", "-1", "--format=%s"])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git log");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "Update cloudmap"
+    );
+    let committed = std::process::Command::new("git")
+        .args(["show", "HEAD", "--", "cloudmap.yaml"])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git show");
+    assert!(String::from_utf8_lossy(&committed.stdout).contains("fresh"));
+}
+
+/// An atomic one, which applied nothing, commits nothing.
+#[tokio::test]
+async fn post_atomic_conflict_commits_nothing() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let before = head_oid(tmp.path());
+    let (status, body) = post_with_a_stale_record(&cm, true).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body["commit"].is_null(), "{body}");
+    assert_eq!(head_oid(tmp.path()), before);
+}
+
 #[tokio::test]
 async fn post_with_commit_flag_commits() {
     let (cm, _synced, tmp) = open_two_file_state().await;
