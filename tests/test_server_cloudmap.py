@@ -1100,13 +1100,16 @@ def test_server_cloudmap(server_env):
             analyze_url = f"http://{HOST}:{port}/cloudmap/analyze"
             service_url = "https://analyze.example.com/app"
             head_before = repo.revision
-            res = requests.post(analyze_url, json={"add": [service_url]})
+            # dev mode leaves a write without `commit` staged
+            res = requests.post(
+                analyze_url, json={"add": [service_url], "commit": True}
+            )
             assert res.status_code == 200, res.text
             assert res.json()["added"] == [
                 {"url": service_url, "section": "services", "key": service_url}
             ], res.text
             assert res.json()["skipped"] == []
-            assert repo.revision != head_before, "analyze commits by default"
+            assert repo.revision != head_before, "committed, as asked"
             assert res.json()["commit"] == repo.revision
             read_back = requests.get(
                 cloudmap_url, params={"kind": "services", "key": service_url}

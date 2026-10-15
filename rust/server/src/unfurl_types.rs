@@ -62,7 +62,7 @@ pub struct CloudMapAnalyzeRequest {
     pub branch: Option<String>,
     /// Path of the cloudmap file inside the repo.
     pub cloudmap_path: Option<String>,
-    /// Whether to commit the new records to git; defaults to true, as for ``POST /cloudmap``.
+    /// Whether to commit the new records to git, as ``commit`` on ``POST /cloudmap``: absent, at once with the python server, in the background with the rust one, and not at all in its dev mode.
     pub commit: Option<bool>,
     /// Commit message; falls back to one listing the records added.
     pub commit_msg: Option<String>,

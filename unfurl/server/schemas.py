@@ -940,7 +940,11 @@ class CloudMapAnalyzeRequest(BaseModel):
     )
     commit: Optional[bool] = Field(
         default=None,
-        description="Whether to commit the new records to git; defaults to true, as for ``POST /cloudmap``.",
+        description=(
+            "Whether to commit the new records to git, as ``commit`` on "
+            "``POST /cloudmap``: absent, at once with the python server, in the "
+            "background with the rust one, and not at all in its dev mode."
+        ),
     )
     username: Optional[str] = Field(
         default=None,

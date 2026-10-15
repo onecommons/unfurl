@@ -1606,7 +1606,7 @@ def update_cloudmap(
         new_commit = None
         if added:
             try:
-                new_commit = proxy.save(commit_msg, commit=body.commit is not False)
+                new_commit = proxy.save(commit_msg, commit=body.commit)
             except CloudMapProxyConflict as e:
                 return create_error_response("CONFLICT", str(e))
             except CloudMapProxyError as e:
