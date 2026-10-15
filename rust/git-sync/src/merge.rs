@@ -99,19 +99,18 @@ impl SyncedRepo {
             &[head, upstream],
             &message,
         )?;
-        let refusal = on_pool!(self.db(), pool => hold_in_pool(self, pool, &sides, &plan).await)?;
-        if let Some(why) = refusal {
-            return Ok(refused(why));
-        }
-        let held = plan
-            .held
-            .iter()
-            .map(|e| HeldRecord {
-                file_path: e.place.file_path.clone(),
-                path: e.place.path.clone(),
-                key: e.place.key.clone(),
-            })
-            .collect();
+        let inserted = on_pool!(self.db(), pool => hold_in_pool(self, pool, &sides, &plan).await)?;
+        let held = match inserted {
+            Ok(places) => places
+                .into_iter()
+                .map(|p| HeldRecord {
+                    file_path: p.file_path,
+                    path: p.path,
+                    key: p.key,
+                })
+                .collect(),
+            Err(why) => return Ok(refused(why)),
+        };
         Ok(MergedUpstream::Merged { commit, head, held })
     }
 
@@ -298,22 +297,22 @@ fn duplicate_free(file: &str, bytes: &[u8]) -> bool {
     }
 }
 
-/// C.22 step 4: hold the records both sides changed; why it changed
-/// nothing, if it didn't.
+/// C.22 step 4: hold the records both sides changed: the places it
+/// inserted a held edit at, or why it changed nothing.
 async fn hold_in_pool<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     sides: &Sides,
     plan: &Plan,
-) -> Result<Option<&'static str>> {
+) -> Result<std::result::Result<Vec<Place>, &'static str>> {
     let (w, family) = (sync.worktree_id(), sync.family_id());
     let mut tx = pool.begin().await?;
     DB::lock_family(&mut tx, family).await?;
     if DB::head_commit(&mut tx, w).await? != Some(sides.head) {
-        return Ok(Some("HEAD moved in the database"));
+        return Ok(Err("HEAD moved in the database"));
     }
     if git::worktree_meta(&sync.repo()?)?.head_oid != Some(sides.head) {
-        return Ok(Some("HEAD moved"));
+        return Ok(Err("HEAD moved"));
     }
     let d = DB::segs(&mut tx, w).await?.draft;
     let held: BTreeSet<&Place> = plan.held.iter().map(|e| &e.place).collect();
@@ -322,7 +321,7 @@ async fn hold_in_pool<DB: Store>(
         .iter()
         .any(|row| held.contains(&Place::from(row)))
     {
-        return Ok(Some(
+        return Ok(Err(
             "a record both sides changed has a conflict to resolve first",
         ));
     }
@@ -336,17 +335,19 @@ async fn hold_in_pool<DB: Store>(
         !pending.contains_key(&e.place) && pending.values().any(|p| Some(p.key_id) == e.key_id)
     });
     if elsewhere {
-        return Ok(Some(
+        return Ok(Err(
             "a record both sides changed has an edit pending elsewhere",
         ));
     }
     // an edit pending at the place is based on this side's value, so it's
     // in conflict with upstream's already; moving its base would make it
     // conflict with this side's own commit should the merge stop here
+    let mut inserted = Vec::new();
     for e in plan.held.iter().filter(|e| !pending.contains_key(&e.place)) {
         insert_edit(&mut tx, sync, d, e, sides.base, e.key_id).await?;
+        inserted.push(e.place.clone());
     }
     crate::segments::relink(&mut tx, w).await?;
     tx.commit().await?;
-    Ok(None)
+    Ok(Ok(inserted))
 }

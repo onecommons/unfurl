@@ -796,8 +796,9 @@ pub struct Committed {
 pub enum MergedUpstream {
     /// The merge commit, which no ref names yet: fast-forward to it while
     /// HEAD is still `head`, then push and scan. `held` are the records both
-    /// sides changed, upstream's value in the merge and ours held as a
-    /// pending edit in conflict with it.
+    /// sides changed that the merge held this side's value of, as a pending
+    /// edit in conflict with upstream's, merged. One with an edit pending
+    /// already isn't: that edit, not the commit's value, is in conflict.
     Merged {
         commit: CommitId,
         head: CommitId,

@@ -3364,6 +3364,7 @@ mod race_tests {
             let exported = sync
                 .export_racing(
                     "exported",
+                    None,
                     async || {
                         tries += 1;
                         if tries == 1 {

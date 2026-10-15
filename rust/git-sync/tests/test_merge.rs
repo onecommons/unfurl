@@ -596,3 +596,121 @@ fn a_merge_is_send(sync: &SyncedRepo, u: CommitId, tree: gix::ObjectId) {
     fn send<T: Send>(_: T) {}
     send(sync.merge_upstream(u, tree, &[]));
 }
+
+const ODOO: &str = "git://unfurl.cloud/onecommons/blueprints/odoo.git";
+
+/// The records a merge held go to a branch, and a conflict it didn't
+/// make stays.
+async fn the_held_records_are_exported_alone(sync: &SyncedRepo, tmp: &TempDir) {
+    scan(sync).await;
+    let b = head_commit(sync).await;
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        ODOO,
+        serde_json::json!({"name": "pending"}),
+        None,
+        false,
+    )
+    .await
+    .expect("write");
+    let path = tmp.path().join("cloudmap.yaml");
+    std::fs::write(&path, file(tmp).replace("name: Odoo", "name: disk")).expect("write");
+    git(tmp.path(), &["commit", "-q", "-am", "ours"]);
+    scan(sync).await;
+    commit_record(sync, DASHBOARD, serde_json::json!({"name": "mine"})).await;
+    let u = upstream(tmp, b, |t| t.replace("name: dashboard", "name: theirs"));
+    let (merged, _) = merge(sync, tmp, u).await;
+    let MergedUpstream::Merged { held, .. } = merged else {
+        panic!("{merged:?}");
+    };
+    let exported = sync
+        .export_held("git-sync/conflicts-held", &held)
+        .await
+        .expect("export")
+        .expect("something to export");
+    assert_eq!(exported.branch, "git-sync/conflicts-held");
+    let keys: Vec<String> = sync
+        .list_conflicts(None)
+        .await
+        .expect("conflicts")
+        .into_iter()
+        .map(|c| c.key)
+        .collect();
+    assert_eq!(keys, [ODOO], "only the held record left");
+    let branch = git(
+        tmp.path(),
+        &["show", "git-sync/conflicts-held:cloudmap.yaml"],
+    );
+    assert!(branch.contains("name: mine"), "{branch}");
+    assert!(
+        !branch.contains("name: pending") && !branch.contains("name: disk"),
+        "{branch}"
+    );
+}
+crud_test!(the_held_records_are_exported_alone);
+
+/// An edit already pending at a record both sides changed isn't held: it,
+/// not the commit's value, is in conflict, and it isn't exported, as no
+/// uncommitted write is.
+async fn a_staged_write_at_a_record_both_changed_isnt_held(sync: &SyncedRepo, tmp: &TempDir) {
+    scan(sync).await;
+    let b = head_commit(sync).await;
+    commit_record(sync, DASHBOARD, serde_json::json!({"name": "mine"})).await;
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "staged"}),
+        None,
+        false,
+    )
+    .await
+    .expect("write");
+    let u = upstream(tmp, b, |t| t.replace("name: dashboard", "name: theirs"));
+    let (merged, _) = merge(sync, tmp, u).await;
+    let MergedUpstream::Merged { held, .. } = merged else {
+        panic!("{merged:?}");
+    };
+    assert!(held.is_empty(), "{held:?}");
+    let exported = sync
+        .export_held("git-sync/conflicts-staged", &held)
+        .await
+        .expect("export");
+    assert!(exported.is_none(), "{exported:?}");
+    let conflicts = sync.list_conflicts(None).await.expect("conflicts");
+    assert!(
+        conflicts.iter().any(|c| c.key == DASHBOARD),
+        "{conflicts:?}"
+    );
+    assert_eq!(names(sync).await[DASHBOARD].1, "staged");
+}
+crud_test!(a_staged_write_at_a_record_both_changed_isnt_held);
+
+/// An export of the held records that failed after they moved is
+/// finished by exporting them again.
+async fn a_failed_export_of_held_records_finishes(sync: &SyncedRepo, tmp: &TempDir) {
+    scan(sync).await;
+    let b = head_commit(sync).await;
+    commit_record(sync, DASHBOARD, serde_json::json!({"name": "mine"})).await;
+    let u = upstream(tmp, b, |t| t.replace("name: dashboard", "name: theirs"));
+    let (merged, _) = merge(sync, tmp, u).await;
+    let MergedUpstream::Merged { held, .. } = merged else {
+        panic!("{merged:?}");
+    };
+    let branch = "git-sync/conflicts-failed";
+    let failed = sync
+        .export_held_failing(branch, &held, unfurl_git_sync::export::ExportStep::Moved)
+        .await;
+    assert!(failed.is_err(), "{failed:?}");
+    let exported = sync.export_held(branch, &held).await.expect("export");
+    assert_eq!(exported.map(|e| e.branch).as_deref(), Some(branch));
+    let text = git(tmp.path(), &["show", &format!("{branch}:cloudmap.yaml")]);
+    assert!(text.contains("name: mine"), "{text}");
+    assert!(sync
+        .list_conflicts(None)
+        .await
+        .expect("conflicts")
+        .is_empty());
+}
+crud_test!(a_failed_export_of_held_records_finishes);

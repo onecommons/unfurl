@@ -10,7 +10,7 @@ use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{FileRow, NewRecordRow, RecordRow};
 use crate::db::{self, on_pool};
 use crate::error::{Error, Result};
-use crate::model::{CommitRollup, ConflictState, Exported, Record, Resolution};
+use crate::model::{CommitRollup, ConflictState, Exported, HeldRecord, Record, Resolution};
 use crate::rollup::{build_commit_message, parse_commit_rollup};
 use crate::scan::Carried;
 use crate::sync::WRITE_ATTEMPTS;
@@ -59,7 +59,19 @@ impl SyncedRepo {
     /// file that can't be rendered at the base fails it with nothing
     /// changed.
     pub async fn export_conflicts(&self, branch: &str) -> Result<Option<Exported>> {
-        self.export_racing(branch, async || Ok(()), |_| Ok(()))
+        self.export_racing(branch, None, async || Ok(()), |_| Ok(()))
+            .await
+    }
+
+    /// [`Self::export_conflicts`] of the conflicts at `held` only: the
+    /// records a merge held ([`crate::MergedUpstream::Merged`]), once a
+    /// scan has found them in conflict.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::export_conflicts`].
+    pub async fn export_held(&self, branch: &str, held: &[HeldRecord]) -> Result<Option<Exported>> {
+        self.export_racing(branch, Some(&places(held)), async || Ok(()), |_| Ok(()))
             .await
     }
 
@@ -90,7 +102,24 @@ impl SyncedRepo {
             true => Err(Error::Other(format!("stopped after {step:?}"))),
             false => Ok(()),
         };
-        self.export_racing(branch, async || Ok(()), fail).await
+        self.export_racing(branch, None, async || Ok(()), fail)
+            .await
+    }
+
+    /// [`Self::export_held`], failing after step `at`.
+    #[cfg(feature = "fault-injection")]
+    pub async fn export_held_failing(
+        &self,
+        branch: &str,
+        held: &[HeldRecord],
+        at: ExportStep,
+    ) -> Result<Option<Exported>> {
+        let fail = |step| match step == at {
+            true => Err(Error::Other(format!("stopped after {step:?}"))),
+            false => Ok(()),
+        };
+        self.export_racing(branch, Some(&places(held)), async || Ok(()), fail)
+            .await
     }
 
     /// [`Self::export_conflicts`], running `before_move` between reading
@@ -99,6 +128,7 @@ impl SyncedRepo {
     pub(crate) async fn export_racing(
         &self,
         branch: &str,
+        only: Option<&Places>,
         mut before_move: impl AsyncFnMut() -> Result<()>,
         mut after: impl FnMut(ExportStep) -> Result<()>,
     ) -> Result<Option<Exported>> {
@@ -106,7 +136,7 @@ impl SyncedRepo {
             return Ok(Some(exported));
         }
         for _ in 0..WRITE_ATTEMPTS {
-            match self.try_export(branch, &mut before_move).await? {
+            match self.try_export(branch, only, &mut before_move).await? {
                 Attempt::Nothing => return Ok(None),
                 Attempt::Moved(n, base) => {
                     after(ExportStep::Moved)?;
@@ -166,10 +196,11 @@ impl SyncedRepo {
     async fn try_export(
         &self,
         branch: &str,
+        only: Option<&Places>,
         before_move: &mut impl AsyncFnMut() -> Result<()>,
     ) -> Result<Attempt> {
         let w = self.worktree_id();
-        let edits = on_pool!(self.db(), pool => conflicted_in_pool(pool, w).await)?;
+        let edits = on_pool!(self.db(), pool => conflicted_in_pool(pool, w, only).await)?;
         let repo = self.repo()?;
         let head = git::worktree_meta(&repo)?.head_oid;
         let (false, Some(head)) = (edits.is_empty(), head) else {
@@ -194,7 +225,7 @@ impl SyncedRepo {
             files: &files,
         };
         let moved = match before_move().await {
-            Ok(()) => self.move_conflicts(&fork, &ids).await,
+            Ok(()) => self.move_conflicts(&fork, &ids, only).await,
             Err(e) => Err(e),
         };
         match moved {
@@ -251,11 +282,16 @@ impl SyncedRepo {
     /// C.20's transaction: fork the branch at the base and move the
     /// conflicted edits, `ids`, to it. `None`, with nothing done, when
     /// they're no longer those.
-    async fn move_conflicts(&self, fork: &Fork<'_>, ids: &[i64]) -> Result<Option<i64>> {
+    async fn move_conflicts(
+        &self,
+        fork: &Fork<'_>,
+        ids: &[i64],
+        only: Option<&Places>,
+    ) -> Result<Option<i64>> {
         let mut history =
             crate::ids::History::open(self.formats(), self.repo()?, self.db(), self.family_id())
                 .await?;
-        on_pool!(self.db(), pool => move_in_pool(self, pool, &mut history, fork, ids).await)
+        on_pool!(self.db(), pool => move_in_pool(self, pool, &mut history, fork, ids, only).await)
     }
 
     /// Commit branch `n`'s draft onto `base`, fold it into its head, and
@@ -372,10 +408,21 @@ struct Fork<'a> {
     files: &'a [(String, String, String)],
 }
 
-/// The edits in `w`'s draft under an unresolved conflict, oldest first.
+/// Records by `(file, path, key)`.
+type Places = BTreeSet<(String, String, String)>;
+
+fn places(held: &[HeldRecord]) -> Places {
+    held.iter()
+        .map(|h| (h.file_path.clone(), h.path.clone(), h.key.clone()))
+        .collect()
+}
+
+/// The edits in `w`'s draft under an unresolved conflict, oldest first;
+/// those at `only`, if given.
 async fn conflicted<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
+    only: Option<&Places>,
 ) -> Result<Vec<RecordRow>> {
     let d = DB::segs(tx, w).await?.draft;
     let open: BTreeSet<(String, String, String)> = DB::rows_in(tx, d, None, true)
@@ -383,6 +430,7 @@ async fn conflicted<DB: Store>(
         .into_iter()
         .filter(|r| r.conflict == Some(ConflictState::Conflict))
         .map(|r| (r.file_path, r.path, r.key))
+        .filter(|at| only.is_none_or(|only| only.contains(at)))
         .collect();
     let mut edits: Vec<RecordRow> = DB::rows_in(tx, d, None, false)
         .await?
@@ -395,9 +443,13 @@ async fn conflicted<DB: Store>(
     Ok(edits)
 }
 
-async fn conflicted_in_pool<DB: Store>(pool: &sqlx::Pool<DB>, w: i64) -> Result<Vec<RecordRow>> {
+async fn conflicted_in_pool<DB: Store>(
+    pool: &sqlx::Pool<DB>,
+    w: i64,
+    only: Option<&Places>,
+) -> Result<Vec<RecordRow>> {
     let mut tx = pool.begin().await?;
-    conflicted(&mut tx, w).await
+    conflicted(&mut tx, w, only).await
 }
 
 /// The edits in `n`'s draft, oldest first.
@@ -419,12 +471,13 @@ async fn move_in_pool<DB: Store>(
     history: &mut crate::ids::History<'_>,
     fork: &Fork<'_>,
     ids: &[i64],
+    only: Option<&Places>,
 ) -> Result<Option<i64>> {
     let w = sync.worktree_id();
     let mut tx = pool.begin().await?;
     // before any read: SQLite can't take the write lock after one
     DB::lock_family(&mut tx, sync.family_id()).await?;
-    let edits = conflicted(&mut tx, w).await?;
+    let edits = conflicted(&mut tx, w, only).await?;
     if edits.iter().map(|e| e.id).ne(ids.iter().copied()) {
         return Ok(None);
     }
