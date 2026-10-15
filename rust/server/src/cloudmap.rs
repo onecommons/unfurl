@@ -2303,15 +2303,17 @@ async fn post_cloudmap_apply(
         .map_err(|e| WriteError::Internal(format!("head_commit: {e}")))?;
     if let (Some(expected), Some(actual)) = (body.latest_commit.as_deref(), head.as_deref()) {
         if expected != actual {
+            let body = unfurl_types::ConflictBody {
+                code: "CONFLICT".into(),
+                message: format!(
+                    "cloudmap has changed since latest_commit {expected}, \
+                     current revision is {actual}"
+                ),
+                ..Default::default()
+            };
             return Err(ApiError {
                 status: StatusCode::CONFLICT,
-                body: json!({
-                    "code": "CONFLICT",
-                    "message": format!(
-                        "cloudmap has changed since latest_commit {expected}, \
-                         current revision is {actual}"
-                    )
-                }),
+                body: conflict_json(&body),
             });
         }
     }
@@ -2412,6 +2414,13 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// `body` as JSON: what a 409 of `POST /cloudmap` answers.
+fn conflict_json(body: &unfurl_types::ConflictBody) -> Value {
+    serde_json::to_value(body).unwrap_or_else(
+        |e| json!({"code": "CONFLICT", "message": format!("unserializable conflict: {e}")}),
+    )
+}
+
 impl From<WriteError> for ApiError {
     fn from(err: WriteError) -> Self {
         match err {
@@ -2428,34 +2437,21 @@ impl From<WriteError> for ApiError {
                     failed,
                     commit,
                 } = *conflict;
+                let body = unfurl_types::ConflictBody {
+                    code: "CONFLICT".into(),
+                    message: "a record changed since latest_commit".into(),
+                    error: Some("conflict".into()),
+                    section: Some(section),
+                    key: Some(key),
+                    actual,
+                    applied: Some(applied),
+                    failed: Some(failed),
+                    commit,
+                    ..Default::default()
+                };
                 Self {
                     status: StatusCode::CONFLICT,
-                    body: json!({
-                        "commit": commit,
-                        "code": "CONFLICT",
-                        "message": "a record changed since latest_commit",
-                        "error": "conflict",
-                        "section": section,
-                        "key": key,
-                        "actual": actual,
-                        "applied": applied
-                            .iter()
-                            .map(|a| json!({
-                                "section": a.section,
-                                "key": a.key,
-                                "version": a.version,
-                            }))
-                            .collect::<Vec<_>>(),
-                        "failed": failed
-                            .iter()
-                            .map(|f| json!({
-                                "section": f.section,
-                                "key": f.key,
-                                "actual": f.actual,
-                                "error": f.error,
-                            }))
-                            .collect::<Vec<_>>(),
-                    }),
+                    body: conflict_json(&body),
                 }
             }
             WriteError::Unprocessable(msg) => Self {
@@ -2493,7 +2489,7 @@ struct Conflicted {
     /// All records that did not commit. In atomic mode this is the
     /// single record that triggered the rollback; in non-atomic
     /// mode this is every record skipped.
-    failed: Vec<FailedJson>,
+    failed: Vec<unfurl_types::FailedRecord>,
     /// The git commit of `applied`, for a request that asked for one.
     commit: Option<String>,
 }
@@ -2507,15 +2503,6 @@ enum WriteError {
     Internal(String),
     /// Another holds the checkout's git lock -- 503, to retry.
     Busy(String),
-}
-
-/// Per-record failure detail surfaced in the 409 response body.
-#[derive(Clone, Debug)]
-struct FailedJson {
-    section: String,
-    key: String,
-    actual: Option<String>,
-    error: Option<String>,
 }
 
 /// Result of applying a CloudMapDocument body via [`apply_writes`].
@@ -2688,7 +2675,8 @@ async fn apply_writes(
             .copied()
             .unwrap_or("")
             .to_string();
-        let mut failed_records: Vec<FailedJson> = Vec::with_capacity(outcome.failed.len());
+        let mut failed_records: Vec<unfurl_types::FailedRecord> =
+            Vec::with_capacity(outcome.failed.len());
         let mut primary_actual: Option<String> = None;
         for f in &outcome.failed {
             let section = sections.get(f.index).copied().unwrap_or("").to_string();
@@ -2696,7 +2684,7 @@ async fn apply_writes(
             if std::ptr::eq(f, primary) {
                 primary_actual.clone_from(&actual);
             }
-            failed_records.push(FailedJson {
+            failed_records.push(unfurl_types::FailedRecord {
                 section,
                 key: f.key.clone(),
                 actual,

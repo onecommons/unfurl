@@ -579,45 +579,29 @@ class CloudMapProxy(CloudMapStore):
             timeout=self._timeout,
         )
         if r.status_code == 409:
+            from pydantic import ValidationError
+            from ..server.schemas import ConflictBody
+
             try:
-                detail = r.json()
-            except ValueError:
-                detail = {"error": r.text}
-            applied_raw = detail.get("applied") or []
-            failed_raw = detail.get("failed") or []
-            applied: List[Tuple[str, str, int]] = []
-            for entry in applied_raw:
-                if not isinstance(entry, dict):
-                    continue
-                applied.append(
-                    (
-                        str(entry.get("section", "")),
-                        str(entry.get("key", "")),
-                        int(entry.get("version") or 0),
-                    )
+                conflict = ConflictBody.model_validate(r.json())
+            except ValidationError as e:
+                self.logger.warning(
+                    "a 409 from %s isn't a ConflictBody: %s", self._endpoint, e
                 )
-            failed: List[Tuple[str, str, Optional[str], Optional[str]]] = []
-            for entry in failed_raw:
-                if not isinstance(entry, dict):
-                    continue
-                actual = entry.get("actual")
-                err_kind = entry.get("error")
-                failed.append(
-                    (
-                        str(entry.get("section", "")),
-                        str(entry.get("key", "")),
-                        str(actual) if actual is not None else None,
-                        str(err_kind) if err_kind is not None else None,
-                    )
-                )
+                conflict = ConflictBody(code="CONFLICT", message=r.text)
+            except ValueError:  # not JSON
+                conflict = ConflictBody(code="CONFLICT", message=r.text)
+            message = conflict.message
+            if conflict.section:
+                message = f"{message} ({conflict.section}/{conflict.key})"
             raise CloudMapProxyConflict(
-                section=detail.get("section", ""),
-                key=detail.get("key", ""),
-                actual=detail.get("actual"),
-                message=str(detail),
-                applied=applied,
-                failed=failed,
-                commit=detail.get("commit"),
+                section=conflict.section or "",
+                key=conflict.key or "",
+                actual=conflict.actual,
+                message=message,
+                applied=[(a.section, a.key, a.version) for a in conflict.applied],
+                failed=[(f.section, f.key, f.actual, f.error) for f in conflict.failed],
+                commit=conflict.commit,
             )
         if not r.ok:
             raise CloudMapProxyError(

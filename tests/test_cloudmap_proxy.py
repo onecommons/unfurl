@@ -772,6 +772,8 @@ def test_save_non_atomic_partial_stamps_applied_and_evicts_failed() -> None:
         post_returns=[
             _make_response(
                 {
+                    "code": "CONFLICT",
+                    "message": "a record changed since latest_commit",
                     "error": "conflict",
                     "section": "artifacts",
                     "key": "pkg:oci/bad",
@@ -826,6 +828,8 @@ def test_save_conflict_drops_conflicting_keeps_others() -> None:
         post_returns=[
             _make_response(
                 {
+                    "code": "CONFLICT",
+                    "message": "a record changed since latest_commit",
                     "error": "conflict",
                     "section": "artifacts",
                     "key": "pkg:oci/x",
@@ -875,6 +879,8 @@ def test_save_conflict_logs_warning(caplog) -> None:
         post_returns=[
             _make_response(
                 {
+                    "code": "CONFLICT",
+                    "message": "a record changed since latest_commit",
                     "error": "conflict",
                     "section": "artifacts",
                     "key": "pkg:oci/x",
@@ -893,6 +899,26 @@ def test_save_conflict_logs_warning(caplog) -> None:
         "cloudmap conflict on artifacts/pkg:oci/x" in m and "newer" in m
         for m in record_messages
     ), record_messages
+
+
+def test_save_conflict_that_isnt_a_conflict_body_warns(caplog) -> None:
+    """A 409 the client can't read as a `ConflictBody` still raises the
+    conflict, with a warning, since its record lists are lost."""
+    proxy, _ = _make_proxy(
+        post_returns=[
+            _make_response(
+                {"error": "conflict", "section": "artifacts", "key": "pkg:oci/x"},
+                status=409,
+            )
+        ]
+    )
+    proxy.add_record(Artifact(url="pkg:oci/x", metadata=ArtifactMetadata(title="x")))
+    with caplog.at_level("WARNING", logger="unfurl.cloudmap.proxy"):
+        with pytest.raises(CloudMapProxyConflict) as excinfo:
+            proxy.save()
+    assert excinfo.value.applied == [] and excinfo.value.failed == []
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("isn't a ConflictBody" in m for m in messages), messages
 
 
 def test_save_propagates_other_http_errors() -> None:

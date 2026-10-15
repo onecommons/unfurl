@@ -36,6 +36,7 @@ from ..util import API_VERSION, UnfurlError, assert_not_none, lock_file
 from ..yamlloader import yaml
 
 from .schemas import (
+    POST_CLOUDMAP_RESPONSES,
     CloudMapAnalyzeRequest,
     CloudMapAnalyzeResponse,
     CloudMapDocQuery,
@@ -1080,6 +1081,7 @@ def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
         "push) and the new commit oid is returned."
     ),
     tags=["Export"],
+    responses=POST_CLOUDMAP_RESPONSES,
 )
 @app.input(ProjectAuthQuery, location="query", arg_name="query")
 @app.input(PostCloudmapRequest, location="json", arg_name="body")

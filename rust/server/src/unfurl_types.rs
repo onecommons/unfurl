@@ -811,6 +811,38 @@ pub struct CloudmapTypedUrLs {
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, Box<CloudmapTypeRef>>,
 }
+/// The 409 body of ``POST /cloudmap``.
+///
+/// A repository that moved past ``latest_commit`` answers with ``code`` and
+/// ``message`` only. A record that failed its optimistic-concurrency check
+/// (rust handler only) adds the rest.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct ConflictBody {
+    /// The first failing record's current ``commit_id``.
+    pub actual: Option<String>,
+    /// The records written: none in atomic mode, which rolls the batch back; in non-atomic mode, every record that passed.
+    pub applied: Option<Vec<PatchResponseAppliedRecord>>,
+    /// Error code (e.g. BAD_REQUEST, UNAUTHORIZED, INTERNAL_ERROR)
+    pub code: String,
+    /// The commit of ``applied``, for a request with ``commit: true`` that applied any; else null.
+    pub commit: Option<String>,
+    /// Full exception traceback, included when an unexpected error occurs
+    pub details: Option<String>,
+    /// ``conflict`` for a record that failed its check.
+    pub error: Option<String>,
+    /// The records not written: in atomic mode the one that rolled the batch back; in non-atomic mode every record skipped.
+    pub failed: Option<Vec<FailedRecord>>,
+    /// Per-field validation errors, keyed by request location (``json``, ``query``, ...) then by field name. Only set when the request failed validation.
+    pub fields:
+        Option<std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>>>,
+    /// The first failing record's key.
+    pub key: Option<String>,
+    /// Human-readable error message
+    pub message: String,
+    /// The first failing record's section.
+    pub section: Option<String>,
+}
 /// GraphQL-style JSON database returned by /export and /types.
 ///
 /// Each top-level key maps to a dict of named GraphQL objects of that type,
@@ -1195,6 +1227,21 @@ pub struct FacetsResultFacetsMeta {
     /// True when subtype-closure rollup was actually applied: a ``type`` column was present and ``subtypes`` was not disabled. Group and facet buckets then overlap up the type hierarchy instead of partitioning the records.
     #[default(Some(false))]
     pub subtypes: Option<bool>,
+}
+/// One record that did not apply during a CloudMap batch write.
+///
+/// Returned in :attr:`ConflictBody.failed`.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct FailedRecord {
+    /// The row's current ``commit_id`` at the time of the conflict.
+    pub actual: Option<String>,
+    /// Short error label, e.g. ``conflict`` or ``not_found``.
+    pub error: Option<String>,
+    /// Record key within the section.
+    pub key: String,
+    /// CloudMap section, e.g. ``artifacts``.
+    pub section: String,
 }
 /// Count the selected records grouped by the value at ``group_by``, with an optional per-group breakdown for each ``facet`` column. Record selection (``kind`` / ``type`` / ``filter``) works exactly as on ``GET /cloudmap``; the response carries counts only, no records.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
@@ -1927,6 +1974,8 @@ pub struct PostCloudmapRequestParamsQuery {
 pub enum PostCloudmapResponse {
     ///200: commit and list of applied changes (mirrors the rust handler's per-record response)
     Ok(PatchResponse),
+    ///409: The repository moved past latest_commit, or a record failed its optimistic-concurrency check
+    Conflict(ConflictBody),
     ///422: Validation error
     UnprocessableEntity(ValidationError),
     ///default: Unknown response
@@ -1936,6 +1985,7 @@ impl IntoResponse for PostCloudmapResponse {
     fn into_response(self) -> axum::response::Response {
         match self {
             Self::Ok(data) => (http::StatusCode::OK, axum::Json(data)).into_response(),
+            Self::Conflict(data) => (http::StatusCode::CONFLICT, axum::Json(data)).into_response(),
             Self::UnprocessableEntity(data) => {
                 (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
             }

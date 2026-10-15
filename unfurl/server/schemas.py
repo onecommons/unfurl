@@ -1089,6 +1089,37 @@ def describe_populate_cache_body(spec: Dict[str, Any]) -> Dict[str, Any]:
     return spec
 
 
+def declare_conflict_body(spec: Dict[str, Any]) -> Dict[str, Any]:
+    """APIFlask ``spec_processor``: add :class:`ConflictBody`, and the
+    :class:`FailedRecord` it holds, to ``components.schemas``, with its
+    :class:`AppliedRecord` the one :class:`PatchResponse` added there.
+    """
+    schemas = spec.setdefault("components", {}).setdefault("schemas", {})
+    body = ConflictBody.model_json_schema(ref_template="#/components/schemas/{model}")
+    applied = "PatchResponse.AppliedRecord"
+    renamed = {"AppliedRecord": applied} if applied in schemas else {}
+    for name, definition in body.pop("$defs", {}).items():
+        if name not in renamed:
+            if schemas.setdefault(name, definition) != definition:
+                raise RuntimeError(f"a different {name} is in the spec")
+    schemas["ConflictBody"] = _renamed_refs(body, renamed)
+    return spec
+
+
+def _renamed_refs(value: JsonValue, renamed: Dict[str, str]) -> JsonValue:
+    """``value`` with each ``$ref`` to a component in ``renamed`` pointed at
+    its new name."""
+    if isinstance(value, dict):
+        ref = value.get("$ref")
+        name = ref.rsplit("/", 1)[-1] if isinstance(ref, str) else ""
+        if name in renamed:
+            return dict(value, **{"$ref": "#/components/schemas/" + renamed[name]})
+        return {k: _renamed_refs(v, renamed) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_renamed_refs(v, renamed) for v in value]
+    return value
+
+
 def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
     """APIFlask ``spec_processor``: replace the placeholder
     ``CloudMapDocument`` schema with the canonical CloudMap schema and
@@ -1465,40 +1496,66 @@ class AppliedRecord(BaseModel):
     )
 
 
-# TODO: wire up a typed ConflictBody for the 409 response shape and use
-# this model inside it. Today the rust handler at
-# `rust/server/src/cloudmap.rs::From<WriteError> for ApiError` emits the
-# 409 body as a freeform `serde_json::Value` and the proxy parses it as
-# a raw dict — neither side goes through pydantic, so there's nowhere to
-# attach this model. Defining ConflictBody requires:
-#   * a pydantic model with `{section, key, actual, applied, failed, commit}`
-#     registered as the 409 response on POST /cloudmap,
-#   * the rust handler emitting through the regenerated typed
-#     `unfurl_types::ConflictBody` instead of `json!(...)`,
-#   * the proxy's `_post` deserializing into the typed shape.
-# Until that's done this model is the *accurate description* of the
-# wire format produced by the rust handler — kept here as documentation.
-#
-# class FailedRecord(BaseModel):
-#     """One record that did *not* apply during a CloudMap batch write.
-#
-#     Returned in the 409 conflict body's ``failed`` array: every record
-#     skipped in non-atomic mode, or in atomic mode the one that rolled
-#     the batch back, also named by the singleton ``section`` / ``key``
-#     / ``actual`` fields. ``commit`` is the commit of ``applied`` when
-#     the request asked for one, else null.
-#     """
-#
-#     section: str = Field(description="CloudMap section, e.g. ``artifacts``.")
-#     key: str = Field(description="Record key within the section.")
-#     actual: Optional[str] = Field(
-#         default=None,
-#         description="The row's current ``commit_id`` at the time of the conflict.",
-#     )
-#     error: Optional[str] = Field(
-#         default=None,
-#         description="Short error label, e.g. ``conflict`` or ``not_found``.",
-#     )
+class FailedRecord(BaseModel):
+    """One record that did not apply during a CloudMap batch write.
+
+    Returned in :attr:`ConflictBody.failed`.
+    """
+
+    section: str = Field(description="CloudMap section, e.g. ``artifacts``.")
+    key: str = Field(description="Record key within the section.")
+    actual: Optional[str] = Field(
+        default=None,
+        description="The row's current ``commit_id`` at the time of the conflict.",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Short error label, e.g. ``conflict`` or ``not_found``.",
+    )
+
+
+class ConflictBody(ErrorResponse):
+    """The 409 body of ``POST /cloudmap``.
+
+    A repository that moved past ``latest_commit`` answers with ``code`` and
+    ``message`` only. A record that failed its optimistic-concurrency check
+    (rust handler only) adds the rest.
+    """
+
+    error: Optional[str] = Field(
+        default=None, description="``conflict`` for a record that failed its check."
+    )
+    section: Optional[str] = Field(
+        default=None, description="The first failing record's section."
+    )
+    key: Optional[str] = Field(
+        default=None, description="The first failing record's key."
+    )
+    actual: Optional[str] = Field(
+        default=None,
+        description="The first failing record's current ``commit_id``.",
+    )
+    applied: List[AppliedRecord] = Field(
+        default_factory=list,
+        description=(
+            "The records written: none in atomic mode, which rolls the batch "
+            "back; in non-atomic mode, every record that passed."
+        ),
+    )
+    failed: List[FailedRecord] = Field(
+        default_factory=list,
+        description=(
+            "The records not written: in atomic mode the one that rolled the "
+            "batch back; in non-atomic mode every record skipped."
+        ),
+    )
+    commit: Optional[str] = Field(
+        default=None,
+        description=(
+            "The commit of ``applied``, for a request with ``commit: true`` "
+            "that applied any; else null."
+        ),
+    )
 
 
 class PatchResponse(BaseModel):
@@ -1605,6 +1662,24 @@ EXPORT_RESPONSES: Dict[int, str] = {
     304: "Not Modified (ETag matched)",
     401: "Unauthorized",
     500: "Internal error",
+}
+
+# APIFlask can't declare a model for a status but 200's, so the 409's schema is
+# a $ref to the component `declare_conflict_body` adds.
+POST_CLOUDMAP_RESPONSES: Dict[
+    Union[int, str], Dict[str, Union[str, Dict[str, Dict[str, Dict[str, str]]]]]
+] = {
+    409: {
+        "description": (
+            "The repository moved past latest_commit, or a record failed "
+            "its optimistic-concurrency check"
+        ),
+        "content": {
+            "application/json": {
+                "schema": {"$ref": "#/components/schemas/ConflictBody"}
+            }
+        },
+    },
 }
 
 PATCH_RESPONSES: Dict[int, str] = {

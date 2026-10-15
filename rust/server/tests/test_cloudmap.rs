@@ -1710,7 +1710,7 @@ async fn post_atomic_conflict_commits_nothing() {
     let before = head_oid(tmp.path());
     let (status, body) = post_with_a_stale_record(&cm, true).await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
-    assert!(body["commit"].is_null(), "{body}");
+    assert!(body.get("commit").is_none(), "{body}");
     assert_eq!(head_oid(tmp.path()), before);
 }
 

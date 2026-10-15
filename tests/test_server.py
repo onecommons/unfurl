@@ -508,6 +508,26 @@ def test_errors_report_code_and_message(monkeypatch):
     assert res.json == {"code": "NOT_FOUND", "message": "Not Found"}
 
 
+def test_post_cloudmap_declares_its_conflict_body():
+    """POST /cloudmap's 409 is a `ConflictBody` in the spec."""
+    with server.app.app_context():
+        spec = server.app._get_spec("json", force_update=True)
+    conflict = spec["paths"]["/cloudmap"]["post"]["responses"]["409"]
+    schema = conflict["content"]["application/json"]["schema"]
+    assert schema == {"$ref": "#/components/schemas/ConflictBody"}
+    schemas = spec["components"]["schemas"]
+    body = schemas["ConflictBody"]
+    for field in ("code", "message", "section", "key", "applied", "failed", "commit"):
+        assert field in body["properties"], field
+    assert body["properties"]["applied"]["items"] == {
+        "$ref": "#/components/schemas/PatchResponse.AppliedRecord"
+    }
+    assert body["properties"]["failed"]["items"] == {
+        "$ref": "#/components/schemas/FailedRecord"
+    }
+    assert "FailedRecord" in schemas and "AppliedRecord" not in schemas
+
+
 def test_get_project_id_does_not_abort(monkeypatch):
     """The plain getter stays a plain getter -- only the `_or_abort` variant rejects."""
     from werkzeug.test import EnvironBuilder

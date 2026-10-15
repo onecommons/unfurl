@@ -97,6 +97,7 @@ from .schemas import (
     TypesQuery,
     EXPORT_RESPONSES,
     describe_populate_cache_body,
+    declare_conflict_body,
     hoist_cloudmap_definitions,
 )
 from ..packages import Package, get_package_from_url, ProxiedRepo
@@ -150,11 +151,13 @@ app = APIFlask(__name__, title="Unfurl Server API", version=__version__())
 def _process_spec(spec):
     """Lift CloudMap schema definitions into components.schemas so that the
     canonical cloudmap-schema.json definitions appear as named OpenAPI
-    components and ``$ref`` arrows resolve, and document /populate_cache's
-    optional JSON body, which cannot be declared as an input without rejecting
-    callers that send no Content-Type.
+    components and ``$ref`` arrows resolve, add ``POST /cloudmap``'s 409 body,
+    and document /populate_cache's optional JSON body, which cannot be
+    declared as an input without rejecting callers that send no Content-Type.
     """
-    return describe_populate_cache_body(hoist_cloudmap_definitions(spec))
+    return describe_populate_cache_body(
+        declare_conflict_body(hoist_cloudmap_definitions(spec))
+    )
 
 
 def configure_app(app: APIFlask = app) -> Cache:

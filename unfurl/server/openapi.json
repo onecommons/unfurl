@@ -633,6 +633,143 @@
         "title": "CloudMap query result",
         "type": "object"
       },
+      "ConflictBody": {
+        "description": "The 409 body of ``POST /cloudmap``.\n\nA repository that moved past ``latest_commit`` answers with ``code`` and\n``message`` only. A record that failed its optimistic-concurrency check\n(rust handler only) adds the rest.",
+        "properties": {
+          "actual": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The first failing record's current ``commit_id``.",
+            "title": "Actual"
+          },
+          "applied": {
+            "description": "The records written: none in atomic mode, which rolls the batch back; in non-atomic mode, every record that passed.",
+            "items": {
+              "$ref": "#/components/schemas/PatchResponse.AppliedRecord"
+            },
+            "title": "Applied",
+            "type": "array"
+          },
+          "code": {
+            "description": "Error code (e.g. BAD_REQUEST, UNAUTHORIZED, INTERNAL_ERROR)",
+            "title": "Code",
+            "type": "string"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The commit of ``applied``, for a request with ``commit: true`` that applied any; else null.",
+            "title": "Commit"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Full exception traceback, included when an unexpected error occurs",
+            "title": "Details"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "``conflict`` for a record that failed its check.",
+            "title": "Error"
+          },
+          "failed": {
+            "description": "The records not written: in atomic mode the one that rolled the batch back; in non-atomic mode every record skipped.",
+            "items": {
+              "$ref": "#/components/schemas/FailedRecord"
+            },
+            "title": "Failed",
+            "type": "array"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Per-field validation errors, keyed by request location (``json``, ``query``, ...) then by field name. Only set when the request failed validation.",
+            "title": "Fields"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The first failing record's key.",
+            "title": "Key"
+          },
+          "message": {
+            "description": "Human-readable error message",
+            "title": "Message",
+            "type": "string"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The first failing record's section.",
+            "title": "Section"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ConflictBody",
+        "type": "object"
+      },
       "ExportResponse": {
         "additionalProperties": true,
         "description": "GraphQL-style JSON database returned by /export and /types.\n\nEach top-level key maps to a dict of named GraphQL objects of that type,\nreflecting the GraphQL schema defined in unfurl/graphql.py.",
@@ -1685,6 +1822,53 @@
           "group_by"
         ],
         "title": "FacetsMeta",
+        "type": "object"
+      },
+      "FailedRecord": {
+        "description": "One record that did not apply during a CloudMap batch write.\n\nReturned in :attr:`ConflictBody.failed`.",
+        "properties": {
+          "actual": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The row's current ``commit_id`` at the time of the conflict.",
+            "title": "Actual"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Short error label, e.g. ``conflict`` or ``not_found``.",
+            "title": "Error"
+          },
+          "key": {
+            "description": "Record key within the section.",
+            "title": "Key",
+            "type": "string"
+          },
+          "section": {
+            "description": "CloudMap section, e.g. ``artifacts``.",
+            "title": "Section",
+            "type": "string"
+          }
+        },
+        "required": [
+          "section",
+          "key"
+        ],
+        "title": "FailedRecord",
         "type": "object"
       },
       "HTTPError": {
@@ -3814,6 +3998,16 @@
               }
             },
             "description": "commit and list of applied changes (mirrors the rust handler's per-record response)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictBody"
+                }
+              }
+            },
+            "description": "The repository moved past latest_commit, or a record failed its optimistic-concurrency check"
           },
           "422": {
             "content": {
