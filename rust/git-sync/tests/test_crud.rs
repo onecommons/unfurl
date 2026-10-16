@@ -3556,3 +3556,53 @@ async fn a_commit_keeps_a_files_mode(sync: &SyncedRepo, tmp: &TempDir) {
     );
 }
 crud_test!(a_commit_keeps_a_files_mode);
+
+/// A write naming no file, of a key two files hold, is refused, naming
+/// both; one naming a file writes that file's record.
+async fn a_write_of_a_key_in_two_files_names_one(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
+    let dup = "git://example.com/same-key.git";
+    for file in ["cloudmap.yaml", "second.yaml"] {
+        sync.upsert_record(
+            Some(file),
+            "/repositories",
+            dup,
+            serde_json::json!({"name": file}),
+            None,
+            false,
+        )
+        .await
+        .expect("write");
+    }
+    let unnamed = sync
+        .upsert_record(
+            None,
+            "/repositories",
+            dup,
+            serde_json::json!({"name": "x"}),
+            None,
+            false,
+        )
+        .await;
+    match unnamed {
+        Err(Error::Ambiguous { mut files, .. }) => {
+            files.sort();
+            assert_eq!(files, ["cloudmap.yaml", "second.yaml"]);
+        }
+        other => panic!("{other:?}"),
+    }
+    sync.upsert_record(
+        Some("second.yaml"),
+        "/repositories",
+        dup,
+        serde_json::json!({"name": "named"}),
+        None,
+        false,
+    )
+    .await
+    .expect("a named file's record");
+}
+
+crud_test!(a_write_of_a_key_in_two_files_names_one);

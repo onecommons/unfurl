@@ -104,6 +104,25 @@ struct Request<'a> {
     validate: bool,
 }
 
+/// The live one of `rows`, at `(path, key)` in `file_path` or, with none
+/// named, in any file: [`Error::Ambiguous`] where that's more than one.
+fn only_live(
+    rows: Vec<RecordRow>,
+    file_path: Option<&str>,
+    path: &str,
+    key: &str,
+) -> Result<Option<RecordRow>> {
+    let mut live: Vec<RecordRow> = rows.into_iter().filter(|r| !r.deleted).collect();
+    if file_path.is_none() && live.len() > 1 {
+        return Err(Error::Ambiguous {
+            path: path.to_string(),
+            key: key.to_string(),
+            files: live.into_iter().map(|r| r.file_path).collect(),
+        });
+    }
+    Ok(live.pop())
+}
+
 /// One write in the caller's transaction, at an already drawn `version`.
 async fn write_in_tx<DB: Store>(
     sync: &SyncedRepo,
@@ -135,10 +154,12 @@ async fn write_in_tx<DB: Store>(
         }),
         None => Filter::PathKey(path, key),
     };
-    let live: Option<RecordRow> = DB::visible(tx, w, Scope::Own, filter)
-        .await?
-        .into_iter()
-        .find(|r| !r.deleted);
+    let live = only_live(
+        DB::visible(tx, w, Scope::Own, filter).await?,
+        file_path,
+        path,
+        key,
+    )?;
     // Resolve the effective file_path: caller-supplied, then the existing
     // record's file, then (creating) the worktree default.
     let resolved_fp = match file_path.or(live.as_ref().map(|r| r.file_path.as_str())) {
@@ -446,7 +467,9 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
                     deleted,
                 });
             }
-            Err(err @ (Error::Conflict { .. } | Error::NotFound { .. })) => {
+            Err(
+                err @ (Error::Conflict { .. } | Error::NotFound { .. } | Error::Ambiguous { .. }),
+            ) => {
                 outcome.failed.push(Failed {
                     index,
                     path,

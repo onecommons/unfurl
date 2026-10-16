@@ -125,6 +125,17 @@ pub enum Error {
         /// Parent JSON-pointer the record was looked up under.
         path: String,
     },
+    /// A write naming no file is of a key live in more than one: it has
+    /// to name the one it means.
+    #[error("{path}/{key} is in more than one file ({}): name the one to write", files.join(", "))]
+    Ambiguous {
+        /// Parent JSON-pointer the records sit under.
+        path: String,
+        /// Their key within it.
+        key: String,
+        /// The files holding a live record at it.
+        files: Vec<String>,
+    },
     /// `create_record` was called for a `(file_path, path, key)` that
     /// is already present and live (not tombstoned).
     #[error("record already exists: {file_path}#{path}")]
