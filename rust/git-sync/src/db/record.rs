@@ -1224,13 +1224,21 @@ async fn facet_aggregate_sqlite(
     Ok(out)
 }
 
-/// The lateral extracting one path's facet values on postgres, through
-/// the `facet_values` function (see its migration): an array's elements,
-/// an object's keys, or a scalar itself. A missing path yields no rows,
-/// dropping the record -- the same as sqlite's `json_each` returning none.
+/// The lateral expanding `value`, one path's jsonb, to its facet values as
+/// `{alias}.v` on postgres: an array's elements, an object's keys, or a
+/// scalar itself. A missing path (SQL NULL) yields no rows, dropping the
+/// record -- the same as sqlite's `json_each` returning none.
 #[cfg(feature = "postgres")]
-fn facet_lateral_pg(alias: &str, param_idx: usize) -> String {
-    format!(" CROSS JOIN LATERAL facet_values(r.json #> ${param_idx}::text[]) {alias}(val)")
+fn facet_lateral_pg(alias: &str, value: &str) -> String {
+    format!(
+        " CROSS JOIN LATERAL (\
+         SELECT e.val::text COLLATE \"C\" AS v FROM jsonb_array_elements(\
+         CASE WHEN jsonb_typeof({value}) = 'array' THEN {value} END) e(val) \
+         UNION ALL SELECT to_jsonb(o.key)::text FROM jsonb_object_keys(\
+         CASE WHEN jsonb_typeof({value}) = 'object' THEN {value} END) o(key) \
+         UNION ALL SELECT {value}::text WHERE jsonb_typeof({value}) NOT IN ('array', 'object')\
+         ) {alias}"
+    )
 }
 
 #[cfg(feature = "postgres")]
@@ -1245,8 +1253,8 @@ async fn facet_pg(
     // dropped with the transaction, which nothing here commits
     let mut tx = pool.begin().await?;
     // enough to hash the cells' DISTINCT, which otherwise sorts on disk;
-    // JIT compiling costs more than it saves at the size the planner
-    // overestimates the rollup join to
+    // JIT compiling costs more than it saves at the sizes the planner
+    // overestimates the extraction and the rollup join to
     sqlx::query("SET LOCAL work_mem = '32MB'")
         .execute(&mut *tx)
         .await?;
@@ -1336,14 +1344,21 @@ async fn facet_aggregate_pg(
             type_edges_cte_pg(fi, &ids)
         ));
     }
-    let mut extracted = String::from("SELECT vis.k, jg.val::text COLLATE \"C\" AS g");
-    for i in 0..members.len() {
-        extracted.push_str(&format!(", j{i}.val::text COLLATE \"C\" AS u{i}"));
-    }
-    extracted.push_str(FACET_ROWS);
-    extracted.push_str(&facet_lateral_pg("jg", group_idx));
+    // fenced, so each path is read once per record rather than once per
+    // reference in its lateral
+    let mut paths = format!("SELECT vis.k, r.json #> ${group_idx}::text[] AS pg");
     for (i, idx) in member_idx.iter().enumerate() {
-        extracted.push_str(&facet_lateral_pg(&format!("j{i}"), *idx));
+        paths.push_str(&format!(", r.json #> ${idx}::text[] AS p{i}"));
+    }
+    paths.push_str(FACET_ROWS);
+    let mut extracted = String::from("SELECT x.k, jg.v AS g");
+    for i in 0..members.len() {
+        extracted.push_str(&format!(", j{i}.v AS u{i}"));
+    }
+    extracted.push_str(&format!(" FROM ({paths} OFFSET 0) x"));
+    extracted.push_str(&facet_lateral_pg("jg", "x.pg"));
+    for i in 0..members.len() {
+        extracted.push_str(&facet_lateral_pg(&format!("j{i}"), &format!("x.p{i}")));
     }
     // A fence: without it the planner joins the rollup pairs first and
     // extracts the members once per bucket instead of once per record.

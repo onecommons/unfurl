@@ -315,3 +315,40 @@ warm median in ms, as in the section above.
 | 5, CTE in each pass | 8.1 | 28.5 | 268 |
 | 6, temporary table | 21.0 | 59.4 | 595 |
 | 6, CTE in each pass | 20.6 | 66.1 | 696 |
+
+## Facet values inline, 2026-10-16
+
+Postgres facets expanded each path with `facet_values`, a SQL function
+kept from being inlined (`STRICT`) so the planner took its `ROWS 2`.
+Each call cost about 3 µs of executor setup: on read 12, its 88k calls
+took 275 ms of the column pass's 780, where reading the paths' JSON took
+100. The expansion is now inlined in the statement, each path read once
+per record behind an `OFFSET 0`, and the function is gone. The store's
+facets before and after, interleaved in one session, two runs each:
+
+| Postgres (ms) | 500 before | after | 2k before | after | 20k before | after |
+|---|---|---|---|---|---|---|
+| 5. facet by type | 10.2 | 11.8 | 27.1 | 22.9 | 246 | 187 |
+| 6. facet column | 31.9 | 36.0 | 85.3 | 70.4 | 634 | 586 |
+| 11. 5 across every `main` | 11.9 | 13.1 | 33.6 | 29.3 | 438 | 340 |
+| 12. 6 across every `main` | 30.1 | 25.0 | 98.3 | 84.1 | 1,201 | 660 |
+
+At 500 the differences are within the noise.
+
+- **Read 6 gains least.** Inlined, each expansion is estimated at the
+  100 rows of a built-in set-returning function, so its cells come to
+  192 billion against 175,046, and the planner sorts their `DISTINCT`
+  instead of hashing it: the sort gives back most of what extraction
+  saved (405 ms to 145). `enable_sort = off` didn't change the whole
+  call beyond noise. The estimate is harmless only because the call
+  turns JIT off.
+- **Counting by signature traded one facet for another.** Keys whose
+  values put them in the same cells count the same: 20,055 keys made
+  2,100 such sets, and counting keys per set, then expanding only the
+  sets through the rollup, took read 6 to 346 ms. But a member unique to
+  each record (`metadata.homepage_url`) leaves a set per key, and it was
+  130–180 ms slower than without. SQLite went the same both ways: read 6
+  from 622 ms to 404 with `tier`, and from 748 to 904 with
+  `homepage_url`. Facet paths are the caller's, so it wasn't taken.
+- **Extracting into a second temporary table,** for its accurate row
+  count, planned badly at small sizes: 183 ms against 20 at 500 records.

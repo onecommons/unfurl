@@ -302,7 +302,7 @@ trait; see §7.1.)
 |---|---|
 | `Db`, `DbConfig`, `connect`, the version check | `db/mod.rs` |
 | The `Dialect` trait and `*_in_pool` dispatch | `db/tx.rs`, `crud.rs` |
-| JSON and type filters, facet builders, `facet_values`, `TYPE_CLOSURE_CTE` | `db/record.rs`; their `FROM`/`WHERE` changes to the view |
+| JSON and type filters, facet builders, `TYPE_CLOSURE_CTE` | `db/record.rs`; their `FROM`/`WHERE` changes to the view |
 | `enforce_conflict`, `occ_binds`, `race_expected` | `crud.rs`, `db/tx.rs` |
 | `classify_conflict`, `read_base_docs`, `base_value` | `conflict.rs`, `scan.rs`; also for an edit's base when a merge brings a version back (§4.3) |
 | The per-file scan pass, parse, validation, the unchanged-blob skip | `sync.rs`, `scan.rs` |

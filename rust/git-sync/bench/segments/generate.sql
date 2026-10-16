@@ -34,6 +34,20 @@ CREATE FUNCTION pg_temp.commit_oid(t text) RETURNS text
 
 BEGIN;
 
+-- One path's facet values, for queries.sql and baseline_queries.sql: an
+-- array's elements, an object's keys, or a scalar itself. The store inlines
+-- the same expansion (db::record::facet_lateral_pg).
+CREATE FUNCTION facet_values(v jsonb) RETURNS SETOF jsonb
+LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE ROWS 2 AS $$
+    SELECT e FROM jsonb_array_elements(
+        CASE WHEN jsonb_typeof(v) = 'array' THEN v ELSE '[]'::jsonb END) e
+    UNION ALL
+    SELECT to_jsonb(k) FROM jsonb_object_keys(
+        CASE WHEN jsonb_typeof(v) = 'object' THEN v ELSE '{}'::jsonb END) k
+    UNION ALL
+    SELECT v WHERE jsonb_typeof(v) NOT IN ('array', 'object')
+$$;
+
 -- A deterministic number in [0, 100) from any text.
 CREATE FUNCTION pg_temp.pct(t text) RETURNS int
 LANGUAGE sql IMMUTABLE AS $$ SELECT abs(hashtext(t)) % 100 $$;
