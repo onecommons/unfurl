@@ -453,7 +453,7 @@ async fn subtypes(
                 "WITH RECURSIVE {}, sub(name) AS (SELECT value FROM json_each(?5) \
                  UNION SELECT e.child FROM edges e JOIN sub s ON e.parent = s.name) \
                  SELECT name FROM sub ORDER BY name",
-                type_edges_cte_sqlite(4, &ids)
+                type_edges_cte_sqlite(4, &ids, false)
             );
             let names = serde_json::to_string(names).map_err(|e| Error::Other(e.to_string()))?;
             Ok(sqlx::query_scalar(&sql)
@@ -490,12 +490,14 @@ async fn subtypes(
 /// The CTE `edges(child, parent)`: one row per name in a `/types`
 /// record's `extends` list, over the records in the
 /// [`WorktreeScope`] bound as `?1`-`?3` and the file bound as
-/// `?{file_idx}` (NULL for every file).
-fn type_edges_cte_sqlite(file_idx: usize, ids: &str) -> String {
+/// `?{file_idx}` (NULL for every file). `materialized` computes every
+/// edge once, for a query reading the whole closure.
+fn type_edges_cte_sqlite(file_idx: usize, ids: &str, materialized: bool) -> String {
     // `typeof(e.key) = 'integer'` keeps array elements only: an object's
     // members have text keys and a scalar's key is NULL.
+    let materialized = if materialized { "MATERIALIZED " } else { "" };
     format!(
-        "edges(child, parent) AS (SELECT r.key, e.value \
+        "edges(child, parent) AS {materialized}(SELECT r.key, e.value \
          FROM record r{}, json_each(r.json, '$.extends') e \
          WHERE {} AND r.path = '/types' AND r.deleted = 0 \
          AND r.conflict IS NULL AND (?{file_idx} IS NULL OR r.file_path = ?{file_idx}) \
@@ -1168,13 +1170,15 @@ async fn facet_aggregate_sqlite(
     let mut sql = String::new();
     if let Some(fi) = types_file_idx {
         // MATERIALIZED so the pairs are computed once and the planner
-        // can build an automatic index for the joins below.
+        // can build an automatic index for the joins below; the edges
+        // too, or sqlite reruns them, visibility check and all, in each
+        // recursive step of the closure (postgres materializes them unasked)
         sql.push_str(&format!(
             "WITH RECURSIVE {}, {TYPE_CLOSURE_CTE}, \
              rollup_pairs(decl, anc) AS MATERIALIZED (\
              SELECT json_quote(decl), json_quote(anc) FROM closure \
              UNION SELECT json_quote(decl), json_quote(decl) FROM closure) ",
-            type_edges_cte_sqlite(fi, &ids)
+            type_edges_cte_sqlite(fi, &ids, true)
         ));
     }
     let mut extracted = format!("SELECT vis.k, {} AS g", facet_value_sqlite("jg"));

@@ -352,3 +352,25 @@ At 500 the differences are within the noise.
   `homepage_url`. Facet paths are the caller's, so it wasn't taken.
 - **Extracting into a second temporary table,** for its accurate row
   count, planned badly at small sizes: 183 ms against 20 at 500 records.
+
+## SQLite's type closure, 2026-10-16
+
+SQLite's `json_each` is built in, and extraction was 30–80 ms of its
+column pass. Most of the rest was the type closure: SQLite inlines a CTE
+it isn't told to materialize, so the closure's recursive step reran
+`edges`, visibility check and all, for each row it added. That was 443 ms
+per pass on read 12, built twice per call, for 61 `/types` records. The
+facets now materialize `edges`; `?type=` with subtypes doesn't, since
+its recursion reads only the edges it reaches, and materializing took
+read 3 from 6.5 ms to 21.7. Interleaved, two runs each:
+
+| SQLite (ms) | 500 before | after | 2k before | after | 20k before | after |
+|---|---|---|---|---|---|---|
+| 3. find, `?type=T2` and subtypes | 2.3 | 2.4 | 3.2 | 3.2 | 6.5 | 6.5 |
+| 5. facet by type | 11.7 | 7.8 | 40.9 | 30.2 | 426 | 368 |
+| 6. facet column | 35.3 | 26.7 | 119 | 98.2 | 1,418 | 1,317 |
+| 11. 5 across every `main` | 25.1 | 10.8 | 109 | 54.0 | 2,388 | 1,426 |
+| 12. 6 across every `main` | 62.0 | 31.8 | 247 | 136 | 4,582 | 2,556 |
+
+What's left on SQLite is the rollup join and its `DISTINCT`, 300–500 ms
+of read 6 and 12's column pass at 20k.
