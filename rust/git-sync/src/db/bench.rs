@@ -147,6 +147,21 @@ async fn reads(db: &Db, cursor: i64) {
         || record::find(db, MAIN, &across),
     )
     .await;
+
+    let mains = RecordQuery {
+        worktrees: across.worktrees.clone(),
+        ..Default::default()
+    };
+    bench(
+        db,
+        "11. facet group counts by type across every main",
+        || record::facet(db, MAIN, &mains, &by_group),
+    )
+    .await;
+    bench(db, "12. facet column across every main", || {
+        record::facet(db, MAIN, &mains, &by_column)
+    })
+    .await;
 }
 
 #[cfg(feature = "postgres")]

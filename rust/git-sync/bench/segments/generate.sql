@@ -28,6 +28,10 @@
 
 \echo generating: records=:records types=:types main_segments=:main_segments churn_pct=:churn_pct forks=:forks users=:users
 
+-- a commit id: 40 hex digits, as git-sync reads one
+CREATE FUNCTION pg_temp.commit_oid(t text) RETURNS text
+    LANGUAGE sql IMMUTABLE AS $$ SELECT md5(t) || left(md5(t), 8) $$;
+
 BEGIN;
 
 -- A deterministic number in [0, 100) from any text.
@@ -80,7 +84,7 @@ FROM generate_series(1, :users) u;
 -- main's chain: segment 1 is the root, :main_segments is main's head
 INSERT INTO segment (id, family_id, kind, parent_id, head_commit, owner_id)
 SELECT g, 1, CASE WHEN g = :main_segments THEN 'head' ELSE 'internal' END,
-       NULLIF(g - 1, 0), md5('main' || g),
+       NULLIF(g - 1, 0), pg_temp.commit_oid('main' || g),
        CASE WHEN g = :main_segments THEN 1 END
 FROM generate_series(1, :main_segments) g;
 
@@ -102,7 +106,7 @@ UPDATE branch SET head_seg  = :main_segments + 2 * (w - 1),
 
 INSERT INTO segment (id, family_id, kind, parent_id, head_commit, owner_id)
 SELECT head_seg, 1, 'head', fork_seg,
-       CASE WHEN is_fork THEN md5('fork' || w) ELSE md5('main' || fork_seg) END, w
+       CASE WHEN is_fork THEN pg_temp.commit_oid('fork' || w) ELSE pg_temp.commit_oid('main' || fork_seg) END, w
 FROM branch;
 INSERT INTO segment (id, family_id, kind, owner_id)
 SELECT draft_seg, 1, 'draft', w FROM branch;
@@ -115,7 +119,7 @@ WHERE id = 1;
 UPDATE worktree w SET head_segment_id = b.head_seg, draft_segment_id = b.draft_seg,
                       commit_id = (SELECT head_commit FROM segment WHERE id = b.head_seg)
 FROM branch b WHERE w.id = b.w;
-UPDATE worktree SET commit_id = md5('main' || :main_segments) WHERE id = 1;
+UPDATE worktree SET commit_id = pg_temp.commit_oid('main' || :main_segments) WHERE id = 1;
 
 -- committed chains
 INSERT INTO worktree_segment (worktree_id, segment_id, inherited)
@@ -132,12 +136,12 @@ FROM worktree;
 
 -- the root: every record, and the /types section with flattened extends
 INSERT INTO record (key_id, segment_id, file_path, path, key, commit_id, json, version)
-SELECT 0, 1, 'cloudmap.yaml', k.path, k.key, md5('main1'),
+SELECT 0, 1, 'cloudmap.yaml', k.path, k.key, pg_temp.commit_oid('main1'),
        pg_temp.rec_json(k.i, 'r0', :types), nextval('ver')
 FROM keys k;
 
 INSERT INTO record (key_id, segment_id, file_path, path, key, commit_id, json, version)
-SELECT 0, 1, 'cloudmap.yaml', '/types', 'T' || t, md5('main1'),
+SELECT 0, 1, 'cloudmap.yaml', '/types', 'T' || t, pg_temp.commit_oid('main1'),
        jsonb_build_object(
            'name', 'T' || t,
            -- a tree: T(n)'s parent is T(n / 3); extends lists itself first,
@@ -156,7 +160,7 @@ CREATE UNIQUE INDEX ON root_ids (path, key);
 -- main's later segments: :churn_pct of the records each, some deleted
 INSERT INTO record (key_id, segment_id, file_path, path, key, commit_id, json,
                     deleted, version)
-SELECT ri.id, g, 'cloudmap.yaml', k.path, k.key, md5('main' || g),
+SELECT ri.id, g, 'cloudmap.yaml', k.path, k.key, pg_temp.commit_oid('main' || g),
        pg_temp.rec_json(k.i, 'm' || g, :types),
        pg_temp.pct('del' || k.i || ':' || g) < :delete_pct, nextval('ver')
 FROM generate_series(2, :main_segments) g
@@ -166,7 +170,7 @@ ORDER BY g, k.i;
 
 -- fork heads and drafts
 INSERT INTO record (key_id, segment_id, file_path, path, key, commit_id, json, version)
-SELECT ri.id, b.head_seg, 'cloudmap.yaml', k.path, k.key, md5('fork' || b.w),
+SELECT ri.id, b.head_seg, 'cloudmap.yaml', k.path, k.key, pg_temp.commit_oid('fork' || b.w),
        pg_temp.rec_json(k.i, 'f' || b.w, :types), nextval('ver')
 FROM branch b
 CROSS JOIN LATERAL (SELECT * FROM keys

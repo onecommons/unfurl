@@ -19,7 +19,7 @@ same database.
 | `queries.sql` | Appendix C's queries under `EXPLAIN (ANALYZE, BUFFERS, SETTINGS)`: design candidates, not the SQL the store emits. 8, 9 and 11 are layered reads, which production doesn't have until phase 3. |
 | `baseline.sql` | Today's layout, a full copy per worktree, built from the generated data for main and the forks. |
 | `baseline_queries.sql` | The single-view queries in today's form, against that copy. |
-| `../../src/db/bench.rs` | The store's own reads for queries 1–3, 5–7 and 10, on Postgres or the SQLite copy, each run six times warm, then once more (on Postgres, under `auto_explain`). |
+| `../../src/db/bench.rs` | The store's own reads for queries 1–3, 5–7 and 10–12, on Postgres or the SQLite copy, each run six times warm, then once more (on Postgres, under `auto_explain`). |
 | `to_sqlite.py` | Copies the generated database into a SQLite file built from `migrations/sqlite`, for the store's SQLite path. |
 | `run.sh` | `run.sh generate\|queries\|all\|sqlite [var=value …]`. `generate` applies `migrations/postgres` and `generate.sql`, then makes the SQLite copy; `sqlite` makes the copy again on its own. Run it with no mode for the details. |
 
@@ -29,8 +29,9 @@ It runs against the `unfurl-pg-jit` container (Postgres 17, JIT on) by
 default. `BENCH_PG_URL` and `BENCH_DB` override the server and database.
 
 ```bash
-docker run -d --rm --name unfurl-pg-jit -e POSTGRES_PASSWORD=pgjit \
-    -p 55432:5432 postgres:17                  # if it isn't running
+docker run -d --name unfurl-pg-jit --restart unless-stopped \
+    -v unfurl-pg-jit:/var/lib/postgresql/data -e POSTGRES_PASSWORD=pgjit \
+    -p 55432:5432 postgres:17                  # or `docker start unfurl-pg-jit`
 
 ./run.sh generate                              # defaults: 20k records, 20 forks, 300 users
 ./run.sh generate records=50000 users=1000     # or scale it
@@ -88,7 +89,7 @@ one explained run to 23 ms.
 
 A facet call also runs the total (24 ms) and the group pass (query 5)
 before its columns, so query 6's whole call takes 750–910 ms. No plan
-used JIT.
+used JIT; the reads across worktrees of 2026-10-15 did.
 
 Where the store's finds lost to the design's SQL, two causes account
 for most of it. Measured by running the store's statements in psql with
@@ -200,3 +201,62 @@ candidate's JSON with `json_each`: SQLite has no GIN index.
   query over the same view (about 2 ms) and bound as a constant, with JSON
   fetched only for the page (query 3b), the whole thing takes about
   25 ms, against 54–55 ms today. And that's with no cache.
+
+## Facets across worktrees, 2026-10-15
+
+Facets now count a key once however many files, worktrees or
+repositories hold a copy of it, and reads 11 and 12 run reads 5 and 6
+across the 21 worktrees on a branch named `main` (main and the forks).
+The database is the defaults': 36,189 record rows for 20,061 keys,
+16,918 superseded entries, 671 segments, 127 MB on Postgres and 81 MB as
+SQLite. Times here are a whole call's warm median in ms, not one
+statement's, so they don't compare with the tables above.
+
+| Postgres | Per row | Per key | + visible rows once | + temporary table, integer key | + `work_mem` | + text grouping, JIT off |
+|---|---|---|---|---|---|---|
+| 5. facet by type | 245 | 255 | 261 | 231 | 263 | 236 |
+| 6. facet column | — | 816 | 894 | 1,561 | 755 | 666–765¹ |
+| 11. 5 across every `main` | 3,100 | 3,047 | 645 | 457 | 521 | 425 |
+| 12. 6 across every `main` | 26,000 | 28,180 | 3,655 | 2,779 | 2,666 | 1,202 |
+
+| SQLite | Per row | Per key | + visible rows once | + temporary table, integer key |
+|---|---|---|---|---|
+| 5. facet by type | 393 | 1,220 | 611 | 490 |
+| 6. facet column | — | 2,660 | 1,817 | 1,395 |
+| 11. 5 across every `main` | 4,700 | 7,578 | 4,060 | 2,378 |
+| 12. 6 across every `main` | 16,000 | 22,269 | 7,667 | 4,588 |
+
+¹ The last two runs, one with JIT and one without: noise, not JIT.
+
+- **Across worktrees, a row was extracted once per worktree that sees
+  it.** Most of main's segments are in all 21 views, so read 11 extracted
+  493,627 (row, worktree) pairs from 36,066 rows. Finding the distinct
+  visible ids first and extracting from those took read 12 from 28 s to
+  3.7 s.
+- **Each count repeated the visibility check.** A facet call runs the
+  total, the groups and one pass per column, each with its own anti-join.
+  The visible ids now go into a temporary table once per call, which
+  every count reads; it's dropped with the call's transaction.
+- **Counting per key cost SQLite more than Postgres**: two text columns
+  to compare where an id was one integer. The temporary table numbers
+  each `(path, key)` with `DENSE_RANK()`, so the counts compare an
+  integer. A schema column would do no better for facets, and nothing
+  else groups by it.
+- **An accurate estimate made Postgres sort on disk.** The visibility
+  join used to underestimate the cells, about 19,000 against 175,046, so
+  the planner hashed their `DISTINCT`. Reading the temporary table, it
+  estimated them right, and at that size a hash didn't fit 4 MB of
+  `work_mem`, so it sorted the jsonb values on disk instead: read 6 went
+  from 0.9 s to 1.6 s. `ANALYZE` on the temporary table changed nothing.
+  The call sets `work_mem` to 32 MB for its transaction, which hashes.
+- **Sorting jsonb is slow; sorting its text under `"C"` isn't.** Read 12
+  overestimates its cells, 3.1 million against 258,496, so it sorts them
+  in memory either way, and jsonb comparison took 1.2 s of it. Values now
+  group on jsonb's text, which orders an object's keys but keeps a
+  number's digits: `1.0` and `1.00` are two values, as on SQLite.
+- **The overestimate turned on JIT, which didn't pay.** It compiled for
+  about 0.4 s on read 12 and gained nothing on any read, so the facet
+  call turns it off: 1.76 s to 1.2 s. At this size there aren't enough
+  rows for compiled expressions to win the compile back.
+- **What's left is the rollup join's overestimate**, and 21 views' worth
+  of anti-join: read 11's visibility check alone is about 250 ms.
