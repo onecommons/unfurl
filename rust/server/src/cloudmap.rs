@@ -1404,7 +1404,7 @@ async fn split_copies(
     records: Vec<Record>,
     select: Option<&[SelectPath]>,
 ) -> Result<(Vec<Record>, Vec<Value>), LocalError> {
-    let (kept, copies) = partition_copies(records);
+    let (mut kept, copies) = partition_copies(records);
     if copies.is_empty() {
         return Ok((kept, Vec::new()));
     }
@@ -1420,6 +1420,23 @@ async fn split_copies(
         .into_iter()
         .map(|w| (w.id, (w.origin, w.branch)))
         .collect();
+    let source = |worktree: i64| worktrees.get(&worktree).cloned().unwrap_or_default();
+    // whose copy `result` shows, for a client editing it
+    let copied: std::collections::HashSet<(String, String)> = copies
+        .iter()
+        .map(|r| (r.path.clone(), r.key.clone()))
+        .collect();
+    for r in kept
+        .iter_mut()
+        .filter(|r| copied.contains(&(r.path.clone(), r.key.clone())))
+    {
+        if let Value::Object(map) = &mut r.json {
+            let (origin, branch) = source(r.worktree_id);
+            map.insert(SOURCE_KEYS[0].into(), origin.into());
+            map.insert(SOURCE_KEYS[1].into(), branch.into());
+            map.insert(SOURCE_KEYS[2].into(), r.file_path.clone().into());
+        }
+    }
     let mut by_source: BTreeMap<(i64, String), Vec<Record>> = BTreeMap::new();
     for r in copies {
         by_source
@@ -1430,7 +1447,7 @@ async fn split_copies(
     let groups = by_source
         .into_iter()
         .map(|((worktree, file), rows)| {
-            let (origin, branch) = worktrees.get(&worktree).cloned().unwrap_or_default();
+            let (origin, branch) = source(worktree);
             json!({
                 "kind": "copies",
                 "origin": origin,
@@ -2202,6 +2219,14 @@ fn annotate_record(
 // POST /cloudmap — write handler.
 // ---------------------------------------------------------------------------
 
+/// Where `result`'s record of a key held more than once came from:
+/// `origin`, `branch` and `file`. Dropped from a write.
+const SOURCE_KEYS: [&str; 3] = [
+    "unfurl.server.origin",
+    "unfurl.server.branch",
+    "unfurl.server.file",
+];
+
 /// Pop the OCC tokens out of a record's JSON object and convert them
 /// into a [`CommitRef`].
 ///
@@ -2220,6 +2245,9 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
     // owns its id, so the client's echo is dropped without affecting
     // the OCC decision.
     map.remove("unfurl.server.id");
+    for source in SOURCE_KEYS {
+        map.remove(source);
+    }
     if let Some(o) = oid {
         return Some(CommitRef::Commit(o));
     }

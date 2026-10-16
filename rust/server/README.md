@@ -119,7 +119,9 @@ deletes the clone to clone it again, unless it holds unpushed work.
 
 **Copies.** A cloudmap read can hold more than one record with a key:
 in two files, or in two branches or repositories it reads together.
-`result` has one, the first live one in sort order, and every live
+`result` has one, the first live one in sort order, marked with its
+`unfurl.server.origin`, `unfurl.server.branch` and `unfurl.server.file`
+(which a write drops), and every live
 copy is under `conflicts`, grouped by the `origin`, `branch` and `file`
 it's in (`kind: copies`), whether or not the read asked for conflicts;
 conflicts proper are `kind: conflict`. Across two branches of one

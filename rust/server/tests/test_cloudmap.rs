@@ -4197,3 +4197,121 @@ async fn a_read_naming_no_project_reads_the_default_cloudmaps() {
     let (status, body) = get_json(app(), "/cloudmap/facets?kind=repositories&group_by=name").await;
     assert_eq!(status, StatusCode::OK, "{body}");
 }
+
+/// Both of `two_worktrees`' checkouts as the default cloudmaps, read
+/// together: each holds the fixture's records.
+async fn two_default_cloudmaps() -> (CloudMapState, Vec<(SyncedRepo, TempDir)>, TestDb) {
+    let (_, checkouts, db) = two_worktrees().await;
+    let each = checkouts
+        .iter()
+        .map(|(c, _)| CloudMapState::from_synced(c.clone()))
+        .collect();
+    let ids = checkouts.iter().map(|(c, _)| c.worktree_id()).collect();
+    let cm = CloudMapState::serving(each, None)
+        .await
+        .expect("serving")
+        .expect("checkouts")
+        .with_default_cloudmaps(ids);
+    (cm, checkouts, db)
+}
+
+/// Two repositories holding the same keys: each once in `result`, marked
+/// with whose copy it is, and a copies group per repository.
+#[tokio::test]
+async fn default_cloudmaps_holding_one_key_report_both() {
+    let (cm, _checkouts, _db) = two_default_cloudmaps().await;
+    let (status, body) =
+        get_json(router(make_strict_state(cm)), "/cloudmap?kind=repositories").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result = body["result"]["repositories"].as_object().expect("result");
+    assert!(!result.is_empty(), "{body}");
+    for (key, record) in result {
+        assert!(
+            record["unfurl.server.origin"].is_string(),
+            "{key}: {record}"
+        );
+        assert_eq!(record["unfurl.server.file"], "cloudmap.yaml", "{key}");
+    }
+    let groups = body["conflicts"].as_array().expect("conflicts");
+    let origins: std::collections::BTreeSet<&str> =
+        groups.iter().filter_map(|g| g["origin"].as_str()).collect();
+    assert_eq!(origins.len(), 2, "{body}");
+    for g in groups {
+        assert_eq!(g["kind"], "copies", "{g}");
+        let keys: std::collections::BTreeSet<&String> = g["records"]["repositories"]
+            .as_object()
+            .expect("records")
+            .keys()
+            .collect();
+        assert_eq!(keys, result.keys().collect(), "every key's copy, from each");
+    }
+}
+
+/// Paging across them reaches each key once, a page holding all of a
+/// key's copies.
+#[tokio::test]
+async fn paging_default_cloudmaps_shows_each_key_once() {
+    let (cm, _checkouts, _db) = two_default_cloudmaps().await;
+    let app = || router(make_strict_state(cm.clone()));
+    let (_, whole) = get_json(app(), "/cloudmap?kind=repositories").await;
+    let all: std::collections::BTreeSet<String> = whole["result"]["repositories"]
+        .as_object()
+        .expect("result")
+        .keys()
+        .cloned()
+        .collect();
+    let mut seen: Vec<String> = Vec::new();
+    let mut token: Option<String> = None;
+    for _ in 0..50 {
+        let uri = match &token {
+            Some(t) => format!("/cloudmap?kind=repositories&limit=1&page_token={t}"),
+            None => "/cloudmap?kind=repositories&limit=1".to_string(),
+        };
+        let (status, page) = get_json(app(), &uri).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        let keys: Vec<String> = page["result"]["repositories"]
+            .as_object()
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default();
+        for g in page["conflicts"].as_array().into_iter().flatten() {
+            for k in g["records"]["repositories"]
+                .as_object()
+                .expect("records")
+                .keys()
+            {
+                assert!(keys.contains(k), "a copy of another page's key: {page}");
+            }
+        }
+        seen.extend(keys);
+        match page["next_page_token"].as_str() {
+            Some(t) => token = Some(urlencoding::encode(t).into_owned()),
+            None => break,
+        }
+    }
+    let unique: std::collections::BTreeSet<String> = seen.iter().cloned().collect();
+    assert_eq!(unique.len(), seen.len(), "a key on two pages: {seen:?}");
+    assert_eq!(unique, all);
+}
+
+/// A record written back with the source a read marked it with isn't
+/// saved with it.
+#[tokio::test]
+async fn a_records_source_isnt_saved() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let app = router(make_state(cm));
+    let body = serde_json::json!({
+        "commit": true,
+        "cloudmap_path": "cloudmap.yaml",
+        "repositories": { "git://example.com/echoed.git": {
+            "name": "echoed",
+            "unfurl.server.origin": "o",
+            "unfurl.server.branch": "b",
+            "unfurl.server.file": "f",
+        } },
+    });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "{response}");
+    let on_disk = std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read");
+    assert!(on_disk.contains("echoed"), "{on_disk}");
+    assert!(!on_disk.contains("unfurl.server."), "{on_disk}");
+}

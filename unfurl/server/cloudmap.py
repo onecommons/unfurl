@@ -1309,6 +1309,9 @@ def _write_cloudmap_sections(
                 # Strip OCC keys so they don't leak into the persisted YAML.
                 payload.pop("unfurl.server.commit", None)
                 payload.pop("unfurl.server.version", None)
+                # where a read's record of a key held twice came from
+                for source in ("origin", "branch", "file"):
+                    payload.pop(f"unfurl.server.{source}", None)
                 if merge and isinstance(existing, dict):
                     payload = _merge_record(existing, payload)
                 for tokens in deletes:
