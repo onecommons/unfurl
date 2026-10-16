@@ -73,6 +73,8 @@ fn tags(tag: &str) -> JsonQuery {
 
 /// Every bench read against `db`, whose versions run up to `cursor` + 1000.
 async fn reads(db: &Db, cursor: i64) {
+    // a database with fewer versions lists them all
+    let cursor = cursor.max(0);
     bench(db, "1. get one record", || {
         record::get(db, MAIN, "cloudmap.yaml", "/artifacts", "k0000121")
     })
@@ -146,6 +148,21 @@ async fn reads(db: &Db, cursor: i64) {
         "10. find across every branch named main, one page",
         || record::find(db, MAIN, &across),
     )
+    .await;
+
+    let mains = RecordQuery {
+        worktrees: across.worktrees.clone(),
+        ..Default::default()
+    };
+    bench(
+        db,
+        "11. facet group counts by type across every main",
+        || record::facet(db, MAIN, &mains, &by_group),
+    )
+    .await;
+    bench(db, "12. facet column across every main", || {
+        record::facet(db, MAIN, &mains, &by_column)
+    })
     .await;
 }
 
