@@ -4293,6 +4293,29 @@ async fn paging_default_cloudmaps_shows_each_key_once() {
     assert_eq!(unique, all);
 }
 
+/// Facets across them count a key once, as `result` shows it.
+#[tokio::test]
+async fn facets_across_default_cloudmaps_count_each_key_once() {
+    let (cm, _checkouts, _db) = two_default_cloudmaps().await;
+    let app = || router(make_strict_state(cm.clone()));
+    let (_, whole) = get_json(app(), "/cloudmap?kind=repositories").await;
+    let keys = whole["result"]["repositories"]
+        .as_object()
+        .expect("result")
+        .len();
+    let (status, body) = get_json(app(), "/cloudmap/facets?kind=repositories&group_by=name").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["total"].as_u64(), Some(keys as u64), "{body}");
+    // a record has one name, which a key's copies share
+    let grouped: u64 = body["groups"]
+        .as_object()
+        .expect("groups")
+        .values()
+        .map(|g| g["count"].as_u64().expect("count"))
+        .sum();
+    assert_eq!(grouped, keys as u64, "{body}");
+}
+
 /// A record written back with the source a read marked it with isn't
 /// saved with it.
 #[tokio::test]

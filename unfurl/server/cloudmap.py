@@ -879,7 +879,9 @@ def _canonical_facet_key(value: Any) -> str:
         "with an optional per-group breakdown for each ``facet`` column. "
         "Record selection (``kind`` / ``type`` / ``filter``) works exactly "
         "as on ``GET /cloudmap``; the response carries counts only, no "
-        "records."
+        "records. Copies of a record (the same ``path`` and ``key`` in "
+        "several files, or in several of the worktrees the request reads) "
+        "count as one record."
     ),
     tags=["Export"],
 )

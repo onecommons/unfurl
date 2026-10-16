@@ -1025,30 +1025,30 @@ async fn facet_sqlite(
 ) -> Result<FacetRows> {
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
-    let mut sql = format!(
-        "SELECT COUNT(DISTINCT r.id) FROM record r{} WHERE {}",
-        view_join(false, &ids),
-        visible(false, &ids)
-    );
+    // dropped with the transaction, which nothing here commits
+    let mut tx = pool.begin().await?;
+    let mut sql = facet_rows_sql(false, &ids);
     let mut idx: usize = 4;
     push_filter_sql_sqlite(&mut sql, query, &mut idx);
     let _ = idx;
+    let sql = facet_rows_table(&sql);
     let mut args = sqlx::sqlite::SqliteArguments::default();
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
     args.add(scope.id).map_err(arg_err)?;
     args.add(scope.origin).map_err(arg_err)?;
     args.add(scope.branch).map_err(arg_err)?;
     add_filter_args_sqlite(&mut args, query)?;
-    let (total,): (i64,) = sqlx::query_as_with(&sql, args).fetch_one(pool).await?;
+    sqlx::query_with(&sql, args).execute(&mut *tx).await?;
+    let (total,): (i64,) = sqlx::query_as(FACET_TOTAL).fetch_one(&mut *tx).await?;
 
-    let groups = facet_aggregate_sqlite(pool, worktree_id, query, spec, &[])
+    let groups = facet_aggregate_sqlite(&mut tx, worktree_id, query, spec, &[])
         .await?
         .into_iter()
         .map(|row| (row.group, row.count))
         .collect();
     let mut columns = Vec::with_capacity(spec.columns.len());
     for members in &spec.columns {
-        columns.push(facet_aggregate_sqlite(pool, worktree_id, query, spec, members).await?);
+        columns.push(facet_aggregate_sqlite(&mut tx, worktree_id, query, spec, members).await?);
     }
     Ok(FacetRows {
         total,
@@ -1057,7 +1057,34 @@ async fn facet_sqlite(
     })
 }
 
-/// Count the cells of `extracted`, a query yielding `id`, the group value
+/// The records visible in some worktree of the scope, each once, to which
+/// the caller appends the filters' `WHERE` clauses, for [`facet_rows_table`].
+fn facet_rows_sql(pg: bool, ids: &str) -> String {
+    format!(
+        "SELECT DISTINCT r.id, r.path, r.key FROM record r{} WHERE {}",
+        view_join(pg, ids),
+        visible(pg, ids)
+    )
+}
+
+/// Make the temporary table `facet_rows` from [`facet_rows_sql`]: each
+/// row's id, and `k` numbering its `(path, key)`, which its copies in other
+/// files, worktrees or repositories share. A row many worktrees' views
+/// share is checked in each, but counted from once.
+fn facet_rows_table(rows: &str) -> String {
+    format!(
+        "CREATE TEMP TABLE facet_rows AS \
+         SELECT id, DENSE_RANK() OVER (ORDER BY path, key) AS k FROM ({rows}) t"
+    )
+}
+
+/// ` FROM` the records of `facet_rows`, as `r`.
+const FACET_ROWS: &str = " FROM facet_rows vis JOIN record r ON r.id = vis.id";
+
+/// How many keys `facet_rows` holds.
+const FACET_TOTAL: &str = "SELECT COUNT(DISTINCT k) FROM facet_rows";
+
+/// Count the cells of `extracted`, a query yielding a key's `k`, the group value
 /// `g` and each member's value `u{i}`, one row per combination: rollup paths
 /// LEFT JOIN `rollup_pairs` and group by `COALESCE(bucket, value)`, so a
 /// value with pairs counts under each of its buckets and one without under
@@ -1079,7 +1106,9 @@ fn facet_cells_sql(group_rollup: bool, members: &[FacetPath], extracted: &str) -
         };
         cells.push_str(&format!(", {out} AS v{i}"));
     }
-    cells.push_str(&format!(", f.id FROM ({extracted}) f"));
+    // a record's `(path, key)`: counted once however many files,
+    // worktrees or repositories hold a copy of it
+    cells.push_str(&format!(", f.k FROM ({extracted}) f"));
     if group_rollup {
         cells.push_str(" LEFT JOIN rollup_pairs mg ON mg.decl = f.g");
     }
@@ -1103,7 +1132,7 @@ fn facet_cells_sql(group_rollup: bool, members: &[FacetPath], extracted: &str) -
 /// pairs -- each type with an ancestor paired with itself and each of its
 /// ancestors, JSON-quoted so both sides compare as JSON text.
 async fn facet_aggregate_sqlite(
-    pool: &sqlx::Pool<sqlx::Sqlite>,
+    conn: &mut sqlx::SqliteConnection,
     worktree_id: i64,
     query: &RecordQuery,
     spec: &FacetSpec,
@@ -1115,13 +1144,10 @@ async fn facet_aggregate_sqlite(
     let group = &spec.group;
     let with_pairs = group.rollup || members.iter().any(|m| m.rollup);
 
-    // Placeholder allocation order is bind order: worktree, filters,
-    // group path, member paths, the types' file. The WHERE fragment is built
-    // first so the filters take the low indexes, then spliced in after
-    // the joins -- `?N` placeholders don't care about textual position.
-    let mut where_sql = String::new();
-    let mut idx: usize = 4;
-    push_filter_sql_sqlite(&mut where_sql, query, &mut idx);
+    // Placeholder allocation order is bind order: the worktree scope, which
+    // only the types' CTE reads, group path, member paths, the types' file.
+    // The filters were applied making `facet_rows`.
+    let mut idx: usize = if with_pairs { 4 } else { 1 };
     let group_idx = idx;
     idx += 1;
     let member_idx: Vec<usize> = members
@@ -1151,30 +1177,27 @@ async fn facet_aggregate_sqlite(
             type_edges_cte_sqlite(fi, &ids)
         ));
     }
-    let mut extracted = format!("SELECT r.id, {} AS g", facet_value_sqlite("jg"));
+    let mut extracted = format!("SELECT vis.k, {} AS g", facet_value_sqlite("jg"));
     for i in 0..members.len() {
         extracted.push_str(&format!(
             ", {} AS u{i}",
             facet_value_sqlite(&format!("j{i}"))
         ));
     }
-    extracted.push_str(" FROM record r");
-    extracted.push_str(&view_join(false, &ids));
+    extracted.push_str(FACET_ROWS);
     extracted.push_str(&format!(" JOIN json_each(r.json, ?{group_idx}) jg"));
     for (i, idx) in member_idx.iter().enumerate() {
         extracted.push_str(&format!(" JOIN json_each(r.json, ?{idx}) j{i}"));
     }
-    extracted.push_str(" WHERE ");
-    extracted.push_str(&visible(false, &ids));
-    extracted.push_str(&where_sql);
     sql.push_str(&facet_cells_sql(group.rollup, members, &extracted));
 
     let mut args = sqlx::sqlite::SqliteArguments::default();
-    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
-    args.add(scope.id).map_err(arg_err)?;
-    args.add(scope.origin).map_err(arg_err)?;
-    args.add(scope.branch).map_err(arg_err)?;
-    add_filter_args_sqlite(&mut args, query)?;
+    if with_pairs {
+        let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+        args.add(scope.id).map_err(arg_err)?;
+        args.add(scope.origin).map_err(arg_err)?;
+        args.add(scope.branch).map_err(arg_err)?;
+    }
     args.add(group.sql_path()).map_err(arg_err)?;
     for member in members {
         args.add(member.sql_path()).map_err(arg_err)?;
@@ -1182,7 +1205,7 @@ async fn facet_aggregate_sqlite(
     if types_file_idx.is_some() {
         args.add(query.file_path.as_deref()).map_err(arg_err)?;
     }
-    let rows = sqlx::query_with(&sql, args).fetch_all(pool).await?;
+    let rows = sqlx::query_with(&sql, args).fetch_all(&mut *conn).await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         let group_text: String = row.try_get(0)?;
@@ -1219,14 +1242,20 @@ async fn facet_pg(
 ) -> Result<FacetRows> {
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
-    let mut sql = format!(
-        "SELECT COUNT(DISTINCT r.id) FROM record r{} WHERE {}",
-        view_join(true, &ids),
-        visible(true, &ids)
-    );
+    // dropped with the transaction, which nothing here commits
+    let mut tx = pool.begin().await?;
+    // enough to hash the cells' DISTINCT, which otherwise sorts on disk;
+    // JIT compiling costs more than it saves at the size the planner
+    // overestimates the rollup join to
+    sqlx::query("SET LOCAL work_mem = '32MB'")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SET LOCAL jit = off").execute(&mut *tx).await?;
+    let mut sql = facet_rows_sql(true, &ids);
     let mut idx: usize = 4;
     push_filter_sql_pg(&mut sql, query, &mut idx);
     let _ = idx;
+    let sql = facet_rows_table(&sql);
     let mut args = sqlx::postgres::PgArguments::default();
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
     args.add(scope.id).map_err(arg_err)?;
@@ -1234,19 +1263,23 @@ async fn facet_pg(
     args.add(scope.branch).map_err(arg_err)?;
     add_filter_args_pg(&mut args, query)?;
     // planned per call, as in `find_pg`
-    let (total,): (i64,) = sqlx::query_as_with(&sql, args)
+    sqlx::query_with(&sql, args)
         .persistent(false)
-        .fetch_one(pool)
+        .execute(&mut *tx)
+        .await?;
+    let (total,): (i64,) = sqlx::query_as(FACET_TOTAL)
+        .persistent(false)
+        .fetch_one(&mut *tx)
         .await?;
 
-    let groups = facet_aggregate_pg(pool, worktree_id, query, spec, &[])
+    let groups = facet_aggregate_pg(&mut tx, worktree_id, query, spec, &[])
         .await?
         .into_iter()
         .map(|row| (row.group, row.count))
         .collect();
     let mut columns = Vec::with_capacity(spec.columns.len());
     for members in &spec.columns {
-        columns.push(facet_aggregate_pg(pool, worktree_id, query, spec, members).await?);
+        columns.push(facet_aggregate_pg(&mut tx, worktree_id, query, spec, members).await?);
     }
     Ok(FacetRows {
         total,
@@ -1255,12 +1288,12 @@ async fn facet_pg(
     })
 }
 
-/// Postgres twin of [`facet_aggregate_sqlite`]. Values group as jsonb
-/// (semantic equality, so object key order can't split a bucket), and
-/// the rollup pairs are jsonb strings.
+/// Postgres twin of [`facet_aggregate_sqlite`]. Values group as jsonb's
+/// text, which orders an object's keys, so key order can't split a bucket,
+/// but keeps a number's digits: `1.0` and `1.00` are two values, as on sqlite.
 #[cfg(feature = "postgres")]
 async fn facet_aggregate_pg(
-    pool: &sqlx::Pool<sqlx::Postgres>,
+    conn: &mut sqlx::PgConnection,
     worktree_id: i64,
     query: &RecordQuery,
     spec: &FacetSpec,
@@ -1272,11 +1305,10 @@ async fn facet_aggregate_pg(
     let group = &spec.group;
     let with_pairs = group.rollup || members.iter().any(|m| m.rollup);
 
-    // Placeholder allocation order is bind order: worktree, filters,
-    // group path, member paths, the types' file.
-    let mut where_sql = String::new();
-    let mut idx: usize = 4;
-    push_filter_sql_pg(&mut where_sql, query, &mut idx);
+    // Placeholder allocation order is bind order: the worktree scope, which
+    // only the types' CTE reads, group path, member paths, the types' file.
+    // The filters were applied making `facet_rows`.
+    let mut idx: usize = if with_pairs { 4 } else { 1 };
     let group_idx = idx;
     idx += 1;
     let member_idx: Vec<usize> = members
@@ -1299,35 +1331,32 @@ async fn facet_aggregate_pg(
         sql.push_str(&format!(
             "WITH RECURSIVE {}, {TYPE_CLOSURE_CTE}, \
              rollup_pairs(decl, anc) AS MATERIALIZED (\
-             SELECT to_jsonb(decl), to_jsonb(anc) FROM closure \
-             UNION SELECT to_jsonb(decl), to_jsonb(decl) FROM closure) ",
+             SELECT to_jsonb(decl)::text COLLATE \"C\", to_jsonb(anc)::text COLLATE \"C\" FROM closure \
+             UNION SELECT to_jsonb(decl)::text COLLATE \"C\", to_jsonb(decl)::text COLLATE \"C\" FROM closure) ",
             type_edges_cte_pg(fi, &ids)
         ));
     }
-    let mut extracted = String::from("SELECT r.id, jg.val AS g");
+    let mut extracted = String::from("SELECT vis.k, jg.val::text COLLATE \"C\" AS g");
     for i in 0..members.len() {
-        extracted.push_str(&format!(", j{i}.val AS u{i}"));
+        extracted.push_str(&format!(", j{i}.val::text COLLATE \"C\" AS u{i}"));
     }
-    extracted.push_str(" FROM record r");
-    extracted.push_str(&view_join(true, &ids));
+    extracted.push_str(FACET_ROWS);
     extracted.push_str(&facet_lateral_pg("jg", group_idx));
     for (i, idx) in member_idx.iter().enumerate() {
         extracted.push_str(&facet_lateral_pg(&format!("j{i}"), *idx));
     }
-    extracted.push_str(" WHERE ");
-    extracted.push_str(&visible(true, &ids));
-    extracted.push_str(&where_sql);
     // A fence: without it the planner joins the rollup pairs first and
     // extracts the members once per bucket instead of once per record.
     extracted.push_str(" OFFSET 0");
     sql.push_str(&facet_cells_sql(group.rollup, members, &extracted));
 
     let mut args = sqlx::postgres::PgArguments::default();
-    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
-    args.add(scope.id).map_err(arg_err)?;
-    args.add(scope.origin).map_err(arg_err)?;
-    args.add(scope.branch).map_err(arg_err)?;
-    add_filter_args_pg(&mut args, query)?;
+    if with_pairs {
+        let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+        args.add(scope.id).map_err(arg_err)?;
+        args.add(scope.origin).map_err(arg_err)?;
+        args.add(scope.branch).map_err(arg_err)?;
+    }
     args.add(&group.tokens).map_err(arg_err)?;
     for member in members {
         args.add(&member.tokens).map_err(arg_err)?;
@@ -1338,18 +1367,19 @@ async fn facet_aggregate_pg(
     // planned per call, as in `find_pg`
     let rows = sqlx::query_with(&sql, args)
         .persistent(false)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let group_value: serde_json::Value = row.try_get(0)?;
+        let group_text: String = row.try_get(0)?;
         let mut member_values = Vec::with_capacity(members.len());
         for i in 0..members.len() {
-            member_values.push(row.try_get::<serde_json::Value, _>(i + 1)?);
+            let text: String = row.try_get(i + 1)?;
+            member_values.push(parse_facet_value(&text)?);
         }
         let count: i64 = row.try_get(members.len() + 1)?;
         out.push(FacetColumnRow {
-            group: group_value,
+            group: parse_facet_value(&group_text)?,
             members: member_values,
             count,
         });

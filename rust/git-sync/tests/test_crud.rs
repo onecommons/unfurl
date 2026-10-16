@@ -3606,3 +3606,59 @@ async fn a_write_of_a_key_in_two_files_names_one(sync: &SyncedRepo, _tmp: &TempD
 }
 
 crud_test!(a_write_of_a_key_in_two_files_names_one);
+
+/// A facet counts a key held in two files once, under each value its
+/// copies hold.
+async fn facets_count_a_key_in_two_files_once(sync: &SyncedRepo, _tmp: &TempDir) {
+    use std::collections::BTreeMap;
+    use unfurl_git_sync::{canonical_facet_key, FacetPath, FacetSpec};
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
+    let query = RecordQuery {
+        path: Some("/repositories".into()),
+        ..Default::default()
+    };
+    let path = |token: &str| FacetPath::new(vec![token.to_string()], false).expect("path");
+    let spec = FacetSpec {
+        group: path("tier"),
+        columns: vec![vec![path("tier")]],
+    };
+    let scanned = sync.facet_records(&query, &spec).await.expect("facet");
+    for (file, key, tier) in [
+        ("cloudmap.yaml", "git://example.com/differ.git", "gold"),
+        ("second.yaml", "git://example.com/differ.git", "silver"),
+        ("cloudmap.yaml", "git://example.com/agree.git", "bronze"),
+        ("second.yaml", "git://example.com/agree.git", "bronze"),
+        ("cloudmap.yaml", "git://example.com/single.git", "gold"),
+    ] {
+        sync.upsert_record(
+            Some(file),
+            "/repositories",
+            key,
+            serde_json::json!({"name": key, "tier": tier}),
+            None,
+            false,
+        )
+        .await
+        .expect("write");
+    }
+    let rows = sync.facet_records(&query, &spec).await.expect("facet");
+    assert_eq!(rows.total, scanned.total + 3, "three keys, five rows");
+    let groups: BTreeMap<String, i64> = rows
+        .groups
+        .iter()
+        .map(|(v, n)| (canonical_facet_key(v), *n))
+        .collect();
+    let expected: BTreeMap<String, i64> = [("bronze", 1), ("gold", 2), ("silver", 1)]
+        .into_iter()
+        .map(|(k, n)| (k.to_string(), n))
+        .collect();
+    assert_eq!(groups, expected);
+    let cells: BTreeMap<String, i64> = rows.columns[0]
+        .iter()
+        .map(|row| (canonical_facet_key(&row.group), row.count))
+        .collect();
+    assert_eq!(cells, expected, "a column's cells count keys too");
+}
+crud_test!(facets_count_a_key_in_two_files_once);

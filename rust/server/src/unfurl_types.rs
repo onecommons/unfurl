@@ -1281,7 +1281,7 @@ pub struct FailedRecord {
     /// CloudMap section, e.g. ``artifacts``.
     pub section: String,
 }
-/// Count the selected records grouped by the value at ``group_by``, with an optional per-group breakdown for each ``facet`` column. Record selection (``kind`` / ``type`` / ``filter``) works exactly as on ``GET /cloudmap``; the response carries counts only, no records.
+/// Count the selected records grouped by the value at ``group_by``, with an optional per-group breakdown for each ``facet`` column. Record selection (``kind`` / ``type`` / ``filter``) works exactly as on ``GET /cloudmap``; the response carries counts only, no records. Copies of a record (the same ``path`` and ``key`` in several files, or in several of the worktrees the request reads) count as one record.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct GetCloudmapFacetsRequest {
     #[validate(nested)]
