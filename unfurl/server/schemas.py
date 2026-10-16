@@ -301,7 +301,9 @@ class CloudMapDocQuery(CloudMapSelectionQuery):
             "ordinary read sees one version of each record -- the "
             "database's, which is what a write acts on. Turn it on to "
             "see what a write carrying "
-            "``unfurl.server.resolve: true`` would discard. Requires "
+            "``unfurl.server.resolve: true`` would discard. Copies of a "
+            "record held in two files or branches are under "
+            "``conflicts`` whatever this says. Requires "
             "the rust git-sync backend."
         ),
     )
@@ -1045,17 +1047,43 @@ def _conflicts_schema(description: str) -> Dict[str, Any]:
         "items": {
             "type": "object",
             "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": ["copies", "conflict"],
+                    "description": (
+                        "``copies``: the records the group's ``origin``, "
+                        "``branch`` and ``file`` hold, of keys the response "
+                        "has more than one of. ``conflict``: the working "
+                        "tree's side of records the database disagrees with."
+                    ),
+                },
                 "commit": {
                     "type": "string",
                     "nullable": True,
                     "description": (
                         "Commit carrying this version of the records, or "
-                        "null when the file's content is not in git yet."
+                        "null when the file's content is not in git yet. "
+                        "Set on the working tree's side of a conflict."
                     ),
+                },
+                "origin": {
+                    "type": "string",
+                    "description": (
+                        "The repository holding this group's copies of "
+                        "records the response has more than one of."
+                    ),
+                },
+                "branch": {
+                    "type": "string",
+                    "description": "The branch holding this group's copies.",
+                },
+                "file": {
+                    "type": "string",
+                    "description": "The file holding this group's copies.",
                 },
                 "records": {"$ref": "#/components/schemas/CloudMapDocument"},
             },
-            "required": ["records"],
+            "required": ["kind", "records"],
         },
     }
 
@@ -1185,10 +1213,17 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
                     ),
                 },
                 "conflicts": _conflicts_schema(
-                    "The working tree's side of records the database "
-                    "disagrees with, grouped by the commit that carries "
-                    "them. Present only when the request asked for "
-                    "``conflicts``; an empty array means there are none. "
+                    "Records the response holds more than one version "
+                    "of. Copies -- records sharing a key in two files, or "
+                    "in two branches or repositories a read covers -- "
+                    "come on every read, grouped by the ``origin``, "
+                    "``branch`` and ``file`` they're in: every copy, the "
+                    "one ``result`` shows included, which is just the "
+                    "first in sort order. The working tree's side of "
+                    "records the database disagrees with, grouped by the "
+                    "``commit`` that carries them, comes only when the "
+                    "request asked for ``conflicts``; then an empty array "
+                    "means there are none. "
                     "Grouped rather than merged into ``result`` because a "
                     "record can be contested from more than one commit, "
                     "and because the two versions of a record share a key "

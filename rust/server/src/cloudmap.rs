@@ -19,7 +19,7 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use unfurl_git_sync::{
     canonical_facet_key, canonical_json_text, BatchOp, CommitRef, ConflictState, DbConfig,
@@ -1320,6 +1320,7 @@ async fn conflict_groups(
         .into_iter()
         .map(|(commit, records)| {
             let mut entry = Map::new();
+            entry.insert("kind".to_string(), Value::from("conflict"));
             entry.insert(
                 "commit".to_string(),
                 commit.map_or(Value::Null, Value::String),
@@ -1330,11 +1331,8 @@ async fn conflict_groups(
         .collect())
 }
 
-/// Attach `conflicts` to a response body when the request asked for it.
-///
-/// An empty array rather than an omitted key: the request asked, so
-/// "none" is an answer. The key is absent entirely when it did not ask,
-/// which is what lets a client tell the two apart.
+/// Add the conflicts to a response body's `conflicts` when the request
+/// asked for them: an empty array where there are none and no copies.
 async fn attach_conflicts(
     synced: &SyncedRepo,
     query: &RecordQuery,
@@ -1344,11 +1342,105 @@ async fn attach_conflicts(
 ) -> Result<Value, LocalError> {
     if wanted {
         let groups = conflict_groups(synced, query, select, None).await?;
-        if let Some(object) = body.as_object_mut() {
-            object.insert("conflicts".to_string(), Value::Array(groups));
-        }
+        add_groups(&mut body, groups, true);
     }
     Ok(body)
+}
+
+/// Append `groups` to `body`'s `conflicts`, made where missing: always
+/// when `wanted`, so a request asking for conflicts sees an empty list.
+fn add_groups(body: &mut Value, groups: Vec<Value>, wanted: bool) {
+    let Some(object) = body.as_object_mut() else {
+        return;
+    };
+    if groups.is_empty() && !wanted {
+        return;
+    }
+    if let Value::Array(all) = object
+        .entry("conflicts")
+        .or_insert_with(|| Value::Array(Vec::new()))
+    {
+        all.extend(groups);
+    }
+}
+
+/// `records`, sorted by `(path, key)`, as the record `result` shows for
+/// each key, and the copies of each key held live more than once. The
+/// same row seen in several worktrees is one record. A tombstone, in an
+/// incremental read, is a deletion: shown where nothing live is, and not
+/// a copy.
+fn partition_copies(mut records: Vec<Record>) -> (Vec<Record>, Vec<Record>) {
+    let mut seen = std::collections::HashSet::new();
+    records.retain(|r| seen.insert((r.id, r.version, r.file_path.clone())));
+    let mut kept: Vec<Record> = Vec::new();
+    let mut copies: Vec<Record> = Vec::new();
+    for run in records.chunk_by(|a, b| a.path == b.path && a.key == b.key) {
+        let live: Vec<&Record> = run.iter().filter(|r| !r.deleted).collect();
+        kept.extend(live.first().copied().or(run.first()).cloned());
+        if live.len() > 1 {
+            copies.extend(live.into_iter().cloned());
+        }
+    }
+    (kept, copies)
+}
+
+/// `records` in a read's order: by `(path, key)`, then file and worktree.
+fn sorted(mut records: Vec<Record>) -> Vec<Record> {
+    records.sort_by(|a, b| {
+        (&a.path, &a.key, &a.file_path, a.worktree_id).cmp(&(
+            &b.path,
+            &b.key,
+            &b.file_path,
+            b.worktree_id,
+        ))
+    });
+    records
+}
+
+/// [`partition_copies`], with the copies grouped by the worktree and file
+/// they're in.
+async fn split_copies(
+    synced: &SyncedRepo,
+    records: Vec<Record>,
+    select: Option<&[SelectPath]>,
+) -> Result<(Vec<Record>, Vec<Value>), LocalError> {
+    let (kept, copies) = partition_copies(records);
+    if copies.is_empty() {
+        return Ok((kept, Vec::new()));
+    }
+    let ids: Vec<i64> = copies.iter().map(|r| r.worktree_id).collect();
+    let filter = WorktreeFilter {
+        ids: Some(ids),
+        ..Default::default()
+    };
+    let worktrees: HashMap<i64, (String, String)> = synced
+        .worktrees(&filter)
+        .await
+        .map_err(|e| read_error("worktrees", e))?
+        .into_iter()
+        .map(|w| (w.id, (w.origin, w.branch)))
+        .collect();
+    let mut by_source: BTreeMap<(i64, String), Vec<Record>> = BTreeMap::new();
+    for r in copies {
+        by_source
+            .entry((r.worktree_id, r.file_path.clone()))
+            .or_default()
+            .push(r);
+    }
+    let groups = by_source
+        .into_iter()
+        .map(|((worktree, file), rows)| {
+            let (origin, branch) = worktrees.get(&worktree).cloned().unwrap_or_default();
+            json!({
+                "kind": "copies",
+                "origin": origin,
+                "branch": branch,
+                "file": file,
+                "records": records_to_document(rows, select),
+            })
+        })
+        .collect();
+    Ok((kept, groups))
 }
 
 /// [`build_response`] with the read worktree's head commit as `commit`
@@ -1539,25 +1631,29 @@ async fn build_response(
         }
     }
 
+    let select = select_paths.as_deref();
+    let (initial, mut copies) = split_copies(synced, initial, select).await?;
     let mut body = Map::new();
-    body.insert(
-        "result".to_string(),
-        records_to_document(initial, select_paths.as_deref()),
-    );
+    body.insert("result".to_string(), records_to_document(initial, select));
     // Omitted unless the request asked to walk, so a client can tell
     // "you didn't ask" from "there is none".
     if follow > 0 {
+        let followed = sorted(followed_records);
+        let (followed, more) = split_copies(synced, followed, select).await?;
+        copies.extend(more);
         body.insert(
             "followed".to_string(),
-            records_to_document(followed_records, select_paths.as_deref()),
+            records_to_document(followed, select),
         );
     }
+    let mut body = Value::Object(body);
+    add_groups(&mut body, copies, false);
     attach_conflicts(
         synced,
         &query,
         select_paths.as_deref(),
         want_conflicts,
-        Value::Object(body),
+        body,
     )
     .await
 }
@@ -1655,12 +1751,15 @@ async fn paged_response(
         Vec::new()
     };
 
+    let (rows, mut copies) = split_copies(synced, rows, select).await?;
     let mut body = Map::new();
     body.insert("result".to_string(), records_to_document(rows, select));
     // Each page carries its own neighbourhood, capped at `follow` -- the same
     // per-response bound `limit` puts on the page itself. A record reachable
     // from two pages is reported on both unless the caller excludes it.
     if follow > 0 {
+        let (followed, more) = split_copies(synced, sorted(followed), select).await?;
+        copies.extend(more);
         body.insert(
             "followed".to_string(),
             records_to_document(followed, select),
@@ -1670,7 +1769,9 @@ async fn paged_response(
     if let Some(token) = next {
         body.insert("next_page_token".to_string(), Value::String(token));
     }
-    Ok(Value::Object(body))
+    let mut body = Value::Object(body);
+    add_groups(&mut body, copies, false);
+    Ok(body)
 }
 
 /// Parse a JSON Pointer (RFC 6901, leading "/" optional) into
@@ -2476,6 +2577,7 @@ impl From<WriteError> for ApiError {
             },
             WriteError::Conflict(conflict) => {
                 let Conflicted {
+                    message,
                     section,
                     key,
                     actual,
@@ -2485,7 +2587,7 @@ impl From<WriteError> for ApiError {
                 } = *conflict;
                 let body = unfurl_types::ConflictBody {
                     code: "CONFLICT".into(),
-                    message: "a record changed since latest_commit".into(),
+                    message,
                     error: Some("conflict".into()),
                     section: Some(section),
                     key: Some(key),
@@ -2521,6 +2623,8 @@ impl From<WriteError> for ApiError {
 
 /// A [`WriteError::Conflict`]'s records.
 struct Conflicted {
+    /// What the response says went wrong.
+    message: String,
     /// First conflicting record's section (back-compat with the
     /// pre-batch response shape).
     section: String,
@@ -2770,7 +2874,13 @@ async fn apply_writes(
                 error: kind,
             });
         }
+        // a key in two files says which; the rest, that a record moved on
+        let message = match &primary.error {
+            ambiguous @ unfurl_git_sync::Error::Ambiguous { .. } => ambiguous.to_string(),
+            _ => "a record changed since latest_commit".to_string(),
+        };
         return Err(WriteError::Conflict(Box::new(Conflicted {
+            message,
             section: primary_section,
             key: primary.key.clone(),
             actual: primary_actual,
@@ -2976,6 +3086,7 @@ fn classify_failure(err: &unfurl_git_sync::Error) -> (Option<String>, Option<Str
     match err {
         E::Conflict { actual, .. } => (Some("conflict".to_string()), actual.clone()),
         E::NotFound { .. } => (Some("not_found".to_string()), None),
+        E::Ambiguous { .. } => (Some("ambiguous".to_string()), None),
         _ => (Some("error".to_string()), None),
     }
 }
@@ -3000,8 +3111,52 @@ where
 mod tests {
     use super::{
         branch_matches, delete_pointer, merge_deletes, merge_json, origin_matches,
-        retry_if_head_moved,
+        partition_copies, retry_if_head_moved,
     };
+
+    fn row(worktree_id: i64, file: &str, version: i64, deleted: bool) -> unfurl_git_sync::Record {
+        unfurl_git_sync::Record {
+            id: 7,
+            worktree_id,
+            file_path: file.into(),
+            path: "/repositories".into(),
+            key: "k".into(),
+            commit_id: None,
+            json: serde_json::json!({"name": file}),
+            deleted,
+            version,
+            conflict: None,
+        }
+    }
+
+    /// `(file, deleted)` of each record.
+    fn shape(records: &[unfurl_git_sync::Record]) -> Vec<(String, bool)> {
+        records
+            .iter()
+            .map(|r| (r.file_path.clone(), r.deleted))
+            .collect()
+    }
+
+    /// The same row seen in two worktrees is one record; two versions of
+    /// it are copies, and `result` shows the first.
+    #[test]
+    fn the_same_row_in_two_worktrees_is_one_record() {
+        let (kept, copies) = partition_copies(vec![row(1, "a", 5, false), row(2, "a", 5, false)]);
+        assert_eq!((kept.len(), copies.len()), (1, 0));
+        let (kept, copies) = partition_copies(vec![row(1, "a", 5, false), row(2, "b", 6, false)]);
+        assert_eq!(shape(&kept), [("a".to_string(), false)]);
+        assert_eq!(copies.len(), 2);
+    }
+
+    /// An incremental read's moved record shows live, with its tombstone
+    /// in the file it left no copy.
+    #[test]
+    fn a_moved_record_shows_live() {
+        let rows = vec![row(1, "a", 5, true), row(1, "b", 6, false)];
+        let (kept, copies) = partition_copies(rows);
+        assert_eq!(shape(&kept), [("b".to_string(), false)]);
+        assert!(copies.is_empty());
+    }
 
     #[test]
     fn a_requests_credentials_are_read_as_python_reads_them() {

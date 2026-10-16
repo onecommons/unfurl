@@ -267,7 +267,7 @@ pub struct CloudMapResponseTypeRefJson {
 pub struct CloudMapResult {
     /// The head commit the records were read at: the ``latest_commit`` for a write based on this read. Null for a repository with no commits; absent from a server that doesn't report it.
     pub commit: Option<String>,
-    /// The working tree's side of records the database disagrees with, grouped by the commit that carries them. Present only when the request asked for ``conflicts``; an empty array means there are none. Grouped rather than merged into ``result`` because a record can be contested from more than one commit, and because the two versions of a record share a key and would otherwise collide. Only records still contested appear: once a write has settled one the decision is made, and it drops out.
+    /// Records the response holds more than one version of. Copies -- records sharing a key in two files, or in two branches or repositories a read covers -- come on every read, grouped by the ``origin``, ``branch`` and ``file`` they're in: every copy, the one ``result`` shows included, which is just the first in sort order. The working tree's side of records the database disagrees with, grouped by the ``commit`` that carries them, comes only when the request asked for ``conflicts``; then an empty array means there are none. Grouped rather than merged into ``result`` because a record can be contested from more than one commit, and because the two versions of a record share a key and would otherwise collide. Only records still contested appear: once a write has settled one the decision is made, and it drops out.
     pub conflicts: Option<Vec<CloudMapResultConflict>>,
     /// Records discovered by walking the graph from ``key``. Present only when the request asked to ``follow`` from a ``key``.
     pub followed: Option<CloudMapDocument>,
@@ -280,9 +280,47 @@ pub struct CloudMapResult {
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudMapResultConflict {
-    /// Commit carrying this version of the records, or null when the file's content is not in git yet.
+    /// The branch holding this group's copies.
+    pub branch: Option<String>,
+    /// Commit carrying this version of the records, or null when the file's content is not in git yet. Set on the working tree's side of a conflict.
     pub commit: Option<String>,
+    /// The file holding this group's copies.
+    pub file: Option<String>,
+    /// ``copies``: the records the group's ``origin``, ``branch`` and ``file`` hold, of keys the response has more than one of. ``conflict``: the working tree's side of records the database disagrees with.
+    pub kind: CloudMapResultConflictKind,
+    /// The repository holding this group's copies of records the response has more than one of.
+    pub origin: Option<String>,
     pub records: CloudMapDocument,
+}
+/// ``copies``: the records the group's ``origin``, ``branch`` and ``file`` hold, of keys the response has more than one of. ``conflict``: the working tree's side of records the database disagrees with.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, oas3_gen_support::Default)]
+pub enum CloudMapResultConflictKind {
+    #[serde(rename = "copies")]
+    #[default]
+    Copies,
+    #[serde(rename = "conflict")]
+    Conflict,
+}
+impl core::fmt::Display for CloudMapResultConflictKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Copies => write!(f, "copies"),
+            Self::Conflict => write!(f, "conflict"),
+        }
+    }
+}
+impl core::str::FromStr for CloudMapResultConflictKind {
+    type Err = String;
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
+        match s {
+            "copies" => Ok(Self::Copies),
+            "conflict" => Ok(Self::Conflict),
+            _ => Err(format!(
+                "unknown variant '{}', expected one of: {}",
+                s, "copies, conflict"
+            )),
+        }
+    }
 }
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
@@ -1349,7 +1387,7 @@ pub struct GetCloudmapRequestQuery {
     /// If > 0, walk the CloudMap graph outward from every record the query selected and return what it reaches under ``followed``. Records already in the result are never repeated under ``followed``, and the value caps how many are returned. Follow doesn't know about paging; a record reachable from two pages appears on both unless ``exclude`` rules it out.
     #[default(Some(0i64))]
     pub follow: Option<i64>,
-    /// Also return the working tree's side of any record the query selected that the database and the file disagree about, under ``conflicts``. Off by default, so an ordinary read sees one version of each record -- the database's, which is what a write acts on. Turn it on to see what a write carrying ``unfurl.server.resolve: true`` would discard. Requires the rust git-sync backend.
+    /// Also return the working tree's side of any record the query selected that the database and the file disagree about, under ``conflicts``. Off by default, so an ordinary read sees one version of each record -- the database's, which is what a write acts on. Turn it on to see what a write carrying ``unfurl.server.resolve: true`` would discard. Copies of a record held in two files or branches are under ``conflicts`` whatever this says. Requires the rust git-sync backend.
     #[default(Some(false))]
     pub conflicts: Option<bool>,
     /// When set, return only records whose ``unfurl.server.version`` is greater than this value, including records deleted since then -- those come back carrying ``unfurl.server.deleted: true`` so a client catching up can drop them, which it could not otherwise learn (a deleted record simply stops being returned). Pass the ``version`` of the previous response. A value from before the branch's history was rewritten (a reset, rebase or force-push) answers 409 with the code ``RESET``: records may have left without tombstones, so drop what you hold, read again without ``since_version`` and resume from that response's ``version``. Requires the rust git-sync backend; ignored by the Python YAML fallback, which reports neither versions nor deletions.

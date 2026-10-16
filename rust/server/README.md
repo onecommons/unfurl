@@ -117,6 +117,17 @@ way, but for one whose remote can't be reached, which is served as it is.
 Python's own pulls differ in one way: one that fails for any reason
 deletes the clone to clone it again, unless it holds unpushed work.
 
+**Copies.** A cloudmap read can hold more than one record with a key:
+in two files, or in two branches or repositories it reads together.
+`result` has one, the first live one in sort order, and every live
+copy is under `conflicts`, grouped by the `origin`, `branch` and `file`
+it's in (`kind: copies`), whether or not the read asked for conflicts;
+conflicts proper are `kind: conflict`. Across two branches of one
+repository that includes a branch's unchanged copy of a record the other
+changed: telling it from a change on both is for the client, until
+layered reads (phase 3) can. A write that names no `cloudmap_path`, of a key
+in more than one file, is refused with a 409 naming them.
+
 **Committing.** A cloudmap write (`POST /cloudmap`) with `commit: true`
 is committed in the request; one with `commit: false` is only staged,
 committed by whatever commit comes next. Outside dev mode, one without

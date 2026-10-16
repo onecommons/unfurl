@@ -908,6 +908,31 @@ Not built: a diverged freshness pull,
 which keeps serving the checkout until the next push merges; and a
 field-by-field merge of a record both sides changed where git couldn't.
 
+### 7.7 Phase 3, step 1: copies, built in the server
+
+A read across several worktrees is each one's view side by side, as
+before. The server reports what it holds more than once: a key in two
+files, or in two worktrees or repositories, has one record in `result`
+-- the first live one in sort order -- and every live copy under
+`conflicts`, grouped by `origin`, `branch` and `file`, `kind: copies`,
+on every read; it used to keep the last row of each key and drop the
+rest unseen. A tombstone, in an incremental read, is a deletion, shown
+where nothing live is. A write naming no file, of a key live in more
+than one, fails (`Error::Ambiguous`, a 409) rather than taking the
+first. Pages already end on a `(path, key)` (`whole_groups`).
+
+Not built: telling a branch's stale inherited copy of a record another
+branch changed from a change on both, which a read across them still
+returns as two copies. Hiding a row superseded in any worktree a read
+covers would, but a draft can hold an entry for a row outside its own
+view: the in-database rebase places one before the reset it waits for,
+and §4.12's per-record second branch point relies on one. The harness,
+reading across every worktree, found SQL and the in-memory
+implementation disagree on such an entry, and the model checks layered
+reads only for user branches. So the rule waits for phase 3 to define
+what a draft's entries mean across a read; so does reporting a deletion
+on one branch of what another still has.
+
 ## 8. For review
 
 1. The differential harness, rather than checking SQL against the

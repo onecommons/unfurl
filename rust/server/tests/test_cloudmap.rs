@@ -2037,6 +2037,71 @@ async fn latest_commit_from_before_an_outside_commit_is_refused() {
     assert_eq!(status, StatusCode::CONFLICT, "{response:?}");
 }
 
+/// `ALT_KEY` in both files: its record copied into `cloudmap.yaml`.
+async fn a_key_in_two_files() -> (CloudMapState, TestDir) {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "cloudmap_path": "cloudmap.yaml",
+        "repositories": { ALT_KEY: { "name": "copied" } },
+    });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    (cm, tmp)
+}
+
+/// A read of a key two files hold has it once in `result`, and every
+/// copy under `conflicts`, by file, though it didn't ask for conflicts.
+#[tokio::test]
+async fn get_reports_copies_of_a_key_in_two_files() {
+    let (cm, _tmp) = a_key_in_two_files().await;
+    let app = router(make_state(cm));
+    let uri = format!(
+        "/cloudmap?kind=repositories&key={}",
+        urlencoding::encode(ALT_KEY)
+    );
+    let (status, body) = get_json(app, &uri).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // the first in sort order: alt-cloudmap.yaml's
+    let shown = &body["result"]["repositories"][ALT_KEY];
+    assert_eq!(shown["name"], "only-in-alt", "{body}");
+    let groups = body["conflicts"].as_array().expect("conflicts");
+    assert!(groups.iter().all(|g| g["kind"] == "copies"), "{body}");
+    let mut files: Vec<&str> = groups.iter().filter_map(|g| g["file"].as_str()).collect();
+    files.sort();
+    assert_eq!(files, [ALT_FILE, "cloudmap.yaml"], "{body}");
+    for g in groups {
+        assert!(g["records"]["repositories"][ALT_KEY].is_object(), "{g}");
+        assert!(g["branch"].is_string(), "{g}");
+    }
+}
+
+/// A read with no copies has no `conflicts`.
+#[tokio::test]
+async fn get_without_copies_has_no_conflicts() {
+    let (cm, _synced, _tmp) = open_two_file_state().await;
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap?kind=repositories").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body.get("conflicts").is_none(), "{body}");
+}
+
+/// A write naming no file, of a key two files hold, is a 409 naming both.
+#[tokio::test]
+async fn post_of_a_key_in_two_files_names_neither_is_refused() {
+    let (cm, _tmp) = a_key_in_two_files().await;
+    let app = router(make_state(cm));
+    let body = serde_json::json!({ "repositories": { ALT_KEY: { "name": "which" } } });
+    let (status, response) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{response}");
+    let message = response["message"].as_str().expect("message");
+    assert!(
+        message.contains(ALT_FILE) && message.contains("cloudmap.yaml"),
+        "{message}"
+    );
+    assert_eq!(response["failed"][0]["error"], "ambiguous", "{response}");
+}
+
 /// A read reports the head it was made at, not the older commit its
 /// records last changed in, so a write based on it passes the
 /// `latest_commit` check.
