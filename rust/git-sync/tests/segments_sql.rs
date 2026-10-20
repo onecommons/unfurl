@@ -70,6 +70,7 @@ fn run(ops: &[Op]) {
                     | Op::Merge(..)
                     | Op::Integrate(..)
                     | Op::MergeUpstream(..)
+                    | Op::Revert(..)
             ) {
                 // a step that changed nothing on disk or in git is taken in
                 // by the next scan anyway: check it's a no-op
@@ -106,6 +107,12 @@ fn sql_integrate_op() -> impl Strategy<Value = Op> {
 /// around them.
 fn sql_merge_upstream_op() -> impl Strategy<Value = Op> {
     merge_upstream_op().prop_filter("the SQL side runs it", sql_supports)
+}
+
+/// Saves of an unchanged value and reverts, and only what the SQL side
+/// runs around them.
+fn sql_same_content_op() -> impl Strategy<Value = Op> {
+    same_content_op().prop_filter("the SQL side runs it", sql_supports)
 }
 
 /// Exports, some failing partway, and only what the SQL side runs.
@@ -161,6 +168,12 @@ proptest! {
     #[test]
     #[ignore]
     fn failed_exports_agree_with_the_implementation(ops in prop::collection::vec(sql_failed_export_op(), 1..40)) {
+        run(&ops);
+    }
+
+    #[test]
+    #[ignore]
+    fn same_content_agrees_with_the_implementation(ops in prop::collection::vec(sql_same_content_op(), 1..40)) {
         run(&ops);
     }
 }

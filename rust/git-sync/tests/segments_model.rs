@@ -77,6 +77,11 @@ proptest! {
     fn failed_exports_agree_with_the_model(ops in prop::collection::vec(failed_export_op(), 1..40)) {
         run(&ops);
     }
+
+    #[test]
+    fn same_content_agrees_with_the_model(ops in prop::collection::vec(same_content_op(), 1..40)) {
+        run(&ops);
+    }
 }
 
 include!("segments/histories.rs");

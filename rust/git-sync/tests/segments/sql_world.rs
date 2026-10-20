@@ -15,6 +15,7 @@ fn sql_supports(op: &Op) -> bool {
         Op::Fork(..) | Op::Rebuild(..) | Op::Rebase(..) | Op::Delete(_) => true,
         Op::Export(_) | Op::FailedExport(_) | Op::Merge(..) | Op::Integrate(..) => true,
         Op::MergeUpstream(..) => true,
+        Op::Resave(..) | Op::Revert(..) => true,
         _ => false,
     }
 }
@@ -48,6 +49,8 @@ struct Before {
     resolve: Option<Key>,
     /// How many worktrees the model had: an Export's branch is the next.
     wts: usize,
+    /// The version a Resave writes again: what the view shows at its key.
+    resave: Option<Ver>,
 }
 
 impl Before {
@@ -65,6 +68,8 @@ impl Before {
             | Op::Merge(n, ..)
             | Op::Integrate(n, ..)
             | Op::MergeUpstream(n, ..)
+            | Op::Resave(n, _)
+            | Op::Revert(n, ..)
             | Op::Export(n) => Some(n),
             Op::FailedExport(n) => Some(n / 3),
             _ => None,
@@ -77,12 +82,17 @@ impl Before {
             }
             _ => None,
         };
+        let resave = match *op {
+            Op::Resave(_, k) => world.model.wts[w].view().get(&k).copied(),
+            _ => None,
+        };
         Before {
             commits: world.git.commits.len(),
             next_ver: world.next_ver,
             w,
             resolve,
             wts: world.model.wts.len(),
+            resave,
         }
     }
 }
@@ -199,6 +209,20 @@ impl SqlWorld {
                 })
                 .unwrap();
             }
+            Op::Resave(_, k) => {
+                let Some(ver) = before.resave else { return };
+                let (file, path, key) = place(k);
+                self.rt
+                    .block_on(self.repos[&w].upsert_record(
+                        Some(&file),
+                        path,
+                        &key,
+                        value(ver),
+                        None,
+                        false,
+                    ))
+                    .unwrap();
+            }
             Op::Commit(_) => {
                 let made = self
                     .rt
@@ -227,6 +251,7 @@ impl SqlWorld {
             | Op::Move(..)
             | Op::Rebuild(..)
             | Op::Rebase(..)
+            | Op::Revert(..)
             | Op::Merge(..) => {
                 mirror.sync(world);
                 self.scan(w, false);

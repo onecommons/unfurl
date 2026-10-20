@@ -2368,3 +2368,15 @@ fn upstream_merge_names_a_deletion_by_its_tombstone() {
         Op::MergeUpstream(0, 0, vec![(2, false)]),
     ]);
 }
+
+/// A save of an unchanged value, committed, changes nothing: main's head
+/// stays empty, so a fork at main's head builds on its parent.
+#[test]
+fn a_fork_after_a_no_op_commit_builds_on_the_parent() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Resave(20, 0),
+        Op::Commit(20),
+        Op::Fork(50, 0),
+    ]);
+}

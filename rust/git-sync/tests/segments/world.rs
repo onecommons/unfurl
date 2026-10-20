@@ -57,6 +57,13 @@ enum Op {
     /// and scanned. `.3` picks each conflicting key's side, and `.4` are
     /// changes the merge commit itself makes.
     Merge(u8, Vec<(u8, u8)>, MergeKind, u8, Vec<(Key, bool)>),
+    /// A write of the value a worktree's view shows at a key: a save that
+    /// changes nothing, a new row with the content of the one it replaces.
+    Resave(u8, Key),
+    /// A commit made outside the database setting a key back to its value
+    /// `.2` commits before HEAD, then scanned: a revert. Not of a key HEAD
+    /// lacks.
+    Revert(u8, Key, u8),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -173,6 +180,22 @@ fn export_op() -> impl Strategy<Value = Op> {
         3 => (any::<u8>(), key.clone(), prop::bool::weighted(0.2)).prop_map(|(w, k, d)| Op::DiskEdit(w, k, d, FileWins::Never)),
         2 => (any::<u8>(), prop::collection::vec((key, prop::bool::weighted(0.2)), 1..3)).prop_map(|(w, c)| Op::External(w, c)),
         3 => any::<u8>().prop_map(Op::Export),
+    ]
+}
+
+/// [`op`] with saves of an unchanged value and reverts, which replace a
+/// row with one of the same content, kept out of it so the seeds saved
+/// under it replay the same histories. Weighted toward what they need:
+/// forks whose drafts edit what main then saves again or reverts.
+fn same_content_op() -> impl Strategy<Value = Op> {
+    let key = 0..KEYS;
+    prop_oneof![
+        3 => op(),
+        4 => (any::<u8>(), key.clone(), prop::bool::weighted(0.2)).prop_map(|(w, k, d)| Op::Write(w, k, d)),
+        3 => any::<u8>().prop_map(Op::Commit),
+        2 => (any::<u8>(), 0u8..4).prop_map(|(w, b)| Op::Fork(w, b)),
+        4 => (any::<u8>(), key.clone()).prop_map(|(w, k)| Op::Resave(w, k)),
+        3 => (any::<u8>(), key, 1u8..4).prop_map(|(w, k, b)| Op::Revert(w, k, b)),
     ]
 }
 
@@ -824,6 +847,58 @@ impl World {
         }
     }
 
+    /// A client's write of `value` at `k` in worktree `w`, through its own
+    /// view.
+    fn write(&mut self, w: Wt, k: Key, value: Value) {
+        let Value { ver, deleted } = value;
+        let own = self.imp.own_view(w);
+        // the record it replaces, else a new one
+        let m = &self.model.wts[w];
+        let record = m
+            .draft
+            .get(&k)
+            .map(|d| d.id)
+            .or(m.ids.get(&k).copied())
+            .unwrap_or(ver);
+        self.imp
+            .write(w, &own, k, Value { ver, deleted }, true, record);
+        // a tombstone over main's absence continues it
+        let continues = match (w, deleted, self.model.wts[w].shown(k)) {
+            (MAIN, true, None) => self.model.absent[&k].clone(),
+            (MAIN, true, Some((t, true))) => {
+                let mut ids = self.model.wts[w].draft[&k].continues.clone();
+                ids.insert(t);
+                ids
+            }
+            _ => BTreeSet::new(),
+        };
+        let m = &mut self.model.wts[w];
+        // a re-create, with no base: live nowhere in its view
+        let live_anywhere = m.draft.values().any(|d| d.id == record && !d.deleted)
+            || m.ids.values().any(|&i| i == record);
+        let shown = m.committed.get(&k).copied();
+        let settled = if m.draft.contains_key(&k) {
+            BTreeSet::new()
+        } else {
+            m.ids.get(&k).copied().into_iter().collect()
+        };
+        m.edit(
+            k,
+            Value { ver, deleted },
+            shown,
+            BTreeSet::new(),
+            record,
+            settled,
+        );
+        let d = m.draft.get_mut(&k).unwrap();
+        d.continues = continues;
+        if !live_anywhere {
+            if let Origin::Edit(e) = &mut d.origin {
+                e.base = None;
+            }
+        }
+    }
+
     fn apply(&mut self, op: &Op) {
         self.fill_origins();
         self.apply_op(op);
@@ -1229,52 +1304,27 @@ impl World {
                     return;
                 }
                 let ver = self.ver();
-                let own = self.imp.own_view(w);
-                // the record it replaces, else a new one
-                let m = &self.model.wts[w];
-                let record = m
-                    .draft
-                    .get(&k)
-                    .map(|d| d.id)
-                    .or(m.ids.get(&k).copied())
-                    .unwrap_or(ver);
-                self.imp
-                    .write(w, &own, k, Value { ver, deleted }, true, record);
-                // a tombstone over main's absence continues it
-                let continues = match (w, deleted, self.model.wts[w].shown(k)) {
-                    (MAIN, true, None) => self.model.absent[&k].clone(),
-                    (MAIN, true, Some((t, true))) => {
-                        let mut ids = self.model.wts[w].draft[&k].continues.clone();
-                        ids.insert(t);
-                        ids
-                    }
-                    _ => BTreeSet::new(),
+                self.write(w, k, Value { ver, deleted });
+            }
+            Op::Resave(n, k) => {
+                let w = self.pick(n, false).unwrap();
+                let Some(&ver) = self.model.wts[w].view().get(&k) else {
+                    return;
                 };
-                let m = &mut self.model.wts[w];
-                // a re-create, with no base: live nowhere in its view
-                let live_anywhere = m.draft.values().any(|d| d.id == record && !d.deleted)
-                    || m.ids.values().any(|&i| i == record);
-                let shown = m.committed.get(&k).copied();
-                let settled = if m.draft.contains_key(&k) {
-                    BTreeSet::new()
-                } else {
-                    m.ids.get(&k).copied().into_iter().collect()
-                };
-                m.edit(
-                    k,
-                    Value { ver, deleted },
-                    shown,
-                    BTreeSet::new(),
-                    record,
-                    settled,
-                );
-                let d = m.draft.get_mut(&k).unwrap();
-                d.continues = continues;
-                if !live_anywhere {
-                    if let Origin::Edit(e) = &mut d.origin {
-                        e.base = None;
-                    }
+                self.write(w, k, Value { ver, deleted: false });
+            }
+            Op::Revert(n, k, back) => {
+                let w = self.pick(n, false).unwrap();
+                let h = &self.imp.wts[w].history;
+                let c = h[h.len() - 1 - (back as usize).min(h.len() - 1)];
+                let old = self.git.commits[c].get(&k).copied();
+                let now = self.model.wts[w].committed.get(&k).copied();
+                // not an undelete: which new id a record brought back gets
+                // depends on every id the implementation ever gave
+                if now == old || now.is_none() {
+                    return;
                 }
+                self.external(w, BTreeMap::from([(k, old)]));
             }
             Op::Commit(n) => {
                 let w = self.pick(n, false).unwrap();

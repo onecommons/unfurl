@@ -1176,6 +1176,18 @@ impl Segments {
         };
         for x in carried {
             let k = self.rows[&x].key;
+            // unchanged: the record the chain shows already holds it, so
+            // it isn't folded, as the database's fork leaves a head out
+            // that holds nothing new at its commit
+            let chain = self.chain_set(w);
+            let r = &self.rows[&x];
+            if !r.deleted
+                && self.live(&chain, k) == Some(r.ver)
+                && self.live_id(&chain, k) == Some(r.id)
+            {
+                self.remove_draft_row(w, k);
+                continue;
+            }
             // the committed row it replaces, in the head or below
             let shown = self.visible(&self.chain_set(w), Some(k));
             let entries = self.draft_entries(&shown, w);
