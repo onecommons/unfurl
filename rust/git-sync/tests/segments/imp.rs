@@ -1185,7 +1185,17 @@ impl Segments {
                 && self.live(&chain, k) == Some(r.ver)
                 && self.live_id(&chain, k) == Some(r.id)
             {
+                // the committed row it copied takes over other drafts'
+                // entries on it, made over the same content (§3.3)
+                let committed = self
+                    .visible(&chain, Some(k))
+                    .into_iter()
+                    .find(|c| !self.rows[c].deleted);
+                let entries = self.draft_entries(&[x], w);
                 self.remove_draft_row(w, k);
+                if let Some(c) = committed {
+                    self.carry(entries, c);
+                }
                 continue;
             }
             // the committed row it replaces, in the head or below
