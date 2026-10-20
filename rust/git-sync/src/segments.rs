@@ -780,6 +780,18 @@ pub(crate) async fn fold<DB: Store>(
         DB::stamp(tx, c.id, d, commit).await?;
     }
     for x in &carried(tx, d, files, watermark).await? {
+        // unchanged: the record the chain shows already holds it, so it
+        // isn't folded into the head as a copy, which an edit made later
+        // elsewhere, hiding the row it shares, would leave showing
+        let shown = DB::visible(tx, w, Scope::Chain, Filter::At(x.at())).await?;
+        let unchanged = shown
+            .iter()
+            .find(|c| !c.deleted)
+            .is_some_and(|c| !x.deleted && c.json == x.json && c.key_id == x.key_id);
+        if unchanged {
+            remove_draft_row(tx, d, x.at()).await?;
+            continue;
+        }
         if let Some(hr) = DB::rows_in(tx, h, Some(&x.file_path), false)
             .await?
             .into_iter()

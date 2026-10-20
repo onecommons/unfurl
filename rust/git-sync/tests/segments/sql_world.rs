@@ -726,6 +726,10 @@ impl SqlWorld {
                 .map(|r| (r.key, (r.ver, r.id)))
                 .collect()
         };
+        // `SEGMENTS_VISIBLE_ONLY` leaves out the shape checks, chain length
+        // and draft entries, which no read sees: proptest then shrinks a
+        // history onto a difference a user could see
+        let shape = std::env::var_os("SEGMENTS_VISIBLE_ONLY").is_none();
         let open: Vec<Wt> = self.repos.keys().copied().collect();
         for w in open {
             let view = self.view(w);
@@ -733,6 +737,9 @@ impl SqlWorld {
             let chain = self.chain(w);
             self.same_ids(&format!("worktree {w}'s committed chain"), step, &chain, &rows(imp.chain_set(w)));
             assert_eq!(self.conflicts(w), imp.conflicts(w), "step {step}: worktree {w}'s conflicts");
+            if !shape {
+                continue;
+            }
             assert_eq!(
                 self.chain_len(w),
                 imp.wts[w].chain.len(),
@@ -775,11 +782,13 @@ impl SqlWorld {
             if !stuck.contains(&w) {
                 self.same_ids(&format!("worktree {w}'s view"), step, &chain, &rows(imp.own_view(w)));
             }
-            assert_eq!(
-                self.chain_len(w),
-                imp.wts[w].chain.len(),
-                "step {step}: worktree {w}'s chain length"
-            );
+            if shape {
+                assert_eq!(
+                    self.chain_len(w),
+                    imp.wts[w].chain.len(),
+                    "step {step}: worktree {w}'s chain length"
+                );
+            }
         }
     }
 }

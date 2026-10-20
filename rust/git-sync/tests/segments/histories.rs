@@ -2380,3 +2380,16 @@ fn a_fork_after_a_no_op_commit_builds_on_the_parent() {
         Op::Fork(50, 0),
     ]);
 }
+
+/// Main saves a record unchanged, a fork is made, main's commit changes
+/// nothing, then the fork edits the record: main's row is the one the
+/// fork's edit hides, so a read across both shows only the edit.
+#[test]
+fn a_no_op_commit_leaves_main_on_the_row_a_fork_edits() {
+    run(&[
+        Op::Resave(231, 0),
+        Op::Fork(59, 2),
+        Op::Commit(110),
+        Op::Write(181, 0, false),
+    ]);
+}

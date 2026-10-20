@@ -308,3 +308,127 @@ async fn a_facet_counts_the_branchs_change_alone(sync: &SyncedRepo, tmp: &TempDi
     assert_eq!((rows.total, groups), (1, vec![("feature".into(), 1)]));
 }
 crud_test!(a_facet_counts_the_branchs_change_alone);
+
+/// A branch of `sync`'s repository at its HEAD as it is, with nothing
+/// committed first, opened on the same database and scanned: it joins
+/// `sync`'s family if git-sync made that commit.
+async fn a_branch_at_head(sync: &SyncedRepo, tmp: &TempDir) -> (SyncedRepo, TempDir) {
+    let head = git(tmp.path(), &["rev-parse", "HEAD"]);
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("feature");
+    let at = path.to_str().expect("utf8");
+    git(
+        tmp.path(),
+        &["worktree", "add", "-q", "-b", "feature", at, &head],
+    );
+    let branch = SyncedRepo::open_on(
+        &path,
+        sync.db().clone(),
+        FormatRegistry::with_builtins(),
+        unfurl_git_sync::git::Trust::Full,
+    )
+    .await
+    .expect("open");
+    branch
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    (branch, dir)
+}
+
+/// Main saves a record unchanged, the branch is made, main commits, which
+/// changes nothing, then the branch edits the record: main's copy is the
+/// row the edit hides, so it isn't returned beside the edit.
+async fn a_no_op_commit_leaves_main_on_the_shared_row(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    // a commit git-sync made, so the branch joins main's family
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "git://example.com/base.git",
+        serde_json::json!({"name": "base"}),
+        None,
+        false,
+    )
+    .await
+    .expect("write");
+    sync.commit_repository("base", Default::default())
+        .await
+        .expect("commit");
+    let shown = sync
+        .find_records(&RecordQuery {
+            path: Some("/repositories".into()),
+            key: Some(DASHBOARD.into()),
+            ..Default::default()
+        })
+        .await
+        .expect("find");
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        shown[0].json.clone(),
+        None,
+        false,
+    )
+    .await
+    .expect("save unchanged");
+    let (branch, _dir) = a_branch_at_head(sync, tmp).await;
+    let committed = sync
+        .commit_repository("no-op", Default::default())
+        .await
+        .expect("commit");
+    assert_eq!(committed.commit, None, "nothing changed");
+    name(&branch, "edited").await;
+    assert_eq!(
+        read_across(sync, &branch).await,
+        [(branch.worktree_id(), "edited".into())]
+    );
+}
+crud_test!(a_no_op_commit_leaves_main_on_the_shared_row);
+
+/// A client's token from saving a record unchanged still passes after a
+/// commit that changes nothing drops that save: the record's version is
+/// then the older committed one.
+async fn a_no_op_commit_keeps_a_saves_token(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let shown = sync
+        .find_records(&RecordQuery {
+            path: Some("/repositories".into()),
+            key: Some(DASHBOARD.into()),
+            ..Default::default()
+        })
+        .await
+        .expect("find");
+    let saved = sync
+        .upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            DASHBOARD,
+            shown[0].json.clone(),
+            None,
+            false,
+        )
+        .await
+        .expect("save unchanged");
+    let committed = sync
+        .commit_repository("no-op", Default::default())
+        .await
+        .expect("commit");
+    assert_eq!(committed.commit, None, "nothing changed");
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "edited"}),
+        Some(unfurl_git_sync::CommitRef::Pending(saved.version)),
+        false,
+    )
+    .await
+    .expect("the save's token still passes");
+}
+crud_test!(a_no_op_commit_keeps_a_saves_token);
