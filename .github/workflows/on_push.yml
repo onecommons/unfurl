@@ -33,10 +33,21 @@ jobs:
           submodules: recursive
           fetch-depth: 0
       - name: Setup Python
+        if: matrix.python != '3.9'
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ matrix.python }}
           check-latest: true
+      # setup-python has no 3.9 for the Ubuntu 26.04 runners: a standalone
+      # build from uv, in a venv on PATH with pip, for the steps below
+      - name: Setup uv
+        if: matrix.python == '3.9'
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - name: Setup Python 3.9
+        if: matrix.python == '3.9'
+        run: |
+          uv venv --seed --python 3.9 "$HOME/py39"
+          echo "$HOME/py39/bin" >> "$GITHUB_PATH"
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
         with:
