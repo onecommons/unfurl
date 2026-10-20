@@ -125,9 +125,11 @@ in two files, or in two branches or repositories it reads together.
 copy is under `conflicts`, grouped by the `origin`, `branch` and `file`
 it's in (`kind: copies`), whether or not the read asked for conflicts;
 conflicts proper are `kind: conflict`. Across two branches of one
-repository that includes a branch's unchanged copy of a record the other
-changed: telling it from a change on both is for the client, until
-layered reads (phase 3) can. A write that names no `cloudmap_path`, of a key
+repository, a record only one changed is that branch's change: the
+other's unchanged row isn't a copy of it, and a record one deleted is
+absent, as it is from a read of that branch alone. Only a record both
+changed comes back once from each, as do the records of separate
+repositories. A write that names no `cloudmap_path`, of a key
 in more than one file, is refused with a 409 naming them.
 
 **Committing.** A cloudmap write (`POST /cloudmap`) with `commit: true`

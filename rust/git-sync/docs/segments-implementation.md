@@ -921,17 +921,19 @@ where nothing live is. A write naming no file, of a key live in more
 than one, fails (`Error::Ambiguous`, a 409) rather than taking the
 first. Pages already end on a `(path, key)` (`whole_groups`).
 
-Not built: telling a branch's stale inherited copy of a record another
-branch changed from a change on both, which a read across them still
-returns as two copies. Hiding a row superseded in any worktree a read
-covers would, but a draft can hold an entry for a row outside its own
-view: the in-database rebase places one before the reset it waits for,
-and §4.12's per-record second branch point relies on one. The harness,
-reading across every worktree, found SQL and the in-memory
-implementation disagree on such an entry, and the model checks layered
-reads only for user branches. So the rule waits for phase 3 to define
-what a draft's entries mean across a read; so does reporting a deletion
-on one branch of what another still has.
+A row superseded in the view of any worktree a read covers is left out,
+so a branch's unchanged copy of a record another branch changed or
+deleted isn't returned; a record both changed still comes back from
+each, and one deleted on a branch and changed on another is the change.
+Facets count the same rows. The harness checks every read across the
+open worktrees against the in-memory implementation (`check_across`),
+and each draft's entries against its own. The disagreement that held
+the rule back was SQL's scan not giving a moved record's new row other
+drafts' entries (§3.5), not the rebase; the write, the fold and a
+same-key scan replacement don't take them over yet. The SQL harness has
+no user branches, so a draft entry on a row outside its own view, as
+§4.12's second branch point makes, is checked only once phase 3 adds
+them.
 
 ## 8. For review
 

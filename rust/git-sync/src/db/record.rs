@@ -404,13 +404,13 @@ fn view_join(pg: bool, ids: &str) -> String {
     format!(" JOIN {} v ON v.segment_id = r.segment_id", views(pg, ids))
 }
 
-/// `r` is visible in worktree `v`: nothing in its view supersedes it
-/// (§3.3). The worktree match is in the `WHERE`, so the planner makes it
-/// a hash anti-join.
+/// `r` is visible: nothing in the view of any worktree the read covers
+/// supersedes it (§3.3), so a read across worktrees leaves out a branch's
+/// unchanged copy of what another changed or deleted.
 fn visible(pg: bool, ids: &str) -> String {
     format!(
         "NOT EXISTS (SELECT 1 FROM superseded x JOIN {} vx ON vx.segment_id = x.segment_id \
-         WHERE x.record_id = r.id AND vx.worktree_id = v.worktree_id)",
+         WHERE x.record_id = r.id)",
         views(pg, ids)
     )
 }

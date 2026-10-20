@@ -655,6 +655,42 @@ impl SqlWorld {
             .collect()
     }
 
+    /// A read across every open worktree: SQL's, against the in-memory
+    /// implementation over the union of their own views (C.2), as live
+    /// `(key, version)`s.
+    fn check_across(&self, world: &World, step: usize) {
+        let open: Vec<Wt> = self.repos.keys().copied().collect();
+        if open.len() < 2 {
+            return;
+        }
+        let ids: Vec<i64> = open.iter().map(|&w| self.worktree_id(w)).collect();
+        let query = RecordQuery {
+            worktrees: Some(unfurl_git_sync::WorktreeFilter {
+                ids: Some(ids),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let sql: BTreeSet<(Key, Ver)> = self
+            .rt
+            .block_on(self.repos[&open[0]].find_records(&query))
+            .unwrap()
+            .into_iter()
+            .filter(|r| !r.deleted)
+            .map(|r| (key_of(&r.file_path, &r.key), version_of(&r.json)))
+            .collect();
+        let imp = &world.imp;
+        let union: BTreeSet<SegId> = open.iter().flat_map(|&w| imp.own_view(w)).collect();
+        let expected: BTreeSet<(Key, Ver)> = imp
+            .visible(&union, None)
+            .into_iter()
+            .map(|r| &imp.rows[&r])
+            .filter(|r| !r.deleted)
+            .map(|r| (r.key, r.ver))
+            .collect();
+        assert_eq!(sql, expected, "step {step}: a read across {open:?}");
+    }
+
     fn check(&mut self, world: &World, step: usize) {
         let imp = &world.imp;
         let rows = |view: BTreeSet<SegId>| -> BTreeMap<Key, (Ver, Ver)> {
@@ -697,6 +733,7 @@ impl SqlWorld {
                 .collect();
             assert_eq!(self.draft_entries(w), want, "step {step}: worktree {w}'s draft entries");
         }
+        self.check_across(world, step);
         // an exported branch: its chain is its view, unless its export
         // stopped with the edits in its draft, and nothing conflicts
         let exported: Vec<Wt> = self.exported.keys().copied().collect();

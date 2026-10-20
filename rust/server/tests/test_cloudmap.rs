@@ -4338,3 +4338,68 @@ async fn a_records_source_isnt_saved() {
     assert!(on_disk.contains("echoed"), "{on_disk}");
     assert!(!on_disk.contains("unfurl.server."), "{on_disk}");
 }
+
+/// Main and a branch of it, one family in one database, served together
+/// as the default cloudmaps.
+async fn main_and_a_branch() -> (CloudMapState, Vec<(SyncedRepo, TempDir)>, TestDb) {
+    let db = TestDb::new(true).await;
+    let (main, tmp) = checkout(REMOTE_PROJECT, "main", &db).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("feature");
+    let out = std::process::Command::new("git")
+        .args(["worktree", "add", "-q", "-b", "feature"])
+        .arg(&path)
+        .current_dir(tmp.path())
+        .output()
+        .expect("git");
+    assert!(out.status.success(), "{out:?}");
+    let branch = SyncedRepo::open(&path, db.config(), FormatRegistry::with_builtins())
+        .await
+        .expect("open the branch");
+    branch
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
+        .await
+        .expect("update");
+    let checkouts = vec![(main, tmp), (branch, dir)];
+    let each = checkouts
+        .iter()
+        .map(|(c, _)| CloudMapState::from_synced(c.clone()))
+        .collect();
+    let ids = checkouts.iter().map(|(c, _)| c.worktree_id()).collect();
+    let cm = CloudMapState::serving(each, None)
+        .await
+        .expect("serving")
+        .expect("checkouts")
+        .with_default_cloudmaps(ids);
+    (cm, checkouts, db)
+}
+
+/// A record main deleted and the branch left alone is absent from a read
+/// of both, as it is from a read of main: not the branch's stale copy,
+/// and not a deletion marker.
+#[tokio::test]
+async fn a_deletion_on_main_is_absent_across_a_branch() {
+    let (cm, checkouts, _db) = main_and_a_branch().await;
+    let key = "git://unfurl.cloud/feb20a/dashboard.git";
+    checkouts[0]
+        .0
+        .delete_record(Some("cloudmap.yaml"), "/repositories", key, None, false)
+        .await
+        .expect("delete");
+    let app = || router(make_strict_state(cm.clone()));
+    let (status, body) = get_json(app(), "/cloudmap?kind=repositories").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let result = body["result"]["repositories"].as_object().expect("result");
+    assert!(!result.is_empty(), "{body}");
+    assert!(!result.contains_key(key), "{body}");
+    assert!(body.get("conflicts").is_none(), "{body}");
+    let (status, body) = get_json(
+        app(),
+        &format!(
+            "/cloudmap?kind=repositories&key={}",
+            urlencoding::encode(key)
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+}
