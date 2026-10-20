@@ -1,5 +1,14 @@
 name: Build images for GHCR
 on: [push]
+
+# id-token and attestations let actions/attest-build-provenance sign a
+# provenance attestation with GitHub's OIDC identity (Sigstore), which
+# `gh attestation verify` checks. BuildKit's own provenance is unsigned.
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
 env:
   # NOTE keep versions in sync with on_push.yml and version in TOSCA templates
   TOFU_VERSION: 1.13.1 # sync with tosca_plugins/artifacts.yaml
@@ -81,6 +90,13 @@ jobs:
           cache-from: type=gha,scope=ghcr-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=ghcr-${{ matrix.arch }}
 
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.docker_build.outputs.digest }}
+          push-to-registry: true
+
   publish_ghcr:
     runs-on: ubuntu-latest
     needs: publish_ghcr_build
@@ -115,6 +131,19 @@ jobs:
             [ -z "$tag" ] && continue
             docker buildx imagetools create -t "$tag" "${tag}-amd64" "${tag}-arm64"
           done <<< "${{ steps.meta.outputs.tags }}"
+
+      - name: Find the multi-arch index digest
+        id: index
+        run: |
+          tag="$(head -n1 <<< "${{ steps.meta.outputs.tags }}")"
+          echo "digest=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest.Digest}}' | tr -d '"')" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the multi-arch index
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true
 
   publish_ghcr_server_build:
     strategy:
@@ -177,6 +206,13 @@ jobs:
           cache-from: type=gha,scope=ghcr-server-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=ghcr-server-${{ matrix.arch }}
 
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.docker_build.outputs.digest }}
+          push-to-registry: true
+
   publish_ghcr_server:
     runs-on: ubuntu-latest
     needs: publish_ghcr_server_build
@@ -209,6 +245,19 @@ jobs:
             [ -z "$tag" ] && continue
             docker buildx imagetools create -t "$tag" "${tag}-amd64" "${tag}-arm64"
           done <<< "${{ steps.meta.outputs.tags }}"
+
+      - name: Find the multi-arch index digest
+        id: index
+        run: |
+          tag="$(head -n1 <<< "${{ steps.meta.outputs.tags }}")"
+          echo "digest=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest.Digest}}' | tr -d '"')" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the multi-arch index
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true
 
   publish_ghcr_server_nginx_build:
     # FROM_TAG points at the multi-arch manifest produced by
@@ -278,6 +327,13 @@ jobs:
           cache-from: type=gha,scope=ghcr-server-cached-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=ghcr-server-cached-${{ matrix.arch }}
 
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.docker_build.outputs.digest }}
+          push-to-registry: true
+
   publish_ghcr_server_nginx:
     runs-on: ubuntu-latest
     needs: publish_ghcr_server_nginx_build
@@ -310,3 +366,16 @@ jobs:
             [ -z "$tag" ] && continue
             docker buildx imagetools create -t "$tag" "${tag}-amd64" "${tag}-arm64"
           done <<< "${{ steps.meta.outputs.tags }}"
+
+      - name: Find the multi-arch index digest
+        id: index
+        run: |
+          tag="$(head -n1 <<< "${{ steps.meta.outputs.tags }}")"
+          echo "digest=$(docker buildx imagetools inspect "$tag" --format '{{json .Manifest.Digest}}' | tr -d '"')" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the multi-arch index
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.index.outputs.digest }}
+          push-to-registry: true
