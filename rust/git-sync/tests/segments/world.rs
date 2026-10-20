@@ -798,7 +798,14 @@ impl World {
         for &(k, was, ver, named) in &unfold.tombstones {
             let id = m.ids.get(&k).copied().unwrap_or(named);
             m.unfold(k, was, None, ver, id);
-            self.imp.unfold(w, unfold.base, &[(k, was, None, id)]);
+            let edit = Unfolded {
+                key: k,
+                was,
+                now: None,
+                ver,
+                id,
+            };
+            self.imp.unfold(w, unfold.base, &[edit]);
         }
         if !unfold.tombstones.is_empty() {
             self.imp.relink_draft(w);
@@ -1053,7 +1060,14 @@ impl World {
                 None => self.ver(),
             };
             self.model.wts[w].unfold(k, was, now, ver, id);
-            self.imp.unfold(w, b, &[(k, was, now, id)]);
+            let edit = Unfolded {
+                key: k,
+                was,
+                now,
+                ver,
+                id,
+            };
+            self.imp.unfold(w, b, &[edit]);
         }
         // the hold's own transaction: each held edit hides the row of its
         // value HEAD shows until the merge moves it (C.22 step 4)
@@ -1082,7 +1096,13 @@ impl World {
                 _ => {
                     let ver = now.unwrap_or_default();
                     self.model.wts[w].unfold(k, was, now, ver, id);
-                    unfolded.push((k, was, now, id));
+                    unfolded.push(Unfolded {
+                        key: k,
+                        was,
+                        now,
+                        ver,
+                        id,
+                    });
                 }
             }
         }

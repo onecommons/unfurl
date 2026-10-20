@@ -2,6 +2,19 @@
 // The implementation
 // ---------------------------------------------------------------------------
 
+/// A record C.21 or C.22 unfolds into a draft: its value at the base and
+/// now, and its edit's version and id. A deletion's tombstone takes the
+/// version, as the model's does, so a record it's renewed as has the same
+/// id on both.
+#[derive(Clone, Copy, Debug)]
+struct Unfolded {
+    key: Key,
+    was: Option<Ver>,
+    now: Option<Ver>,
+    ver: Ver,
+    id: Ver,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
     Head,
@@ -1433,12 +1446,19 @@ impl Segments {
         self.wts[w].chain.iter().position(|&(seg, _)| seg == s).unwrap()
     }
 
-    /// C.21's unfold into `w`'s draft: for each `(key, was, now, id)` the
-    /// local commits since `b` changed, a pending edit there takes `was` as
-    /// its base; otherwise a copy of record `id` at `now`, based at `b`.
-    fn unfold(&mut self, w: Wt, b: CommitId, local: &[(Key, Option<Ver>, Option<Ver>, Ver)]) {
+    /// C.21's unfold into `w`'s draft: for each record the local commits
+    /// since `b` changed, a pending edit there takes `was` as its base;
+    /// otherwise a copy of record `id` at `now`, based at `b`.
+    fn unfold(&mut self, w: Wt, b: CommitId, local: &[Unfolded]) {
         let d = self.wts[w].draft;
-        for &(key, was, now, id) in local {
+        for &Unfolded {
+            key,
+            was,
+            now,
+            ver,
+            id,
+        } in local
+        {
             if let Some(r) = self.row_in(d, key) {
                 let row = self.rows.get_mut(&r).unwrap();
                 let e = row.edit.as_mut().expect("a clean working tree has no file rows");
@@ -1454,7 +1474,10 @@ impl Segments {
                 gone: if now.is_none() { was } else { None },
                 base_commit: was.map(|_| b),
             };
-            let r = self.insert_value(d, key, now);
+            let r = match now {
+                Some(v) => self.insert(d, key, v, false),
+                None => self.insert(d, key, ver, true),
+            };
             let row = self.rows.get_mut(&r).unwrap();
             row.edit = Some(edit);
             row.id = id;
