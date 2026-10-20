@@ -527,13 +527,18 @@ macro_rules! store_impl {
             const POSTGRES: bool = $postgres;
 
             async fn segs(tx: &mut sqlx::Transaction<'_, Self>, worktree_id: i64) -> Result<WorktreeSegs> {
-                let sql = sql!(tx, "SELECT head_segment_id, draft_segment_id FROM worktree WHERE id = ?1",);
-                let (head, draft): (Option<i64>, Option<i64>) = sqlx::query_as(&sql)
-                    .bind(worktree_id)
-                    .fetch_one(&mut **tx)
-                    .await?;
+                let sql = sql!(
+                    tx,
+                    "SELECT head_segment_id, draft_segment_id, family_id FROM worktree WHERE id = ?1",
+                );
+                let (head, draft, family): (Option<i64>, Option<i64>, Option<i64>) =
+                    sqlx::query_as(&sql).bind(worktree_id).fetch_one(&mut **tx).await?;
                 match (head, draft) {
-                    (Some(head), Some(draft)) => Ok(WorktreeSegs { head, draft }),
+                    (Some(head), Some(draft)) => Ok(WorktreeSegs {
+                        head,
+                        draft,
+                        family: family.unwrap_or(worktree_id),
+                    }),
                     _ => Err(Error::Other(format!(
                         "worktree {worktree_id} has no segments"
                     ))),

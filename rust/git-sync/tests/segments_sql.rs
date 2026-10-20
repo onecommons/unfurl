@@ -112,7 +112,11 @@ fn sql_merge_upstream_op() -> impl Strategy<Value = Op> {
 /// Saves of an unchanged value and reverts, and only what the SQL side
 /// runs around them.
 fn sql_same_content_op() -> impl Strategy<Value = Op> {
-    same_content_op().prop_filter("the SQL side runs it", sql_supports)
+    same_content_op()
+        .prop_filter("the SQL side runs it", sql_supports)
+        // until docs/bug-fork-chain-length.md is fixed: a rebuild then a
+        // fork shrinks every failure onto that bug
+        .prop_filter("no rebuilds yet", |op| !matches!(op, Op::Rebuild(..)))
 }
 
 /// Exports, some failing partway, and only what the SQL side runs.

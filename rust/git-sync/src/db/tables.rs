@@ -258,11 +258,13 @@ pub(crate) struct FileRow<'a> {
     pub(crate) committed_oid: Option<Option<&'a str>>,
 }
 
-/// A worktree's open head segment and its draft.
+/// A worktree's open head segment and its draft, and its family.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct WorktreeSegs {
     pub(crate) head: i64,
     pub(crate) draft: i64,
+    /// The family's root worktree: this one's own id when it's main.
+    pub(crate) family: i64,
 }
 
 /// A segment, and the commit whose state it ends at.

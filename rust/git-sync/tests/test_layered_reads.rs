@@ -432,3 +432,54 @@ async fn a_no_op_commit_keeps_a_saves_token(sync: &SyncedRepo, _tmp: &TempDir) {
     .expect("the save's token still passes");
 }
 crud_test!(a_no_op_commit_keeps_a_saves_token);
+
+/// The branch edits a record and main saves it unchanged: main's save is a
+/// copy of what the branch's edit was made over, so it's hidden too.
+async fn mains_unchanged_save_under_a_branchs_edit_is_hidden(sync: &SyncedRepo, tmp: &TempDir) {
+    let (branch, _dir) = a_branch(sync, tmp).await;
+    name(&branch, "feature").await;
+    let shown = sync
+        .find_records(&RecordQuery {
+            path: Some("/repositories".into()),
+            key: Some(DASHBOARD.into()),
+            ..Default::default()
+        })
+        .await
+        .expect("find");
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        shown[0].json.clone(),
+        None,
+        false,
+    )
+    .await
+    .expect("save unchanged");
+    assert_eq!(
+        read_across(sync, &branch).await,
+        [(branch.worktree_id(), "feature".into())]
+    );
+}
+crud_test!(mains_unchanged_save_under_a_branchs_edit_is_hidden);
+
+/// The branch edits a record, main changes it and commits, then a revert
+/// made outside the database brings main's earlier value back: that value
+/// is what the branch's edit was made over, so it's hidden.
+async fn a_value_main_brings_back_under_a_branchs_edit_is_hidden(sync: &SyncedRepo, tmp: &TempDir) {
+    let (branch, _dir) = a_branch(sync, tmp).await;
+    name(&branch, "feature").await;
+    name(sync, "changed").await;
+    sync.commit_repository("change", Default::default())
+        .await
+        .expect("commit");
+    git(tmp.path(), &["revert", "--no-edit", "HEAD"]);
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    assert_eq!(
+        read_across(sync, &branch).await,
+        [(branch.worktree_id(), "feature".into())]
+    );
+}
+crud_test!(a_value_main_brings_back_under_a_branchs_edit_is_hidden);

@@ -623,9 +623,12 @@ predate merges keep the filter they were saved under
   `merge_finds_the_rollup_past_a_squash` and
   `split_moves_late_rows_after_merges`.
 
-Not built: entries for a version a merge brings back into main. They
-are users' draft entries, so they wait on phase 3's user branches in
-SQL.
+Entries for a version a merge or revert brings back into main: the new
+row takes over other drafts' entries on an earlier row with its content
+at its place, made by an edit there or of its record, so a fork's edit
+made over that version still hides it in a read across both. Not built:
+the record's rows at another place, after a move, and an edit whose row
+is gone, which nothing reaches yet.
 
 Open:
 
@@ -929,8 +932,10 @@ Facets count the same rows. The harness checks every read across the
 open worktrees against the in-memory implementation (`check_across`),
 and each draft's entries against its own. The disagreement that held
 the rule back was SQL's scan not giving a moved record's new row other
-drafts' entries (§3.5), not the rebase; the write, the fold and a
-same-key scan replacement don't take them over yet. The SQL harness has
+drafts' entries (§3.5), not the rebase. A write takes over other drafts'
+entries on the rows it was made over (§3.3), so a fork's edit hides
+main's save of an unchanged value too; a fold or a scan never replaces a
+row with one of the same content, so neither needs to. The SQL harness has
 no user branches, so a draft entry on a row outside its own view, as
 §4.12's second branch point makes, is checked only once phase 3 adds
 them.

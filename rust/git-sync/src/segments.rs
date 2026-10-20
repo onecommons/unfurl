@@ -101,6 +101,8 @@ pub(crate) async fn write<DB: Store>(
             (&gone, true)
         }
     };
+    // read before the prior row goes: its entries go with it
+    let entries = other_entries(tx, &seen.iter().collect::<Vec<_>>(), w).await?;
     if let Some(p) = &prior {
         seen.retain(|r| r.id != p.id);
         DB::delete_row(tx, p.id).await?;
@@ -134,6 +136,7 @@ pub(crate) async fn write<DB: Store>(
     )
     .await?;
     hide(tx, d, at, key_id, &seen).await?;
+    take_over(tx, &entries, id, (!deleted).then_some(json)).await?;
     Ok(Written { id, key_id })
 }
 
@@ -445,6 +448,37 @@ pub(crate) async fn take_over<DB: Store>(
     Ok(())
 }
 
+/// §4.9: main's new row `to`, record `id` at `at` with content `json`, is
+/// a version a merge may bring back: other drafts' entries on its earlier
+/// rows here, made by an edit at this place or of the record, pass to it.
+async fn brought_back<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    family: i64,
+    w: i64,
+    at: At<'_>,
+    to: i64,
+    id: i64,
+    json: &serde_json::Value,
+) -> Result<()> {
+    let earlier: Vec<RecordRow> = DB::rows_at(tx, family, at).await?;
+    let earlier: Vec<&RecordRow> = earlier
+        .iter()
+        .filter(|r| r.id != to && !r.deleted && &r.json == json)
+        .collect();
+    let mut entries = Vec::new();
+    for e in other_entries(tx, &earlier, w).await? {
+        let edited_here = e.tag == id
+            || DB::rows_in(tx, e.draft, Some(at.file_path), false)
+                .await?
+                .iter()
+                .any(|y| y.key_id == e.tag && y.at() == at);
+        if edited_here {
+            entries.push(e);
+        }
+    }
+    take_over(tx, &entries, to, Some(json)).await
+}
+
 /// One record whose committed value changed: bring worktree `w`'s head
 /// up to it (§4.3, C.10). `change: None` means the commit deleted it.
 /// Returns the row it added, if any.
@@ -519,10 +553,14 @@ pub(crate) async fn scan_key<DB: Store>(
     for r in below {
         DB::entry(tx, r.id, h, key_id).await?;
     }
+    let content = (!deleted).then_some(&json);
+    if !deleted && segs.family == w {
+        brought_back(tx, segs.family, w, at, id, key_id, &json).await?;
+    }
     // only the row that keeps the moved record's id is it (§3.5)
     if let Some((moved_id, moved)) = &ids.moved {
         if key_id == *moved_id {
-            take_over(tx, moved, id, (!deleted).then_some(&json)).await?;
+            take_over(tx, moved, id, content).await?;
         }
     }
     Ok(Some(Written { id, key_id }))
