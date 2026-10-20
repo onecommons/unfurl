@@ -389,11 +389,60 @@ pub(crate) async fn drop_conflict<DB: Store>(
 
 /// Where a record's id comes from when the committed side adds a row at
 /// its key (§4.3): the commit's rollup, a record that moved here in this
-/// scan, and the ids other keys hold, which it may not take.
+/// scan with the entries it takes, and the ids other keys hold, which it
+/// may not take.
 pub(crate) struct KeyIds {
     pub(crate) named: Option<i64>,
-    pub(crate) moved: Option<i64>,
+    pub(crate) moved: Option<(i64, Vec<OtherEntry>)>,
     pub(crate) elsewhere: BTreeSet<i64>,
+}
+
+/// Another worktree's draft entry on a row: the draft, its tag, and the
+/// content of the row, `None` for a tombstone.
+pub(crate) struct OtherEntry {
+    content: Option<serde_json::Value>,
+    draft: i64,
+    tag: i64,
+}
+
+impl OtherEntry {
+    pub(crate) fn tag(&self) -> i64 {
+        self.tag
+    }
+}
+
+/// The entries other worktrees' drafts than `w`'s hold on `rows`.
+pub(crate) async fn other_entries<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    rows: &[&RecordRow],
+    w: i64,
+) -> Result<Vec<OtherEntry>> {
+    let mut out = Vec::new();
+    for r in rows {
+        for (draft, tag) in DB::draft_entries_on(tx, r.id, w).await? {
+            let content = (!r.deleted).then(|| r.json.clone());
+            out.push(OtherEntry {
+                content,
+                draft,
+                tag,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// §3.3: row `to` replaces rows with these entries, and takes over those
+/// made over the content it holds, `None` for a tombstone.
+pub(crate) async fn take_over<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    entries: &[OtherEntry],
+    to: i64,
+    content: Option<&serde_json::Value>,
+) -> Result<()> {
+    for e in entries.iter().filter(|e| e.content.as_ref() == content) {
+        DB::entry(tx, to, e.draft, e.tag).await?;
+    }
+    Ok(())
 }
 
 /// One record whose committed value changed: bring worktree `w`'s head
@@ -442,7 +491,11 @@ pub(crate) async fn scan_key<DB: Store>(
                 .or(live
                     .map(|r| r.key_id)
                     .filter(|id| !ids.elsewhere.contains(id)))
-                .or(ids.moved.filter(|id| !ids.elsewhere.contains(id)))
+                .or(ids
+                    .moved
+                    .as_ref()
+                    .map(|(id, _)| *id)
+                    .filter(|id| !ids.elsewhere.contains(id)))
                 // else the record the draft holds at the key
                 .or(drafted.filter(|id| !ids.elsewhere.contains(id)));
             (v.clone(), false, key_id)
@@ -465,6 +518,12 @@ pub(crate) async fn scan_key<DB: Store>(
     .await?;
     for r in below {
         DB::entry(tx, r.id, h, key_id).await?;
+    }
+    // only the row that keeps the moved record's id is it (§3.5)
+    if let Some((moved_id, moved)) = &ids.moved {
+        if key_id == *moved_id {
+            take_over(tx, moved, id, (!deleted).then_some(&json)).await?;
+        }
     }
     Ok(Some(Written { id, key_id }))
 }

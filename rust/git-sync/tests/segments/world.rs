@@ -1055,6 +1055,9 @@ impl World {
             self.model.wts[w].unfold(k, was, now, ver, id);
             self.imp.unfold(w, b, &[(k, was, now, id)]);
         }
+        // the hold's own transaction: each held edit hides the row of its
+        // value HEAD shows until the merge moves it (C.22 step 4)
+        self.imp.relink_draft(w);
         // every pick upstream's
         self.merge(w, vec![u], MergeKind::Regular, u8::MAX, &[]);
     }

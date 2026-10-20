@@ -498,20 +498,23 @@ impl Segments {
                 .filter(|r| r.seg != d && !r.deleted && r.id != record)
                 .map(|r| r.id),
         );
-        // and main's rows here with content seen here, which a draft below
-        // may hide: another copy of what the edit was made over
-        let here: BTreeSet<Ver> = seen
-            .iter()
-            .map(|r| &self.rows[r])
-            .filter(|r| !r.deleted)
-            .map(|r| r.ver)
-            .collect();
-        let copies: Vec<RowId> = self
-            .visible(&self.own_view(MAIN), Some(key))
-            .into_iter()
-            .filter(|r| !self.rows[r].deleted && here.contains(&self.rows[r].ver))
-            .collect();
-        seen.extend(copies);
+        // and, through a layered view, main's rows here with content seen
+        // here, which a draft below may hide: another copy of what the edit
+        // was made over (§4.2 step 5)
+        if *via != own {
+            let here: BTreeSet<Ver> = seen
+                .iter()
+                .map(|r| &self.rows[r])
+                .filter(|r| !r.deleted)
+                .map(|r| r.ver)
+                .collect();
+            let copies: Vec<RowId> = self
+                .visible(&self.own_view(MAIN), Some(key))
+                .into_iter()
+                .filter(|r| !self.rows[r].deleted && here.contains(&self.rows[r].ver))
+                .collect();
+            seen.extend(copies);
+        }
         // and the same record's rows elsewhere with content seen here: a
         // move's copy of what the edit was made over (§3.5)
         let contents: BTreeSet<(Ver, Ver)> = seen
@@ -1027,10 +1030,13 @@ impl Segments {
                 None => record.unwrap(),
             };
             self.set_id(n, id);
-            if let Some((_, entries)) = moved {
+            if let Some((moved_id, entries)) = moved {
                 // a new row for the record, like a split's
                 self.recreated(n);
-                self.carry(entries, n);
+                // only the row that keeps the moved record's id is it (§3.5)
+                if moved_id == id {
+                    self.carry(entries, n);
+                }
             }
             self.carry(entries, n);
             // a version a merge brings back into main, which users' drafts

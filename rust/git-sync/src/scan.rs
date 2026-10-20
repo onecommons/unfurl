@@ -261,8 +261,9 @@ async fn advance_head<DB: Store>(
         named => named.ids(commit, &changes)?,
     };
     // A record that left one file and arrived at the same section and key
-    // of another in this scan moved: it keeps its `key_id` (§3.5).
-    let mut moved: BTreeMap<Place, i64> = BTreeMap::new();
+    // of another in this scan moved: it keeps its `key_id`, and other
+    // drafts' entries an edit of it made (§3.5).
+    let mut moved: BTreeMap<Place, (i64, Vec<segments::OtherEntry>)> = BTreeMap::new();
     for (p, change) in &changes {
         if change.is_none() || live_at(p).is_some() {
             continue;
@@ -274,7 +275,13 @@ async fn advance_head<DB: Store>(
                 && live_at(q).is_some()
         });
         if let Some((q, _)) = from {
-            moved.insert(p.clone(), live_at(q).expect("checked").key_id);
+            let left = live_at(q).expect("checked");
+            let entries = segments::other_entries(tx, &[left], w)
+                .await?
+                .into_iter()
+                .filter(|e| e.tag() == left.key_id)
+                .collect();
+            moved.insert(p.clone(), (left.key_id, entries));
         }
     }
     // no two places share an id: those unchanged keep theirs, and each
@@ -310,7 +317,7 @@ async fn advance_head<DB: Store>(
     for (i, (p, change)) in changes.iter().enumerate() {
         let ids = segments::KeyIds {
             named: rollup.get(p).copied(),
-            moved: moved.get(p).copied(),
+            moved: moved.remove(p),
             elsewhere: rollup
                 .iter()
                 .filter(|&(q, _)| *q != p)

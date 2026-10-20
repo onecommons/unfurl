@@ -607,6 +607,54 @@ impl SqlWorld {
         }
     }
 
+    /// The live rows worktree `w`'s draft supersedes, wherever they are,
+    /// as `(key, version, segment)`, a segment named by its kind and owner,
+    /// as ids differ between the sides. Not tombstones: a deletion the
+    /// model writes as a tombstone, SQL may write as an entry alone, with
+    /// nothing to hide.
+    fn draft_entries(&self, w: Wt) -> BTreeSet<(Key, Ver, &'static str, Option<Wt>)> {
+        let sql = "SELECT r.file_path, r.key, json(r.json), r.deleted, s.kind, s.owner_id \
+             FROM superseded x JOIN record r ON r.id = x.record_id \
+             JOIN segment s ON s.id = r.segment_id \
+             WHERE x.segment_id = (SELECT draft_segment_id FROM worktree WHERE id = ?1)";
+        let owners: BTreeMap<i64, Wt> = self
+            .repos
+            .keys()
+            .chain(self.exported.keys())
+            .map(|&u| (self.worktree_id(u), u))
+            .collect();
+        let w = self.worktree_id(w);
+        type Row = (String, String, String, bool, String, Option<i64>);
+        let rows: Vec<Row> = match &self.raw {
+            Raw::Sqlite(pool) => self
+                .rt
+                .block_on(sqlx::query_as(sql).bind(w).fetch_all(pool))
+                .unwrap(),
+            #[cfg(feature = "postgres")]
+            Raw::Postgres(pool, _) => self
+                .rt
+                .block_on(
+                    sqlx::query_as(&sql.replace("json(r.json)", "r.json::text").replace("?1", "$1"))
+                        .bind(w)
+                        .fetch_all(pool),
+                )
+                .unwrap(),
+        };
+        rows.into_iter()
+            .filter(|(_, _, _, deleted, ..)| !deleted)
+            .map(|(file, key, json, _, kind, owner)| {
+                let json: serde_json::Value = serde_json::from_str(&json).unwrap();
+                let kind = match kind.as_str() {
+                    "head" => "head",
+                    "draft" => "draft",
+                    _ => "internal",
+                };
+                let owner = owner.map(|o| owners[&o]);
+                (key_of(&file, &key), version_of(&json), kind, owner)
+            })
+            .collect()
+    }
+
     fn check(&mut self, world: &World, step: usize) {
         let imp = &world.imp;
         let rows = |view: BTreeSet<SegId>| -> BTreeMap<Key, (Ver, Ver)> {
@@ -629,6 +677,25 @@ impl SqlWorld {
                 imp.wts[w].chain.len(),
                 "step {step}: worktree {w}'s chain length"
             );
+            // what its draft hides, its own rows and other worktrees'
+            let d = imp.wts[w].draft;
+            let want: BTreeSet<(Key, Ver, &'static str, Option<Wt>)> = imp
+                .sup
+                .iter()
+                .filter(|&&(_, s)| s == d)
+                .map(|(r, _)| &imp.rows[r])
+                .filter(|r| !r.deleted)
+                .map(|r| {
+                    let seg = &imp.segs[r.seg];
+                    let kind = match seg.kind {
+                        Kind::Head => "head",
+                        Kind::Draft => "draft",
+                        Kind::Internal => "internal",
+                    };
+                    (r.key, r.ver, kind, seg.owner)
+                })
+                .collect();
+            assert_eq!(self.draft_entries(w), want, "step {step}: worktree {w}'s draft entries");
         }
         // an exported branch: its chain is its view, unless its export
         // stopped with the edits in its draft, and nothing conflicts

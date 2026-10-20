@@ -26,3 +26,4 @@ cc 999e1373e7e57786b5a94f055fdbb574c650703a54f8958e16aedf20e183cf31 # shrinks to
 cc 818d2b5cde89e2b84763f169d44aa0a48c2db3f6829ddd6f34d9fb0ef400fd76 # shrinks to ops = [External(0, [(2, true)]), Commit(0), Move(0, 5, false), Integrate(0, 1, [])]
 cc d1d11a72dc63fd1d25ea18b5e350251f0542adcb5032f9cf33124c2bdbfa260e # shrinks to ops = [Rebuild(0, 0, 0, true), Fork(0, 0), Write(104, 0, false), Commit(30), Integrate(56, 0, [])]
 cc e397b393b9b89b144eb0ca8ce9149d672d96e8584b8f659a517b4dd840c7be53 # shrinks to ops = [Write(0, 1, false), Commit(0), Fork(0, 0), MergeUpstream(72, 0, [(2, true)]), MergeUpstream(32, 0, [(2, false)])]
+cc 1d5104ba81fbffb5b4c5373f0426abb127ccc21c85e8be9db5e633f2522e64d2 # shrinks to ops = [Write(0, 0, false), Write(0, 0, false), Write(0, 0, false), Write(0, 0, false), Commit(0), Fork(0, 0), Integrate(215, 0, []), Write(103, 0, false)]
