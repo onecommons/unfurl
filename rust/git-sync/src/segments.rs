@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::commit::CommitId;
 use crate::db::store::{Filter, Scope, Store};
-use crate::db::tables::{At, NewRecordRow, RecordRow};
+use crate::db::tables::{At, NewRecordRow, RecordRow, Superseded};
 use crate::error::Result;
 use crate::model::ConflictState;
 
@@ -39,9 +39,7 @@ pub(crate) struct Written {
     pub(crate) key_id: i64,
 }
 
-/// Write a new version into worktree `w`'s draft, made through its own
-/// view (§4.2, C.9). `record` is the `key_id` it takes, `None` for a new
-/// record.
+/// [`Draft::write`] into worktree `w`'s draft, loaded for it.
 pub(crate) async fn write<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
@@ -51,111 +49,393 @@ pub(crate) async fn write<DB: Store>(
     record: Option<i64>,
     version: i64,
 ) -> Result<Written> {
-    let d = DB::segs(tx, w).await?.draft;
-    let edit = matches!(origin, Origin::Edit);
-    let draft = DB::rows_in(tx, d, None, false).await?;
-    // at most one edit per record: one at another key is replaced by
-    // this one, which keeps its base
-    let other = record.and_then(|id| {
-        draft
-            .iter()
-            .find(|y| y.key_id == id && y.at() != at && edit)
-            .cloned()
-    });
-    // the record's committed rows, unless the draft shows it live: then an
-    // edit's base is its draft row's
-    let in_draft = record.is_some_and(|id| draft.iter().any(|y| y.key_id == id && !y.deleted));
-    let committed = match record {
-        Some(id) if !in_draft => DB::visible(tx, w, Scope::Chain, Filter::KeyId(id)).await?,
-        _ => Vec::new(),
+    let mut draft = Draft::load(tx, w).await?;
+    let written = draft.write(tx, at, value, origin, record, version).await?;
+    #[cfg(debug_assertions)]
+    draft.assert_current(tx).await?;
+    Ok(written)
+}
+
+/// A worktree's draft, read once in a transaction and kept current by the
+/// writes made through it. Drawing a write's version takes the family's
+/// counter lock, so no other writer changes it meanwhile; whatever else
+/// changes it in the transaction must load it again after.
+pub(crate) struct Draft {
+    pub(crate) worktree_id: i64,
+    pub(crate) segment: i64,
+    /// Its rows, conflict rows apart, in place order.
+    rows: Vec<RecordRow>,
+    /// Its conflict rows, read when first needed.
+    conflicts: Option<Vec<RecordRow>>,
+    /// The rows it hides, each with the edit that hid it.
+    entries: Vec<Superseded>,
+}
+
+/// `a` and `b` alike, their content as values: Postgres's jsonb gives back
+/// a float that's an integer as one (1e16 as 10000000000000000).
+#[cfg(debug_assertions)]
+fn same_row(a: &RecordRow, b: &RecordRow) -> bool {
+    let bare = |r: &RecordRow| RecordRow {
+        json: serde_json::Value::Null,
+        base_json: None,
+        ..r.clone()
     };
-    // live nowhere in the view, it's a re-create, with no base
-    let live_anywhere = in_draft || committed.iter().any(|r| !r.deleted);
-    if let (Some(y), Some(id)) = (&other, record) {
-        replace_other(tx, w, d, y, id).await?;
+    let base = match (&a.base_json, &b.base_json) {
+        (Some(x), Some(y)) => same_value(x, y),
+        (x, y) => x.is_none() && y.is_none(),
+    };
+    bare(a) == bare(b) && same_value(&a.json, &b.json) && base
+}
+
+#[cfg(debug_assertions)]
+fn same_value(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => x == y || x.as_f64() == y.as_f64(),
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(a, b)| same_value(a, b))
+        }
+        (Value::Object(x), Value::Object(y)) => {
+            x.len() == y.len()
+                && x.iter()
+                    .all(|(k, v)| y.get(k).is_some_and(|w| same_value(v, w)))
+        }
+        _ => a == b,
     }
-    let prior = draft.iter().find(|y| y.at() == at).cloned();
-    let (base, base_json) = match prior.as_ref().or(other.as_ref()) {
-        _ if !edit || !live_anywhere => (None, None),
-        Some(y) => (y.base_commit_id, y.base_json.clone()),
-        None => edit_base(&committed),
-    };
-    let shown = DB::visible(tx, w, Scope::Own, Filter::At(at)).await?;
-    let mut settled: BTreeSet<i64> = prior
-        .as_ref()
-        .map(|p| p.settled.iter().copied().collect())
-        .unwrap_or_default();
-    settled.extend(
-        shown
-            .iter()
-            .filter(|r| r.segment_id != d && !r.deleted && Some(r.key_id) != record)
-            .map(|r| r.key_id),
-    );
-    let mut seen = seen_rows(tx, w, at, &shown, record).await?;
-    // a tombstone holds the value it removes
-    let gone;
-    let (json, deleted) = match value {
-        Value::Live(v) => (v, false),
-        Value::Deleted => {
-            gone = shown
+}
+
+/// An entry on `row`, made by edit `key_id`.
+fn entry_on(row: &RecordRow, key_id: i64) -> Superseded {
+    Superseded {
+        row: row.id,
+        file_path: row.file_path.clone(),
+        path: row.path.clone(),
+        key: row.key.clone(),
+        row_key_id: row.key_id,
+        deleted: row.deleted,
+        key_id,
+    }
+}
+
+impl Draft {
+    /// Worktree `worktree_id`'s draft.
+    pub(crate) async fn load<DB: Store>(
+        tx: &mut sqlx::Transaction<'_, DB>,
+        worktree_id: i64,
+    ) -> Result<Self> {
+        let segment = DB::segs(tx, worktree_id).await?.draft;
+        Ok(Draft {
+            worktree_id,
+            segment,
+            rows: DB::rows_in(tx, segment, None, false).await?,
+            conflicts: None,
+            entries: DB::entries_in(tx, segment).await?,
+        })
+    }
+
+    /// Panic where it no longer matches the database. Debug builds check it
+    /// after the writes made through it.
+    #[cfg(debug_assertions)]
+    pub(crate) async fn assert_current<DB: Store>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+    ) -> Result<()> {
+        let fresh = Draft::load(tx, self.worktree_id).await?;
+        let same = self.rows.len() == fresh.rows.len()
+            && self
+                .rows
                 .iter()
-                .find(|r| !r.deleted)
-                .map(|r| r.json.clone())
-                .or_else(|| prior.as_ref().map(|p| p.json.clone()))
-                .unwrap_or(serde_json::Value::Null);
-            (&gone, true)
+                .zip(&fresh.rows)
+                .all(|(a, b)| same_row(a, b));
+        assert!(
+            same,
+            "the draft's cached rows: {:?} != {:?}",
+            self.rows, fresh.rows
+        );
+        let held = |entries: &[Superseded]| -> BTreeSet<(i64, i64)> {
+            entries.iter().map(|e| (e.row, e.key_id)).collect()
+        };
+        assert_eq!(
+            held(&self.entries),
+            held(&fresh.entries),
+            "the draft's cached entries"
+        );
+        if let Some(conflicts) = &self.conflicts {
+            let ids = |rows: &[RecordRow]| -> BTreeSet<i64> { rows.iter().map(|r| r.id).collect() };
+            let now = DB::rows_in(tx, self.segment, None, true).await?;
+            assert_eq!(
+                ids(conflicts),
+                ids(&now),
+                "the draft's cached conflict rows"
+            );
         }
-    };
-    // read before the prior row goes: its entries go with it
-    let entries = other_entries(tx, &seen.iter().collect::<Vec<_>>(), w).await?;
-    if let Some(p) = &prior {
-        seen.retain(|r| r.id != p.id);
-        DB::delete_row(tx, p.id).await?;
-        if let Some(id) = record {
-            retag(tx, d, p.key_id, id).await?;
-        }
+        Ok(())
     }
-    let settled: Vec<i64> = if edit {
-        settled.into_iter().collect()
-    } else {
-        Vec::new()
-    };
-    let (id, key_id) = DB::insert(
-        tx,
-        d,
-        NewRecordRow {
-            at,
-            key_id: record,
-            commit_id: match origin {
-                Origin::Edit => None,
-                Origin::File(c) => c,
-            },
-            json,
-            deleted,
-            version,
-            base_commit_id: base,
-            base_json: base_json.as_ref(),
-            settled: &settled,
-            conflict: None,
-        },
-    )
-    .await?;
-    hide(tx, d, at, key_id, &seen).await?;
-    take_over(tx, &entries, id, (!deleted).then_some(json)).await?;
-    Ok(Written { id, key_id })
+
+    /// Its row at `at`, conflict rows apart.
+    pub(crate) fn row_at(&self, at: At<'_>) -> Option<&RecordRow> {
+        self.rows.iter().find(|r| r.at() == at)
+    }
+
+    async fn insert<DB: Store>(
+        &mut self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        row: NewRecordRow<'_>,
+    ) -> Result<(i64, i64)> {
+        let mut new = RecordRow {
+            id: 0,
+            key_id: 0,
+            segment_id: self.segment,
+            file_path: row.at.file_path.to_string(),
+            path: row.at.path.to_string(),
+            key: row.at.key.to_string(),
+            commit_id: row.commit_id,
+            json: row.json.clone(),
+            deleted: row.deleted,
+            version: row.version,
+            base_commit_id: row.base_commit_id,
+            base_json: row.base_json.cloned(),
+            settled: row.settled.to_vec(),
+            conflict: row.conflict,
+        };
+        let (id, key_id) = DB::insert(tx, self.segment, row).await?;
+        (new.id, new.key_id) = (id, key_id);
+        match (new.conflict, &mut self.conflicts) {
+            (None, _) => {
+                self.rows.push(new);
+                self.rows
+                    .sort_by(|a, b| (a.at(), a.id).cmp(&(b.at(), b.id)));
+            }
+            (Some(_), Some(conflicts)) => conflicts.push(new),
+            // read with the rest when first needed
+            (Some(_), None) => {}
+        }
+        Ok((id, key_id))
+    }
+
+    /// Delete row `id`, with the entries on it.
+    async fn delete_row<DB: Store>(
+        &mut self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        id: i64,
+    ) -> Result<()> {
+        DB::delete_row(tx, id).await?;
+        self.rows.retain(|r| r.id != id);
+        if let Some(conflicts) = &mut self.conflicts {
+            conflicts.retain(|r| r.id != id);
+        }
+        self.entries.retain(|e| e.row != id);
+        Ok(())
+    }
+
+    async fn entry<DB: Store>(
+        &mut self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        entry: Superseded,
+    ) -> Result<()> {
+        DB::entry(tx, entry.row, self.segment, entry.key_id).await?;
+        let held = |e: &Superseded| e.row == entry.row && e.key_id == entry.key_id;
+        if !self.entries.iter().any(held) {
+            self.entries.push(entry);
+        }
+        Ok(())
+    }
+
+    async fn untag<DB: Store>(
+        &mut self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        row: i64,
+        key_id: i64,
+    ) -> Result<()> {
+        DB::untag(tx, row, self.segment, key_id).await?;
+        self.entries
+            .retain(|e| !(e.row == row && e.key_id == key_id));
+        Ok(())
+    }
+
+    /// Drop its conflict row at `at`.
+    pub(crate) async fn drop_conflict<DB: Store>(
+        &mut self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        at: At<'_>,
+    ) -> Result<()> {
+        if self.conflicts.is_none() {
+            self.conflicts = Some(DB::rows_in(tx, self.segment, None, true).await?);
+        }
+        let conflicts = self.conflicts.as_deref().unwrap_or_default();
+        if let Some(id) = conflicts.iter().find(|r| r.at() == at).map(|r| r.id) {
+            self.delete_row(tx, id).await?;
+        }
+        Ok(())
+    }
+
+    /// Its entries made by edit `old` become `new`'s, but at a key another
+    /// row of `old` holds.
+    async fn retag<DB: Store>(
+        &mut self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        old: i64,
+        new: i64,
+    ) -> Result<()> {
+        if old == new {
+            return Ok(());
+        }
+        let others: Vec<At<'_>> = self
+            .rows
+            .iter()
+            .filter(|y| y.key_id == old)
+            .map(RecordRow::at)
+            .collect();
+        let moving: Vec<Superseded> = self
+            .entries
+            .iter()
+            .filter(|e| e.key_id == old && !others.contains(&e.at()))
+            .cloned()
+            .collect();
+        for e in moving {
+            self.untag(tx, e.row, old).await?;
+            self.entry(tx, Superseded { key_id: new, ..e }).await?;
+        }
+        Ok(())
+    }
+
+    /// The committed version an edit of `record` is made over, its commit
+    /// and content: `earlier`'s base, an edit of it at this key or another,
+    /// else its committed version at whatever key. None for a re-create,
+    /// which the view shows live nowhere.
+    async fn edit_base<DB: Store>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        record: Option<i64>,
+        earlier: Option<&RecordRow>,
+    ) -> Result<(Option<CommitId>, Option<serde_json::Value>)> {
+        let Some(id) = record else {
+            return Ok((None, None));
+        };
+        if self.rows.iter().any(|y| y.key_id == id && !y.deleted) {
+            return Ok(earlier.map_or((None, None), |y| (y.base_commit_id, y.base_json.clone())));
+        }
+        let committed = DB::visible(tx, self.worktree_id, Scope::Chain, Filter::KeyId(id)).await?;
+        let Some(live) = committed.into_iter().find(|r| !r.deleted) else {
+            return Ok((None, None));
+        };
+        Ok(match earlier {
+            Some(y) => (y.base_commit_id, y.base_json.clone()),
+            None => (live.commit_id, Some(live.json)),
+        })
+    }
+
+    /// Write a new version into the draft, made through its worktree's own
+    /// view (§4.2, C.9). `record` is the `key_id` it takes, `None` for a
+    /// new record.
+    pub(crate) async fn write<DB: Store>(
+        &mut self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        at: At<'_>,
+        value: Value<'_>,
+        origin: Origin,
+        record: Option<i64>,
+        version: i64,
+    ) -> Result<Written> {
+        let (w, d) = (self.worktree_id, self.segment);
+        let edit = matches!(origin, Origin::Edit);
+        // at most one edit per record: one at another key is replaced by
+        // this one, which keeps its base
+        let other = record.and_then(|id| {
+            self.rows
+                .iter()
+                .find(|y| y.key_id == id && y.at() != at && edit)
+                .cloned()
+        });
+        let prior = self.row_at(at).cloned();
+        // before `other` goes: it may be the record's live row
+        let (base, base_json) = match edit {
+            true => {
+                self.edit_base(tx, record, prior.as_ref().or(other.as_ref()))
+                    .await?
+            }
+            false => (None, None),
+        };
+        if let (Some(y), Some(id)) = (&other, record) {
+            replace_other(tx, self, y, id).await?;
+        }
+        let shown = DB::visible(tx, w, Scope::Own, Filter::At(at)).await?;
+        let mut settled: BTreeSet<i64> = prior
+            .as_ref()
+            .map(|p| p.settled.iter().copied().collect())
+            .unwrap_or_default();
+        settled.extend(
+            shown
+                .iter()
+                .filter(|r| r.segment_id != d && !r.deleted && Some(r.key_id) != record)
+                .map(|r| r.key_id),
+        );
+        let mut seen = seen_rows(tx, w, at, &shown, record).await?;
+        // a tombstone holds the value it removes
+        let gone;
+        let (json, deleted) = match value {
+            Value::Live(v) => (v, false),
+            Value::Deleted => {
+                gone = shown
+                    .iter()
+                    .find(|r| !r.deleted)
+                    .map(|r| r.json.clone())
+                    .or_else(|| prior.as_ref().map(|p| p.json.clone()))
+                    .unwrap_or(serde_json::Value::Null);
+                (&gone, true)
+            }
+        };
+        // read before the prior row goes: its entries go with it
+        let entries = other_entries(tx, &seen.iter().collect::<Vec<_>>(), w).await?;
+        if let Some(p) = &prior {
+            seen.retain(|r| r.id != p.id);
+            self.delete_row(tx, p.id).await?;
+            if let Some(id) = record {
+                self.retag(tx, p.key_id, id).await?;
+            }
+        }
+        let settled: Vec<i64> = if edit {
+            settled.into_iter().collect()
+        } else {
+            Vec::new()
+        };
+        let (id, key_id) = self
+            .insert(
+                tx,
+                NewRecordRow {
+                    at,
+                    key_id: record,
+                    commit_id: match origin {
+                        Origin::Edit => None,
+                        Origin::File(c) => c,
+                    },
+                    json,
+                    deleted,
+                    version,
+                    base_commit_id: base,
+                    base_json: base_json.as_ref(),
+                    settled: &settled,
+                    conflict: None,
+                },
+            )
+            .await?;
+        hide(tx, self, at, key_id, &seen).await?;
+        take_over(tx, &entries, id, (!deleted).then_some(json)).await?;
+        Ok(Written { id, key_id })
+    }
 }
 
 /// Remove draft `d`'s edit `y` of record `id`, which a write of it at
 /// another key replaces.
 async fn replace_other<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    w: i64,
-    d: i64,
+    draft: &mut Draft,
     y: &RecordRow,
     id: i64,
 ) -> Result<()> {
-    drop_conflict(tx, d, y.at()).await?;
-    DB::delete_row(tx, y.id).await?;
+    let w = draft.worktree_id;
+    draft.drop_conflict(tx, y.at()).await?;
+    draft.delete_row(tx, y.id).await?;
     // its entries stay with this edit, but its own tree's row of
     // another record shows again at the key it leaves
     let chain: BTreeSet<i64> = DB::visible(tx, w, Scope::Chain, Filter::All)
@@ -163,24 +443,19 @@ async fn replace_other<DB: Store>(
         .iter()
         .map(|r| r.segment_id)
         .collect();
-    for e in DB::entries_in(tx, d).await? {
-        if e.key_id == id && e.at() == y.at() && e.row_key_id != id {
-            let seg = row_segment(tx, w, e.row).await?;
-            if seg.is_some_and(|s| chain.contains(&s)) {
-                DB::untag(tx, e.row, d, id).await?;
-            }
+    let left: Vec<i64> = draft
+        .entries
+        .iter()
+        .filter(|e| e.key_id == id && e.at() == y.at() && e.row_key_id != id)
+        .map(|e| e.row)
+        .collect();
+    for row in left {
+        let seg = row_segment(tx, w, row).await?;
+        if seg.is_some_and(|s| chain.contains(&s)) {
+            draft.untag(tx, row, id).await?;
         }
     }
     Ok(())
-}
-
-/// The committed version an edit was made over, its commit and content:
-/// the live one of its record's `committed` rows, at whatever key.
-fn edit_base(committed: &[RecordRow]) -> (Option<CommitId>, Option<serde_json::Value>) {
-    committed
-        .iter()
-        .find(|r| !r.deleted)
-        .map_or((None, None), |r| (r.commit_id, Some(r.json.clone())))
 }
 
 /// The rows a write at `at` was made over: those `shown` there, and the
@@ -217,25 +492,28 @@ async fn seen_rows<DB: Store>(
 /// row of a record it edits elsewhere, which the merge hid from this write.
 async fn hide<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    d: i64,
+    draft: &mut Draft,
     at: At<'_>,
     key_id: i64,
     seen: &[RecordRow],
 ) -> Result<()> {
-    let elsewhere: BTreeSet<i64> = DB::rows_in(tx, d, None, false)
-        .await?
+    let elsewhere: BTreeSet<i64> = draft
+        .rows
         .iter()
         .filter(|r| r.at() != at)
         .map(|r| r.key_id)
         .collect();
-    let hidden: Vec<i64> = DB::entries_in(tx, d)
-        .await?
-        .into_iter()
+    let hidden: Vec<Superseded> = draft
+        .entries
+        .iter()
         .filter(|e| e.at() == at && (e.deleted || !elsewhere.contains(&e.row_key_id)))
-        .map(|e| e.row)
+        .cloned()
         .collect();
-    for r in seen.iter().map(|r| r.id).chain(hidden) {
-        DB::entry(tx, r, d, key_id).await?;
+    for r in seen {
+        draft.entry(tx, entry_on(r, key_id)).await?;
+    }
+    for e in hidden {
+        draft.entry(tx, Superseded { key_id, ..e }).await?;
     }
     Ok(())
 }
@@ -253,30 +531,17 @@ async fn row_segment<DB: Store>(
         .map(|r| r.segment_id))
 }
 
-/// Draft `d`'s entries made by edit `old` become `new`'s, but at a key
-/// another row of `old` holds.
+/// [`Draft::retag`] in worktree `w`'s draft, loaded for it.
 pub(crate) async fn retag<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    d: i64,
+    w: i64,
     old: i64,
     new: i64,
 ) -> Result<()> {
-    if old == new {
-        return Ok(());
-    }
-    let others: Vec<(String, String, String)> = DB::rows_in(tx, d, None, false)
-        .await?
-        .into_iter()
-        .filter(|y| y.key_id == old)
-        .map(|y| (y.file_path, y.path, y.key))
-        .collect();
-    for e in DB::entries_in(tx, d).await? {
-        let place = (e.file_path.clone(), e.path.clone(), e.key.clone());
-        if e.key_id == old && !others.contains(&place) {
-            DB::untag(tx, e.row, d, old).await?;
-            DB::entry(tx, e.row, d, new).await?;
-        }
-    }
+    let mut draft = Draft::load(tx, w).await?;
+    draft.retag(tx, old, new).await?;
+    #[cfg(debug_assertions)]
+    draft.assert_current(tx).await?;
     Ok(())
 }
 

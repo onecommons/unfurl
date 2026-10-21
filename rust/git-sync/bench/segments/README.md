@@ -19,7 +19,7 @@ same database.
 | `queries.sql` | Appendix C's queries under `EXPLAIN (ANALYZE, BUFFERS, SETTINGS)`: design candidates, not the SQL the store emits. 8, 9 and 11 are layered reads, which production doesn't have until phase 3. |
 | `baseline.sql` | Today's layout, a full copy per worktree, built from the generated data for main and the forks. |
 | `baseline_queries.sql` | The single-view queries in today's form, against that copy. |
-| `../../src/db/bench.rs` | The store's own reads for queries 1–3, 5–7 and 10–12, on Postgres or the SQLite copy, each run six times warm, then once more (on Postgres, under `auto_explain`). |
+| `../../src/db/bench.rs` | The store's own reads for queries 1–3, 5–7 and 10–12, on Postgres or the SQLite copy, each run six times warm, then once more (on Postgres, under `auto_explain`); then its writes, with the statements each took. |
 | `to_sqlite.py` | Copies the generated database into a SQLite file built from `migrations/sqlite`, for the store's SQLite path. |
 | `run.sh` | `run.sh generate\|queries\|all\|sqlite [var=value …]`. `generate` applies `migrations/postgres` and `generate.sql`, then makes the SQLite copy; `sqlite` makes the copy again on its own. Run it with no mode for the details. |
 
@@ -46,6 +46,14 @@ The store's reads, against the database `generate` built and against the
 SQLite copy it made. The copy goes to `$BENCH_SQLITE`, or
 `unfurl_segments_bench.db` in the temp directory, where `bench.rs` looks
 by default; it needs Python's `sqlite3` at 3.45 or later, for `jsonb()`.
+On macOS, asdf's Python links the system's SQLite 3.43; run `run.sh` with
+Homebrew's first on the `PATH`.
+
+The writes run after the reads, as they change the database: records of
+the bench's own, made, updated and deleted through `apply_batch_inner`
+and the single-record writes on the first fork. Their tombstones stay in
+its draft, and the next run's writes replace them, so regenerate before
+comparing runs.
 
 ```bash
 cargo test --features postgres --lib bench_segments_pg -- --ignored --nocapture
@@ -374,3 +382,45 @@ read 3 from 6.5 ms to 21.7. Interleaved, two runs each:
 
 What's left on SQLite is the rollup join and its `DISTINCT`, 300–500 ms
 of read 6 and 12's column pass at 20k.
+
+## Writes, 2026-10-21
+
+Each write read its worktree's whole draft three times, five when it
+replaced a draft row, so its cost grew with the draft: the fork's draft
+holds 1,110 of the bench's rows by the updates. Now a transaction reads
+the draft once and keeps it as its writes change it (`segments::Draft`).
+Per write, on GDK's Postgres 17 over its socket and the SQLite copy, at
+the defaults:
+
+| Write | n | statements before | after | SQLite ms before | after | Postgres ms before | after |
+|---|---|---|---|---|---|---|---|
+| batch create | 10 | 12.1 | 6.4 | 2.1 | 0.82 | 2.6 | 1.65 |
+| batch create | 100 | 12.0 | 6.0 | 3.5 | 0.47 | 3.4 | 0.38 |
+| batch create | 1,000 | 12.0 | 6.0 | 22.0 | 0.76 | 21.2 | 0.72 |
+| batch update | 10 | 14.1 | 8.4 | 42.0 | 2.57 | 37.8 | 2.99 |
+| batch update | 100 | 14.0 | 8.0 | 39.2 | 1.40 | 38.1 | 1.38 |
+| batch update | 1,000 | 14.0 | 8.0 | 40.5 | 1.29 | 37.7 | 1.24 |
+| single update | 10 | 15.0 | 12.0 | 40.5 | 13.8 | 38.0 | 13.6 |
+| single delete | 10 | 14.0 | 11.0 | 38.4 | 13.5 | 37.8 | 13.7 |
+| batch delete | 100 | 13.0 | 7.0 | 39.1 | 1.36 | 37.1 | 1.22 |
+| batch delete | 1,000 | 13.0 | 7.0 | 39.5 | 1.24 | 37.6 | 1.20 |
+
+Postgres runs one statement more per transaction. "Before" is the code
+after the change's first step, which split `write_in_tx`, measured with
+the bench's writes added to it; it already read a record's committed
+rows once rather than twice, one statement fewer per first update. Before that, a temporary
+test of `apply_batch` over a 2,000-record file on SQLite took 20.5 ms a
+create in a batch of 1,000 and 61 ms an update over a 1,220-row draft;
+after, 0.52 and 1.19.
+
+- **A batch's writes are flat in the draft's size** now: about 1 ms
+  each on both backends. The time went to fetching and parsing the
+  draft's rows, which is why Postgres and SQLite matched to within 10%.
+- **A single write still reads the whole draft once,** so it costs
+  13.6 ms at this draft's size and grows with it. It needs only its row
+  at the key, its record's rows, the entries at the key, and whether the
+  records those hide have a row elsewhere.
+- **What's left per write** is the committed side, read per op: the live
+  record at the key, the record's committed rows, other drafts' entries
+  on them, the file's format. The committed chain doesn't change during
+  a batch, so a batch could read those once for all its writes.

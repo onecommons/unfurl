@@ -2520,6 +2520,45 @@ crud_test!(find_records_paging);
 crud_test!(rescan_keeps_pending_edits);
 crud_test!(find_records_paging_is_byte_ordered);
 
+/// A float Postgres's jsonb gives back as an integer (1e16 as
+/// 10000000000000000) is the same value: a write over it, alone or in a
+/// batch, doesn't find the draft it read changed.
+async fn a_large_float_is_the_value_jsonb_gives_back(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
+    let float = |name: &str| serde_json::json!({ "name": name, "stars": 1e16 });
+    let key = "git://example.com/float.git";
+    for name in ["first", "second"] {
+        sync.upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            key,
+            float(name),
+            None,
+            false,
+        )
+        .await
+        .expect("upsert");
+    }
+    let ops = ["third", "fourth"]
+        .map(|name| BatchOp::Upsert {
+            file_path: Some("cloudmap.yaml".into()),
+            path: "/repositories".into(),
+            key: key.into(),
+            json: float(name),
+            expected: None,
+            resolve: false,
+        })
+        .to_vec();
+    let outcome = sync.apply_batch(ops, true, None).await.expect("batch");
+    assert_eq!(outcome.applied.len(), 2, "{:?}", outcome.failed);
+    sync.delete_record(Some("cloudmap.yaml"), "/repositories", key, None, false)
+        .await
+        .expect("delete");
+}
+crud_test!(a_large_float_is_the_value_jsonb_gives_back);
+
 /// The `COLLATE "C"` guard, run against a column that is *not* C-collated.
 ///
 /// `find_records_paging_is_byte_ordered` above can't catch a missing

@@ -16,7 +16,7 @@ use crate::db::tables::{At, Place, RecordRow};
 use crate::error::{Error, Result};
 use crate::format::FormatRegistry;
 use crate::model::{Applied, BatchOp, BatchOutcome, Failed, Record, TxnMeta, WriteOutcome};
-use crate::segments::{self, Origin, Value};
+use crate::segments::{Draft, Origin, Value};
 use crate::sync::CommitRef;
 
 /// What the write path needs of the worktree it writes in.
@@ -142,27 +142,28 @@ struct Checked {
     /// The record it replaces: the draft's own row at the key, tombstone or
     /// not, else the live one; `None` for a new record.
     record: Option<i64>,
-    draft: i64,
 }
 
 /// One write in the caller's transaction, at an already drawn `version`.
 async fn write_in_tx<DB: Store>(
     writer: Writer<'_>,
     tx: &mut sqlx::Transaction<'_, DB>,
+    draft: &mut Draft,
     request: Request<'_>,
     version: i64,
 ) -> Result<WriteOutcome> {
-    let checked = check(writer.worktree_id, tx, &request).await?;
-    apply(writer, tx, request, checked, version).await
+    let checked = check(tx, draft, &request).await?;
+    apply(writer, tx, draft, request, checked, version).await
 }
 
 /// `request` against the view: the record at its key, its file, and the
 /// checks of its kind and token.
 async fn check<DB: Store>(
-    worktree_id: i64,
     tx: &mut sqlx::Transaction<'_, DB>,
+    draft: &Draft,
     request: &Request<'_>,
 ) -> Result<Checked> {
+    let worktree_id = draft.worktree_id;
     let WriteTarget {
         file_path,
         path,
@@ -216,19 +217,15 @@ async fn check<DB: Store>(
             live.is_some(),
         )?;
     }
-    let draft = DB::segs(tx, worktree_id).await?.draft;
     let place = Place::new(&file_path, path, key);
-    let record = DB::rows_in(tx, draft, Some(&file_path), false)
-        .await?
-        .into_iter()
-        .find(|r| r.at() == place.as_at())
+    let record = draft
+        .row_at(place.as_at())
         .map(|r| r.key_id)
         .or(live.as_ref().map(|r| r.key_id));
     Ok(Checked {
         place,
         live,
         record,
-        draft,
     })
 }
 
@@ -237,6 +234,7 @@ async fn check<DB: Store>(
 async fn apply<DB: Store>(
     writer: Writer<'_>,
     tx: &mut sqlx::Transaction<'_, DB>,
+    draft: &mut Draft,
     request: Request<'_>,
     checked: Checked,
     version: i64,
@@ -258,16 +256,22 @@ async fn apply<DB: Store>(
                 request.validate,
             )?;
             let value = Value::Live(&json);
-            let written = segments::write(tx, w, target, value, edit, record, version).await?;
+            let written = draft
+                .write(tx, target, value, edit, record, version)
+                .await?;
             let owner = format_owner.as_deref();
             let aliases = compute_aliases(writer, owner, written.key_id, target, &json);
             DB::replace_aliases(tx, written.id, &aliases).await?;
             written
         }
-        None => segments::write(tx, w, target, Value::Deleted, edit, record, version).await?,
+        None => {
+            draft
+                .write(tx, target, Value::Deleted, edit, record, version)
+                .await?
+        }
     };
     if request.resolve {
-        segments::drop_conflict(tx, checked.draft, target).await?;
+        draft.drop_conflict(tx, target).await?;
     }
     Ok(WriteOutcome {
         id: written.key_id,
@@ -307,7 +311,10 @@ async fn write_one<DB: Store>(
 ) -> Result<WriteOutcome> {
     let mut tx = pool.begin().await?;
     let version = DB::next_version(&mut tx, writer.family_id, 1).await?;
-    let out = write_in_tx(writer, &mut tx, request, version).await?;
+    let mut draft = Draft::load(&mut tx, writer.worktree_id).await?;
+    let out = write_in_tx(writer, &mut tx, &mut draft, request, version).await?;
+    #[cfg(debug_assertions)]
+    draft.assert_current(&mut tx).await?;
     tx.commit().await?;
     Ok(out)
 }
@@ -409,6 +416,8 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
     } else {
         DB::next_version(&mut tx, writer.family_id, ops.len() as i64).await?
     };
+    // after the draw, whose lock keeps other writers out of it
+    let mut draft = Draft::load(&mut tx, writer.worktree_id).await?;
     for (index, op) in ops.into_iter().enumerate() {
         let path = op.path().to_string();
         let key = op.key().to_string();
@@ -426,6 +435,7 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
                 write_in_tx(
                     writer,
                     &mut tx,
+                    &mut draft,
                     Request {
                         kind: Kind::Upsert,
                         at: WriteTarget {
@@ -452,6 +462,7 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
                 write_in_tx(
                     writer,
                     &mut tx,
+                    &mut draft,
                     Request {
                         kind: Kind::Delete,
                         at: WriteTarget {
@@ -502,6 +513,8 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
             Err(other) => return Err(other),
         }
     }
+    #[cfg(debug_assertions)]
+    draft.assert_current(&mut tx).await?;
     // Audit row last, inside the same transaction: it lands only if the
     // writes it describes do. A batch that applied nothing has no
     // version range to record, so it gets no row.
@@ -630,24 +643,21 @@ pub(crate) async fn delete_file_in_pool<DB: Store>(
     } else {
         DB::next_version(&mut tx, writer.family_id, live.len() as i64).await?
     };
+    let mut draft = Draft::load(&mut tx, w).await?;
     let mut out = Vec::with_capacity(live.len());
     for (index, row) in live.iter().enumerate() {
         let version = base + index as i64;
-        let written = segments::write(
-            &mut tx,
-            w,
-            row.at(),
-            Value::Deleted,
-            Origin::Edit,
-            Some(row.key_id),
-            version,
-        )
-        .await?;
+        let (at, record) = (row.at(), Some(row.key_id));
+        let written = draft
+            .write(&mut tx, at, Value::Deleted, Origin::Edit, record, version)
+            .await?;
         out.push(WriteOutcome {
             id: written.key_id,
             version,
         });
     }
+    #[cfg(debug_assertions)]
+    draft.assert_current(&mut tx).await?;
     DB::set_file_deleted(&mut tx, w, file_path, true).await?;
     tx.commit().await?;
     Ok(out)

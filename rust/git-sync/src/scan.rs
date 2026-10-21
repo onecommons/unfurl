@@ -546,7 +546,7 @@ async fn reconcile_key<DB: Store>(
         .map(|r| r.key_id)
         .collect();
     if let Some(r) = x {
-        x = align_id(tx, d, r, committed, &elsewhere).await?;
+        x = align_id(tx, scan.sync.worktree_id(), d, r, committed, &elsewhere).await?;
     }
     let withdrawn = withdrawn.filter(|id| !elsewhere.contains(id));
     if theirs == committed.map(|c| &c.json) {
@@ -641,6 +641,7 @@ async fn pending_edit<DB: Store>(
 /// now stands.
 async fn align_id<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
+    w: i64,
     d: i64,
     r: RecordRow,
     committed: Option<&RecordRow>,
@@ -649,7 +650,7 @@ async fn align_id<DB: Store>(
     match committed {
         Some(c) if c.key_id != r.key_id => {
             DB::set_key_id(tx, r.id, c.key_id).await?;
-            segments::retag(tx, d, r.key_id, c.key_id).await?;
+            segments::retag(tx, w, r.key_id, c.key_id).await?;
             Ok(Some(r))
         }
         None if elsewhere.contains(&r.key_id) => {
