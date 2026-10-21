@@ -1389,6 +1389,19 @@ fn scan_reconciles_only_files_left_in_this_scan() {
     ]);
 }
 
+/// A branch rebuilt onto a root of its own and merged into main, then
+/// rebased onto main's merge: its HEAD is the merge's other parent, so the
+/// move is a fast-forward, which the model mustn't take as a rewrite.
+#[test]
+fn a_rebase_onto_a_merge_of_head_is_a_fast_forward() {
+    run(&[
+        Op::Fork(196, 2),
+        Op::Rebuild(189, 211, 4, false),
+        Op::Merge(250, vec![(119, 0)], MergeKind::Regular, 2, vec![]),
+        Op::Rebase(91, 214, 41, 3, false),
+    ]);
+}
+
 /// Main fast-forwards to another worktree's commit and later rebuilds onto
 /// it: the base's ids are main's own.
 #[test]

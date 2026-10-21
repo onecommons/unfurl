@@ -732,15 +732,14 @@ impl World {
         changes: &[(Key, bool)],
         unfold: &Unfold,
     ) {
-        // onto a line that already holds w's HEAD it's a fast-forward and a
-        // commit, not a rewrite: a base ending at HEAD, below an empty head,
-        // say
+        // onto a commit w's HEAD is an ancestor of, through a merge's other
+        // parent too, it's a fast-forward and a commit, not a rewrite: a base
+        // ending at HEAD, below an empty head, say
         if let Some((u, i)) = base {
             let seg = self.imp.wts[u].chain[i].0;
             let bc = self.imp.segs[seg].head_commit.unwrap();
             let head = *self.imp.wts[w].history.last().unwrap();
-            let upto = self.imp.wts[u].history.iter().position(|&x| x == bc).unwrap();
-            if self.imp.wts[u].history[..=upto].contains(&head) {
+            if self.ancestors(bc).contains(&head) {
                 return;
             }
         }
