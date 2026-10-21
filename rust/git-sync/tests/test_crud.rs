@@ -2537,10 +2537,6 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
         eprintln!("skip: UNFURL_TEST_PG_URL not set");
         return;
     };
-    sync.update_from_working_dir(ScanOptions::default())
-        .await
-        .expect("update");
-
     let DbConfig::Postgres { url } = scope.db_config() else {
         unreachable!("pg_fixture yields a postgres config")
     };
@@ -2566,6 +2562,10 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
     )
     .await
     .expect("retype columns to a locale collation");
+    // scanned only now, so no plan cached over the old types is reused
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     for key in ["z-repo", "\u{e9}-repo"] {
         sync.create_record(
