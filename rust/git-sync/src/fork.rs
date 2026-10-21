@@ -939,7 +939,7 @@ pub(crate) async fn onto<DB: Store>(
 ) -> Result<()> {
     let base = match place(tx, history, family, new_head).await? {
         None => None,
-        Some(Placement::At(seg)) => DB::prepare_base(tx, family, seg, new_head).await?,
+        Some(Placement::At(seg)) => DB::prepare_base(tx, family, seg).await?,
         Some(Placement::Inside {
             s,
             segment_head,

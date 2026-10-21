@@ -27,3 +27,4 @@ cc 818d2b5cde89e2b84763f169d44aa0a48c2db3f6829ddd6f34d9fb0ef400fd76 # shrinks to
 cc d1d11a72dc63fd1d25ea18b5e350251f0542adcb5032f9cf33124c2bdbfa260e # shrinks to ops = [Rebuild(0, 0, 0, true), Fork(0, 0), Write(104, 0, false), Commit(30), Integrate(56, 0, [])]
 cc e397b393b9b89b144eb0ca8ce9149d672d96e8584b8f659a517b4dd840c7be53 # shrinks to ops = [Write(0, 1, false), Commit(0), Fork(0, 0), MergeUpstream(72, 0, [(2, true)]), MergeUpstream(32, 0, [(2, false)])]
 cc 1d5104ba81fbffb5b4c5373f0426abb127ccc21c85e8be9db5e633f2522e64d2 # shrinks to ops = [Write(0, 0, false), Write(0, 0, false), Write(0, 0, false), Write(0, 0, false), Commit(0), Fork(0, 0), Integrate(215, 0, []), Write(103, 0, false)]
+cc fb18c1094e503f0c25ad406ef06672dcc0eaade47c552193aad2f3b92379d2d0 # shrinks to ops = [Fork(0, 0), Fork(0, 0), External(233, [(0, false)]), Fork(0, 0), Write(61, 0, false), Commit(85), Fork(0, 0), Rebase(6, 5, 19, 0, false), Fork(231, 0)]

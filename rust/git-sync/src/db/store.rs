@@ -297,14 +297,13 @@ pub(crate) trait Store: sqlx::Database + Sized {
         commit: CommitId,
     ) -> impl Future<Output = Result<Option<i64>>> + Send;
 
-    /// Segment `base`, whose state is `commit`'s, made one to build on: an
-    /// open head that isn't empty closes, its owner getting a new one above
-    /// it; an empty one isn't needed, and its parent is the base instead.
+    /// Segment `base` made one to build on: an open head that isn't empty
+    /// closes, its owner getting a new empty one above it at its commit; an
+    /// empty one isn't needed, and its parent is the base instead.
     fn prepare_base(
         tx: &mut sqlx::Transaction<'_, Self>,
         family: i64,
         base: i64,
-        commit: CommitId,
     ) -> impl Future<Output = Result<Option<i64>>> + Send;
 
     /// C.13: create worktree `(origin, branch)` at `commit`, in `family`,
@@ -1146,7 +1145,6 @@ macro_rules! store_impl {
                 tx: &mut sqlx::Transaction<'_, Self>,
                 family: i64,
                 base: i64,
-                commit: CommitId,
             ) -> Result<Option<i64>> {
                 let (kind, parent, owner): (String, Option<i64>, Option<i64>) = sqlx::query_as(sql!(
                     tx,
@@ -1186,11 +1184,10 @@ macro_rules! store_impl {
                         let (head,): (i64,) = sqlx::query_as(sql!(
                             tx,
                             "INSERT INTO segment (family_id, kind, parent_id, head_commit, owner_id) \
-                             VALUES (?1, 'head', ?2, ?3, ?4) RETURNING id"
+                             SELECT family_id, 'head', id, head_commit, ?2 FROM segment WHERE id = ?1 \
+                             RETURNING id"
                         ))
-                        .bind(family)
                         .bind(base)
-                        .bind(commit)
                         .bind(owner)
                         .fetch_one(&mut **tx)
                         .await?;
@@ -1224,7 +1221,7 @@ macro_rules! store_impl {
                 branch: &str,
                 commit: CommitId,
             ) -> Result<i64> {
-                let base = Self::prepare_base(tx, family, base, commit).await?;
+                let base = Self::prepare_base(tx, family, base).await?;
                 let (w,): (i64,) = sqlx::query_as(sql!(
                     tx,
                     "INSERT INTO worktree (origin, branch, family_id, commit_id) \

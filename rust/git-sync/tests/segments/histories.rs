@@ -1483,6 +1483,24 @@ fn replayed_moves_on_two_worktrees_are_two_records() {
     ]);
 }
 
+/// A rebuild onto another worktree's head closes it, and that worktree's
+/// new empty head is at its own commit, not the rebuild's: a fork at the
+/// rebuilt worktree's head then builds on that head.
+#[test]
+fn a_head_closed_by_another_worktrees_rebuild_stays_at_its_commit() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Fork(0, 0),
+        Op::External(233, vec![(0, false)]),
+        Op::Fork(0, 0),
+        Op::Write(61, 0, false),
+        Op::Commit(85),
+        Op::Fork(0, 0),
+        Op::Rebase(6, 5, 19, 0, false),
+        Op::Fork(231, 0),
+    ]);
+}
+
 /// Main fast-forwards to another worktree's commit and later rebuilds onto
 /// it: the base's ids are main's own.
 #[test]
