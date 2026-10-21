@@ -24,11 +24,13 @@ use tracing_subscriber::Layer;
 use crate::crud::{apply_batch_inner, crud_delete_in_pool, crud_upsert_in_pool};
 use crate::crud::{WriteTarget, Writer};
 use crate::db::store::Store;
+use crate::db::tables::At;
 use crate::db::{record, Db};
 use crate::format::FormatRegistry;
 use crate::model::{
     BatchOp, FacetPath, FacetSpec, JsonQuery, QueryOp, RecordQuery, WorktreeFilter,
 };
+use crate::segments::{self, Origin, Value};
 use crate::Result;
 
 const WARM: usize = 6;
@@ -319,8 +321,35 @@ async fn writes<DB: Store>(pool: &sqlx::Pool<DB>) {
         }
     })
     .await;
+    // cleared after, untimed
+    let taken = made..made + 100;
+    timed("scan take-in", taken.len(), take_in(pool, taken.clone())).await;
+    batch(deletes(taken)).await;
     timed("batch delete", 100, batch(deletes(10..110))).await;
     timed("batch delete", 1000, batch(deletes(110..made))).await;
+}
+
+/// The scan's draft side: a write taken in from a file at each of `keys`
+/// on [`FORK`], each loading the draft, in one transaction.
+async fn take_in<DB: Store>(pool: &sqlx::Pool<DB>, keys: std::ops::Range<usize>) {
+    let mut tx = pool.begin().await.expect("begin");
+    let first = DB::next_version(&mut tx, MAIN, keys.len() as i64)
+        .await
+        .expect("versions");
+    let json = serde_json::json!({ "name": "taken in" });
+    for (i, version) in keys.zip(first..) {
+        let key = key(i);
+        let at = At {
+            file_path: "cloudmap.yaml",
+            path: "/repositories",
+            key: &key,
+        };
+        let value = Value::Live(&json);
+        segments::write(&mut tx, FORK, at, value, Origin::File(None), None, version)
+            .await
+            .expect("take in");
+    }
+    tx.commit().await.expect("commit");
 }
 
 #[cfg(feature = "postgres")]
