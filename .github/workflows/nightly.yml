@@ -53,12 +53,17 @@ jobs:
           toolchain: stable
       - name: Install and start postgres
         if: matrix.backend == 'postgres'
+        # without durability: a commit stops waiting for the disk, which
+        # only a crash could tell from durable; the bench keeps its own
         run: |
           sudo apt-get update -y
           sudo apt install -y postgresql
           sudo systemctl start postgresql.service
           sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"
           sudo -u postgres psql -c "CREATE DATABASE unfurl_test;"
+          sudo -u postgres psql -c "ALTER SYSTEM SET fsync = off;" \
+            -c "ALTER SYSTEM SET synchronous_commit = off;" \
+            -c "ALTER SYSTEM SET full_page_writes = off;" -c "SELECT pg_reload_conf();"
       - name: Configure git
         run: |
           git config --global user.email "unittest@onecommons.org"
