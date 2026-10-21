@@ -201,6 +201,7 @@ impl OWt {
                     base,
                     gone,
                     base_commit: None,
+                    renewed: None,
                 }),
                 continues: BTreeSet::new(),
                 id,
@@ -224,8 +225,16 @@ impl OWt {
     /// C.21's unfold of `k`, which the local commits took from `was` to
     /// `now`: a pending edit there now edits `was`; otherwise one of
     /// record `id` to `now`, `ver` (a tombstone's own version where `now`
-    /// is `None`), based on `was`.
-    fn unfold(&mut self, k: Key, was: Option<Ver>, now: Option<Ver>, ver: Ver, id: Ver) {
+    /// is `None`), based on `was`; `renewed` should it become a new record.
+    fn unfold(
+        &mut self,
+        k: Key,
+        was: Option<Ver>,
+        now: Option<Ver>,
+        ver: Ver,
+        id: Ver,
+        renewed: Ver,
+    ) {
         if let Some(d) = self.draft.get_mut(&k) {
             let Origin::Edit(e) = &mut d.origin else {
                 unreachable!("a clean working tree has no file rows")
@@ -246,6 +255,7 @@ impl OWt {
                     base: was,
                     gone: if now.is_none() { was } else { None },
                     base_commit: None,
+                    renewed: Some(renewed),
                 }),
                 continues: BTreeSet::new(),
                 id,
@@ -274,10 +284,10 @@ impl OWt {
             if to.is_some_and(|to| self.draft.contains_key(&to)) {
                 let d = self.draft.get_mut(&from).unwrap();
                 // a version is an id only for the edit that made the record
-                d.id = if d.ver == d.id {
-                    fresh_id(d.ver, from)
-                } else {
-                    d.ver
+                d.id = match d.origin.renewed() {
+                    Some(id) => id,
+                    None if d.ver == d.id => fresh_id(d.ver, from),
+                    None => d.ver,
                 };
                 continue;
             }
@@ -365,11 +375,12 @@ impl OWt {
                 .map(|(_, &id)| id)
                 .collect();
             if let Some(d) = self.draft.get_mut(&k) {
-                d.id = match self.ids.get(&k) {
-                    Some(&id) => id,
-                    None if !elsewhere.contains(&d.id) => d.id,
-                    None if d.ver == d.id => fresh_id(d.ver, k),
-                    None => d.ver,
+                d.id = match (self.ids.get(&k), d.origin.renewed()) {
+                    (Some(&id), _) => id,
+                    (None, _) if !elsewhere.contains(&d.id) => d.id,
+                    (None, Some(id)) => id,
+                    (None, None) if d.ver == d.id => fresh_id(d.ver, k),
+                    (None, None) => d.ver,
                 };
             }
             if theirs == self.committed.get(&k).copied() {
@@ -476,6 +487,14 @@ impl OWt {
 impl Origin {
     fn is_edit(&self) -> bool {
         matches!(self, Origin::Edit(_))
+    }
+
+    /// The id a replayed edit takes should it become a new record.
+    fn renewed(&self) -> Option<Ver> {
+        match self {
+            Origin::Edit(e) => e.renewed,
+            Origin::File => None,
+        }
     }
 }
 

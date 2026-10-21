@@ -1402,6 +1402,25 @@ fn a_rebase_onto_a_merge_of_head_is_a_fast_forward() {
     ]);
 }
 
+/// Main and its fork each rebase the same local commits, a move and a new
+/// record where the moved one was: upstream still has the moved record,
+/// so each replayed move is a new record, its worktree's own, not one
+/// the two share.
+#[test]
+fn replayed_moves_on_two_worktrees_are_two_records() {
+    run(&[
+        Op::Rebuild(0, 0, 5, false),
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::Move(0, 5, false),
+        Op::Write(0, 5, false),
+        Op::Commit(0),
+        Op::Fork(0, 0),
+        Op::Integrate(116, 1, vec![]),
+        Op::Integrate(19, 1, vec![]),
+    ]);
+}
+
 /// Main fast-forwards to another worktree's commit and later rebuilds onto
 /// it: the base's ids are main's own.
 #[test]

@@ -119,6 +119,12 @@ fn fresh_id(ver: Ver, key: Key) -> Ver {
     2 * PRIVATE_VERSIONS + ver * KEYS as Ver + key as Ver
 }
 
+/// The id a rebase's replayed edit of `ver` at `key` in worktree `w` takes
+/// should it become a new record: its own, as SQL's is its draft's.
+fn replayed_id(ver: Ver, key: Key, w: Wt) -> Ver {
+    3 * PRIVATE_VERSIONS + (ver * KEYS as Ver + key as Ver) * 256 + w as Ver
+}
+
 /// The same record name in the other file.
 fn other_file(key: Key) -> Key {
     (key + KEYS_PER_FILE) % KEYS
@@ -143,6 +149,10 @@ struct Edit {
     /// The commit of the committed row it was made over
     /// (`base_commit_id`); the model doesn't track it.
     base_commit: Option<CommitId>,
+    /// The id it takes should it become a new record, for an edit a rebase
+    /// replays: it carries the local commit's version, which another
+    /// worktree replaying that commit carries too.
+    renewed: Option<Ver>,
 }
 
 /// Today's three-way decision (`conflict::classify_conflict`), over

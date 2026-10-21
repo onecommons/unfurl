@@ -13,6 +13,8 @@ struct Unfolded {
     now: Option<Ver>,
     ver: Ver,
     id: Ver,
+    /// The id it takes should it become a new record.
+    renewed: Ver,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -500,6 +502,7 @@ impl Segments {
                 base,
                 gone: if deleted { self.live(&own, key) } else { None },
                 base_commit,
+                renewed: None,
             }
         });
         let mut seen: BTreeSet<RowId> = self.visible_merged(via, Some(key)).into_iter().collect();
@@ -584,9 +587,11 @@ impl Segments {
     fn renew_id(&mut self, x: RowId) {
         let (d, key, old) = (self.rows[&x].seg, self.rows[&x].key, self.rows[&x].id);
         // a version is an id only for the edit that made the record
-        let fresh = match self.rows[&x].ver {
-            v if v == old => fresh_id(v, key),
-            v => v,
+        let renewed = self.rows[&x].edit.as_ref().and_then(|e| e.renewed);
+        let fresh = match (renewed, self.rows[&x].ver) {
+            (Some(id), _) => id,
+            (None, v) if v == old => fresh_id(v, key),
+            (None, v) => v,
         };
         self.set_id(x, fresh);
         // other drafts' entries on it an edit of the old record made, once
@@ -776,11 +781,13 @@ impl Segments {
             if let Some(x) = x {
                 let r = self.live_id(&chain, key);
                 let (old, ver) = (self.rows[&x].id, self.rows[&x].ver);
-                let new = match r {
-                    Some(id) => id,
-                    None if !elsewhere.contains(&old) => old,
-                    None if ver == old => fresh_id(ver, key),
-                    None => ver,
+                let renewed = self.rows[&x].edit.as_ref().and_then(|e| e.renewed);
+                let new = match (r, renewed) {
+                    (Some(id), _) => id,
+                    (None, _) if !elsewhere.contains(&old) => old,
+                    (None, Some(id)) => id,
+                    (None, None) if ver == old => fresh_id(ver, key),
+                    (None, None) => ver,
                 };
                 self.set_id(x, new);
                 self.retag(d, old, new);
@@ -1479,6 +1486,7 @@ impl Segments {
             now,
             ver,
             id,
+            renewed,
         } in local
         {
             if let Some(r) = self.row_in(d, key) {
@@ -1495,6 +1503,7 @@ impl Segments {
                 base: was,
                 gone: if now.is_none() { was } else { None },
                 base_commit: was.map(|_| b),
+                renewed: Some(renewed),
             };
             let r = match now {
                 Some(v) => self.insert(d, key, v, false),

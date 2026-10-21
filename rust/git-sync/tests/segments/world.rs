@@ -819,13 +819,15 @@ impl World {
         // a tombstone deletes the record the rebuilt chain shows at its key
         for &(k, was, ver, named) in &unfold.tombstones {
             let id = m.ids.get(&k).copied().unwrap_or(named);
-            m.unfold(k, was, None, ver, id);
+            let renewed = replayed_id(ver, k, w);
+            m.unfold(k, was, None, ver, id, renewed);
             let edit = Unfolded {
                 key: k,
                 was,
                 now: None,
                 ver,
                 id,
+                renewed,
             };
             self.imp.unfold(w, unfold.base, &[edit]);
         }
@@ -1133,13 +1135,15 @@ impl World {
                 Some(v) => v,
                 None => self.ver(),
             };
-            self.model.wts[w].unfold(k, was, now, ver, id);
+            let renewed = replayed_id(now.unwrap_or(ver), k, w);
+            self.model.wts[w].unfold(k, was, now, ver, id, renewed);
             let edit = Unfolded {
                 key: k,
                 was,
                 now,
                 ver,
                 id,
+                renewed,
             };
             self.imp.unfold(w, b, &[edit]);
         }
@@ -1169,13 +1173,15 @@ impl World {
                 }
                 _ => {
                     let ver = now.unwrap_or_default();
-                    self.model.wts[w].unfold(k, was, now, ver, id);
+                    let renewed = replayed_id(ver, k, w);
+                    self.model.wts[w].unfold(k, was, now, ver, id, renewed);
                     unfolded.push(Unfolded {
                         key: k,
                         was,
                         now,
                         ver,
                         id,
+                        renewed,
                     });
                 }
             }
