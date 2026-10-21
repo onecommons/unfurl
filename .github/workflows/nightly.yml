@@ -19,7 +19,7 @@ on:
       shape_checks:
         description: Also check chain lengths and draft entries, which no read sees
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: read
@@ -38,7 +38,8 @@ jobs:
         backend: [sqlite, postgres]
     env:
       BACKEND: ${{ matrix.backend }}
-      SHAPE_CHECKS: ${{ inputs.shape_checks }}
+      # a scheduled or pushed run has no inputs: shape checks on
+      SHAPE_CHECKS: ${{ inputs.shape_checks || github.event_name != 'workflow_dispatch' }}
       PROPTEST_CASES: ${{ inputs.cases || '200' }}
       UNFURL_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/unfurl_test
     steps:
@@ -110,16 +111,24 @@ jobs:
       - name: Build the bench
         run: cargo test --release --manifest-path rust/Cargo.toml -p unfurl-git-sync --features postgres --lib --no-run
       - name: Run the bench
-        # the writes change the database, so each run gets a fresh one
+        # the writes change the database, so each run gets a fresh one;
+        # "500" is the small family in bench/segments/README.md
         run: |
           python3 -c 'import sqlite3; print("SQLite", sqlite3.sqlite_version)'
-          for i in $(seq "$RUNS"); do
-            rust/git-sync/bench/segments/run.sh generate
-            BENCH_JSON="$PWD/bench-$i.jsonl" cargo test --release --manifest-path rust/Cargo.toml \
-              -p unfurl-git-sync --features postgres --lib bench_segments -- \
-              --ignored --test-threads=1 --nocapture > "bench-$i.log" 2>&1 \
-              || { tail -50 "bench-$i.log"; exit 1; }
-          done
+          family() {
+            export BENCH_FAMILY=$1
+            shift
+            for i in $(seq "$RUNS"); do
+              rust/git-sync/bench/segments/run.sh generate "$@"
+              BENCH_JSON="$PWD/bench-$BENCH_FAMILY-$i.jsonl" cargo test --release \
+                --manifest-path rust/Cargo.toml -p unfurl-git-sync --features postgres \
+                --lib bench_segments -- --ignored --test-threads=1 --nocapture \
+                > "bench-$BENCH_FAMILY-$i.log" 2>&1 || { tail -50 "bench-$BENCH_FAMILY-$i.log"; exit 1; }
+            done
+          }
+          family 20k
+          family 500 records=500 types=20 main_segments=10 forks=3 fork_edits=10 \
+            fork_draft_edits=2 users=10 user_edits=5 main_draft_edits=5
       - name: Compare with the baseline
         run: |
           python3 rust/git-sync/bench/segments/compare.py \
