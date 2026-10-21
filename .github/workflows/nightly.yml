@@ -1,0 +1,135 @@
+name: Nightly
+
+# What the push workflow doesn't run: the segments harness's random
+# searches against SQL (they're `#[ignore]`d), and the segment bench against
+# its baseline. A schedule only runs from the default branch; on another
+# branch, editing this file runs it.
+
+on:
+  schedule:
+    - cron: "17 9 * * *" # 09:17 UTC daily
+  push:
+    paths:
+      - .github/workflows/nightly.yml
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: Cases per random search
+        default: "200"
+      shape_checks:
+        description: Also check chain lengths and draft entries, which no read sees
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  segments:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [sqlite, postgres]
+    env:
+      BACKEND: ${{ matrix.backend }}
+      SHAPE_CHECKS: ${{ inputs.shape_checks }}
+      PROPTEST_CASES: ${{ inputs.cases || '200' }}
+      UNFURL_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/unfurl_test
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Install and start postgres
+        if: matrix.backend == 'postgres'
+        run: |
+          sudo apt-get update -y
+          sudo apt install -y postgresql
+          sudo systemctl start postgresql.service
+          sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"
+          sudo -u postgres psql -c "CREATE DATABASE unfurl_test;"
+      - name: Configure git
+        run: |
+          git config --global user.email "unittest@onecommons.org"
+          git config --global user.name "Test Robot"
+          git config --global init.defaultBranch main
+      - name: Run the random searches
+        run: |
+          if [ "$BACKEND" = postgres ]; then export SEGMENTS_SQL_PG=1; fi
+          if [ "$SHAPE_CHECKS" != true ]; then export SEGMENTS_VISIBLE_ONLY=1; fi
+          cargo test --manifest-path rust/Cargo.toml -p unfurl-git-sync --features postgres \
+            --test segments_sql -- --ignored
+      - name: Upload the seeds it failed on
+        # proptest saves each failing case's seed to the regressions file;
+        # someone decides whether it's a known bug, a new one or the harness
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proptest-regressions-${{ matrix.backend }}
+          path: rust/git-sync/tests/*.proptest-regressions
+
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      # the bench's planner costs are JIT-on Postgres 17's, as in production
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: pgjit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      BENCH_PG_URL: postgres://postgres:pgjit@localhost:5432
+      RUNS: "3"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: recursive
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Install psql
+        run: command -v psql || { sudo apt-get update -y && sudo apt-get install -y postgresql-client; }
+      - name: Build the bench
+        run: cargo test --release --manifest-path rust/Cargo.toml -p unfurl-git-sync --features postgres --lib --no-run
+      - name: Run the bench
+        # the writes change the database, so each run gets a fresh one
+        run: |
+          python3 -c 'import sqlite3; print("SQLite", sqlite3.sqlite_version)'
+          for i in $(seq "$RUNS"); do
+            rust/git-sync/bench/segments/run.sh generate
+            BENCH_JSON="$PWD/bench-$i.jsonl" cargo test --release --manifest-path rust/Cargo.toml \
+              -p unfurl-git-sync --features postgres --lib bench_segments -- \
+              --ignored --test-threads=1 --nocapture > "bench-$i.log" 2>&1 \
+              || { tail -50 "bench-$i.log"; exit 1; }
+          done
+      - name: Compare with the baseline
+        run: |
+          python3 rust/git-sync/bench/segments/compare.py \
+            rust/git-sync/bench/segments/baseline.json bench-*.jsonl --write-baseline baseline.json
+      - name: Upload the numbers
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench
+          path: |
+            bench-*.jsonl
+            bench-*.log
+            baseline.json
