@@ -3,8 +3,8 @@
 //! `run.sh sqlite` makes of it. Run by hand:
 //!
 //! ```text
-//! cargo test --features postgres --lib bench_segments_pg -- --ignored --nocapture
-//! cargo test --lib bench_segments_sqlite -- --ignored --nocapture
+//! cargo test --release --features postgres --lib bench_segments_pg -- --ignored --nocapture
+//! cargo test --release --lib bench_segments_sqlite -- --ignored --nocapture
 //! ```
 //!
 //! Each read runs [`WARM`] times, then once more. On Postgres that last run
@@ -13,6 +13,9 @@
 //! The write APIs run last, as they change the database: batches of
 //! records of the bench's own made and updated on [`FORK`], then deleted,
 //! each with the statements it took.
+//!
+//! With `$BENCH_JSON` set, every row is also appended to that file, for
+//! `bench/segments/compare.py`.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -34,6 +37,8 @@ use crate::segments::{self, Origin, Value};
 use crate::Result;
 
 const WARM: usize = 6;
+/// The read every row's time is taken in proportion to.
+const REFERENCE: &str = "reference: scan every record";
 const MAIN: i64 = 1;
 /// The first fork, whose draft the writes go in.
 const FORK: i64 = 2;
@@ -68,6 +73,45 @@ fn subscribe() {
         .try_init();
 }
 
+/// Append `row` to the file `$BENCH_JSON` names, if it names one.
+fn report(row: serde_json::Value) {
+    use std::io::Write;
+    let Ok(path) = std::env::var("BENCH_JSON") else {
+        return;
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .expect("open $BENCH_JSON");
+    writeln!(file, "{row}").expect("write $BENCH_JSON");
+}
+
+fn median<T: Copy + Ord>(mut values: Vec<T>) -> T {
+    values.sort();
+    values[values.len() / 2]
+}
+
+/// The backend `db` runs on, as sqlx names it.
+fn backend(db: &Db) -> &'static str {
+    match db {
+        Db::Sqlite(_) => <sqlx::Sqlite as sqlx::Database>::NAME,
+        #[cfg(feature = "postgres")]
+        Db::Postgres(_) => <sqlx::Postgres as sqlx::Database>::NAME,
+    }
+}
+
+/// [`REFERENCE`]: SQL of no store function's, over every record row, which
+/// no index holds.
+async fn scan(db: &Db) -> Result<(i64, i64)> {
+    const SQL: &str = "SELECT count(*), count(json) FROM record";
+    Ok(match db {
+        Db::Sqlite(pool) => sqlx::query_as(SQL).fetch_one(pool).await?,
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => sqlx::query_as(SQL).fetch_one(pool).await?,
+    })
+}
+
 /// Turn `auto_explain` on or off for the session, when `db` is Postgres.
 async fn explain(db: &Db, on: bool) {
     #[cfg(feature = "postgres")]
@@ -82,7 +126,8 @@ async fn explain(db: &Db, on: bool) {
 }
 
 /// Run `read` [`WARM`] times, then once more with its plans explained, and
-/// print the timings.
+/// print the timings and the statements of one run. It reports the fastest
+/// time.
 async fn bench<T, F, Fut>(db: &Db, name: &str, read: F)
 where
     F: Fn() -> Fut,
@@ -90,10 +135,13 @@ where
 {
     println!("\n==== {name}");
     let mut times: Vec<Duration> = Vec::with_capacity(WARM);
+    let mut statements = Vec::with_capacity(WARM);
     for _ in 0..WARM {
+        let before = STATEMENTS.load(Ordering::Relaxed);
         let start = Instant::now();
         read().await.expect(name);
         times.push(start.elapsed());
+        statements.push(STATEMENTS.load(Ordering::Relaxed) - before);
     }
     explain(db, true).await;
     let start = Instant::now();
@@ -105,11 +153,20 @@ where
         .iter()
         .map(|t| format!("{:.1}", t.as_secs_f64() * 1e3))
         .collect();
+    let statements = median(statements);
     println!(
-        "{name}: warm {} ms; last {:.1} ms",
+        "{name}: warm {} ms; last {:.1} ms; {statements} statements",
         ms.join(" "),
         last.as_secs_f64() * 1e3
     );
+    report(serde_json::json!({
+        "backend": backend(db),
+        "kind": "read",
+        "name": name,
+        "n": 1,
+        "statements": statements,
+        "ms": times.iter().min().expect("timed").as_secs_f64() * 1e3,
+    }));
 }
 
 fn tags(tag: &str) -> JsonQuery {
@@ -124,6 +181,7 @@ fn tags(tag: &str) -> JsonQuery {
 async fn reads(db: &Db, cursor: i64) {
     // a database with fewer versions lists them all
     let cursor = cursor.max(0);
+    bench(db, REFERENCE, || scan(db)).await;
     bench(db, "1. get one record", || {
         record::get(db, MAIN, "cloudmap.yaml", "/artifacts", "k0000121")
     })
@@ -250,9 +308,9 @@ fn deletes(keys: std::ops::Range<usize>) -> Vec<BatchOp> {
     .collect()
 }
 
-/// Time `write`, which makes `n` writes, and print its statements and time
-/// per write.
-async fn timed<F: std::future::Future<Output = ()>>(what: &str, n: usize, write: F) {
+/// Time `write`, which makes `n` writes on `backend`, and print its
+/// statements and time per write.
+async fn timed<F: std::future::Future<Output = ()>>(backend: &str, what: &str, n: usize, write: F) {
     let before = STATEMENTS.load(Ordering::Relaxed);
     let start = Instant::now();
     write.await;
@@ -264,6 +322,14 @@ async fn timed<F: std::future::Future<Output = ()>>(what: &str, n: usize, write:
         per(used as f64),
         per(ms)
     );
+    report(serde_json::json!({
+        "backend": backend,
+        "kind": "write",
+        "name": what,
+        "n": n,
+        "statements": used,
+        "ms": per(ms),
+    }));
 }
 
 /// The write APIs on [`FORK`], against records of the bench's own, which
@@ -289,12 +355,19 @@ async fn writes<DB: Store>(pool: &sqlx::Pool<DB>) {
     println!("|---|---|---|---|---|---|");
     let mut made = 0;
     for n in [10, 100, 1000] {
-        timed("batch create", n, batch(upserts(made..made + n, "made"))).await;
+        timed(
+            DB::NAME,
+            "batch create",
+            n,
+            batch(upserts(made..made + n, "made")),
+        )
+        .await;
         made += n;
     }
     let mut start = 0;
     for n in [10, 100, 1000] {
         timed(
+            DB::NAME,
             "batch update",
             n,
             batch(upserts(start..start + n, "edited")),
@@ -303,7 +376,7 @@ async fn writes<DB: Store>(pool: &sqlx::Pool<DB>) {
         start += n;
     }
     let json = serde_json::json!({ "name": "again" });
-    timed("single update", 10, async {
+    timed(DB::NAME, "single update", 10, async {
         for i in 0..10 {
             let key = key(i);
             crud_upsert_in_pool(writer, pool, target(&key), json.clone(), None, false)
@@ -312,7 +385,7 @@ async fn writes<DB: Store>(pool: &sqlx::Pool<DB>) {
         }
     })
     .await;
-    timed("single delete", 10, async {
+    timed(DB::NAME, "single delete", 10, async {
         for i in 0..10 {
             let key = key(i);
             crud_delete_in_pool(writer, pool, target(&key), None, false)
@@ -323,10 +396,16 @@ async fn writes<DB: Store>(pool: &sqlx::Pool<DB>) {
     .await;
     // cleared after, untimed
     let taken = made..made + 100;
-    timed("scan take-in", taken.len(), take_in(pool, taken.clone())).await;
+    timed(
+        DB::NAME,
+        "scan take-in",
+        taken.len(),
+        take_in(pool, taken.clone()),
+    )
+    .await;
     batch(deletes(taken)).await;
-    timed("batch delete", 100, batch(deletes(10..110))).await;
-    timed("batch delete", 1000, batch(deletes(110..made))).await;
+    timed(DB::NAME, "batch delete", 100, batch(deletes(10..110))).await;
+    timed(DB::NAME, "batch delete", 1000, batch(deletes(110..made))).await;
 }
 
 /// The scan's draft side: a write taken in from a file at each of `keys`
@@ -394,6 +473,7 @@ async fn bench_segments_pg() {
 #[tokio::test]
 #[ignore = "needs the SQLite copy bench/segments/run.sh sqlite makes"]
 async fn bench_segments_sqlite() {
+    subscribe();
     // to_sqlite.py's default
     let path = std::env::var("BENCH_SQLITE").unwrap_or_else(|_| {
         std::env::temp_dir()

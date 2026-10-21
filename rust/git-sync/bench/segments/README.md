@@ -61,8 +61,22 @@ cargo test --release --features postgres --lib bench_segments_pg -- --ignored --
 cargo test --release --lib bench_segments_sqlite -- --ignored --nocapture
 ```
 
+The nightly workflow (`.github/workflows/nightly.yml`) runs both three
+times, each against a freshly generated database, with `$BENCH_JSON`
+naming a file for the rows. `compare.py` then checks them against
+`baseline.json`: each row's statements exactly, and its time in
+proportion to the reference read's from the same run (a scan of every
+record), at most twice the baseline's or the row's own `limit`. It
+reports every row, passing or not. A change meant to move a number
+updates `baseline.json` in the same commit, from the job's `bench`
+artifact, which holds what that run would make the baseline.
+
 At the defaults, generation takes about 20 seconds, `baseline.sql` about
-30, and `check.sql` a few seconds.
+30, and `check.sql` a few seconds. Since 2026-10-21 generation ends with
+`VACUUM ANALYZE`, where it ran `ANALYZE`: autovacuum could otherwise
+reach the tables partway through a run and change their plans, such as
+a scan answered from an index alone. Earlier sections' numbers come from
+databases it may or may not have reached.
 
 ## Results, 2026-10-01
 

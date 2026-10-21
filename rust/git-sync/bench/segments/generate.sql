@@ -280,7 +280,8 @@ UPDATE version_seq SET next_version = (SELECT max(version) + 1 FROM record);
 
 COMMIT;
 
-ANALYZE;
+-- so autovacuum has nothing to change while the bench runs, plans included
+VACUUM ANALYZE;
 
 SELECT (SELECT count(*) FROM worktree) AS worktrees,
        (SELECT count(*) FROM segment) AS segments,
