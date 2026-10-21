@@ -1,11 +1,26 @@
 {
   "limit": 2.0,
   "reference_ms": {
-    "PostgreSQL": 6.4325,
-    "SQLite": 20.6874
+    "20k/PostgreSQL": 6.4325,
+    "20k/SQLite": 20.6874
+  },
+  "database": {
+    "20k/PostgreSQL": {
+      "worktrees": 321,
+      "segments": 671,
+      "records": 36189,
+      "superseded": 16918
+    },
+    "20k/SQLite": {
+      "worktrees": 321,
+      "segments": 671,
+      "records": 36189,
+      "superseded": 16918
+    }
   },
   "rows": [
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "read",
       "name": "1. get one record",
@@ -16,6 +31,7 @@
       "spread": 1.217
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "read",
       "name": "1b. get a key the section lacks",
@@ -26,6 +42,7 @@
       "spread": 1.199
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "read",
       "name": "2. find with a JSON filter, one page",
@@ -36,6 +53,7 @@
       "spread": 1.453
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "read",
       "name": "3. find ?type=T2 and its subtypes, one page",
@@ -46,6 +64,7 @@
       "spread": 1.022
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "read",
       "name": "5. facet group counts by type, rolled up",
@@ -56,6 +75,7 @@
       "spread": 1.012
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "read",
       "name": "6. facet column: type x metadata.tier x tags",
@@ -66,6 +86,7 @@
       "spread": 1.013
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "read",
       "name": "7. list_changes since a cursor",
@@ -76,6 +97,7 @@
       "spread": 1.195
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "read",
       "name": "10. find across every branch named main, one page",
@@ -86,6 +108,7 @@
       "spread": 1.06
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "read",
       "name": "11. facet group counts by type across every main",
@@ -96,6 +119,7 @@
       "spread": 1.014
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "read",
       "name": "12. facet column across every main",
@@ -106,6 +130,7 @@
       "spread": 1.032
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "write",
       "name": "batch create",
@@ -116,6 +141,7 @@
       "spread": 1.079
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "write",
       "name": "batch create",
@@ -126,6 +152,7 @@
       "spread": 1.152
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "write",
       "name": "batch create",
@@ -136,6 +163,7 @@
       "spread": 1.076
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "write",
       "name": "batch update",
@@ -146,6 +174,7 @@
       "spread": 1.045
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "write",
       "name": "batch update",
@@ -156,6 +185,7 @@
       "spread": 1.163
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "write",
       "name": "batch update",
@@ -166,6 +196,7 @@
       "spread": 1.025
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "write",
       "name": "single update",
@@ -176,6 +207,7 @@
       "spread": 1.12
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "write",
       "name": "single delete",
@@ -186,6 +218,7 @@
       "spread": 1.093
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "write",
       "name": "scan take-in",
@@ -196,6 +229,7 @@
       "spread": 1.239
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "write",
       "name": "batch delete",
@@ -206,6 +240,7 @@
       "spread": 1.062
     },
     {
+      "family": "20k",
       "backend": "PostgreSQL",
       "kind": "write",
       "name": "batch delete",
@@ -216,6 +251,7 @@
       "spread": 1.035
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "read",
       "name": "1. get one record",
@@ -226,6 +262,7 @@
       "spread": 1.389
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "read",
       "name": "1b. get a key the section lacks",
@@ -236,6 +273,7 @@
       "spread": 1.366
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "read",
       "name": "2. find with a JSON filter, one page",
@@ -246,6 +284,7 @@
       "spread": 1.03
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "read",
       "name": "3. find ?type=T2 and its subtypes, one page",
@@ -256,6 +295,7 @@
       "spread": 1.188
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "read",
       "name": "5. facet group counts by type, rolled up",
@@ -266,6 +306,7 @@
       "spread": 1.021
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "read",
       "name": "6. facet column: type x metadata.tier x tags",
@@ -276,6 +317,7 @@
       "spread": 1.015
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "read",
       "name": "7. list_changes since a cursor",
@@ -286,6 +328,7 @@
       "spread": 1.112
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "read",
       "name": "10. find across every branch named main, one page",
@@ -296,6 +339,7 @@
       "spread": 1.014
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "read",
       "name": "11. facet group counts by type across every main",
@@ -306,6 +350,7 @@
       "spread": 1.014
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "read",
       "name": "12. facet column across every main",
@@ -316,6 +361,7 @@
       "spread": 1.007
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "write",
       "name": "batch create",
@@ -326,6 +372,7 @@
       "spread": 1.233
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "write",
       "name": "batch create",
@@ -336,6 +383,7 @@
       "spread": 1.112
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "write",
       "name": "batch create",
@@ -346,6 +394,7 @@
       "spread": 1.191
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "write",
       "name": "batch update",
@@ -356,6 +405,7 @@
       "spread": 1.347
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "write",
       "name": "batch update",
@@ -366,6 +416,7 @@
       "spread": 1.124
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "write",
       "name": "batch update",
@@ -376,6 +427,7 @@
       "spread": 1.109
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "write",
       "name": "single update",
@@ -386,6 +438,7 @@
       "spread": 1.285
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "write",
       "name": "single delete",
@@ -396,6 +449,7 @@
       "spread": 1.289
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "write",
       "name": "scan take-in",
@@ -406,6 +460,7 @@
       "spread": 1.321
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "write",
       "name": "batch delete",
@@ -416,6 +471,7 @@
       "spread": 1.268
     },
     {
+      "family": "20k",
       "backend": "SQLite",
       "kind": "write",
       "name": "batch delete",

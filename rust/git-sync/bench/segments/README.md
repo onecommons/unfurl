@@ -63,14 +63,18 @@ cargo test --release --lib bench_segments_sqlite -- --ignored --nocapture
 ```
 
 The nightly workflow (`.github/workflows/nightly.yml`) runs both three
-times, each against a freshly generated database, with `$BENCH_JSON`
-naming a file for the rows. `compare.py` then checks them against
-`baseline.json`: each row's statements exactly, and its time in
-proportion to the reference read's from the same run (a scan of every
-record), at most twice the baseline's or the row's own `limit`. It
-reports every row, passing or not. A change meant to move a number
-updates `baseline.json` in the same commit, from the job's `bench`
-artifact, which holds what that run would make the baseline.
+times for each of two families, the default ("20k") and "500" below,
+each against a freshly generated database, with `$BENCH_JSON` naming a
+file for the rows and `$BENCH_FAMILY` the family. `compare.py` then
+checks them against `baseline.json`: each family's database size
+exactly, failing all its rows where it differs, as their ratios aren't
+comparable; each row's statements exactly; and its time in proportion
+to the reference read's in the same family (a scan of every record), at
+most twice the baseline's or the row's own `limit`. A read's time is the
+fastest of six calls, a write's that of its n together. It reports every
+row, passing or not. A change meant to move a number updates
+`baseline.json` in the same commit, from the job's `bench` artifact,
+which holds what that run would make the baseline.
 
 At the defaults, generation takes about 20 seconds, `baseline.sql` about
 30, and `check.sql` a few seconds. Since 2026-10-21 generation ends with

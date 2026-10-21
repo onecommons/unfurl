@@ -15,7 +15,8 @@
 //! each with the statements it took, and last main's scan of a merge.
 //!
 //! With `$BENCH_JSON` set, every row is also appended to that file, for
-//! `bench/segments/compare.py`.
+//! `bench/segments/compare.py`, under the family `$BENCH_FAMILY` names
+//! (`20k` by default), after one with the database's size.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -74,12 +75,15 @@ fn subscribe() {
         .try_init();
 }
 
-/// Append `row` to the file `$BENCH_JSON` names, if it names one.
-fn report(row: serde_json::Value) {
+/// Append `row`, with its family, to the file `$BENCH_JSON` names, if it
+/// names one.
+fn report(mut row: serde_json::Value) {
     use std::io::Write;
     let Ok(path) = std::env::var("BENCH_JSON") else {
         return;
     };
+    let family = std::env::var("BENCH_FAMILY").unwrap_or_else(|_| "20k".into());
+    row["family"] = family.into();
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -111,6 +115,31 @@ async fn scan(db: &Db) -> Result<(i64, i64)> {
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => sqlx::query_as(SQL).fetch_one(pool).await?,
     })
+}
+
+/// Report `db`'s size: its worktrees, segments, record rows and
+/// superseded entries.
+async fn database(db: &Db) {
+    const SQL: &str = "SELECT (SELECT count(*) FROM worktree), (SELECT count(*) FROM segment), \
+        (SELECT count(*) FROM record), (SELECT count(*) FROM superseded)";
+    let (worktrees, segments, records, superseded): (i64, i64, i64, i64) = match db {
+        Db::Sqlite(pool) => sqlx::query_as(SQL).fetch_one(pool).await,
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => sqlx::query_as(SQL).fetch_one(pool).await,
+    }
+    .expect("the database's size");
+    println!(
+        "\n==== database: {worktrees} worktrees, {segments} segments, \
+         {records} record rows, {superseded} superseded entries"
+    );
+    report(serde_json::json!({
+        "backend": backend(db),
+        "kind": "database",
+        "worktrees": worktrees,
+        "segments": segments,
+        "records": records,
+        "superseded": superseded,
+    }));
 }
 
 /// Turn `auto_explain` on or off for the session, when `db` is Postgres.
@@ -182,6 +211,7 @@ fn tags(tag: &str) -> JsonQuery {
 async fn reads(db: &Db, cursor: i64) {
     // a database with fewer versions lists them all
     let cursor = cursor.max(0);
+    database(db).await;
     bench(db, REFERENCE, || scan(db)).await;
     bench(db, "1. get one record", || {
         record::get(db, MAIN, "cloudmap.yaml", "/artifacts", "k0000121")
