@@ -1521,6 +1521,11 @@ impl Segments {
         }
         if let Some((u, i)) = self.ending_at(c) {
             let s = self.wts[u].chain[i].0;
+            // `u`'s line up to the commit, as its chain is: a merge can have
+            // brought `w` there along another
+            let line = &self.wts[u].history;
+            let upto = line.iter().position(|&x| x == c).expect("a chain's commit");
+            let history = line[..=upto].to_vec();
             let (base, mut chain) = match self.segs[s].kind {
                 Kind::Head => self.base_at_head(u),
                 _ => {
@@ -1530,7 +1535,7 @@ impl Segments {
             };
             let hc = self.new_seg(Kind::Head, base, None, Some(c));
             chain.push((hc, false));
-            return self.add_worktree(hc, chain, history[..=pos].to_vec());
+            return self.add_worktree(hc, chain, history);
         }
         let pos_of = |commit: CommitId| history.iter().position(|&x| x == commit).unwrap();
         let s = self.wts[w]
