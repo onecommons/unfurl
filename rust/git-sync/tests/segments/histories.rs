@@ -2397,6 +2397,33 @@ fn a_fork_after_a_no_op_commit_builds_on_the_parent() {
     ]);
 }
 
+/// A fork of a branch at a commit inside the branch's head, where main's
+/// empty head ends: it builds on that head's parent, as §4.6 places it,
+/// rather than splitting the branch's head.
+#[test]
+fn a_fork_inside_a_head_where_an_empty_head_ends_builds_on_its_parent() {
+    run(&[
+        Op::Rebuild(0, 0, 0, true),
+        Op::Fork(0, 0),
+        Op::External(71, vec![(0, false)]),
+        Op::Fork(19, 1),
+    ]);
+}
+
+/// The same, with the branch's commit made by git-sync.
+#[test]
+fn a_fork_below_a_branchs_commit_where_an_empty_head_ends() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Rebuild(0, 0, 0, true),
+        Op::Fork(0, 0),
+        Op::Write(0, 0, false),
+        Op::Write(1, 0, false),
+        Op::Commit(91),
+        Op::Fork(19, 1),
+    ]);
+}
+
 /// Main saves a record unchanged, a fork is made, main's commit changes
 /// nothing, then the fork edits the record: main's row is the one the
 /// fork's edit hides, so a read across both shows only the edit.

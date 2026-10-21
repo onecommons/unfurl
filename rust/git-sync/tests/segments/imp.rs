@@ -1507,8 +1507,9 @@ impl Segments {
         }
     }
 
-    /// §4.5 and §4.6: fork `w` at `history[pos]`, splitting a segment if the
-    /// commit falls inside one.
+    /// §4.5 and §4.6: fork `w` at `history[pos]`: at `w`'s head, on that
+    /// head; below it, on a segment ending at the commit wherever it is,
+    /// else splitting `w`'s segment the commit falls inside.
     fn fork(&mut self, w: Wt, pos: usize, git: &Git) -> Wt {
         let history = self.wts[w].history.clone();
         let c = history[pos];
@@ -1518,6 +1519,19 @@ impl Segments {
             chain.push((hc, false));
             return self.add_worktree(hc, chain, history);
         }
+        if let Some((u, i)) = self.ending_at(c) {
+            let s = self.wts[u].chain[i].0;
+            let (base, mut chain) = match self.segs[s].kind {
+                Kind::Head => self.base_at_head(u),
+                _ => {
+                    let chain = self.wts[u].chain[..=i].iter().map(|&(seg, _)| (seg, true));
+                    (Some(s), chain.collect())
+                }
+            };
+            let hc = self.new_seg(Kind::Head, base, None, Some(c));
+            chain.push((hc, false));
+            return self.add_worktree(hc, chain, history[..=pos].to_vec());
+        }
         let pos_of = |commit: CommitId| history.iter().position(|&x| x == commit).unwrap();
         let s = self.wts[w]
             .chain
@@ -1525,9 +1539,7 @@ impl Segments {
             .map(|&(s, _)| s)
             .find(|&s| pos_of(self.segs[s].head_commit.unwrap()) >= pos)
             .unwrap();
-        if self.segs[s].head_commit != Some(c) {
-            self.split(s, c, git, &history);
-        }
+        self.split(s, c, git, &history);
         let mut chain: Vec<(SegId, bool)> = Vec::new();
         for &(seg, _) in &self.wts[w].chain {
             chain.push((seg, true));
