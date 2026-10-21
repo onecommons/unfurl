@@ -833,7 +833,9 @@ pub(crate) async fn take_over<DB: Store>(
 
 /// §4.9: main's new row `to`, record `id` at `at` with content `json`, is
 /// a version a merge may bring back: other drafts' entries on its earlier
-/// rows here, made by an edit at this place or of the record, pass to it.
+/// rows here, made by an edit at this place or of the record, pass to it,
+/// and a draft's edit here or of the record made over `json` hides it,
+/// though the row it saw may be gone.
 async fn brought_back<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     family: i64,
@@ -843,10 +845,11 @@ async fn brought_back<DB: Store>(
     id: i64,
     json: &serde_json::Value,
 ) -> Result<()> {
-    let earlier: Vec<RecordRow> = DB::rows_at(tx, family, at).await?;
-    let earlier: Vec<&RecordRow> = earlier
+    let rows = DB::rows_at_or_of(tx, family, at, id).await?;
+    let earlier: Vec<&RecordRow> = rows
         .iter()
-        .filter(|r| r.id != to && !r.deleted && &r.json == json)
+        .map(|(r, _)| r)
+        .filter(|r| r.at() == at && r.id != to && !r.deleted && &r.json == json)
         .collect();
     let mut entries = Vec::new();
     for e in other_entries(tx, &earlier, w).await? {
@@ -859,7 +862,14 @@ async fn brought_back<DB: Store>(
             entries.push(e);
         }
     }
-    take_over(tx, &entries, to, Some(json)).await
+    take_over(tx, &entries, to, Some(json)).await?;
+    let made_over = rows.iter().filter(|(r, draft_of)| {
+        draft_of.is_some_and(|d| d != w) && r.base_json.as_ref() == Some(json)
+    });
+    for (r, _) in made_over {
+        DB::entry(tx, to, r.segment_id, r.key_id).await?;
+    }
+    Ok(())
 }
 
 /// One record whose committed value changed: bring worktree `w`'s head

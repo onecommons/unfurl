@@ -172,6 +172,15 @@ pub(crate) const ROW_COLUMNS: &str = "r.id, r.key_id, r.segment_id, r.file_path,
      r.commit_id, json(r.json) AS json, r.deleted, r.version, r.base_commit_id, \
      json(r.settled) AS settled, r.conflict, json(r.base_json) AS base_json";
 
+/// A [`RecordColumns`] row and, where its segment is a draft, the draft's
+/// worktree.
+#[derive(sqlx::FromRow)]
+pub(crate) struct DraftedColumns {
+    #[sqlx(flatten)]
+    pub(crate) row: RecordColumns,
+    pub(crate) draft_of: Option<i64>,
+}
+
 /// A `record` row as [`ROW_COLUMNS`] selects it, JSON still as text.
 #[derive(sqlx::FromRow)]
 pub(crate) struct RecordColumns {

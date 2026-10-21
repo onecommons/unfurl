@@ -626,9 +626,12 @@ predate merges keep the filter they were saved under
 Entries for a version a merge or revert brings back into main: the new
 row takes over other drafts' entries on an earlier row with its content
 at its place, made by an edit there or of its record, so a fork's edit
-made over that version still hides it in a read across both. Not built:
-the record's rows at another place, after a move, and an edit whose row
-is gone, which nothing reaches yet.
+made over that version still hides it in a read across both. A draft's
+edit at the place or of the record made over that version hides it too,
+though the row the edit saw is gone, or at the record's old place after
+a move. Not built: the in-memory implementation also passes on entries
+on the record's rows at another place, which, with those edits' own
+entries made, no history found yet needs.
 
 Open:
 

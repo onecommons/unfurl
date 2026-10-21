@@ -19,8 +19,8 @@ use std::future::Future;
 use crate::commit::CommitId;
 use crate::db;
 use crate::db::tables::{
-    At, FileRow, NewRecordRow, RecordColumns, RecordRow, SegmentEnd, Superseded, WorktreeSegs,
-    ROW_COLUMNS,
+    At, DraftedColumns, FileRow, NewRecordRow, RecordColumns, RecordRow, SegmentEnd, Superseded,
+    WorktreeSegs, ROW_COLUMNS,
 };
 use crate::error::{Error, Result};
 use crate::model::ConflictState;
@@ -361,6 +361,16 @@ pub(crate) trait Store: sqlx::Database + Sized {
         family: i64,
         at: At<'_>,
     ) -> impl Future<Output = Result<Vec<RecordRow>>> + Send;
+
+    /// Every row at `at`, or of record `key_id` anywhere, in `family`'s
+    /// segments but conflict rows, each with its draft's worktree where
+    /// it's in a draft.
+    fn rows_at_or_of(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+        at: At<'_>,
+        key_id: i64,
+    ) -> impl Future<Output = Result<Vec<(RecordRow, Option<i64>)>>> + Send;
 
     /// A new open head for worktree `owner`, above `parent`, at `commit`.
     fn new_head(
@@ -1430,6 +1440,37 @@ macro_rules! store_impl {
                     .fetch_all(&mut **tx)
                     .await?;
                 rows.into_iter().map(RecordRow::try_from).collect()
+            }
+
+            async fn rows_at_or_of(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+                at: At<'_>,
+                key_id: i64,
+            ) -> Result<Vec<(RecordRow, Option<i64>)>> {
+                let text = format!(
+                    "SELECT {ROW_COLUMNS}, CASE WHEN s.kind = 'draft' THEN s.owner_id END AS draft_of \
+                     FROM record r JOIN segment s ON s.id = r.segment_id \
+                     WHERE s.family_id = ?1 AND r.file_path = ?2 AND r.path = ?3 AND r.key = ?4 \
+                       AND r.conflict IS NULL \
+                     UNION ALL \
+                     SELECT {ROW_COLUMNS}, CASE WHEN s.kind = 'draft' THEN s.owner_id END \
+                     FROM record r JOIN segment s ON s.id = r.segment_id \
+                     WHERE s.family_id = ?1 AND r.key_id = ?5 AND r.conflict IS NULL \
+                       AND NOT (r.file_path = ?2 AND r.path = ?3 AND r.key = ?4)"
+                );
+                let sql = db::spell(&*tx, text);
+                let rows = sqlx::query_as::<_, DraftedColumns>(&sql)
+                    .bind(family)
+                    .bind(at.file_path)
+                    .bind(at.path)
+                    .bind(at.key)
+                    .bind(key_id)
+                    .fetch_all(&mut **tx)
+                    .await?;
+                rows.into_iter()
+                    .map(|c| Ok((RecordRow::try_from(c.row)?, c.draft_of)))
+                    .collect()
             }
 
             async fn new_head(

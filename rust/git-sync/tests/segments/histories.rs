@@ -1483,6 +1483,21 @@ fn replayed_moves_on_two_worktrees_are_two_records() {
     ]);
 }
 
+/// A fork commits a key and edits it, and an upstream merge replaces the
+/// committed row; main's merge of the fork's older commit brings that
+/// version back, which the fork's edit, made over it, hides.
+#[test]
+fn a_version_main_brings_back_is_hidden_by_an_edit_made_over_it() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Write(125, 0, false),
+        Op::Commit(91),
+        Op::Write(103, 0, false),
+        Op::MergeUpstream(7, 0, vec![(0, false)]),
+        Op::Merge(188, vec![(43, 1)], MergeKind::Regular, 0, vec![]),
+    ]);
+}
+
 /// A rebuild onto another worktree's head closes it, and that worktree's
 /// new empty head is at its own commit, not the rebuild's: a fork at the
 /// rebuilt worktree's head then builds on that head.
@@ -2546,5 +2561,22 @@ fn a_no_op_commit_leaves_main_on_the_row_a_fork_edits() {
         Op::Fork(59, 2),
         Op::Commit(110),
         Op::Write(181, 0, false),
+    ]);
+}
+
+/// A fork edits a record, and main moves it, changes it and reverts the
+/// change: the version brought back at the record's new key is hidden by
+/// the fork's edit, made over it at the old key.
+#[test]
+fn a_version_main_brings_back_at_a_new_key_is_hidden_by_an_edit_made_over_it() {
+    run(&[
+        Op::Write(0, 3, true),
+        Op::Commit(0),
+        Op::Fork(0, 0),
+        Op::Write(1, 0, false),
+        Op::Move(0, 0, false),
+        Op::Write(0, 3, false),
+        Op::Commit(0),
+        Op::Revert(0, 3, 1),
     ]);
 }
