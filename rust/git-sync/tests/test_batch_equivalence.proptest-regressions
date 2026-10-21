@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d669ab1d345082904714356b7719415543b11137ba8b6f42d34fac59e2be77f2 # shrinks to writes = [Write { delete: false, key: 2, file: 2, value: 1, token: false, resolve: false }, Write { delete: true, key: 2, file: 1, value: 0, token: false, resolve: true }, Write { delete: false, key: 1, file: 1, value: 2, token: false, resolve: false }, Write { delete: true, key: 0, file: 1, value: 1, token: false, resolve: false }]
+cc 417ed49d3e7b9f6b6f7d898b6459111a62207e58d5f874c57eaa671952f7a333 # shrinks to writes = [Write { delete: false, key: 3, file: 0, value: 0, token: false, resolve: false }, Write { delete: false, key: 3, file: 0, value: 0, token: false, resolve: false }]
