@@ -1169,6 +1169,9 @@ impl World {
             match (now, self.model.wts[w].draft.contains_key(&k)) {
                 (None, false) => {
                     let ver = self.ver();
+                    // a deletion names its record only as the
+                    // implementation can find it, as a merge's does
+                    let id = self.named_by_rows(w, b, k).unwrap_or_else(|| self.imp.private_ver());
                     tombstones.push((k, was, ver, id));
                 }
                 _ => {

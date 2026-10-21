@@ -1402,6 +1402,34 @@ fn a_rebase_onto_a_merge_of_head_is_a_fast_forward() {
     ]);
 }
 
+/// A record deleted by a commit made outside git-sync, its row gone with
+/// it, then deleted upstream too: a rebase's tombstone for it names no
+/// record the database can find, so a later outside commit re-creating
+/// the key makes a new record, not the old one back.
+#[test]
+fn integrate_names_a_deletion_as_the_store_can_find_it() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::External(0, vec![(2, true)]),
+        Op::Commit(0),
+        Op::Move(0, 0, false),
+        Op::External(0, vec![(1, false)]),
+        Op::Write(0, 1, false),
+        Op::Write(0, 3, false),
+        Op::Commit(0),
+        Op::Write(0, 3, false),
+        Op::Commit(0),
+        Op::Write(0, 3, false),
+        Op::Commit(0),
+        Op::Write(0, 3, false),
+        Op::Integrate(0, 2, vec![]),
+        Op::Integrate(0, 2, vec![(2, true)]),
+        Op::External(0, vec![(2, false)]),
+        Op::Write(0, 0, false),
+    ]);
+}
+
 /// Main and its fork each rebase the same local commits, a move and a new
 /// record where the moved one was: upstream still has the moved record,
 /// so each replayed move is a new record, its worktree's own, not one
