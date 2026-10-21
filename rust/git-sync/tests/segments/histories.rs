@@ -1402,6 +1402,21 @@ fn a_rebase_onto_a_merge_of_head_is_a_fast_forward() {
     ]);
 }
 
+/// Main edits a record it shares with a fork, is rebuilt onto a root
+/// without it, and edits the key again, a new record now: the first
+/// edit's entries pass to the new one, so when an outside commit takes it
+/// in they go with it, and a read across both shows the fork's record.
+#[test]
+fn a_new_record_over_a_draft_edit_takes_its_entries() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::DiskEdit(104, 5, false, FileWins::Never),
+        Op::Rebuild(14, 151, 0, false),
+        Op::DiskEdit(2, 5, false, FileWins::Never),
+        Op::External(110, vec![(5, false)]),
+    ]);
+}
+
 /// A record deleted by a commit made outside git-sync, its row gone with
 /// it, then deleted upstream too: a rebase's tombstone for it names no
 /// record the database can find, so a later outside commit re-creating

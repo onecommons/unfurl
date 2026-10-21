@@ -390,9 +390,6 @@ impl Draft {
         if let Some(p) = &prior {
             seen.retain(|r| r.id != p.id);
             self.delete_row(tx, p.id).await?;
-            if let Some(id) = record {
-                self.retag(tx, p.key_id, id).await?;
-            }
         }
         let settled: Vec<i64> = if edit {
             settled.into_iter().collect()
@@ -419,6 +416,11 @@ impl Draft {
                 },
             )
             .await?;
+        // the edit it replaces made entries this one inherits, a new
+        // record's too, whose id is known only now
+        if let Some(p) = &prior {
+            self.retag(tx, p.key_id, key_id).await?;
+        }
         hide(tx, self, at, key_id, &seen).await?;
         take_over(tx, &entries, id, (!deleted).then_some(json)).await?;
         Ok(Written { id, key_id })
