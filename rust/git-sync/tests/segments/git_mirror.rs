@@ -68,10 +68,16 @@ fn parse_file(file: Key, text: &str) -> BTreeMap<Key, Ver> {
 }
 
 fn git(dir: &Path, args: &[&str], stdin: Option<&str>) -> String {
+    git_with(dir, args, stdin, &[])
+}
+
+/// [`git`], with `env` added to its environment.
+fn git_with(dir: &Path, args: &[&str], stdin: Option<&str>, env: &[(&str, &str)]) -> String {
     let mut cmd = std::process::Command::new("git");
     cmd.current_dir(dir)
         .args(["-c", "commit.gpgsign=false"])
         .args(args)
+        .envs(env.iter().copied())
         .env("GIT_AUTHOR_NAME", "harness")
         .env("GIT_AUTHOR_EMAIL", "harness@example.com")
         .env("GIT_COMMITTER_NAME", "harness")
@@ -251,7 +257,11 @@ impl GitMirror {
             args.extend(["-p".to_string(), self.oids[p].clone()]);
         }
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
-        let oid = git(&self.root, &args, Some(&message));
+        // a date of its own: a replay copies its source's message, and two
+        // replays of one commit onto one parent would be one git object
+        let date = format!("{} +0000", 1_700_000_000 + c);
+        let dates = [("GIT_AUTHOR_DATE", date.as_str()), ("GIT_COMMITTER_DATE", date.as_str())];
+        let oid = git_with(&self.root, &args, Some(&message), &dates);
         let parents = git(&self.root, &["rev-list", "--parents", "-n1", &oid], None);
         let want: Vec<&str> = g.parents[c].iter().map(|&p| self.oids[p].as_str()).collect();
         assert_eq!(parents.split(' ').skip(1).collect::<Vec<_>>(), want, "commit {c}'s parents");
