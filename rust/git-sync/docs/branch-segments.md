@@ -350,7 +350,10 @@ record's first version, inherited by every later version in any segment.
   rebuild reads the id a record had at an older commit
   ([§4.7](#47-splitting-a-segment)). A commit made outside git-sync has
   no rollup; then the id comes from the rows the database has, which can
-  miss a record deleted and re-created after that commit.
+  miss a record deleted and re-created after that commit. Those rows are
+  the worktree's own chain's: a record it has none of takes a new id,
+  even where another worktree's rows hold it, as when a branch rebuilt
+  onto an unrelated root fast-forwards to a merge of main.
   - **Ids are one database's.** A `key_id` is a row id, so a rollup names
     the database it came from (`Git-Sync-Database`, generated when the
     database is created), and a reader takes its ids only when that's
@@ -915,7 +918,10 @@ that HEAD still has comes back, counted neither as lost nor recovered.
 History is never replayed, so every kind of rewrite takes this same path.
 It's also an optimisation available on any HEAD move: if the new HEAD is
 another tracked worktree's head commit, a rebuild shares everything,
-where a fast-forward would copy the difference.
+where a fast-forward would copy the difference. The two can name a
+record differently: a rebuild shares the other worktree's ids, and a
+fast-forward gives a record no rollup names, which its chain lacks, a
+new one ([§3.5](#35-record-identity)).
 
 **Worktrees layered over W keep their own parts.** That's what the
 `inherited` flag is for: a layer's contribution doesn't depend on W's old
