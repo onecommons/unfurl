@@ -205,6 +205,9 @@ impl SyncedRepo {
             let want = match () {
                 _ if l == b || l == u => u,
                 _ if u == b => l,
+                // one side deleted what the other changed: git can't merge
+                // that field by field, so the build holds it
+                _ if l.is_none() || u.is_none() => return Ok(false),
                 // both changed it: git's merge of the two stands, if valid
                 _ => {
                     if !history.blob_takes(file, blob, &at.0, &at.1)?.1 {

@@ -3462,8 +3462,10 @@ and layout `:l` changed there are dropped, as in C.21. In order:
    each record only one side changed must have that side's value, so a
    hunk applied in a shifted context can't move a key; and each record
    both sides changed, which git may have merged field by field, must
-   pass its format's validation. A file that fails joins those git
-   couldn't merge.
+   pass its format's validation. One side's deletion of a record the
+   other changed has no such merge: git merges it cleanly only by taking
+   one side whole, where the record moved in the file. A file that fails,
+   or holds such a record, joins those git couldn't merge.
 3. **Build those files from records:** `:u`'s bytes with the records
    only `:l` changed since `:b` applied (`render_onto`). A record both
    sides changed, to different values, keeps `:u`'s value there and is

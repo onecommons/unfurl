@@ -222,6 +222,101 @@ async fn a_record_both_changed_is_held(sync: &SyncedRepo, tmp: &TempDir) {
 }
 crud_test!(a_record_both_changed_is_held);
 
+/// A JSON document of three records, a, m and z.
+const JSON_DOC: &str = "{\n  \"apiVersion\": \"unfurl/v1.0.0\",\n  \"kind\": \"CloudMap\",\n  \"repositories\": {\n    \"git://example.com/a.git\": {\n      \"name\": \"a\"\n    },\n    \"git://example.com/m.git\": {\n      \"name\": \"m\"\n    },\n    \"git://example.com/z.git\": {\n      \"name\": \"z\"\n    }\n  }\n}\n";
+const A: &str = "git://example.com/a.git";
+const A_RECORD: &str = "    \"git://example.com/a.git\": {\n      \"name\": \"a\"\n    },\n";
+
+/// [`JSON_DOC`] committed as other.json and scanned: the merges' base.
+async fn json_base(sync: &SyncedRepo, tmp: &TempDir) -> CommitId {
+    std::fs::write(tmp.path().join("other.json"), JSON_DOC).expect("write");
+    git(tmp.path(), &["add", "other.json"]);
+    git(tmp.path(), &["commit", "-q", "-m", "json"]);
+    scan(sync).await;
+    head_commit(sync).await
+}
+
+/// [`JSON_DOC`] with record a named `name`, and last.
+fn a_put_last(name: &str) -> String {
+    JSON_DOC.replace(A_RECORD, "").replace(
+        "      \"name\": \"z\"\n    }\n",
+        &format!(
+            "      \"name\": \"z\"\n    }},\n    \"{A}\": {{\n      \"name\": \"{name}\"\n    }}\n"
+        ),
+    )
+}
+
+/// A commit off `base` with other.json's text `text`.
+fn upstream_json(tmp: &TempDir, base: CommitId, text: String) -> CommitId {
+    upstream_with(tmp, base, |dir| {
+        std::fs::write(dir.join("other.json"), text).expect("write")
+    })
+}
+
+/// The keys of the records a merge held, and those in conflict after.
+async fn held_and_conflicts(
+    sync: &SyncedRepo,
+    merged: &MergedUpstream,
+) -> (Vec<String>, Vec<String>) {
+    let MergedUpstream::Merged { held, .. } = merged else {
+        panic!("{merged:?}");
+    };
+    let conflicts = sync.list_conflicts(None).await.expect("conflicts");
+    (
+        held.iter().map(|h| h.key.clone()).collect(),
+        conflicts.into_iter().map(|c| c.key).collect(),
+    )
+}
+
+/// Upstream deleted a record ours changed and put last: git merges the
+/// lines, keeping ours, but both sides changed the record, so upstream's
+/// deletion is merged and ours is held.
+async fn a_record_ours_put_last_upstream_deleted_is_held(sync: &SyncedRepo, tmp: &TempDir) {
+    let b = json_base(sync, tmp).await;
+    std::fs::write(tmp.path().join("other.json"), a_put_last("mine")).expect("write");
+    git(tmp.path(), &["commit", "-q", "-am", "ours"]);
+    scan(sync).await;
+    let u = upstream_json(tmp, b, JSON_DOC.replace(A_RECORD, ""));
+    let (merged, conflicted) = merge(sync, tmp, u).await;
+    assert!(
+        conflicted.is_empty(),
+        "git merged the lines: {conflicted:?}"
+    );
+    let MergedUpstream::Merged { commit, .. } = &merged else {
+        panic!("{merged:?}");
+    };
+    let text = git(tmp.path(), &["show", &format!("{commit}:other.json")]);
+    assert!(!text.contains(A), "upstream's deletion is merged: {text}");
+    let (held, conflicts) = held_and_conflicts(sync, &merged).await;
+    assert_eq!(held, [A]);
+    assert!(conflicts.iter().any(|k| k == A), "{conflicts:?}");
+}
+crud_test!(a_record_ours_put_last_upstream_deleted_is_held);
+
+/// The other way round: ours deleted a record upstream changed and put
+/// last. Upstream's is merged, and our deletion is held.
+async fn a_record_ours_deleted_upstream_put_last_is_held(sync: &SyncedRepo, tmp: &TempDir) {
+    let b = json_base(sync, tmp).await;
+    sync.delete_record(Some("other.json"), "/repositories", A, None, false)
+        .await
+        .expect("delete");
+    sync.commit_repository("delete", Default::default())
+        .await
+        .expect("commit");
+    let u = upstream_json(tmp, b, a_put_last("theirs"));
+    let (merged, conflicted) = merge(sync, tmp, u).await;
+    assert!(
+        conflicted.is_empty(),
+        "git merged the lines: {conflicted:?}"
+    );
+    let text = std::fs::read_to_string(tmp.path().join("other.json")).expect("read");
+    assert!(text.contains("theirs"), "upstream's is merged: {text}");
+    let (held, conflicts) = held_and_conflicts(sync, &merged).await;
+    assert_eq!(held, [A]);
+    assert!(conflicts.iter().any(|k| k == A), "{conflicts:?}");
+}
+crud_test!(a_record_ours_deleted_upstream_put_last_is_held);
+
 /// Different fields of one record, far enough apart for git: its merge
 /// stands, with nothing held.
 async fn fields_git_merges_stand(sync: &SyncedRepo, tmp: &TempDir) {
@@ -435,7 +530,7 @@ crud_test!(a_merge_stopped_before_the_fast_forward_loses_nothing);
 /// the file is built from records.
 async fn a_duplicate_json_key_git_made_is_built_from_records(sync: &SyncedRepo, tmp: &TempDir) {
     let path = tmp.path().join("other.json");
-    let doc = "{\n  \"apiVersion\": \"unfurl/v1.0.0\",\n  \"kind\": \"CloudMap\",\n  \"repositories\": {\n    \"git://example.com/a.git\": {\n      \"name\": \"a\"\n    },\n    \"git://example.com/m.git\": {\n      \"name\": \"m\"\n    },\n    \"git://example.com/z.git\": {\n      \"name\": \"z\"\n    }\n  }\n}\n";
+    let doc = JSON_DOC;
     std::fs::write(&path, doc).expect("write");
     git(tmp.path(), &["add", "other.json"]);
     git(tmp.path(), &["commit", "-q", "-m", "json"]);

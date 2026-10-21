@@ -2369,6 +2369,22 @@ fn upstream_merge_names_a_deletion_by_its_tombstone() {
     ]);
 }
 
+/// A record an earlier merge deleted, made again, which put it last in its
+/// file, then deleted by upstream: git merges the lines, keeping ours, but
+/// both sides changed it, so upstream's deletion is merged and ours held.
+#[test]
+fn upstream_merge_holds_a_record_made_again_that_upstream_deleted() {
+    run(&[
+        Op::Write(0, 1, false),
+        Op::Commit(0),
+        Op::MergeUpstream(0, 0, vec![(0, true)]),
+        Op::Write(0, 0, false),
+        Op::MergeUpstream(0, 0, vec![]),
+        Op::Commit(0),
+        Op::MergeUpstream(0, 2, vec![(0, true)]),
+    ]);
+}
+
 /// A save of an unchanged value, committed, changes nothing: main's head
 /// stays empty, so a fork at main's head builds on its parent.
 #[test]
