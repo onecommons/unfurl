@@ -2,7 +2,7 @@ name: Nightly
 
 # What the push workflow doesn't run: the segments harness's random
 # searches against SQL (they're `#[ignore]`d), and the segment bench against
-# its baseline. A schedule only runs from the default branch; on another
+# its baseline commit, refs/bench/git-sync. A schedule only runs from the default branch; on another
 # branch, editing this file runs it.
 
 on:
@@ -86,7 +86,7 @@ jobs:
 
   bench:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     services:
       # the bench's planner costs are JIT-on Postgres 17's, as in production
       postgres:
@@ -107,28 +107,49 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           submodules: recursive
+      - name: Check out the baseline
+        # HEAD is timed against this commit on the same machine; to move it,
+        # git push --force origin <commit>:refs/bench/git-sync
+        run: |
+          git fetch --no-tags --depth=1 origin refs/bench/git-sync
+          git worktree add --detach base FETCH_HEAD
+          git -C base log --oneline -1
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
       - name: Install psql
         run: command -v psql || { sudo apt-get update -y && sudo apt-get install -y postgresql-client; }
-      - name: Build the bench
-        run: cargo test --release --manifest-path rust/Cargo.toml -p unfurl-git-sync --features postgres --lib --no-run
+      - name: Record the machine
+        run: lscpu | tee lscpu.txt
+      - name: Build HEAD and the baseline
+        run: |
+          for root in . base; do
+            cargo test --release --manifest-path "$root/rust/Cargo.toml" -p unfurl-git-sync \
+              --features postgres --lib --no-run
+          done
       - name: Run the bench
-        # the writes change the database, so each run gets a fresh one;
-        # "500" is the small family in bench/segments/README.md
+        # each run on a fresh database from its own side's migrations and
+        # generate.sql; the sides alternate which goes first, so the
+        # machine's drift falls on both; "500" is bench/segments/README.md's
         run: |
           python3 -c 'import sqlite3; print("SQLite", sqlite3.sqlite_version)'
+          side() {
+            local name=$1 root=$2 fam=$3
+            shift 3
+            "$root/rust/git-sync/bench/segments/run.sh" generate "$@"
+            BENCH_FAMILY=$fam BENCH_JSON="$PWD/$name-$fam-$i.jsonl" cargo test --release \
+              --manifest-path "$root/rust/Cargo.toml" -p unfurl-git-sync --features postgres \
+              --lib bench_segments -- --ignored --test-threads=1 --nocapture \
+              > "$name-$fam-$i.log" 2>&1 || { tail -50 "$name-$fam-$i.log"; exit 1; }
+          }
           family() {
-            export BENCH_FAMILY=$1
-            shift
             for i in $(seq "$RUNS"); do
-              rust/git-sync/bench/segments/run.sh generate "$@"
-              BENCH_JSON="$PWD/bench-$BENCH_FAMILY-$i.jsonl" cargo test --release \
-                --manifest-path rust/Cargo.toml -p unfurl-git-sync --features postgres \
-                --lib bench_segments -- --ignored --test-threads=1 --nocapture \
-                > "bench-$BENCH_FAMILY-$i.log" 2>&1 || { tail -50 "bench-$BENCH_FAMILY-$i.log"; exit 1; }
+              if [ $((i % 2)) = 1 ]; then
+                side base base "$@"; side head . "$@"
+              else
+                side head . "$@"; side base base "$@"
+              fi
             done
           }
           family 20k
@@ -136,14 +157,16 @@ jobs:
             fork_draft_edits=2 users=10 user_edits=5 main_draft_edits=5
       - name: Compare with the baseline
         run: |
-          python3 rust/git-sync/bench/segments/compare.py \
-            rust/git-sync/bench/segments/baseline.json bench-*.jsonl --write-baseline baseline.json
+          python3 rust/git-sync/bench/segments/compare.py rust/git-sync/bench/segments/limits.json \
+            --base base-*.jsonl --head head-*.jsonl --cpu lscpu.txt
       - name: Upload the numbers
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bench
           path: |
-            bench-*.jsonl
-            bench-*.log
-            baseline.json
+            head-*.jsonl
+            base-*.jsonl
+            head-*.log
+            base-*.log
+            lscpu.txt

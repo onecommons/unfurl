@@ -1,28 +1,27 @@
-"""Compare the segment bench's rows with a baseline.
+"""Compare the segment bench at HEAD with its baseline commit's, run alike.
 
-    python3 compare.py BASELINE RUN.jsonl... [--write-baseline OUT]
+    python3 compare.py LIMITS --base RUN.jsonl... --head RUN.jsonl... [--cpu FILE]
 
 Each RUN.jsonl is one run of src/db/bench.rs with $BENCH_JSON set: a JSON
 object per row, with its family (the database generated, "20k" where it
-has none), backend, kind ("read" or "write"), name, n, the statements its
-n operations took, and ms, the time of one; and first a row of kind
-"database" with the database's size. A row's ratio is its fastest ms over
-the runs, over the reference row's fastest in the same family and backend,
-and is compared with the baseline's. A row fails where:
+has none), backend, kind ("read", "write" or "database"), name, n, the
+statements its n operations took, and ms, the time of one. The base runs
+are the baseline commit's (refs/bench/git-sync), made on the same machine
+in the same job as HEAD's, so a row's ratio, its fastest time at HEAD
+over its fastest at the base, doesn't depend on the machine. A row fails
+where:
 
-- its statements differ from the baseline's, or between runs;
-- its ratio is more than `limit` times the baseline's: the row's own
-  `limit`, else the baseline's;
-- the baseline has it and the runs don't.
+- its ratio is more than its limit in LIMITS, else LIMITS' default;
+- it takes more statements at HEAD than at the base, or either side's
+  count varies between runs;
+- the base has it and HEAD doesn't.
 
 A family and backend's rows all fail where its database's size differs
-from the baseline's, or between runs: their ratios aren't comparable.
+between the two sides, or between runs: they didn't run on the same data.
 
-Every row is printed, failing or not, beside the baseline's numbers, to
-stdout and to $GITHUB_STEP_SUMMARY where that's set. Exits 1 if a row
-fails; without a BASELINE file it only reports. --write-baseline writes
-these runs' numbers as a baseline, with each row's spread over the runs
-(its slowest time over its fastest) and the limits BASELINE had.
+Every row is printed, failing or not, to stdout and to
+$GITHUB_STEP_SUMMARY where that's set, after the machine's CPU from
+--cpu (`lscpu`'s output). Exits 1 if a row fails.
 """
 
 import argparse
@@ -32,7 +31,6 @@ import pathlib
 import sys
 
 REFERENCE = "reference: scan every record"
-LIMIT = 2.0
 FAMILY = "20k"
 SIZE = ("worktrees", "segments", "records", "superseded")
 
@@ -46,73 +44,65 @@ def key(row: Row) -> Key:
     return (family, str(row["backend"]), str(row["kind"]), str(row["name"]), int(row["n"]))
 
 
-def group_of(row: Row) -> Group:
-    return (str(row.get("family", FAMILY)), str(row["backend"]))
+def label(k: Key) -> str:
+    return "/".join(map(str, k[:4]))
 
 
-def label(g: Group) -> str:
-    return f"{g[0]}/{g[1]}"
+class Side:
+    """One side's runs: each row's times and statements, each group's sizes."""
+
+    def __init__(self, paths: list[str]) -> None:
+        self.runs = len(paths)
+        self.times: dict[Key, list[float]] = {}
+        self.statements: dict[Key, set[int]] = {}
+        self.sizes: dict[Group, list[dict[str, int]]] = {}
+        for path in paths:
+            for line in pathlib.Path(path).read_text().splitlines():
+                if not line.strip():
+                    continue
+                r = json.loads(line)
+                group = (str(r.get("family", FAMILY)), str(r["backend"]))
+                if r["kind"] == "database":
+                    self.sizes.setdefault(group, []).append({k: int(r[k]) for k in SIZE})
+                    continue
+                k = key(r)
+                self.times.setdefault(k, []).append(float(r["ms"]))
+                self.statements.setdefault(k, set()).add(int(r["statements"]))
+
+    def size(self, g: Group) -> tuple[dict[str, int] | None, bool]:
+        """The group's database size, and whether it varied between runs."""
+        sizes = self.sizes.get(g, [])
+        return (sizes[0] if sizes else None), any(s != sizes[0] for s in sizes)
 
 
-class Run:
-    """One run's reference times and database sizes per group, and its rows."""
-
-    def __init__(self, path: str) -> None:
-        lines = pathlib.Path(path).read_text().splitlines()
-        rows = [json.loads(line) for line in lines if line.strip()]
-        self.reference = {group_of(r): float(r["ms"]) for r in rows if r.get("name") == REFERENCE}
-        self.size = {
-            group_of(r): {k: int(r[k]) for k in SIZE} for r in rows if r["kind"] == "database"
-        }
-        self.rows: dict[Key, Row] = {}
-        for r in rows:
-            if r["kind"] == "database" or r["name"] == REFERENCE:
-                continue
-            if group_of(r) not in self.reference:
-                sys.exit(f"{path}: no reference row for {label(group_of(r))}")
-            self.rows[key(r)] = r
+def size_text(size: dict[str, int] | None) -> str:
+    return "not reported" if size is None else ", ".join(f"{size[k]:,} {k}" for k in SIZE)
 
 
-def fastest(runs: list[Run]) -> dict[Group, float]:
-    """Each group's fastest reference time over the runs."""
-    groups = dict.fromkeys(g for run in runs for g in run.reference)
-    return {g: min(run.reference[g] for run in runs if g in run.reference) for g in groups}
+def size_check(base: Side, head: Side, g: Group) -> tuple[str, str | None]:
+    """The group's database line, and why all its rows fail, if they do."""
+    (b, b_varies), (h, h_varies) = base.size(g), head.size(g)
+    line = f"Database: {size_text(h)}"
+    if b_varies or h_varies:
+        return line + ".", "its database's size varies between runs"
+    if b != h:
+        return line + f"; the base's: {size_text(b)}.", "the base ran on another database"
+    return line + ", the same at the base.", None
 
 
-def measure(runs: list[Run], reference: dict[Group, float]) -> dict[Key, Row]:
-    """Each row's fastest time over `runs`, its ratio, statements and spread."""
-    keys = dict.fromkeys(k for run in runs for k in run.rows)
-    out: dict[Key, Row] = {}
-    for k in keys:
-        seen = [run.rows[k] for run in runs if k in run.rows]
-        times = [float(r["ms"]) for r in seen]
-        out[k] = {
-            "statements": sorted({int(r["statements"]) for r in seen}),
-            "ms": min(times),
-            "ratio": min(times) / reference[k[:2]],
-            "spread": max(times) / min(times),
-            "runs": len(seen),
-        }
-    return out
-
-
-def judge(now: Row | None, base: Row | None, limit: float, runs: int) -> str | None:
+def judge(k: Key, base: Side, head: Side, limit: float) -> str | None:
     """Why the row fails, or None."""
-    if base is None:
+    if k not in head.times:
+        return "gone from HEAD: move refs/bench/git-sync if that's meant"
+    if k not in base.times:
         return None
-    if now is None:
-        return "missing from the runs"
-    statements = now["statements"]
-    if len(statements) > 1:
-        return f"statements vary between runs: {statements}"
-    if now["runs"] < runs:
-        return f"in {now['runs']} of {runs} runs"
-    if statements[0] > base["statements"]:
-        return "more statements"
-    if statements[0] < base["statements"]:
-        return "fewer statements: update the baseline"
-    if now["ratio"] > base["ratio"] * base.get("limit", limit):
-        return f"slower than {base.get('limit', limit)}x the baseline"
+    b, h = base.statements[k], head.statements[k]
+    if len(b) > 1 or len(h) > 1:
+        return f"statements vary between runs: base {sorted(b)}, HEAD {sorted(h)}"
+    if min(h) > min(b):
+        return "more statements than the base"
+    if min(head.times[k]) / min(base.times[k]) > limit:
+        return f"slower than {limit}x the base"
     return None
 
 
@@ -120,167 +110,108 @@ def cell(value: object, fmt: str = "{}") -> str:
     return "" if value is None else fmt.format(value)
 
 
-def size_text(size: dict[str, int]) -> str:
-    return ", ".join(f"{size[k]:,} {k}" for k in SIZE)
+def spread(times: list[float] | None) -> str | None:
+    return None if not times else f"{max(times) / min(times):.2f}"
 
 
-class Baseline:
-    """A baseline file's rows, reference times, database sizes and limit."""
-
-    def __init__(self, data: dict | None) -> None:
-        data = data or {}
-        self.present = bool(data)
-        self.limit = float(data.get("limit", LIMIT))
-        self.rows = {key(r): r for r in data.get("rows", [])}
-
-        def group(name: str) -> Group:
-            family, _, backend = name.rpartition("/")
-            return (family or FAMILY, backend)
-
-        self.reference = {group(n): ms for n, ms in data.get("reference_ms", {}).items()}
-        self.size = {group(n): s for n, s in data.get("database", {}).items()}
-        self.limits = {key(r): r["limit"] for r in data.get("rows", []) if "limit" in r}
-
-
-def size_check(runs: list[Run], base: Baseline, g: Group) -> tuple[str, str | None]:
-    """The group's database size as a line, and why its rows fail, if they do."""
-    sizes = [run.size[g] for run in runs if g in run.size]
-    if not sizes:
-        return "Database: not reported.", None
-    text = f"Database: {size_text(sizes[0])}"
-    if any(s != sizes[0] for s in sizes):
-        return text + ".", "its database's size varies between runs"
-    was = base.size.get(g)
-    if was is None:
-        return text + "; no baseline size.", None
-    if was != sizes[0]:
-        why = f"the baseline's database had {size_text(was)}: remake the baseline"
-        return text + ".", why
-    return text + ", as the baseline's.", None
+def row_line(k: Key, base: Side, head: Side, limit: float, why: str | None) -> str:
+    bt, ht = base.times.get(k), head.times.get(k)
+    ratio = min(ht) / min(bt) if bt and ht else None
+    bs, hs = base.statements.get(k), head.statements.get(k)
+    if why:
+        status = f"**FAIL**: {why}"
+    elif bt is None:
+        status = "new at HEAD"
+    elif hs and bs and min(hs) < min(bs):
+        status = "ok, fewer statements"
+    else:
+        status = "ok"
+    cells = [
+        k[2],
+        k[3],
+        "" if k[2] == "read" else str(k[4]),
+        cell(bs and "/".join(map(str, sorted(bs)))),
+        cell(hs and "/".join(map(str, sorted(hs)))),
+        cell(bt and min(bt), "{:.3f}"),
+        cell(ht and min(ht), "{:.3f}"),
+        cell(ratio, "{:.2f}"),
+        f"{limit:g}",
+        cell(spread(bt)),
+        cell(spread(ht)),
+        status,
+    ]
+    return "| " + " | ".join(cells) + " |"
 
 
-def section(
-    g: Group, runs: list[Run], now: dict[Key, Row], base: Baseline, reference: dict[Group, float]
-) -> tuple[list[str], int, int]:
-    """One family and backend's lines, its rows and how many of them fail."""
-    keys = [k for k in dict.fromkeys([*now, *base.rows]) if k[:2] == g]
-    count = sum(1 for run in runs if g in run.reference)
-    size_line, size_fails = size_check(runs, base, g)
-    was = base.reference.get(g)
-    ref = f"{REFERENCE}: {reference[g]:.2f} ms" if g in reference else f"{REFERENCE}: missing"
-    lines = [
-        f"### {g[0]}: {g[1]}",
+def section(g: Group, base: Side, head: Side, limits: dict) -> tuple[list[str], int, int]:
+    """One family and backend's lines, its rows and how many fail."""
+    keys = [k for k in dict.fromkeys([*head.times, *base.times]) if k[:2] == g]
+    size_line, size_fails = size_check(base, head, g)
+    ref = (g[0], g[1], "read", REFERENCE, 1)
+    lines = [f"### {g[0]}: {g[1]}", "", size_line]
+    if ref in base.times and ref in head.times:
+        lines.append(
+            f"{REFERENCE}, ms: base {min(base.times[ref]):.2f}, HEAD {min(head.times[ref]):.2f}"
+            " (SQL of no store function's: how far the machine moved between the two)."
+        )
+    lines += [
         "",
-        size_line,
-        ref + (f", baseline {was:.2f} ms." if was else "."),
-        "A read is timed as the fastest of six calls, a write as n together."
-        " Ratio is a row's time over the reference's; change is the ratio's"
-        " against the baseline's.",
+        "A read is timed as the fastest of six calls, a write as n together;"
+        " each side's time is its fastest over its runs.",
         "",
-        "| | row | n | statements | baseline | ms | baseline ms"
-        " | ratio | baseline ratio | change | spread | |",
+        "| | row | n | base statements | statements | base ms | ms | ratio | limit"
+        " | base spread | spread | |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     failures = 0
+    default = float(limits.get("limit", 1.5))
     for k in keys:
-        row, b = now.get(k), base.rows.get(k)
-        why = size_fails or judge(row, b, base.limit, count)
+        if k[3] == REFERENCE:
+            continue
+        limit = float(limits.get("rows", {}).get(label(k), default))
+        why = size_fails or judge(k, base, head, limit)
         failures += why is not None
-        change = row["ratio"] / b["ratio"] - 1 if row and b else None
-        status = why or ("ok" if b else "no baseline")
-        statements = row and "/".join(map(str, row["statements"]))
-        cells = [
-            k[2],
-            k[3],
-            "" if k[2] == "read" else str(k[4]),
-            cell(statements),
-            cell(b and b["statements"]),
-            cell(row and row["ms"], "{:.3f}"),
-            cell(b and b["ms"], "{:.3f}"),
-            cell(row and row["ratio"], "{:.4f}"),
-            cell(b and b["ratio"], "{:.4f}"),
-            cell(change, "{:+.0%}"),
-            cell(row and row["spread"], "{:.2f}"),
-            ("**FAIL**: " if why else "") + status,
-        ]
-        lines.append("| " + " | ".join(cells) + " |")
+        lines.append(row_line(k, base, head, limit, why))
     lines.append("")
-    return lines, len(keys), failures
+    return lines, len(keys) - (ref in keys), failures
 
 
-def report(
-    runs: list[Run], now: dict[Key, Row], base: Baseline, reference: dict[Group, float]
-) -> tuple[list[str], int]:
-    """The report's lines, and how many rows fail."""
-    groups = dict.fromkeys([*(k[:2] for k in now), *(k[:2] for k in base.rows)])
-    lines = [] if base.present else ["No baseline yet: reporting only.\n"]
-    total = failures = 0
-    for g in groups:
-        more, rows, failed = section(g, runs, now, base, reference)
-        lines += more
-        total += rows
-        failures += failed
-    if not base.present:
-        lines.append(f"{total} rows, no baseline.")
-    elif failures:
-        lines.append(f"{failures} of {total} rows fail.")
-    else:
-        lines.append("Every row passes.")
-    return lines, failures
-
-
-def proposed(
-    runs: list[Run], now: dict[Key, Row], base: Baseline, reference: dict[Group, float]
-) -> dict:
-    """These runs' numbers as a baseline, keeping `base`'s limits."""
-    rows = []
-    for k, row in now.items():
-        out = {
-            "family": k[0],
-            "backend": k[1],
-            "kind": k[2],
-            "name": k[3],
-            "n": k[4],
-            "statements": row["statements"][-1],
-            "ms": round(row["ms"], 4),
-            "ratio": round(row["ratio"], 6),
-            "spread": round(row["spread"], 3),
-        }
-        if k in base.limits:
-            out["limit"] = base.limits[k]
-        rows.append(out)
-    sizes = {label(g): s for run in runs for g, s in run.size.items()}
-    return {
-        "limit": base.limit,
-        "reference_ms": {label(g): round(ms, 4) for g, ms in reference.items()},
-        "database": sizes,
-        "rows": rows,
-    }
+def cpu_lines(path: str | None) -> list[str]:
+    """The machine's CPU model and count, from `lscpu`'s output."""
+    if not path:
+        return []
+    fields = {}
+    for line in pathlib.Path(path).read_text().splitlines():
+        name, _, value = line.partition(":")
+        fields[name.strip()] = value.strip()
+    return [f"CPU: {fields.get('Model name', '?')}, {fields.get('CPU(s)', '?')} CPUs.", ""]
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("baseline")
-    parser.add_argument("runs", nargs="+")
-    parser.add_argument("--write-baseline")
+    parser.add_argument("limits")
+    parser.add_argument("--base", nargs="+", required=True)
+    parser.add_argument("--head", nargs="+", required=True)
+    parser.add_argument("--cpu")
     args = parser.parse_args()
-    path = pathlib.Path(args.baseline)
-    base = Baseline(json.loads(path.read_text()) if path.exists() else None)
-    runs = [Run(p) for p in args.runs]
-    reference = fastest(runs)
-    now = measure(runs, reference)
-    lines, failures = report(runs, now, base, reference)
+    limits = json.loads(pathlib.Path(args.limits).read_text())
+    base, head = Side(args.base), Side(args.head)
+    groups = dict.fromkeys(k[:2] for k in [*head.times, *base.times])
+    lines = cpu_lines(args.cpu)
+    total = failures = 0
+    for g in groups:
+        more, rows, failed = section(g, base, head, limits)
+        lines += more
+        total += rows
+        failures += failed
+    lines.append(f"{failures} of {total} rows fail." if failures else f"All {total} rows pass.")
     text = "\n".join(lines) + "\n"
     print(text)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a") as out:
-            out.write("## Segment bench\n\n" + text)
-    if args.write_baseline:
-        pathlib.Path(args.write_baseline).write_text(
-            json.dumps(proposed(runs, now, base, reference), indent=2) + "\n"
-        )
-    return 1 if failures and base.present else 0
+            out.write("## Segment bench, HEAD against refs/bench/git-sync\n\n" + text)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

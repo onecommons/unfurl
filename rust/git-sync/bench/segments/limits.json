@@ -1,0 +1,6 @@
+{
+  "limit": 1.5,
+  "rows": {
+    "20k/PostgreSQL/read/2. find with a JSON filter, one page": 2.0
+  }
+}

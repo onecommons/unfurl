@@ -62,19 +62,23 @@ cargo test --release --features postgres --lib bench_segments_pg -- --ignored --
 cargo test --release --lib bench_segments_sqlite -- --ignored --nocapture
 ```
 
-The nightly workflow (`.github/workflows/nightly.yml`) runs both three
-times for each of two families, the default ("20k") and "500" below,
-each against a freshly generated database, with `$BENCH_JSON` naming a
-file for the rows and `$BENCH_FAMILY` the family. `compare.py` then
-checks them against `baseline.json`: each family's database size
-exactly, failing all its rows where it differs, as their ratios aren't
-comparable; each row's statements exactly; and its time in proportion
-to the reference read's in the same family (a scan of every record), at
-most twice the baseline's or the row's own `limit`. A read's time is the
-fastest of six calls, a write's that of its n together. It reports every
-row, passing or not. A change meant to move a number updates
-`baseline.json` in the same commit, from the job's `bench` artifact,
-which holds what that run would make the baseline.
+The nightly workflow (`.github/workflows/nightly.yml`) times HEAD
+against a baseline commit, `refs/bench/git-sync`, on the same machine in
+the same job: GitHub's runners differ by CPU, and a time stored from one
+doesn't hold on another. It builds both, then runs each three times for
+each of two families, the default ("20k") and "500" below, alternating
+which side goes first, each on a fresh database from its own side's
+migrations and `generate.sql`, with `$BENCH_JSON` naming a file for the
+rows and `$BENCH_FAMILY` the family. `compare.py` then fails a row where
+its fastest time at HEAD is more than its limit times the base's (1.5 by
+default, in `limits.json`), where it takes more statements than at the
+base, or where it's gone from HEAD; and all a family's rows where its
+database differs between the two. A read's time is the fastest of six
+calls, a write's that of its n together. It reports every row, with the
+runner's CPU. To accept a change that moves a number, move the ref:
+`git push --force origin <commit>:refs/bench/git-sync`. It's neither a
+branch nor a tag, so moving it runs no workflow, and it keeps its commit
+when a branch's history is rewritten.
 
 At the defaults, generation takes about 20 seconds, `baseline.sql` about
 30, and `check.sql` a few seconds. Since 2026-10-21 generation ends with
