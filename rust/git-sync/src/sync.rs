@@ -442,6 +442,15 @@ impl SyncedRepo {
         &self.inner.formats
     }
 
+    /// What the write path needs of this worktree.
+    pub(crate) fn writer(&self) -> crate::crud::Writer<'_> {
+        crate::crud::Writer {
+            worktree_id: self.worktree_id(),
+            family_id: self.family_id(),
+            formats: self.formats(),
+        }
+    }
+
     /// A handle on `worktree_id`, a worktree of this one's family with no
     /// checkout: this handle's database, formats and repository. Only for
     /// what reads git and the database, never a working tree, which would
@@ -1576,7 +1585,7 @@ impl SyncedRepo {
         // Dispatch on the concrete pool type; the body is shared via the
         // generic `crud_create_in_pool` (same pattern as `apply_batch`).
         on_pool!(self.db(), pool => crud_create_in_pool(
-                    self,
+                    self.writer(),
                     pool,
                     WriteTarget {
                         file_path,
@@ -1619,7 +1628,7 @@ impl SyncedRepo {
         resolve: bool,
     ) -> Result<WriteOutcome> {
         on_pool!(self.db(), pool => crud_update_in_pool(
-                    self,
+                    self.writer(),
                     pool,
                     WriteTarget {
                         file_path,
@@ -1662,7 +1671,7 @@ impl SyncedRepo {
         resolve: bool,
     ) -> Result<WriteOutcome> {
         on_pool!(self.db(), pool => crud_upsert_in_pool(
-                    self,
+                    self.writer(),
                     pool,
                     WriteTarget {
                         file_path,
@@ -1706,7 +1715,7 @@ impl SyncedRepo {
         resolve: bool,
     ) -> Result<WriteOutcome> {
         on_pool!(self.db(), pool => crud_delete_in_pool(
-                    self,
+                    self.writer(),
                     pool,
                     WriteTarget {
                         file_path,
@@ -1750,7 +1759,7 @@ impl SyncedRepo {
         file_path: &str,
         expected_commit: Option<CommitRef>,
     ) -> Result<Vec<WriteOutcome>> {
-        on_pool!(self.db(), pool => delete_file_in_pool(self, pool, file_path, expected_commit).await)
+        on_pool!(self.db(), pool => delete_file_in_pool(self.writer(), pool, file_path, expected_commit).await)
     }
 
     /// Apply a batch of [`BatchOp`]s under a single SQL transaction.
@@ -1782,7 +1791,7 @@ impl SyncedRepo {
         atomic: bool,
         meta: Option<TxnMeta>,
     ) -> Result<BatchOutcome> {
-        on_pool!(self.db(), pool => apply_batch_inner(self, pool, ops, atomic, false, meta).await)
+        on_pool!(self.db(), pool => apply_batch_inner(self.writer(), pool, ops, atomic, false, meta).await)
     }
 
     /// [`Self::apply_batch`], with each written record checked by its
@@ -1797,7 +1806,7 @@ impl SyncedRepo {
         atomic: bool,
         meta: Option<TxnMeta>,
     ) -> Result<BatchOutcome> {
-        on_pool!(self.db(), pool => apply_batch_inner(self, pool, ops, atomic, true, meta).await)
+        on_pool!(self.db(), pool => apply_batch_inner(self.writer(), pool, ops, atomic, true, meta).await)
     }
 
     /// Every `txn` audit row of this worktree, oldest version range

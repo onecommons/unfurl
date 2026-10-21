@@ -12,11 +12,20 @@
 
 use crate::commit::CommitId;
 use crate::db::store::{Filter, Scope, Store};
-use crate::db::tables::{At, RecordRow};
+use crate::db::tables::{At, Place, RecordRow};
 use crate::error::{Error, Result};
+use crate::format::FormatRegistry;
 use crate::model::{Applied, BatchOp, BatchOutcome, Failed, Record, TxnMeta, WriteOutcome};
 use crate::segments::{self, Origin, Value};
-use crate::sync::{CommitRef, SyncedRepo};
+use crate::sync::CommitRef;
+
+/// What the write path needs of the worktree it writes in.
+#[derive(Clone, Copy)]
+pub(crate) struct Writer<'a> {
+    pub(crate) worktree_id: i64,
+    pub(crate) family_id: i64,
+    pub(crate) formats: &'a FormatRegistry,
+}
 
 /// Where a CRUD write lands, before the file path is resolved.
 ///
@@ -123,29 +132,43 @@ fn only_live(
     Ok(live.pop())
 }
 
+/// What a write is checked against before anything is written.
+struct Checked {
+    /// Where it writes: the caller's file, else the live record's, else
+    /// (creating) the worktree's default.
+    place: Place,
+    /// The live record the view shows at the key.
+    live: Option<RecordRow>,
+    /// The record it replaces: the draft's own row at the key, tombstone or
+    /// not, else the live one; `None` for a new record.
+    record: Option<i64>,
+    draft: i64,
+}
+
 /// One write in the caller's transaction, at an already drawn `version`.
 async fn write_in_tx<DB: Store>(
-    sync: &SyncedRepo,
+    writer: Writer<'_>,
     tx: &mut sqlx::Transaction<'_, DB>,
     request: Request<'_>,
     version: i64,
 ) -> Result<WriteOutcome> {
-    let Request {
-        kind,
-        at,
-        json,
-        expected,
-        resolve,
-        validate,
-    } = request;
-    let w = sync.worktree_id();
+    let checked = check(writer.worktree_id, tx, &request).await?;
+    apply(writer, tx, request, checked, version).await
+}
+
+/// `request` against the view: the record at its key, its file, and the
+/// checks of its kind and token.
+async fn check<DB: Store>(
+    worktree_id: i64,
+    tx: &mut sqlx::Transaction<'_, DB>,
+    request: &Request<'_>,
+) -> Result<Checked> {
     let WriteTarget {
         file_path,
         path,
         key,
-    } = at;
-    // The live record the view shows at the key, in the named file or
-    // any; a tombstone reads as absent.
+    } = request.at;
+    // a tombstone reads as absent
     let filter = match file_path {
         Some(file_path) => Filter::At(At {
             file_path,
@@ -154,104 +177,97 @@ async fn write_in_tx<DB: Store>(
         }),
         None => Filter::PathKey(path, key),
     };
-    let live = only_live(
-        DB::visible(tx, w, Scope::Own, filter).await?,
-        file_path,
-        path,
-        key,
-    )?;
-    // Resolve the effective file_path: caller-supplied, then the existing
-    // record's file, then (creating) the worktree default.
-    let resolved_fp = match file_path.or(live.as_ref().map(|r| r.file_path.as_str())) {
+    let rows = DB::visible(tx, worktree_id, Scope::Own, filter).await?;
+    let live = only_live(rows, file_path, path, key)?;
+    let file_path = match file_path.or(live.as_ref().map(|r| r.file_path.as_str())) {
         Some(f) => f.to_string(),
-        None if matches!(kind, Kind::Create | Kind::Upsert) => DB::default_file_path(tx, w)
-            .await?
-            .ok_or_else(|| Error::NotFound {
-                file_path: String::new(),
-                path: path.to_string(),
-            })?,
+        None if matches!(request.kind, Kind::Create | Kind::Upsert) => {
+            DB::default_file_path(tx, worktree_id)
+                .await?
+                .ok_or_else(|| Error::NotFound {
+                    file_path: String::new(),
+                    path: path.to_string(),
+                })?
+        }
         None => String::new(),
     };
-    let target = At {
-        file_path: &resolved_fp,
-        path,
-        key,
-    };
-    match (kind, &live) {
+    match (request.kind, &live) {
         (Kind::Create, Some(_)) => {
             return Err(Error::AlreadyExists {
-                file_path: resolved_fp.clone(),
+                file_path,
                 path: path.to_string(),
             })
         }
         (Kind::Update | Kind::Delete, None) => {
             return Err(Error::NotFound {
-                file_path: resolved_fp.clone(),
+                file_path,
                 path: path.to_string(),
             })
         }
         _ => {}
     }
-    if let Some(exp) = expected {
+    if let Some(expected) = request.expected {
         enforce_conflict(
-            &resolved_fp,
+            &file_path,
             path,
-            exp,
+            expected,
             live.as_ref().and_then(|r| r.commit_id.as_ref()),
             live.as_ref().map(|r| r.version),
             live.is_some(),
         )?;
     }
-    // The record it replaces: the draft's own row at the key, tombstone
-    // or not, else the live one the view shows; otherwise a new one.
-    let d = DB::segs(tx, w).await?.draft;
-    let record = DB::rows_in(tx, d, Some(&resolved_fp), false)
+    let draft = DB::segs(tx, worktree_id).await?.draft;
+    let place = Place::new(&file_path, path, key);
+    let record = DB::rows_in(tx, draft, Some(&file_path), false)
         .await?
         .into_iter()
-        .find(|r| r.at() == target)
+        .find(|r| r.at() == place.as_at())
         .map(|r| r.key_id)
         .or(live.as_ref().map(|r| r.key_id));
-    let format_owner = match kind {
-        Kind::Upsert => ensure_file_registered(sync, tx, &resolved_fp, path).await?,
-        _ => DB::file_format(tx, w, &resolved_fp).await?,
+    Ok(Checked {
+        place,
+        live,
+        record,
+        draft,
+    })
+}
+
+/// The write `request`, `checked` already: its row, its aliases, and with
+/// `resolve`, its key's conflict row dropped.
+async fn apply<DB: Store>(
+    writer: Writer<'_>,
+    tx: &mut sqlx::Transaction<'_, DB>,
+    request: Request<'_>,
+    checked: Checked,
+    version: i64,
+) -> Result<WriteOutcome> {
+    let (w, target) = (writer.worktree_id, checked.place.as_at());
+    let format_owner = match request.kind {
+        Kind::Upsert => ensure_file_registered(writer, tx, target.file_path, target.path).await?,
+        _ => DB::file_format(tx, w, target.file_path).await?,
     };
-    let written = match json {
+    let (edit, record) = (Origin::Edit, checked.record);
+    let written = match request.json {
         Some(mut json) => {
+            let previous = checked.live.as_ref().map(|r| &r.json);
             prepare_record(
-                sync,
+                writer.formats,
                 target,
-                live.as_ref().map(|r| &r.json),
+                previous,
                 &mut json,
-                validate,
+                request.validate,
             )?;
-            let written = segments::write(
-                tx,
-                w,
-                target,
-                Value::Live(&json),
-                Origin::Edit,
-                record,
-                version,
-            )
-            .await?;
-            let aliases = compute_aliases(
-                sync,
-                format_owner.as_deref(),
-                written.key_id,
-                &resolved_fp,
-                path,
-                key,
-                &json,
-            );
+            let value = Value::Live(&json);
+            let written = segments::write(tx, w, target, value, edit, record, version).await?;
+            let owner = format_owner.as_deref();
+            let aliases = compute_aliases(writer, owner, written.key_id, target, &json);
             DB::replace_aliases(tx, written.id, &aliases).await?;
             written
         }
-        None => {
-            segments::write(tx, w, target, Value::Deleted, Origin::Edit, record, version).await?
-        }
+        None => segments::write(tx, w, target, Value::Deleted, edit, record, version).await?,
     };
-    if resolve {
-        segments::drop_conflict(tx, d, target).await?;
+    if request.resolve {
+        segments::drop_conflict(tx, checked.draft, target).await?;
     }
     Ok(WriteOutcome {
         id: written.key_id,
@@ -262,13 +278,13 @@ async fn write_in_tx<DB: Store>(
 /// [`crate::DataFormat::prepare_write`] on `json`, then, if `validate`,
 /// [`crate::DataFormat::validate_record`].
 fn prepare_record(
-    sync: &SyncedRepo,
+    formats: &FormatRegistry,
     target: At<'_>,
     previous: Option<&serde_json::Value>,
     json: &mut serde_json::Value,
     validate: bool,
 ) -> Result<()> {
-    let Some(format) = sync.formats().for_path(target.path) else {
+    let Some(format) = formats.for_path(target.path) else {
         return Ok(());
     };
     format.prepare_write(target.path, previous, json);
@@ -285,19 +301,19 @@ fn prepare_record(
 
 /// One write in its own transaction.
 async fn write_one<DB: Store>(
-    sync: &SyncedRepo,
+    writer: Writer<'_>,
     pool: &sqlx::Pool<DB>,
     request: Request<'_>,
 ) -> Result<WriteOutcome> {
     let mut tx = pool.begin().await?;
-    let version = DB::next_version(&mut tx, sync.family_id(), 1).await?;
-    let out = write_in_tx(sync, &mut tx, request, version).await?;
+    let version = DB::next_version(&mut tx, writer.family_id, 1).await?;
+    let out = write_in_tx(writer, &mut tx, request, version).await?;
     tx.commit().await?;
     Ok(out)
 }
 
 pub(crate) async fn crud_create_in_pool<DB: Store>(
-    sync: &SyncedRepo,
+    writer: Writer<'_>,
     pool: &sqlx::Pool<DB>,
     at: WriteTarget<'_>,
     json: serde_json::Value,
@@ -312,11 +328,11 @@ pub(crate) async fn crud_create_in_pool<DB: Store>(
         resolve,
         validate: false,
     };
-    write_one(sync, pool, request).await
+    write_one(writer, pool, request).await
 }
 
 pub(crate) async fn crud_update_in_pool<DB: Store>(
-    sync: &SyncedRepo,
+    writer: Writer<'_>,
     pool: &sqlx::Pool<DB>,
     at: WriteTarget<'_>,
     json: serde_json::Value,
@@ -331,11 +347,11 @@ pub(crate) async fn crud_update_in_pool<DB: Store>(
         resolve,
         validate: false,
     };
-    write_one(sync, pool, request).await
+    write_one(writer, pool, request).await
 }
 
 pub(crate) async fn crud_upsert_in_pool<DB: Store>(
-    sync: &SyncedRepo,
+    writer: Writer<'_>,
     pool: &sqlx::Pool<DB>,
     at: WriteTarget<'_>,
     json: serde_json::Value,
@@ -350,11 +366,11 @@ pub(crate) async fn crud_upsert_in_pool<DB: Store>(
         resolve,
         validate: false,
     };
-    write_one(sync, pool, request).await
+    write_one(writer, pool, request).await
 }
 
 pub(crate) async fn crud_delete_in_pool<DB: Store>(
-    sync: &SyncedRepo,
+    writer: Writer<'_>,
     pool: &sqlx::Pool<DB>,
     at: WriteTarget<'_>,
     expected_commit: Option<CommitRef>,
@@ -368,7 +384,7 @@ pub(crate) async fn crud_delete_in_pool<DB: Store>(
         resolve,
         validate: false,
     };
-    write_one(sync, pool, request).await
+    write_one(writer, pool, request).await
 }
 
 /// Generic batch driver: opens one transaction on `pool`, walks
@@ -376,7 +392,7 @@ pub(crate) async fn crud_delete_in_pool<DB: Store>(
 /// commits (success / non-atomic with failures) or rolls back (atomic
 /// + first failure).
 pub(crate) async fn apply_batch_inner<DB: Store>(
-    sync: &SyncedRepo,
+    writer: Writer<'_>,
     pool: &sqlx::Pool<DB>,
     ops: Vec<BatchOp>,
     atomic: bool,
@@ -391,7 +407,7 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
     let base = if ops.is_empty() {
         0
     } else {
-        DB::next_version(&mut tx, sync.family_id(), ops.len() as i64).await?
+        DB::next_version(&mut tx, writer.family_id, ops.len() as i64).await?
     };
     for (index, op) in ops.into_iter().enumerate() {
         let path = op.path().to_string();
@@ -408,7 +424,7 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
                 resolve,
             } => {
                 write_in_tx(
-                    sync,
+                    writer,
                     &mut tx,
                     Request {
                         kind: Kind::Upsert,
@@ -434,7 +450,7 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
                 resolve,
             } => {
                 write_in_tx(
-                    sync,
+                    writer,
                     &mut tx,
                     Request {
                         kind: Kind::Delete,
@@ -497,7 +513,7 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
         let created_at = chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
         DB::insert_txn(
             &mut tx,
-            sync.worktree_id(),
+            writer.worktree_id,
             (first, last),
             meta.author.as_deref(),
             meta.message.as_deref(),
@@ -518,48 +534,46 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
 /// The format is taken from whichever registered [`crate::DataFormat`] claims
 /// the record's section.
 pub(crate) async fn ensure_file_registered<DB: Store>(
-    sync: &SyncedRepo,
+    writer: Writer<'_>,
     tx: &mut sqlx::Transaction<'_, DB>,
     file_path: &str,
     record_path: &str,
 ) -> Result<Option<String>> {
-    if let Some(existing) = DB::file_format(tx, sync.worktree_id(), file_path).await? {
+    if let Some(existing) = DB::file_format(tx, writer.worktree_id, file_path).await? {
         return Ok(Some(existing));
     }
     // No format claims this section, so there's nothing to record the file as
     // — `file.format` is NOT NULL. Callers writing a section no registered
     // format knows about get a clear error.
-    let format = sync
-        .formats()
+    let format = writer
+        .formats
         .for_path(record_path)
         .ok_or_else(|| Error::UnknownFormat(record_path.to_string()))?
         .name()
         .to_string();
-    DB::ensure_file(tx, sync.worktree_id(), file_path, &format).await?;
+    DB::ensure_file(tx, writer.worktree_id, file_path, &format).await?;
     Ok(Some(format))
 }
 
 pub(crate) fn compute_aliases(
-    sync: &SyncedRepo,
+    writer: Writer<'_>,
     format_owner: Option<&str>,
     record_id: i64,
-    file_path: &str,
-    path: &str,
-    key: &str,
+    at: At<'_>,
     json: &serde_json::Value,
 ) -> Vec<(String, String)> {
     let Some(name) = format_owner else {
         return Vec::new();
     };
-    let Some(fmt) = sync.formats().by_name(name) else {
+    let Some(fmt) = writer.formats.by_name(name) else {
         return Vec::new();
     };
     let record = Record {
         id: record_id,
-        worktree_id: sync.worktree_id(),
-        file_path: file_path.to_string(),
-        path: path.to_string(),
-        key: key.to_string(),
+        worktree_id: writer.worktree_id,
+        file_path: at.file_path.to_string(),
+        path: at.path.to_string(),
+        key: at.key.to_string(),
         commit_id: None,
         json: json.clone(),
         deleted: false,
@@ -579,12 +593,12 @@ pub(crate) fn compute_aliases(
 /// stub on the next save, which is the shape this whole path exists to
 /// avoid.
 pub(crate) async fn delete_file_in_pool<DB: Store>(
-    sync: &SyncedRepo,
+    writer: Writer<'_>,
     pool: &sqlx::Pool<DB>,
     file_path: &str,
     expected_commit: Option<CommitRef>,
 ) -> Result<Vec<WriteOutcome>> {
-    let w = sync.worktree_id();
+    let w = writer.worktree_id;
     let mut tx = pool.begin().await?;
     let (commit_id, _) = DB::file_state(&mut tx, w, file_path)
         .await?
@@ -614,7 +628,7 @@ pub(crate) async fn delete_file_in_pool<DB: Store>(
     let base = if live.is_empty() {
         0
     } else {
-        DB::next_version(&mut tx, sync.family_id(), live.len() as i64).await?
+        DB::next_version(&mut tx, writer.family_id, live.len() as i64).await?
     };
     let mut out = Vec::with_capacity(live.len());
     for (index, row) in live.iter().enumerate() {

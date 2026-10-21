@@ -503,9 +503,7 @@ pub(crate) async fn resolve_conflict_in_tx<DB: Store>(
     expected_commit: Option<CommitRef>,
 ) -> Result<WriteOutcome> {
     let At {
-        file_path,
-        path,
-        key,
+        file_path, path, ..
     } = at;
     let w = sync.worktree_id();
     let version = DB::next_version(tx, sync.family_id(), 1).await?;
@@ -598,12 +596,10 @@ pub(crate) async fn resolve_conflict_in_tx<DB: Store>(
             .await?;
             let format_owner = DB::file_format(tx, w, file_path).await?;
             let aliases = compute_aliases(
-                sync,
+                sync.writer(),
                 format_owner.as_deref(),
                 written.key_id,
-                file_path,
-                path,
-                key,
+                at,
                 json,
             );
             DB::replace_aliases(tx, written.id, &aliases).await?;

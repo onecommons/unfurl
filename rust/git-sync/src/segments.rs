@@ -62,18 +62,23 @@ pub(crate) async fn write<DB: Store>(
             .find(|y| y.key_id == id && y.at() != at && edit)
             .cloned()
     });
-    let live_anywhere = match record {
-        Some(id) => live_anywhere(tx, w, &draft, id).await?,
-        None => false,
+    // the record's committed rows, unless the draft shows it live: then an
+    // edit's base is its draft row's
+    let in_draft = record.is_some_and(|id| draft.iter().any(|y| y.key_id == id && !y.deleted));
+    let committed = match record {
+        Some(id) if !in_draft => DB::visible(tx, w, Scope::Chain, Filter::KeyId(id)).await?,
+        _ => Vec::new(),
     };
+    // live nowhere in the view, it's a re-create, with no base
+    let live_anywhere = in_draft || committed.iter().any(|r| !r.deleted);
     if let (Some(y), Some(id)) = (&other, record) {
         replace_other(tx, w, d, y, id).await?;
     }
     let prior = draft.iter().find(|y| y.at() == at).cloned();
-    let (base, base_json) = if edit && live_anywhere {
-        edit_base(tx, w, record, prior.as_ref(), other.as_ref()).await?
-    } else {
-        (None, None)
+    let (base, base_json) = match prior.as_ref().or(other.as_ref()) {
+        _ if !edit || !live_anywhere => (None, None),
+        Some(y) => (y.base_commit_id, y.base_json.clone()),
+        None => edit_base(&committed),
     };
     let shown = DB::visible(tx, w, Scope::Own, Filter::At(at)).await?;
     let mut settled: BTreeSet<i64> = prior
@@ -140,22 +145,6 @@ pub(crate) async fn write<DB: Store>(
     Ok(Written { id, key_id })
 }
 
-/// Whether `w`'s view shows record `id` live anywhere, a live row in
-/// `draft` included, the writer's own too. A write of a record it doesn't
-/// is a re-create, with no base.
-async fn live_anywhere<DB: Store>(
-    tx: &mut sqlx::Transaction<'_, DB>,
-    w: i64,
-    draft: &[RecordRow],
-    id: i64,
-) -> Result<bool> {
-    Ok(draft.iter().any(|y| y.key_id == id && !y.deleted)
-        || DB::visible(tx, w, Scope::Chain, Filter::KeyId(id))
-            .await?
-            .iter()
-            .any(|r| !r.deleted))
-}
-
 /// Remove draft `d`'s edit `y` of record `id`, which a write of it at
 /// another key replaces.
 async fn replace_other<DB: Store>(
@@ -185,28 +174,13 @@ async fn replace_other<DB: Store>(
     Ok(())
 }
 
-/// The committed version an edit of `record` was made over, its commit and
-/// content: the base of the edit it replaces at its key, `prior`, or at
-/// another, `other`, else the record's committed version in the view, at
-/// whatever key.
-async fn edit_base<DB: Store>(
-    tx: &mut sqlx::Transaction<'_, DB>,
-    w: i64,
-    record: Option<i64>,
-    prior: Option<&RecordRow>,
-    other: Option<&RecordRow>,
-) -> Result<(Option<CommitId>, Option<serde_json::Value>)> {
-    if let Some(y) = prior.or(other) {
-        return Ok((y.base_commit_id, y.base_json.clone()));
-    }
-    Ok(match record {
-        Some(id) => DB::visible(tx, w, Scope::Chain, Filter::KeyId(id))
-            .await?
-            .into_iter()
-            .find(|r| !r.deleted)
-            .map_or((None, None), |r| (r.commit_id, Some(r.json))),
-        None => (None, None),
-    })
+/// The committed version an edit was made over, its commit and content:
+/// the live one of its record's `committed` rows, at whatever key.
+fn edit_base(committed: &[RecordRow]) -> (Option<CommitId>, Option<serde_json::Value>) {
+    committed
+        .iter()
+        .find(|r| !r.deleted)
+        .map_or((None, None), |r| (r.commit_id, Some(r.json.clone())))
 }
 
 /// The rows a write at `at` was made over: those `shown` there, and the
