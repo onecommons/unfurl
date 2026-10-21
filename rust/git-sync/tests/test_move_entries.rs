@@ -8,7 +8,7 @@ mod common;
 
 use common::crud_test;
 use tempfile::TempDir;
-use unfurl_git_sync::{Db, FormatRegistry, ScanOptions, SyncedRepo};
+use unfurl_git_sync::{Db, FormatRegistry, RecordQuery, ScanOptions, SyncedRepo, WorktreeFilter};
 
 const MOVER: &str = "git://example.com/mover.git";
 
@@ -89,6 +89,41 @@ async fn hidden(db: &Db, w: i64, key: &str) -> Vec<(String, i64, i64)> {
     rows
 }
 
+/// `key`'s rows in a read across worktrees `ids`: `(worktree, file, record
+/// id, name, deleted)`, sorted.
+async fn read_across(
+    sync: &SyncedRepo,
+    ids: Vec<i64>,
+    key: &str,
+) -> Vec<(i64, String, i64, Option<String>, bool)> {
+    let query = RecordQuery {
+        worktrees: Some(WorktreeFilter {
+            ids: Some(ids),
+            ..Default::default()
+        }),
+        path: Some("/repositories".into()),
+        key: Some(key.into()),
+        ..Default::default()
+    };
+    let mut rows: Vec<_> = sync
+        .find_records(&query)
+        .await
+        .expect("find")
+        .into_iter()
+        .map(|r| {
+            (
+                r.worktree_id,
+                r.file_path,
+                r.id,
+                r.json["name"].as_str().map(str::to_string),
+                r.deleted,
+            )
+        })
+        .collect();
+    rows.sort();
+    rows
+}
+
 /// A record one commit moves into two files keeps its id in one, and only
 /// that one takes over the edit a branch's draft made over it: the other
 /// is a new record, which the edit was never made over.
@@ -134,5 +169,17 @@ async fn a_move_into_two_files_hands_the_entry_to_one(sync: &SyncedRepo, tmp: &T
     assert_eq!(moved.len(), 1, "one destination takes the entry: {after:?}");
     let (_, row, tag) = moved[0];
     assert_eq!((row, tag), (id, id), "the one keeping the id: {after:?}");
+
+    // a read across both: the branch's edit hides main's row that kept the
+    // record's id, but not the new record in the other file
+    let (main, b) = (sync.worktree_id(), branch.worktree_id());
+    let (kept, mut want): (Vec<_>, Vec<_>) = read_across(sync, vec![main], MOVER)
+        .await
+        .into_iter()
+        .partition(|r| r.2 == *id);
+    assert_eq!(kept.len(), 1, "main keeps the id in one file: {kept:?}");
+    want.push((b, "cloudmap.yaml".into(), *id, Some("edited".into()), false));
+    want.sort();
+    assert_eq!(read_across(sync, vec![main, b], MOVER).await, want);
 }
 crud_test!(a_move_into_two_files_hands_the_entry_to_one);
