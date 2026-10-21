@@ -51,13 +51,14 @@ Homebrew's first on the `PATH`.
 
 The writes run after the reads, as they change the database: records of
 the bench's own, made, updated and deleted through `apply_batch_inner`
-and the single-record writes on the first fork. Their tombstones stay in
-its draft, and the next run's writes replace them, so regenerate before
-comparing runs.
+the single-record writes and a scan's on the first fork. Their tombstones
+stay in its draft, and the next run's writes replace them, so regenerate
+before comparing runs. Time writes in release builds: a debug build checks
+each single write's partial draft against reads of the whole one.
 
 ```bash
-cargo test --features postgres --lib bench_segments_pg -- --ignored --nocapture
-cargo test --lib bench_segments_sqlite -- --ignored --nocapture
+cargo test --release --features postgres --lib bench_segments_pg -- --ignored --nocapture
+cargo test --release --lib bench_segments_sqlite -- --ignored --nocapture
 ```
 
 At the defaults, generation takes about 20 seconds, `baseline.sql` about
@@ -424,3 +425,33 @@ after, 0.52 and 1.19.
   record at the key, the record's committed rows, other drafts' entries
   on them, the file's format. The committed chain doesn't change during
   a batch, so a batch could read those once for all its writes.
+
+## Single writes, 2026-10-21
+
+A single write, and each key a scan takes in, still read their
+worktree's whole draft: 1,110 rows on the first fork by then. Now they
+read only what a write at one key can touch: the rows at the places the
+key's records have rows, and the entries those records made or at the
+key (`Draft::around`). Per write, in release builds, at the defaults;
+"before" is the change before it with the scan's row added to the bench.
+The section above timed debug builds, which check each write's draft
+against a full read: a single update on SQLite took 13.8 ms there, 5.94
+here.
+
+| Write | n | statements | SQLite ms before | after | Postgres ms before | after |
+|---|---|---|---|---|---|---|
+| single update | 10 | 12.0 | 5.94 | 1.08 | 2.25 | 0.85 |
+| single delete | 10 | 11.0 | 5.95 | 1.09 | 2.11 | 0.42 |
+| scan take-in | 100 | 6.0 | 5.38 | 0.30 | 1.92 | 0.21 |
+| batch update | 1,000 | 8.0 | 0.31 | 0.33 | 0.33 | 0.36 |
+
+Postgres runs one statement more per transaction. The ten-write rows
+total 4 to 11 ms, so they vary by a third between runs.
+
+- **A single write now costs what a batched one does,** and a scan's
+  take-in what a batched create does (0.19 ms on SQLite). Neither grows
+  with the draft any more, only with the rows at its key's places.
+- **An index on `superseded(segment_id, key_id)`,** for the entries a
+  write's records made, didn't pay: with it, Postgres's batched updates
+  and deletes of 1,000 took 0.39 to 0.45 ms a write over three runs, and
+  0.36 in the one without, and single writes were no faster.

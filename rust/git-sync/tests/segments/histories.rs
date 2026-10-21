@@ -1402,6 +1402,25 @@ fn a_rebase_onto_a_merge_of_head_is_a_fast_forward() {
     ]);
 }
 
+/// Forks, a deletion and a move, then a write at the key the record moved
+/// to: an entry there hides a record with a row at another key of the
+/// draft, which a write loading only its part of the draft still reads.
+#[test]
+fn a_write_after_a_move_reads_the_hidden_records_rows() {
+    run(&[
+        Op::Rebuild(0, 0, 2, false),
+        Op::Fork(0, 0),
+        Op::Fork(0, 0),
+        Op::Fork(0, 0),
+        Op::Write(4, 2, false),
+        Op::Fork(0, 0),
+        Op::Delete(0),
+        Op::Fork(0, 0),
+        Op::Move(1, 2, false),
+        Op::Write(155, 5, false),
+    ]);
+}
+
 /// Main edits a record it shares with a fork, is rebuilt onto a root
 /// without it, and edits the key again, a new record now: the first
 /// edit's entries pass to the new one, so when an outside commit takes it

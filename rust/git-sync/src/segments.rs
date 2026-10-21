@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::commit::CommitId;
 use crate::db::store::{Filter, Scope, Store};
-use crate::db::tables::{At, NewRecordRow, RecordRow, Superseded};
+use crate::db::tables::{At, NewRecordRow, Place, RecordRow, Superseded};
 use crate::error::Result;
 use crate::model::ConflictState;
 
@@ -39,7 +39,8 @@ pub(crate) struct Written {
     pub(crate) key_id: i64,
 }
 
-/// [`Draft::write`] into worktree `w`'s draft, loaded for it.
+/// [`Draft::write`] into worktree `w`'s draft, the part of it the write
+/// can touch loaded for it.
 pub(crate) async fn write<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
@@ -49,7 +50,7 @@ pub(crate) async fn write<DB: Store>(
     record: Option<i64>,
     version: i64,
 ) -> Result<Written> {
-    let mut draft = Draft::load(tx, w).await?;
+    let mut draft = Draft::around(tx, w, at, record).await?;
     let written = draft.write(tx, at, value, origin, record, version).await?;
     #[cfg(debug_assertions)]
     draft.assert_current(tx).await?;
@@ -69,6 +70,38 @@ pub(crate) struct Draft {
     conflicts: Option<Vec<RecordRow>>,
     /// The rows it hides, each with the edit that hid it.
     entries: Vec<Superseded>,
+    held: Held,
+}
+
+/// What a [`Draft`] holds of its segment.
+enum Held {
+    All,
+    /// What one write at `place` can touch ([`Store::rows_around`]): the
+    /// rows at `places`, where `place` and every row of `records` are, and
+    /// the entries `records` made or at `place`. Its lookups stay inside
+    /// them, which debug builds check; `places` comes from the rows
+    /// loaded, which debug builds check against the database.
+    Around {
+        place: Place,
+        records: BTreeSet<i64>,
+        places: BTreeSet<Place>,
+    },
+}
+
+impl Held {
+    fn record(&self, id: i64) -> bool {
+        match self {
+            Held::All => true,
+            Held::Around { records, .. } => records.contains(&id),
+        }
+    }
+
+    fn place(&self, at: At<'_>) -> bool {
+        match self {
+            Held::All => true,
+            Held::Around { places, .. } => places.iter().any(|p| p.as_at() == at),
+        }
+    }
 }
 
 /// `a` and `b` alike, their content as values: Postgres's jsonb gives back
@@ -130,7 +163,80 @@ impl Draft {
             rows: DB::rows_in(tx, segment, None, false).await?,
             conflicts: None,
             entries: DB::entries_in(tx, segment).await?,
+            held: Held::All,
         })
+    }
+
+    /// The part of worktree `worktree_id`'s draft a write at `at` of
+    /// `record` can touch, for that one write.
+    pub(crate) async fn around<DB: Store>(
+        tx: &mut sqlx::Transaction<'_, DB>,
+        worktree_id: i64,
+        at: At<'_>,
+        record: Option<i64>,
+    ) -> Result<Self> {
+        let segment = DB::segs(tx, worktree_id).await?.draft;
+        let (conflicts, rows): (Vec<RecordRow>, Vec<RecordRow>) =
+            DB::rows_around(tx, segment, at, record)
+                .await?
+                .into_iter()
+                .partition(|r| r.conflict.is_some());
+        let entries = DB::entries_around(tx, segment, at, record).await?;
+        // the records the store's query takes: `record`, those at `at`, and
+        // those an entry at `at` hides
+        let loaded = || rows.iter().chain(&conflicts);
+        let mut records: BTreeSet<i64> = record.into_iter().collect();
+        records.extend(loaded().filter(|r| r.at() == at).map(|r| r.key_id));
+        records.extend(
+            entries
+                .iter()
+                .filter(|e| e.at() == at)
+                .map(|e| e.row_key_id),
+        );
+        let place = Place::new(at.file_path, at.path, at.key);
+        let places: BTreeSet<Place> = loaded().map(Place::from).chain([place.clone()]).collect();
+        let draft = Draft {
+            worktree_id,
+            segment,
+            rows,
+            conflicts: Some(conflicts),
+            entries,
+            held: Held::Around {
+                place,
+                records,
+                places,
+            },
+        };
+        #[cfg(debug_assertions)]
+        draft.assert_loaded(tx, at, record).await?;
+        Ok(draft)
+    }
+
+    /// Panic where [`Self::around`]'s records aren't those the database
+    /// gives, or it holds other than what they say it must.
+    #[cfg(debug_assertions)]
+    async fn assert_loaded<DB: Store>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        at: At<'_>,
+        record: Option<i64>,
+    ) -> Result<()> {
+        let fresh = Draft::load(tx, self.worktree_id).await?;
+        let conflicts = DB::rows_in(tx, self.segment, None, true).await?;
+        let mut want: BTreeSet<i64> = record.into_iter().collect();
+        let here = fresh.rows.iter().chain(&conflicts).filter(|r| r.at() == at);
+        want.extend(here.map(|r| r.key_id));
+        want.extend(
+            fresh
+                .entries
+                .iter()
+                .filter(|e| e.at() == at)
+                .map(|e| e.row_key_id),
+        );
+        if let Held::Around { records, .. } = &self.held {
+            assert_eq!(records, &want, "the records a write at {at:?} can touch");
+        }
+        self.assert_current(tx).await
     }
 
     /// Panic where it no longer matches the database. Debug builds check it
@@ -140,7 +246,28 @@ impl Draft {
         &self,
         tx: &mut sqlx::Transaction<'_, DB>,
     ) -> Result<()> {
-        let fresh = Draft::load(tx, self.worktree_id).await?;
+        let mut fresh = Draft::load(tx, self.worktree_id).await?;
+        let mut conflicts = DB::rows_in(tx, self.segment, None, true).await?;
+        // what a draft around one write must hold, from the database rather
+        // than from what it loaded: every row of its records and at their
+        // places, and the entries they made or at the write's place
+        if let Held::Around { place, records, .. } = &self.held {
+            let mut places: BTreeSet<Place> = fresh
+                .rows
+                .iter()
+                .chain(&conflicts)
+                .filter(|r| records.contains(&r.key_id))
+                .map(Place::from)
+                .collect();
+            places.insert(place.clone());
+            let held =
+                |r: &RecordRow| records.contains(&r.key_id) || places.contains(&Place::from(r));
+            fresh.rows.retain(held);
+            conflicts.retain(held);
+            fresh
+                .entries
+                .retain(|e| records.contains(&e.key_id) || place.as_at() == e.at());
+        }
         let same = self.rows.len() == fresh.rows.len()
             && self
                 .rows
@@ -160,12 +287,11 @@ impl Draft {
             held(&fresh.entries),
             "the draft's cached entries"
         );
-        if let Some(conflicts) = &self.conflicts {
+        if let Some(cached) = &self.conflicts {
             let ids = |rows: &[RecordRow]| -> BTreeSet<i64> { rows.iter().map(|r| r.id).collect() };
-            let now = DB::rows_in(tx, self.segment, None, true).await?;
             assert_eq!(
-                ids(conflicts),
-                ids(&now),
+                ids(cached),
+                ids(&conflicts),
                 "the draft's cached conflict rows"
             );
         }
@@ -174,7 +300,17 @@ impl Draft {
 
     /// Its row at `at`, conflict rows apart.
     pub(crate) fn row_at(&self, at: At<'_>) -> Option<&RecordRow> {
+        debug_assert!(self.held.place(at), "{at:?} is outside the draft loaded");
         self.rows.iter().find(|r| r.at() == at)
+    }
+
+    /// Its rows of record `id`, conflict rows apart.
+    fn rows_of(&self, id: i64) -> impl Iterator<Item = &RecordRow> {
+        debug_assert!(
+            self.held.record(id),
+            "record {id} is outside the draft loaded"
+        );
+        self.rows.iter().filter(move |r| r.key_id == id)
     }
 
     async fn insert<DB: Store>(
@@ -200,6 +336,13 @@ impl Draft {
         };
         let (id, key_id) = DB::insert(tx, self.segment, row).await?;
         (new.id, new.key_id) = (id, key_id);
+        if let Held::Around {
+            records, places, ..
+        } = &mut self.held
+        {
+            records.insert(key_id);
+            places.insert(Place::from(&new));
+        }
         match (new.conflict, &mut self.conflicts) {
             (None, _) => {
                 self.rows.push(new);
@@ -259,6 +402,7 @@ impl Draft {
         tx: &mut sqlx::Transaction<'_, DB>,
         at: At<'_>,
     ) -> Result<()> {
+        debug_assert!(self.held.place(at), "{at:?} is outside the draft loaded");
         if self.conflicts.is_none() {
             self.conflicts = Some(DB::rows_in(tx, self.segment, None, true).await?);
         }
@@ -280,12 +424,7 @@ impl Draft {
         if old == new {
             return Ok(());
         }
-        let others: Vec<At<'_>> = self
-            .rows
-            .iter()
-            .filter(|y| y.key_id == old)
-            .map(RecordRow::at)
-            .collect();
+        let others: Vec<At<'_>> = self.rows_of(old).map(RecordRow::at).collect();
         let moving: Vec<Superseded> = self
             .entries
             .iter()
@@ -312,7 +451,7 @@ impl Draft {
         let Some(id) = record else {
             return Ok((None, None));
         };
-        if self.rows.iter().any(|y| y.key_id == id && !y.deleted) {
+        if self.rows_of(id).any(|y| !y.deleted) {
             return Ok(earlier.map_or((None, None), |y| (y.base_commit_id, y.base_json.clone())));
         }
         let committed = DB::visible(tx, self.worktree_id, Scope::Chain, Filter::KeyId(id)).await?;
@@ -341,12 +480,7 @@ impl Draft {
         let edit = matches!(origin, Origin::Edit);
         // at most one edit per record: one at another key is replaced by
         // this one, which keeps its base
-        let other = record.and_then(|id| {
-            self.rows
-                .iter()
-                .find(|y| y.key_id == id && y.at() != at && edit)
-                .cloned()
-        });
+        let other = record.and_then(|id| self.rows_of(id).find(|y| y.at() != at && edit).cloned());
         let prior = self.row_at(at).cloned();
         // before `other` goes: it may be the record's live row
         let (base, base_json) = match edit {
@@ -436,6 +570,10 @@ async fn replace_other<DB: Store>(
     id: i64,
 ) -> Result<()> {
     let w = draft.worktree_id;
+    debug_assert!(
+        draft.held.record(id),
+        "record {id} is outside the draft loaded"
+    );
     draft.drop_conflict(tx, y.at()).await?;
     draft.delete_row(tx, y.id).await?;
     // its entries stay with this edit, but its own tree's row of
@@ -499,16 +637,20 @@ async fn hide<DB: Store>(
     key_id: i64,
     seen: &[RecordRow],
 ) -> Result<()> {
+    debug_assert!(draft.held.place(at), "{at:?} is outside the draft loaded");
     let elsewhere: BTreeSet<i64> = draft
         .rows
         .iter()
         .filter(|r| r.at() != at)
         .map(|r| r.key_id)
         .collect();
-    let hidden: Vec<Superseded> = draft
-        .entries
-        .iter()
-        .filter(|e| e.at() == at && (e.deleted || !elsewhere.contains(&e.row_key_id)))
+    let here = draft.entries.iter().filter(|e| e.at() == at);
+    debug_assert!(
+        here.clone().all(|e| draft.held.record(e.row_key_id)),
+        "a record hidden at {at:?} is outside the draft loaded"
+    );
+    let hidden: Vec<Superseded> = here
+        .filter(|e| e.deleted || !elsewhere.contains(&e.row_key_id))
         .cloned()
         .collect();
     for r in seen {

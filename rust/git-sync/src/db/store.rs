@@ -69,6 +69,14 @@ fn view_cte(scope: Scope) -> &'static str {
     }
 }
 
+/// The records a write at `?2`..`?4` of `?5` in draft `?1` can touch:
+/// `?5`, the draft's at the place, and those an entry there hides.
+const AROUND: &str = "records(key_id) AS ( \
+    SELECT key_id FROM record WHERE segment_id = ?1 AND file_path = ?2 AND path = ?3 AND key = ?4 \
+    UNION SELECT h.key_id FROM record h JOIN superseded x ON x.record_id = h.id \
+      WHERE h.file_path = ?2 AND h.path = ?3 AND h.key = ?4 AND x.segment_id = ?1 \
+    UNION SELECT CAST(?5 AS BIGINT) WHERE CAST(?5 AS BIGINT) IS NOT NULL)";
+
 fn sort_rows(rows: &mut [RecordRow]) {
     rows.sort_by(|a, b| (a.at(), a.id).cmp(&(b.at(), b.id)));
 }
@@ -129,6 +137,26 @@ pub(crate) trait Store: sqlx::Database + Sized {
     fn entries_in(
         tx: &mut sqlx::Transaction<'_, Self>,
         seg: i64,
+    ) -> impl Future<Output = Result<Vec<Superseded>>> + Send;
+
+    /// Draft `seg`'s rows, conflict rows included, a write at `at` of
+    /// `record` can touch: those at `at` and at every place a row of
+    /// `record`, of a record with a row at `at`, or of one an entry at `at`
+    /// hides, is.
+    fn rows_around(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        seg: i64,
+        at: At<'_>,
+        record: Option<i64>,
+    ) -> impl Future<Output = Result<Vec<RecordRow>>> + Send;
+
+    /// The entries `seg` holds that the same write can touch: those its
+    /// records' edits made, and those on a row at `at`.
+    fn entries_around(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        seg: i64,
+        at: At<'_>,
+        record: Option<i64>,
     ) -> impl Future<Output = Result<Vec<Superseded>>> + Send;
 
     /// Drop one entry.
@@ -679,6 +707,79 @@ macro_rules! store_impl {
                     .execute(&mut **tx)
                     .await?;
                 Ok(())
+            }
+
+            async fn rows_around(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                seg: i64,
+                at: At<'_>,
+                record: Option<i64>,
+            ) -> Result<Vec<RecordRow>> {
+                let text = format!(
+                    "WITH {AROUND}, \
+                     places(file_path, path, key) AS ( \
+                       SELECT r.file_path, r.path, r.key FROM record r \
+                       JOIN records k ON k.key_id = r.key_id WHERE r.segment_id = ?1 \
+                       UNION SELECT CAST(?2 AS TEXT), CAST(?3 AS TEXT), CAST(?4 AS TEXT)) \
+                     SELECT {ROW_COLUMNS} FROM places p JOIN record r \
+                       ON r.file_path = p.file_path AND r.path = p.path AND r.key = p.key \
+                     WHERE r.segment_id = ?1"
+                );
+                let sql = db::spell(&*tx, text);
+                let mut rows = sqlx::query_as::<_, RecordColumns>(&sql)
+                    .bind(seg)
+                    .bind(at.file_path)
+                    .bind(at.path)
+                    .bind(at.key)
+                    .bind(record)
+                    .fetch_all(&mut **tx)
+                    .await?
+                    .into_iter()
+                    .map(RecordRow::try_from)
+                    .collect::<Result<Vec<_>>>()?;
+                sort_rows(&mut rows);
+                Ok(rows)
+            }
+
+            async fn entries_around(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                seg: i64,
+                at: At<'_>,
+                record: Option<i64>,
+            ) -> Result<Vec<Superseded>> {
+                let text = format!(
+                    "WITH {AROUND} \
+                     SELECT x.record_id, r.file_path, r.path, r.key, r.key_id, r.deleted, x.key_id \
+                     FROM superseded x JOIN records k ON k.key_id = x.key_id \
+                     JOIN record r ON r.id = x.record_id WHERE x.segment_id = ?1 \
+                     UNION \
+                     SELECT x.record_id, r.file_path, r.path, r.key, r.key_id, r.deleted, x.key_id \
+                     FROM record r JOIN superseded x ON x.record_id = r.id AND x.segment_id = ?1 \
+                     WHERE r.file_path = ?2 AND r.path = ?3 AND r.key = ?4 \
+                     ORDER BY 1, 7"
+                );
+                let sql = db::spell(&*tx, text);
+                let rows: Vec<(i64, String, String, String, i64, bool, i64)> =
+                    sqlx::query_as(&sql)
+                        .bind(seg)
+                        .bind(at.file_path)
+                        .bind(at.path)
+                        .bind(at.key)
+                        .bind(record)
+                        .fetch_all(&mut **tx)
+                        .await?;
+                Ok(rows
+                    .into_iter()
+                    .map(|(row, file_path, path, key, row_key_id, deleted, key_id)| Superseded {
+                        row,
+                        file_path,
+                        path,
+                        key,
+                        row_key_id,
+                        deleted,
+                        key_id,
+                    })
+                    .collect())
             }
 
             async fn entries_in(

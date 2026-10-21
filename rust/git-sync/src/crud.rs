@@ -144,26 +144,49 @@ struct Checked {
     record: Option<i64>,
 }
 
-/// One write in the caller's transaction, at an already drawn `version`.
+/// One write in the caller's transaction, at an already drawn `version`,
+/// through `draft`, or alone, through the part of its draft it can touch.
 async fn write_in_tx<DB: Store>(
     writer: Writer<'_>,
     tx: &mut sqlx::Transaction<'_, DB>,
-    draft: &mut Draft,
+    draft: Option<&mut Draft>,
     request: Request<'_>,
     version: i64,
 ) -> Result<WriteOutcome> {
-    let checked = check(tx, draft, &request).await?;
-    apply(writer, tx, draft, request, checked, version).await
+    let (place, live) = check(tx, writer.worktree_id, &request).await?;
+    let live_record = live.as_ref().map(|r| r.key_id);
+    let mut around = None;
+    let draft = match draft {
+        Some(draft) => draft,
+        None => {
+            let loaded = Draft::around(tx, writer.worktree_id, place.as_at(), live_record).await?;
+            around.insert(loaded)
+        }
+    };
+    let record = draft
+        .row_at(place.as_at())
+        .map(|r| r.key_id)
+        .or(live_record);
+    let checked = Checked {
+        place,
+        live,
+        record,
+    };
+    let out = apply(writer, tx, draft, request, checked, version).await?;
+    #[cfg(debug_assertions)]
+    if let Some(draft) = &around {
+        draft.assert_current(tx).await?;
+    }
+    Ok(out)
 }
 
-/// `request` against the view: the record at its key, its file, and the
+/// `request` against the view: its place, the live record there, and the
 /// checks of its kind and token.
 async fn check<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    draft: &Draft,
+    worktree_id: i64,
     request: &Request<'_>,
-) -> Result<Checked> {
-    let worktree_id = draft.worktree_id;
+) -> Result<(Place, Option<RecordRow>)> {
     let WriteTarget {
         file_path,
         path,
@@ -217,16 +240,7 @@ async fn check<DB: Store>(
             live.is_some(),
         )?;
     }
-    let place = Place::new(&file_path, path, key);
-    let record = draft
-        .row_at(place.as_at())
-        .map(|r| r.key_id)
-        .or(live.as_ref().map(|r| r.key_id));
-    Ok(Checked {
-        place,
-        live,
-        record,
-    })
+    Ok((Place::new(&file_path, path, key), live))
 }
 
 /// The write `request`, `checked` already: its row, its aliases, and with
@@ -311,10 +325,7 @@ async fn write_one<DB: Store>(
 ) -> Result<WriteOutcome> {
     let mut tx = pool.begin().await?;
     let version = DB::next_version(&mut tx, writer.family_id, 1).await?;
-    let mut draft = Draft::load(&mut tx, writer.worktree_id).await?;
-    let out = write_in_tx(writer, &mut tx, &mut draft, request, version).await?;
-    #[cfg(debug_assertions)]
-    draft.assert_current(&mut tx).await?;
+    let out = write_in_tx(writer, &mut tx, None, request, version).await?;
     tx.commit().await?;
     Ok(out)
 }
@@ -435,7 +446,7 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
                 write_in_tx(
                     writer,
                     &mut tx,
-                    &mut draft,
+                    Some(&mut draft),
                     Request {
                         kind: Kind::Upsert,
                         at: WriteTarget {
@@ -462,7 +473,7 @@ pub(crate) async fn apply_batch_inner<DB: Store>(
                 write_in_tx(
                     writer,
                     &mut tx,
-                    &mut draft,
+                    Some(&mut draft),
                     Request {
                         kind: Kind::Delete,
                         at: WriteTarget {
