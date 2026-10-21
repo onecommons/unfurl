@@ -1218,8 +1218,12 @@ pub(crate) async fn fold<DB: Store>(
         let unchanged = shown
             .iter()
             .find(|c| !c.deleted)
-            .is_some_and(|c| !x.deleted && c.json == x.json && c.key_id == x.key_id);
-        if unchanged {
+            .filter(|c| !x.deleted && c.json == x.json && c.key_id == x.key_id);
+        if let Some(c) = unchanged {
+            // other drafts' entries on the copy go to the row it matches,
+            // which they hide as they hid the copy
+            let entries = other_entries(tx, &[x], w).await?;
+            take_over(tx, &entries, c.id, Some(&x.json)).await?;
             remove_draft_row(tx, d, x.at()).await?;
             continue;
         }

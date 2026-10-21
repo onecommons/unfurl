@@ -937,8 +937,10 @@ and each draft's entries against its own. The disagreement that held
 the rule back was SQL's scan not giving a moved record's new row other
 drafts' entries (§3.5), not the rebase. A write takes over other drafts'
 entries on the rows it was made over (§3.3), so a fork's edit hides
-main's save of an unchanged value too; a fold or a scan never replaces a
-row with one of the same content, so neither needs to. The SQL harness has
+main's save of an unchanged value too. A fold that drops a draft's copy
+of what the chain already shows hands them on to the row the copy
+matches; a scan never replaces a row with one of the same content, so
+it needn't. The SQL harness has
 no user branches, so a draft entry on a row outside its own view, as
 §4.12's second branch point makes, is checked only once phase 3 adds
 them.

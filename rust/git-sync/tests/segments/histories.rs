@@ -2580,3 +2580,19 @@ fn a_version_main_brings_back_at_a_new_key_is_hidden_by_an_edit_made_over_it() {
         Op::Revert(0, 3, 1),
     ]);
 }
+
+/// A fork saves a record unchanged over main's edit of it, merges, and
+/// commits: the head already holds the content, so the commit drops the
+/// draft's copy, and main's edit hides the head's row as it hid the copy.
+#[test]
+fn a_dropped_unchanged_copy_hands_other_drafts_entries_to_its_match() {
+    run(&[
+        Op::DiskEdit(0, 3, false, FileWins::Never),
+        Op::Fork(0, 0),
+        Op::Fork(0, 0),
+        Op::Resave(187, 3),
+        Op::Rebuild(94, 13, 0, false),
+        Op::Merge(136, vec![(20, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Commit(97),
+    ]);
+}
