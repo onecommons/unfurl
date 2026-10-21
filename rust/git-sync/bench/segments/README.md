@@ -50,10 +50,11 @@ On macOS, asdf's Python links the system's SQLite 3.43; run `run.sh` with
 Homebrew's first on the `PATH`.
 
 The writes run after the reads, as they change the database: records of
-the bench's own, made, updated and deleted through `apply_batch_inner`
-the single-record writes and a scan's on the first fork. Their tombstones
-stay in its draft, and the next run's writes replace them, so regenerate
-before comparing runs. Time writes in release builds: a debug build checks
+the bench's own, made, updated and deleted through `apply_batch_inner`,
+the single-record writes and a scan's on the first fork, and last main's
+scan of a merge that changes 100 of its records. Their tombstones stay
+in the fork's draft, and the next run's writes replace them, so
+regenerate before comparing runs. Time writes in release builds: a debug build checks
 each single write's partial draft against reads of the whole one.
 
 ```bash

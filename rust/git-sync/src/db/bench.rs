@@ -12,7 +12,7 @@
 //!
 //! The write APIs run last, as they change the database: batches of
 //! records of the bench's own made and updated on [`FORK`], then deleted,
-//! each with the statements it took.
+//! each with the statements it took, and last main's scan of a merge.
 //!
 //! With `$BENCH_JSON` set, every row is also appended to that file, for
 //! `bench/segments/compare.py`.
@@ -24,10 +24,11 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
 
+use crate::commit::CommitId;
 use crate::crud::{apply_batch_inner, crud_delete_in_pool, crud_upsert_in_pool};
 use crate::crud::{WriteTarget, Writer};
-use crate::db::store::Store;
-use crate::db::tables::At;
+use crate::db::store::{Filter, Scope, Store};
+use crate::db::tables::{At, Place};
 use crate::db::{record, Db};
 use crate::format::FormatRegistry;
 use crate::model::{
@@ -406,6 +407,59 @@ async fn writes<DB: Store>(pool: &sqlx::Pool<DB>) {
     batch(deletes(taken)).await;
     timed(DB::NAME, "batch delete", 100, batch(deletes(10..110))).await;
     timed(DB::NAME, "batch delete", 1000, batch(deletes(110..made))).await;
+    let places = main_places(pool, 100).await;
+    timed(
+        DB::NAME,
+        "main scan",
+        places.len(),
+        merge_into_main(pool, places),
+    )
+    .await;
+}
+
+/// `n` places of live records in main's committed cloudmap.yaml.
+async fn main_places<DB: Store>(pool: &sqlx::Pool<DB>, n: usize) -> Vec<Place> {
+    let mut tx = pool.begin().await.expect("begin");
+    let rows = DB::visible(&mut tx, MAIN, Scope::Chain, Filter::File("cloudmap.yaml"))
+        .await
+        .expect("main's rows");
+    rows.iter()
+        .filter(|r| !r.deleted)
+        .take(n)
+        .map(Place::from)
+        .collect()
+}
+
+/// Main's scan of a merge that changed the records at `places`: each
+/// through [`segments::scan_key`], in one transaction.
+async fn merge_into_main<DB: Store>(pool: &sqlx::Pool<DB>, places: Vec<Place>) {
+    let commit: CommitId = "0123456789abcdef0123456789abcdef01234567"
+        .parse()
+        .expect("a commit id");
+    let mut tx = pool.begin().await.expect("begin");
+    let first = DB::next_version(&mut tx, MAIN, places.len() as i64)
+        .await
+        .expect("versions");
+    let json = serde_json::json!({ "name": "merged" });
+    for (place, version) in places.iter().zip(first..) {
+        let ids = segments::KeyIds {
+            named: None,
+            moved: None,
+            elsewhere: Default::default(),
+        };
+        segments::scan_key(
+            &mut tx,
+            MAIN,
+            place.as_at(),
+            Some(&json),
+            commit,
+            version,
+            ids,
+        )
+        .await
+        .expect("scan a key");
+    }
+    tx.commit().await.expect("commit");
 }
 
 /// The scan's draft side: a write taken in from a file at each of `keys`
