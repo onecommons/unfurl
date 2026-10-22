@@ -2,8 +2,10 @@ name: Nightly
 
 # What the push workflow doesn't run: the segments harness's random
 # searches against SQL (they're `#[ignore]`d), and the segment bench against
-# its baseline commit, refs/bench/git-sync. A schedule only runs from the default branch; on another
-# branch, editing this file runs it.
+# its baseline commit, refs/bench/git-sync. A schedule only runs from the
+# default branch; on another branch, editing this file runs it. Run by hand,
+# its inputs pick the searches, e.g.
+#   gh workflow run nightly.yml --ref BRANCH -f searches="rebases upstream_merges" -f runs=4 -f bench=false
 
 on:
   schedule:
@@ -13,11 +15,29 @@ on:
       - .github/workflows/nightly.yml
   workflow_dispatch:
     inputs:
+      searches:
+        description: Random searches to run, by name, e.g. "rebases upstream_merges"; empty runs all nine
+        default: ""
+      runs:
+        description: Independent runs of each search, per backend, each on its own runner (1-20)
+        default: "1"
+      backends:
+        description: Backends to search on
+        type: choice
+        options: [both, sqlite, postgres]
+        default: both
       cases:
-        description: Cases per random search
+        description: Cases per random search, per run
         default: "200"
+      rng_seed:
+        description: Fixed proptest RNG seed, to replay a run (every run is then the same); empty for random
+        default: ""
       shape_checks:
         description: Also check chain lengths and draft entries, which no read sees
+        type: boolean
+        default: true
+      bench:
+        description: Also time the segment bench against refs/bench/git-sync
         type: boolean
         default: true
 
@@ -29,18 +49,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # the search jobs' matrix: each backend, each run
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      backends: ${{ steps.plan.outputs.backends }}
+      runs: ${{ steps.plan.outputs.runs }}
+    steps:
+      - id: plan
+        env:
+          BACKENDS: ${{ inputs.backends || 'both' }}
+          RUNS: ${{ inputs.runs || '1' }}
+        run: |
+          case "$BACKENDS" in
+            both) echo 'backends=["sqlite","postgres"]' ;;
+            sqlite | postgres) echo "backends=[\"$BACKENDS\"]" ;;
+            *) echo "no backend $BACKENDS" >&2; exit 1 ;;
+          esac >> "$GITHUB_OUTPUT"
+          if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || [ "$RUNS" -lt 1 ] || [ "$RUNS" -gt 20 ]; then
+            echo "runs must be 1 to 20, not $RUNS" >&2
+            exit 1
+          fi
+          echo "runs=[$(seq 1 "$RUNS" | paste -sd, -)]" >> "$GITHUB_OUTPUT"
+
   segments:
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        backend: [sqlite, postgres]
+        backend: ${{ fromJSON(needs.plan.outputs.backends) }}
+        run: ${{ fromJSON(needs.plan.outputs.runs) }}
     env:
       BACKEND: ${{ matrix.backend }}
-      # a scheduled or pushed run has no inputs: shape checks on
+      # a scheduled or pushed run has no inputs: all nine, shape checks on
+      SEARCHES: ${{ inputs.searches || '' }}
       SHAPE_CHECKS: ${{ inputs.shape_checks || github.event_name != 'workflow_dispatch' }}
       PROPTEST_CASES: ${{ inputs.cases || '200' }}
+      RNG_SEED: ${{ inputs.rng_seed || '' }}
       UNFURL_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/unfurl_test
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -73,18 +120,27 @@ jobs:
         run: |
           if [ "$BACKEND" = postgres ]; then export SEGMENTS_SQL_PG=1; fi
           if [ "$SHAPE_CHECKS" != true ]; then export SEGMENTS_VISIBLE_ONLY=1; fi
-          cargo test --manifest-path rust/Cargo.toml -p unfurl-git-sync --features postgres \
-            --test segments_sql -- --ignored
+          if [ -n "$RNG_SEED" ]; then export PROPTEST_RNG_SEED=$RNG_SEED; fi
+          harness=(cargo test --manifest-path rust/Cargo.toml -p unfurl-git-sync --features postgres
+            --test segments_sql --)
+          # SEARCHES split on spaces and commas: empty, every search
+          read -ra wanted <<<"${SEARCHES//,/ }"
+          names=$("${harness[@]}" --ignored --list | rust/dev/git-sync-searches.sh "${wanted[@]}")
+          mapfile -t tests <<<"$names"
+          echo "searches: ${tests[*]}"
+          "${harness[@]}" --ignored --exact "${tests[@]}"
       - name: Upload the seeds it failed on
         # proptest saves each failing case's seed to the regressions file;
         # someone decides whether it's a known bug, a new one or the harness
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: proptest-regressions-${{ matrix.backend }}
+          name: proptest-regressions-${{ matrix.backend }}-${{ matrix.run }}
           path: rust/git-sync/tests/*.proptest-regressions
 
   bench:
+    # a scheduled or pushed run has no inputs: the bench runs
+    if: github.event_name != 'workflow_dispatch' || inputs.bench
     runs-on: ubuntu-latest
     timeout-minutes: 90
     services:

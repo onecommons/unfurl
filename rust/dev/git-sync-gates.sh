@@ -53,13 +53,13 @@ harness=$(grep '/segments_sql-' "$out/git-sync.bins" | head -1)
 
 step "suites, side by side"
 (
-    cd "$rust/git-sync"
+    cd "$rust/git-sync" || exit 1
     while read -r bin; do "$bin" > "$out/git-sync-$(basename "$bin").txt" 2>&1; done < "$out/git-sync.bins"
 ) &
 (cd "$rust/git-sync" && SEGMENTS_SQL_PG=1 "$harness" > "$out/harness-pg.txt" 2>&1) &
 (
-    cd "$rust/server"
-    while read -r bin; do UNFURL_TEST_PG_URL= "$bin" > "$out/server-$(basename "$bin").txt" 2>&1; done < "$out/server.bins"
+    cd "$rust/server" || exit 1
+    while read -r bin; do UNFURL_TEST_PG_URL='' "$bin" > "$out/server-$(basename "$bin").txt" 2>&1; done < "$out/server.bins"
 ) &
 wait
 echo "   git-sync, both backends: $(tally "$out"/git-sync-*.txt); Postgres skipped: $(cat "$out"/git-sync-*.txt | grep -c 'skip: UNFURL_TEST_PG_URL')"
@@ -74,10 +74,7 @@ step doctests
 
 if [ "${1:-}" = search ]; then
     name=$2 runs=$3
-    # `rebases_agree_...` but `same_content_agrees_...`
-    test=$("$harness" --list --ignored 2>/dev/null |
-        sed -En "s/^(${name}_agrees?_with_the_implementation): test$/\1/p")
-    if [ -z "$test" ]; then
+    if ! test=$("$harness" --list --ignored 2>/dev/null | "$rust/dev/git-sync-searches.sh" "$name"); then
         fail "no random search named $name"
         exit $status
     fi
