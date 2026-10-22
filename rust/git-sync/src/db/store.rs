@@ -211,6 +211,13 @@ pub(crate) trait Store: sqlx::Database + Sized {
         at: At<'_>,
     ) -> impl Future<Output = Result<bool>> + Send;
 
+    /// Whether segment `seg` holds an entry on a row at `at`.
+    fn hides_at(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        seg: i64,
+        at: At<'_>,
+    ) -> impl Future<Output = Result<bool>> + Send;
+
     /// Point `worktree_id`'s head at `commit`: its segment's and its own.
     fn set_head_commit(
         tx: &mut sqlx::Transaction<'_, Self>,
@@ -924,6 +931,24 @@ macro_rules! store_impl {
                     .fetch_one(&mut **tx)
                     .await?;
                 Ok(held)
+            }
+
+            async fn hides_at(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                seg: i64,
+                at: At<'_>,
+            ) -> Result<bool> {
+                let sql = sql!(tx, "SELECT EXISTS (SELECT 1 FROM record r \
+                     JOIN superseded x ON x.record_id = r.id AND x.segment_id = ?1 \
+                     WHERE r.file_path = ?2 AND r.path = ?3 AND r.key = ?4)",);
+                let (hides,): (bool,) = sqlx::query_as(&sql)
+                    .bind(seg)
+                    .bind(at.file_path)
+                    .bind(at.path)
+                    .bind(at.key)
+                    .fetch_one(&mut **tx)
+                    .await?;
+                Ok(hides)
             }
 
             async fn set_head_commit(

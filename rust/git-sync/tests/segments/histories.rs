@@ -2658,3 +2658,87 @@ fn a_rebase_onto_a_head_ending_where_its_parent_does_builds_on_the_parent() {
         Op::Rebase(186, 43, 49, 5, false),
     ]);
 }
+
+/// Worktree 1's head replaces a record an upstream merge changed, then an
+/// outside commit deletes it: the head's row hid the one below, so the
+/// deletion leaves a tombstone, which names the record when the next merge
+/// holds the deletion against upstream's change.
+#[test]
+fn a_deletion_of_a_head_row_that_hid_one_below_names_its_record() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Write(215, 2, false),
+        Op::Commit(19),
+        Op::MergeUpstream(13, 0, vec![(1, false)]),
+        Op::External(47, vec![(1, true)]),
+        Op::MergeUpstream(71, 0, vec![(1, false)]),
+    ]);
+}
+
+/// Main deletes a record, a fork closes main's head, and main re-creates
+/// and deletes it: nothing live is below its head there, so no tombstone
+/// names it, and the deletion a merge holds takes a new id.
+#[test]
+fn a_deletion_of_a_head_row_that_hid_nothing_leaves_no_tombstone() {
+    run(&[
+        Op::External(0, vec![(1, true)]),
+        Op::Fork(0, 0),
+        Op::External(0, vec![(1, false)]),
+        Op::External(0, vec![(1, true)]),
+        Op::MergeUpstream(0, 0, vec![(1, false)]),
+    ]);
+}
+
+/// As above, with the deletion an upstream merge's: it takes the record
+/// out of worktree 1's head, where an earlier merge's row hid the one
+/// below, and the merge after it brings the record back.
+#[test]
+fn a_deletion_a_merge_makes_of_a_head_row_that_hid_one_below_names_its_record() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Write(55, 2, false),
+        Op::Commit(73),
+        Op::MergeUpstream(13, 0, vec![(5, false)]),
+        Op::MergeUpstream(85, 0, vec![]),
+        Op::MergeUpstream(29, 0, vec![]),
+        Op::MergeUpstream(29, 0, vec![(5, true)]),
+        Op::MergeUpstream(7, 0, vec![(5, false)]),
+    ]);
+}
+
+/// Main, never forked, has no segment below its head: deleting a record
+/// it changed leaves no tombstone, and the deletion a merge holds takes a
+/// new id.
+#[test]
+fn a_deletion_of_a_changed_row_from_a_head_with_no_parent_leaves_no_tombstone() {
+    run(&[
+        Op::External(0, vec![(1, false)]),
+        Op::External(0, vec![(1, true)]),
+        Op::MergeUpstream(0, 0, vec![(1, false)]),
+    ]);
+}
+
+/// As above, deleting a record as the first scan left it.
+#[test]
+fn a_deletion_from_a_head_with_no_parent_leaves_no_tombstone() {
+    run(&[
+        Op::External(0, vec![(1, true)]),
+        Op::MergeUpstream(0, 0, vec![(1, false)]),
+    ]);
+}
+
+/// Main deletes a record, a fork closes main's head over the tombstone,
+/// and main re-creates the record and deletes it: its head's row hid only
+/// a tombstone, but a tombstone still names the record, as a commit's fold
+/// keeps one, when the deletion a merge holds takes its id.
+#[test]
+fn a_deletion_of_a_head_row_that_hid_a_tombstone_names_its_record() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::External(0, vec![(1, true)]),
+        Op::Fork(0, 0),
+        Op::External(0, vec![(1, false)]),
+        Op::External(0, vec![(1, true)]),
+        Op::MergeUpstream(0, 0, vec![(1, false)]),
+    ]);
+}

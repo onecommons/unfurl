@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::commit::CommitId;
 use crate::db::store::{Filter, Scope, Store};
-use crate::db::tables::{At, NewRecordRow, Place, RecordRow, Superseded};
+use crate::db::tables::{At, NewRecordRow, Place, RecordRow, Superseded, WorktreeSegs};
 use crate::error::Result;
 use crate::model::ConflictState;
 
@@ -884,58 +884,17 @@ pub(crate) async fn scan_key<DB: Store>(
     version: i64,
     ids: KeyIds,
 ) -> Result<Option<Written>> {
-    let segs = DB::segs(tx, w).await?;
-    let h = segs.head;
-    let drafted = DB::rows_in(tx, segs.draft, Some(at.file_path), false)
-        .await?
-        .into_iter()
-        .find(|r| r.at() == at)
-        .map(|r| r.key_id);
-    let chain = DB::visible(tx, w, Scope::Chain, Filter::At(at)).await?;
-    let shown = chain.first().cloned();
-    let live = shown.as_ref().filter(|r| !r.deleted);
-    let head_row = DB::rows_in(tx, h, Some(at.file_path), false)
-        .await?
-        .into_iter()
-        .find(|r| r.at() == at);
-    // the rows below the head the key shows once its own row goes
-    let below: Vec<RecordRow> = match &head_row {
-        Some(_) => Vec::new(),
-        None => chain
-            .iter()
-            .filter(|r| r.segment_id != h)
-            .cloned()
-            .collect(),
+    let k = AtKey::read(tx, w, at).await?;
+    let h = k.segs.head;
+    let tombstone = match change {
+        None => k.leaves_tombstone(tx, w, at).await?,
+        Some(_) => false,
     };
-    let pinned = head_row.is_some() && DB::held_elsewhere(tx, w, at).await?;
-    if let Some(r) = &head_row {
+    if let Some(r) = &k.head_row {
         DB::delete_row(tx, r.id).await?;
     }
-    let (json, deleted, key_id) = match change {
-        Some(v) => {
-            let key_id = ids
-                .named
-                .or(live
-                    .map(|r| r.key_id)
-                    .filter(|id| !ids.elsewhere.contains(id)))
-                .or(ids
-                    .moved
-                    .as_ref()
-                    .map(|(id, _)| *id)
-                    .filter(|id| !ids.elsewhere.contains(id)))
-                // else the record the draft holds at the key
-                .or(drafted.filter(|id| !ids.elsewhere.contains(id)));
-            (v.clone(), false, key_id)
-        }
-        // already absent in the chain: the head hides the row below
-        None if head_row.is_none() && live.is_none() => return Ok(None),
-        None if pinned || below.iter().any(|r| !r.deleted) => {
-            let gone = live
-                .map(|r| r.json.clone())
-                .unwrap_or(serde_json::Value::Null);
-            (gone, true, shown.as_ref().map(|r| r.key_id))
-        }
-        None => return Ok(None),
+    let Some((json, deleted, key_id)) = k.new_row(change, &ids, tombstone) else {
+        return Ok(None);
     };
     let (id, key_id) = DB::insert(
         tx,
@@ -943,12 +902,12 @@ pub(crate) async fn scan_key<DB: Store>(
         NewRecordRow::new(at, key_id, Some(commit), &json, deleted, version),
     )
     .await?;
-    for r in below {
+    for r in &k.below {
         DB::entry(tx, r.id, h, key_id).await?;
     }
     let content = (!deleted).then_some(&json);
-    if !deleted && segs.family == w {
-        brought_back(tx, segs.family, w, at, id, key_id, &json).await?;
+    if !deleted && k.segs.family == w {
+        brought_back(tx, k.segs.family, w, at, id, key_id, &json).await?;
     }
     // only the row that keeps the moved record's id is it (§3.5)
     if let Some((moved_id, moved)) = &ids.moved {
@@ -957,6 +916,107 @@ pub(crate) async fn scan_key<DB: Store>(
         }
     }
     Ok(Some(Written { id, key_id }))
+}
+
+/// What worktree `w`'s chain holds at one place, as a scan finds it.
+struct AtKey {
+    segs: WorktreeSegs,
+    /// The record the draft holds at the place.
+    drafted: Option<i64>,
+    /// The row the chain shows, live or not.
+    shown: Option<RecordRow>,
+    head_row: Option<RecordRow>,
+    /// The rows below the head the key shows once its own row goes.
+    below: Vec<RecordRow>,
+}
+
+impl AtKey {
+    async fn read<DB: Store>(
+        tx: &mut sqlx::Transaction<'_, DB>,
+        w: i64,
+        at: At<'_>,
+    ) -> Result<Self> {
+        let segs = DB::segs(tx, w).await?;
+        let drafted = DB::rows_in(tx, segs.draft, Some(at.file_path), false)
+            .await?
+            .into_iter()
+            .find(|r| r.at() == at)
+            .map(|r| r.key_id);
+        let chain = DB::visible(tx, w, Scope::Chain, Filter::At(at)).await?;
+        let head_row = DB::rows_in(tx, segs.head, Some(at.file_path), false)
+            .await?
+            .into_iter()
+            .find(|r| r.at() == at);
+        let below = match &head_row {
+            Some(_) => Vec::new(),
+            None => chain
+                .iter()
+                .filter(|r| r.segment_id != segs.head)
+                .cloned()
+                .collect(),
+        };
+        Ok(AtKey {
+            segs,
+            drafted,
+            shown: chain.into_iter().next(),
+            head_row,
+            below,
+        })
+    }
+
+    fn live(&self) -> Option<&RecordRow> {
+        self.shown.as_ref().filter(|r| !r.deleted)
+    }
+
+    /// Whether a deletion here leaves a tombstone in the head (§4.3): where
+    /// the record's row is below the head, the head hides something at the
+    /// key, or another worktree's draft holds the key.
+    async fn leaves_tombstone<DB: Store>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        w: i64,
+        at: At<'_>,
+    ) -> Result<bool> {
+        if self.head_row.is_none() {
+            return Ok(self.below.iter().any(|r| !r.deleted));
+        }
+        // the head's entries still hide what its deleted row did, but only a
+        // tombstone names the record it took (§3.5)
+        Ok(DB::held_elsewhere(tx, w, at).await? || DB::hides_at(tx, self.segs.head, at).await?)
+    }
+
+    /// The row a scan writes for `change`: its content, whether it's a
+    /// tombstone, and its record's id, `None` for a new record; `None`
+    /// where it writes none.
+    fn new_row(
+        &self,
+        change: Option<&serde_json::Value>,
+        ids: &KeyIds,
+        tombstone: bool,
+    ) -> Option<(serde_json::Value, bool, Option<i64>)> {
+        let free = |id: &i64| !ids.elsewhere.contains(id);
+        match change {
+            Some(v) => {
+                let key_id = ids
+                    .named
+                    .or(self.live().map(|r| r.key_id).filter(free))
+                    .or(ids.moved.as_ref().map(|(id, _)| *id).filter(free))
+                    // else the record the draft holds at the key
+                    .or(self.drafted.filter(free));
+                Some((v.clone(), false, key_id))
+            }
+            // already absent in the chain: the head hides the row below
+            None if self.head_row.is_none() && self.live().is_none() => None,
+            None if tombstone => {
+                let gone = self
+                    .live()
+                    .map(|r| r.json.clone())
+                    .unwrap_or(serde_json::Value::Null);
+                Some((gone, true, self.shown.as_ref().map(|r| r.key_id)))
+            }
+            None => None,
+        }
+    }
 }
 
 /// Each pending edit follows its record, with its conflict, to the place

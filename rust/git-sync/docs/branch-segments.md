@@ -530,10 +530,13 @@ For each tracked file:
   - otherwise insert one, and record `superseded` on the row visible
     below the head (example [C.10](#c10-scan-bring-the-head-up-to-head)).
 
-  For each record gone from the file: if something below the head is
-  still visible for that key, write a tombstone into the head; otherwise
-  delete the head's own row. If another worktree's draft holds the key,
-  write a tombstone instead of deleting it
+  For each record gone from the file: if its row is below the head, write
+  a tombstone into the head. If the head has its row, delete it, and
+  write a tombstone where the head hides something at that key, live or
+  not, as the fold keeps one ([§4.4](#44-commit)): the head's entries
+  keep hiding it, but only the tombstone names the record taken
+  ([§3.5](#35-record-identity)). If another worktree's draft holds the
+  key, write a tombstone instead of deleting it
   ([§3.3](#33-visibility-through-supersession)).
 - **Draft side.** Runs when the disk blob differs from `source_oid`, and
   follows today's in-flight handling. Parse the disk content. Where it

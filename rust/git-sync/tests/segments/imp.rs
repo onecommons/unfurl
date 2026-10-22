@@ -1022,6 +1022,12 @@ impl Segments {
         let pinned = head_row.is_some() && self.held_elsewhere(key, w);
         let entries = self.draft_entries(head_row.as_slice(), w);
         let reused = change.is_some_and(|v| self.given.contains(&v));
+        // a deletion of the head's row leaves a tombstone where the head
+        // hides something at the key, as a commit's fold keeps one (§4.3)
+        let tombstone = match head_row {
+            Some(_) => pinned || self.sup.iter().any(|&(r, s)| s == h && self.rows[&r].key == key),
+            None => vis_below.iter().any(|r| !self.rows[r].deleted),
+        };
         if let Some(hr) = head_row {
             self.delete_row(hr);
         }
@@ -1029,7 +1035,7 @@ impl Segments {
             Some(v) => Some(self.insert(h, key, v, false)),
             // already absent in the chain: the head hides the row below
             None if head_row.is_none() && live_record.is_none() => None,
-            None if pinned || vis_below.iter().any(|r| !self.rows[r].deleted) => {
+            None if tombstone => {
                 let t = self.private_ver();
                 Some(self.insert(h, key, t, true))
             }
