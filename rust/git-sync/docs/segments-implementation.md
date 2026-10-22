@@ -409,7 +409,14 @@ phase's behaviour changes applied.
    deletion (C.16–C.19). Operations: Fork, Rebuild, Delete.
 3. **User branches.** `Layers`, publish. Appendix C adds publish's full
    classification and the re-link's tag for committed rows. Operations:
-   NewUser, UserWrite, Publish.
+   NewUser, UserWrite, Publish. Until then the SQL harness runs a
+   history with one of them in memory only, counted as skipped; once
+   `sql_supports` gains them, the scripted ones (`histories.rs`, such as
+   `a_publish_hides_main_s_unchanged_save_of_the_value_it_rebased_over`)
+   and the `publishing` search run against SQL unchanged. They check
+   what C.15's publish leaves only through a layered read, so
+   `SqlWorld::check` must compare each layered stack's rows (§2) in the
+   same change.
 4. **Merges.** The id lookup through merges made outside the
    database (built, §7.3); entries for a version a merge brings back,
    with the base read from git, which are users' and wait on phase 3.

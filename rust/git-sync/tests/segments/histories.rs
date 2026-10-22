@@ -2759,3 +2759,21 @@ fn a_rebase_over_a_record_moved_then_deleted_unfolds_both_deletions() {
         Op::Integrate(0, 2, vec![]),
     ]);
 }
+
+/// Main commits a value at the key a user edited, then saves it unchanged,
+/// a copy in main's draft; the publish makes the user's edit one made over
+/// that value, so it hides main's draft copy as well as its committed row.
+#[test]
+fn a_publish_hides_main_s_unchanged_save_of_the_value_it_rebased_over() {
+    run(&[
+        Op::NewUser,
+        Op::Write(0, 0, false),
+        Op::UserWrite(0, vec![], 4, false),
+        Op::Rebuild(0, 0, 0, false),
+        Op::Write(0, 4, false),
+        Op::Commit(0),
+        Op::Write(0, 0, false),
+        Op::Resave(0, 4),
+        Op::Publish(0),
+    ]);
+}

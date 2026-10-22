@@ -3047,6 +3047,11 @@ WHERE e.segment_id = :d AND e.conflict IS NULL
    ```
 6. Then C.11 re-links the draft. `:b` gets a checkout and a
    `commit_repository`, and its old chain segments are left to C.14.
+7. **Main's unchanged saves.** At a key the draft holds, a row in main's
+   draft with content the draft now supersedes in `chain`, a save that
+   changed nothing, gets the draft's entry too: the edit was made over
+   that content wherever main shows it, and a layered read would
+   otherwise show it beside the edit.
 
 ### C.16 Placement
 

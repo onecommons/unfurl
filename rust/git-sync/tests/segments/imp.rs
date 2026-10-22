@@ -1941,6 +1941,23 @@ impl Segments {
             }
         }
         self.relink_draft(u);
+        // C.15 step 7: main's draft copies, at a key the draft holds, of
+        // content it now supersedes in the chain: an unchanged save
+        let seen: BTreeSet<(Key, Ver)> = self
+            .sup
+            .iter()
+            .filter(|&&(r, s)| s == d && view.contains(&self.rows[&r].seg))
+            .map(|&(r, _)| &self.rows[&r])
+            .filter(|r| !r.deleted)
+            .map(|r| (r.key, r.ver))
+            .collect();
+        for c in self.rows_in(self.wts[MAIN].draft) {
+            let row = &self.rows[&c];
+            if row.conflict.is_none() && !row.deleted && seen.contains(&(row.key, row.ver)) {
+                let tag = self.row_in(d, row.key).map_or(CHAIN_TAG, |x| self.rows[&x].id);
+                self.entry(c, d, tag);
+            }
+        }
     }
 
     /// §4.8: `w`'s HEAD moved to `commit`, which doesn't descend from its
