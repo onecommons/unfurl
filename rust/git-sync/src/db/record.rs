@@ -1624,14 +1624,14 @@ pub(crate) async fn get(
     }).await)
 }
 
-/// The record with `key_id` `id` as the worktree's view shows it,
-/// tombstones included.
+/// The record with `key_id` `id` as the worktree's view shows it: its live
+/// row, else a tombstone.
 pub(crate) async fn get_by_id(db: &Db, worktree_id: i64, id: i64) -> Result<Option<Record>> {
     on_pool!(db, pool => read(pool, async |tx| {
         Ok(Store::visible(tx, worktree_id, Scope::Own, Filter::KeyId(id))
             .await?
             .into_iter()
-            .next()
+            .min_by_key(|r| r.deleted)
             .map(|r| r.into_record(worktree_id)))
     }).await)
 }

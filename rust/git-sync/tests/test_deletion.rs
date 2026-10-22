@@ -327,6 +327,33 @@ async fn a_renamed_file_keeps_its_records(sync: &SyncedRepo, tmp: &TempDir) {
     .expect("the pending token survived the rename");
 }
 
+/// A branch closes main's head, so renaming the file leaves tombstones at
+/// its old path with the records' ids: a read by id returns the live row.
+async fn a_renamed_record_reads_by_id_as_its_live_row(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
+    let before = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    let r = head_commit(sync).await;
+    sync.fork_branch("git-sync/kept", r).await.expect("fork");
+    git(tmp.path(), &["mv", "cloudmap.yaml", "moved.yaml"]);
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
+
+    let row = sync
+        .get_record_by_id(before.id)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(row.file_path, "moved.yaml");
+    assert!(!row.deleted);
+}
+
 async fn a_move_that_also_edits_is_not_a_rename(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
@@ -356,6 +383,7 @@ crud_test!(a_deleted_file_is_taken_in_and_committed);
 crud_test!(a_deletion_already_in_git_makes_no_commit);
 crud_test!(a_pending_edit_survives_the_file_being_deleted);
 crud_test!(a_renamed_file_keeps_its_records);
+crud_test!(a_renamed_record_reads_by_id_as_its_live_row);
 crud_test!(a_move_that_also_edits_is_not_a_rename);
 
 async fn a_write_can_settle_the_conflict_it_touches(sync: &SyncedRepo, tmp: &TempDir) {

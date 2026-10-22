@@ -1452,9 +1452,9 @@ impl SyncedRepo {
 
     /// Returns the record with the given `key_id`, as this worktree sees it.
     ///
-    /// Unlike [`Self::get_record`], this does **not** hide tombstoned
-    /// rows — useful for tests and for inspecting the in-flight delete
-    /// state.
+    /// Unlike [`Self::get_record`], this returns a tombstone where the
+    /// view has no live row with the id — useful for tests and for
+    /// inspecting the in-flight delete state.
     pub async fn get_record_by_id(&self, id: i64) -> Result<Option<Record>> {
         db::record::get_by_id(self.db(), self.worktree_id(), id).await
     }
