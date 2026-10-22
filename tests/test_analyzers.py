@@ -1458,10 +1458,15 @@ class TestGitLabPipelineRunsIntegration:
 @skip_github_integration
 class TestGitHubWorkflowRunsIntegration:
     def test_github_workflow_runs_by_ref(self, github_manager, github_repo_info):
-        runs = list(github_manager.get_pipeline_runs(github_repo_info, ref="main", limit=5))
+        # the ref of the latest run, from the unfiltered listing: main has
+        # had no runs for weeks, and the filtered one returned none in CI
+        latest = github_manager.github.get_repo("onecommons/unfurl").get_workflow_runs()[0]
+        ref = latest.head_branch
+        runs = list(github_manager.get_pipeline_runs(github_repo_info, ref=ref, limit=5))
         assert len(runs) >= 1
         inst = runs[0]
         assert EntitySchema.GitHubRun in inst.type.types
+        assert inst.source_ref == ref
         assert inst.source_revision
         assert inst.url
 
