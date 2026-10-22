@@ -71,7 +71,9 @@ which side goes first, each on a fresh database from its own side's
 migrations and `generate.sql`, with `$BENCH_JSON` naming a file for the
 rows and `$BENCH_FAMILY` the family. `compare.py` then fails a row where
 its fastest time at HEAD is more than its limit times the base's (1.5 by
-default, in `limits.json`), where it takes more statements than at the
+default, in `limits.json`) and at least `floor_ms` (0.1) more, below
+which a fast read's ratio is the timer's noise; where it takes more
+statements than at the
 base, or where it's gone from HEAD; and all a family's rows where its
 database differs between the two. A read's time is the fastest of six
 calls, a write's that of its n together. It reports every row, with the

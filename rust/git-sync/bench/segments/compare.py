@@ -11,7 +11,9 @@ in the same job as HEAD's, so a row's ratio, its fastest time at HEAD
 over its fastest at the base, doesn't depend on the machine. A row fails
 where:
 
-- its ratio is more than its limit in LIMITS, else LIMITS' default;
+- its ratio is more than its limit in LIMITS, else LIMITS' default, and
+  it's at least LIMITS' `floor_ms` slower: below that, a fast read's
+  ratio is the timer's noise;
 - it takes more statements at HEAD than at the base, or either side's
   count varies between runs;
 - the base has it and HEAD doesn't.
@@ -90,7 +92,7 @@ def size_check(base: Side, head: Side, g: Group) -> tuple[str, str | None]:
     return line + ", the same at the base.", None
 
 
-def judge(k: Key, base: Side, head: Side, limit: float) -> str | None:
+def judge(k: Key, base: Side, head: Side, limit: float, floor: float) -> str | None:
     """Why the row fails, or None."""
     if k not in head.times:
         return "gone from HEAD: move refs/bench/git-sync if that's meant"
@@ -101,8 +103,9 @@ def judge(k: Key, base: Side, head: Side, limit: float) -> str | None:
         return f"statements vary between runs: base {sorted(b)}, HEAD {sorted(h)}"
     if min(h) > min(b):
         return "more statements than the base"
-    if min(head.times[k]) / min(base.times[k]) > limit:
-        return f"slower than {limit}x the base"
+    ht, bt = min(head.times[k]), min(base.times[k])
+    if ht / bt > limit and ht - bt >= floor:
+        return f"slower than {limit}x the base, by {floor:g} ms or more"
     return None
 
 
@@ -114,7 +117,9 @@ def spread(times: list[float] | None) -> str | None:
     return None if not times else f"{max(times) / min(times):.2f}"
 
 
-def row_line(k: Key, base: Side, head: Side, limit: float, why: str | None) -> str:
+def row_line(
+    k: Key, base: Side, head: Side, limit: float, floor: float, why: str | None
+) -> str:
     bt, ht = base.times.get(k), head.times.get(k)
     ratio = min(ht) / min(bt) if bt and ht else None
     bs, hs = base.statements.get(k), head.statements.get(k)
@@ -124,6 +129,8 @@ def row_line(k: Key, base: Side, head: Side, limit: float, why: str | None) -> s
         status = "new at HEAD"
     elif hs and bs and min(hs) < min(bs):
         status = "ok, fewer statements"
+    elif ratio is not None and ratio > limit:
+        status = f"ok, under the {floor:g} ms floor"
     else:
         status = "ok"
     cells = [
@@ -165,13 +172,14 @@ def section(g: Group, base: Side, head: Side, limits: dict) -> tuple[list[str], 
     ]
     failures = 0
     default = float(limits.get("limit", 1.5))
+    floor = float(limits.get("floor_ms", 0.0))
     for k in keys:
         if k[3] == REFERENCE:
             continue
         limit = float(limits.get("rows", {}).get(label(k), default))
-        why = size_fails or judge(k, base, head, limit)
+        why = size_fails or judge(k, base, head, limit, floor)
         failures += why is not None
-        lines.append(row_line(k, base, head, limit, why))
+        lines.append(row_line(k, base, head, limit, floor, why))
     lines.append("")
     return lines, len(keys) - (ref in keys), failures
 
