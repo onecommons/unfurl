@@ -705,7 +705,10 @@ Given a commit *c*, either a new branch's head or a rebuilt worktree's new
 HEAD, the base segment is found as follows:
 
 1. **If *c* is some segment's head commit,** use that segment, closing it
-   if it's an open head ([§4.5](#45-creating-a-branch-or-fork)).
+   if it's an open head ([§4.5](#45-creating-a-branch-or-fork)). Where
+   several end at *c*, as two heads do after one fast-forwards to the
+   other's commit, take an internal one, which needs no closing, else the
+   oldest, even for a fork at the worktree's own head.
 2. **If *c* is an ancestor of some tracked worktree's head,** walk that
    worktree's chain down from its head. The segment that contains *c* is
    the one where *c* is an ancestor of its head commit and not of its

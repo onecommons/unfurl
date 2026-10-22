@@ -1417,8 +1417,8 @@ impl Segments {
     }
 
     /// C.16's placement of a commit on `c`: the segment ending at `c`,
-    /// an internal one first, as the worktree and index of a chain that
-    /// holds it.
+    /// an internal one first, then the oldest, as the worktree and index
+    /// of a chain that holds it.
     fn ending_at(&self, c: CommitId) -> Option<(Wt, usize)> {
         let mut segs: Vec<SegId> = (0..self.segs.len())
             .filter(|&s| {
@@ -1433,6 +1433,20 @@ impl Segments {
                 wt.alive.then_some((u, i))
             })
         })
+    }
+
+    /// The worktree whose line `f`, just forked from `w`, was built on:
+    /// `w` where its chain holds `f`'s base, else another whose does.
+    fn built_on(&self, w: Wt, f: Wt) -> Wt {
+        let chain = &self.wts[f].chain;
+        let Some(&(base, _)) = chain.len().checked_sub(2).and_then(|i| chain.get(i)) else {
+            return w;
+        };
+        let holds = |u: Wt| self.wts[u].alive && self.wts[u].chain.iter().any(|&(s, _)| s == base);
+        if holds(w) {
+            return w;
+        }
+        (0..self.wts.len()).find(|&u| u != f && holds(u)).unwrap_or(w)
     }
 
     /// C.16's placement of `c` inside a segment, split there: down the
@@ -1516,18 +1530,12 @@ impl Segments {
         }
     }
 
-    /// §4.5 and §4.6: fork `w` at `history[pos]`: at `w`'s head, on that
-    /// head; below it, on a segment ending at the commit wherever it is,
+    /// §4.5 and §4.6: fork `w` at `history[pos]`: on [`Self::ending_at`]'s
+    /// segment, wherever it is, even where `w`'s own head ends there too;
     /// else splitting `w`'s segment the commit falls inside.
     fn fork(&mut self, w: Wt, pos: usize, git: &Git) -> Wt {
         let history = self.wts[w].history.clone();
         let c = history[pos];
-        if pos == history.len() - 1 {
-            let (base, mut chain) = self.base_at_head(w);
-            let hc = self.new_seg(Kind::Head, base, None, Some(c));
-            chain.push((hc, false));
-            return self.add_worktree(hc, chain, history);
-        }
         if let Some((u, i)) = self.ending_at(c) {
             let s = self.wts[u].chain[i].0;
             // `u`'s line up to the commit, as its chain is: a merge can have

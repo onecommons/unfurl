@@ -937,10 +937,15 @@ impl World {
     fn forked_ids(&mut self, w: Wt, pos: usize, f: Wt) -> BTreeMap<Key, Ver> {
         let len = self.imp.wts[w].history.len();
         let c = self.imp.wts[w].history[pos];
-        // at the head, the worktree's own ids: another worktree may
-        // have had to give the same commit's records others
+        // at the head, the ids of the worktree whose segment the fork
+        // built on: another worktree at the same commit may have had to
+        // give its records others
         let ids = if pos == len - 1 {
-            self.model.wts[w].ids.clone()
+            match self.imp.built_on(w, f) {
+                u if u == w => self.model.wts[w].ids.clone(),
+                u if self.imp.wts[u].history.last() == Some(&c) => self.model.wts[u].ids.clone(),
+                u => self.ids_at(u, c),
+            }
         } else {
             let mut ids = self.ids_at(w, c);
             // Where no rollup names a record's id at `c`, the split
@@ -1441,9 +1446,9 @@ impl World {
             Op::FailedExport(n) => self.export(n / 3, Some(n % 3)),
             Op::NewUser => {
                 let pos = self.imp.wts[MAIN].history.len() - 1;
-                self.imp.fork(MAIN, pos, &self.git);
-                let main = &self.model.wts[MAIN];
-                let (committed, ids) = (main.committed.clone(), main.ids.clone());
+                let f = self.imp.fork(MAIN, pos, &self.git);
+                let ids = self.forked_ids(MAIN, pos, f);
+                let committed = self.model.wts[MAIN].committed.clone();
                 let mut user = OWt::new(committed, ids, true);
                 user.absent = self.model.absent.clone();
                 self.model.wts.push(user);

@@ -2596,3 +2596,47 @@ fn a_dropped_unchanged_copy_hands_other_drafts_entries_to_its_match() {
         Op::Commit(97),
     ]);
 }
+
+/// Worktree 1 fast-forwards to main's commit, so both heads end there,
+/// each with its own ids for the record: a fork of worktree 1 builds on
+/// main's head, the older, and takes main's ids.
+#[test]
+fn a_fork_at_a_head_another_ends_at_too_builds_on_the_older() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Write(6, 0, false),
+        Op::Commit(12),
+        Op::Merge(31, vec![(20, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Fork(31, 0),
+    ]);
+}
+
+/// Main deletes and re-creates a record outside git-sync, so worktree 1,
+/// fast-forwarding to it, gives it an id of its own: a fork of worktree 1
+/// builds on main's head, and shows main's id.
+#[test]
+fn a_fork_at_a_fast_forwarded_head_shows_the_older_heads_ids() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::External(0, vec![(0, true)]),
+        Op::External(0, vec![(0, false)]),
+        Op::Merge(1, vec![(0, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Fork(1, 0),
+    ]);
+}
+
+/// As above, but main deletes the record before worktree 1 forks again:
+/// the fork builds on main's head as it was at the commit, and shows main's
+/// ids there.
+#[test]
+fn a_fork_on_a_head_that_moved_on_shows_its_ids_at_the_commit() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::External(0, vec![(0, true)]),
+        Op::External(0, vec![(0, false)]),
+        Op::Merge(1, vec![(0, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Fork(1, 0),
+        Op::External(0, vec![(0, true)]),
+        Op::Fork(1, 0),
+    ]);
+}
