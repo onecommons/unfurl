@@ -2009,7 +2009,13 @@ impl World {
                     "step {step} ({op:?}): main + {stack:?} lost rows {lost:?}\n  got: {layered:?}\n want: {expected:?}"
                 );
                 for &(k, v) in layered.difference(&expected) {
-                    let recreated = rows.iter().any(|r| r.key == k && r.ver == v && r.recreated);
+                    // the re-created-row over-report (§4.7, §4.9), also
+                    // when main saves that row unchanged
+                    let main_chain = self.imp.chain_set(MAIN);
+                    let recreated = rows.iter().any(|r| r.key == k && r.ver == v && r.recreated)
+                        || self.imp.visible(&main_chain, Some(k)).iter().any(|r| {
+                            self.imp.rows[r].ver == v && self.imp.rows[r].recreated
+                        });
                     // at this key, or at one a move brought it from
                     let edited_over = stack.iter().any(|&u| {
                         self.model.wts[u]

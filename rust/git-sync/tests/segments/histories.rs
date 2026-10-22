@@ -2777,3 +2777,21 @@ fn a_publish_hides_main_s_unchanged_save_of_the_value_it_rebased_over() {
         Op::Publish(0),
     ]);
 }
+
+/// A user edits a record over main's draft value, which main commits,
+/// reverts and brings back in a re-created row the user's entry can't
+/// reach, an over-report (§4.9); main then saves it unchanged, and the
+/// copy stays an over-report.
+#[test]
+fn main_s_unchanged_save_of_a_re_created_row_stays_an_over_report() {
+    run(&[
+        Op::NewUser,
+        Op::Write(0, 0, false),
+        Op::UserWrite(0, vec![], 0, false),
+        Op::Commit(0),
+        Op::Revert(0, 0, 1),
+        Op::Revert(0, 0, 1),
+        Op::Write(0, 1, false),
+        Op::Resave(0, 0),
+    ]);
+}
