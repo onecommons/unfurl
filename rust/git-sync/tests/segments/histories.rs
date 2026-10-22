@@ -2640,3 +2640,21 @@ fn a_fork_on_a_head_that_moved_on_shows_its_ids_at_the_commit() {
         Op::Fork(1, 0),
     ]);
 }
+
+/// Worktree 1's draft deletes a record its rebuild drops, so its commit
+/// changes nothing in git but folds the tombstone into its head, which
+/// then ends where the segment below it does: a rebase onto that head
+/// builds on the segment below, as §4.6 takes an internal one first.
+#[test]
+fn a_rebase_onto_a_head_ending_where_its_parent_does_builds_on_the_parent() {
+    run(&[
+        Op::Fork(16, 2),
+        Op::Write(43, 2, true),
+        Op::Rebuild(195, 237, 5, false),
+        Op::Fork(45, 2),
+        Op::Fork(11, 3),
+        Op::Rebase(146, 123, 26, 2, true),
+        Op::Commit(133),
+        Op::Rebase(186, 43, 49, 5, false),
+    ]);
+}

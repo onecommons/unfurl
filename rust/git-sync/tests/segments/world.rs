@@ -743,6 +743,12 @@ impl World {
                 return;
             }
         }
+        // SQL sees only the commit, so the base is the segment §4.6 takes
+        // for it, which needn't be the one picked
+        let base = base.map(|(u, i)| {
+            let bc = self.imp.segs[self.imp.wts[u].chain[i].0].head_commit.unwrap();
+            self.imp.ending_at(bc).unwrap_or((u, i))
+        });
         let base_commit = base.map(|(u, i)| {
             let seg = self.imp.wts[u].chain[i].0;
             self.imp.segs[seg].head_commit.unwrap()
