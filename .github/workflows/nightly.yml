@@ -1,8 +1,9 @@
 name: Nightly
 
 # What the push workflow doesn't run: the segments harness's random
-# searches against SQL (they're `#[ignore]`d), and the segment bench against
-# its baseline commit, refs/bench/git-sync. A schedule only runs from the
+# searches against SQL (they're `#[ignore]`d), the in-memory model's at many
+# more cases than its 2000, and the segment bench against its baseline
+# commit, refs/bench/git-sync. A schedule only runs from the
 # default branch; on another branch, editing this file runs it. Run by hand,
 # its inputs pick the searches, e.g.
 #   gh workflow run nightly.yml --ref BRANCH -f searches="rebases upstream_merges" -f runs=4 -f bench=false
@@ -22,9 +23,9 @@ on:
         description: Independent runs of each search, per backend, each on its own runner (1-20)
         default: "1"
       backends:
-        description: Backends to search on
+        description: SQL backends to search on; none runs only the in-memory model
         type: choice
-        options: [both, sqlite, postgres]
+        options: [both, sqlite, postgres, none]
         default: both
       cases:
         description: Cases per random search, per run
@@ -36,6 +37,13 @@ on:
         description: Also check chain lengths and draft entries, which no read sees
         type: boolean
         default: true
+      model:
+        description: Also search the in-memory model, without SQL
+        type: boolean
+        default: true
+      model_cases:
+        description: Cases per in-memory search, per run
+        default: "50000"
       bench:
         description: Also time the segment bench against refs/bench/git-sync
         type: boolean
@@ -64,6 +72,7 @@ jobs:
           case "$BACKENDS" in
             both) echo 'backends=["sqlite","postgres"]' ;;
             sqlite | postgres) echo "backends=[\"$BACKENDS\"]" ;;
+            none) echo 'backends=[]' ;;
             *) echo "no backend $BACKENDS" >&2; exit 1 ;;
           esac >> "$GITHUB_OUTPUT"
           if ! [[ "$RUNS" =~ ^[0-9]+$ ]] || [ "$RUNS" -lt 1 ] || [ "$RUNS" -gt 20 ]; then
@@ -74,6 +83,7 @@ jobs:
 
   segments:
     needs: plan
+    if: needs.plan.outputs.backends != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -136,6 +146,47 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: proptest-regressions-${{ matrix.backend }}-${{ matrix.run }}
+          path: rust/git-sync/tests/*.proptest-regressions
+
+  # the in-memory implementation against the reference model, many
+  # histories a second, so a run's cases are many more than SQL's
+  model:
+    needs: plan
+    # a scheduled or pushed run has no inputs: it runs
+    if: github.event_name != 'workflow_dispatch' || inputs.model
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        run: ${{ fromJSON(needs.plan.outputs.runs) }}
+    env:
+      SEARCHES: ${{ inputs.searches || '' }}
+      PROPTEST_CASES: ${{ inputs.model_cases || '50000' }}
+      RNG_SEED: ${{ inputs.rng_seed || '' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: recursive
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - name: Run the random searches
+        run: |
+          if [ -n "$RNG_SEED" ]; then export PROPTEST_RNG_SEED=$RNG_SEED; fi
+          harness=(cargo test --manifest-path rust/Cargo.toml -p unfurl-git-sync --test segments_model --)
+          # SEARCHES split on spaces and commas: empty, every search
+          read -ra wanted <<<"${SEARCHES//,/ }"
+          names=$("${harness[@]}" --list | rust/dev/git-sync-searches.sh "${wanted[@]}")
+          mapfile -t tests <<<"$names"
+          echo "searches: ${tests[*]}"
+          "${harness[@]}" --exact "${tests[@]}"
+      - name: Upload the seeds it failed on
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proptest-regressions-model-${{ matrix.run }}
           path: rust/git-sync/tests/*.proptest-regressions
 
   bench:
