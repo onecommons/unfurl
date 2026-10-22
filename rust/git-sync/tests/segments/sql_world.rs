@@ -6,20 +6,6 @@
 // Phase 1 of docs/segments-implementation.md, the operations on one
 // worktree, and phase 2's so far: forks and rebuilds.
 
-/// Whether the SQL side runs `op` yet.
-fn sql_supports(op: &Op) -> bool {
-    match op {
-        Op::Write(..) | Op::Commit(_) | Op::External(..) | Op::Move(..) | Op::Resolve(..) => true,
-        // a trailer is a commit's; there's no working-tree form of it
-        Op::DiskEdit(_, _, _, wins) => !matches!(wins, FileWins::Diverged),
-        Op::Fork(..) | Op::Rebuild(..) | Op::Rebase(..) | Op::Delete(_) => true,
-        Op::Export(_) | Op::FailedExport(_) | Op::Merge(..) | Op::Integrate(..) => true,
-        Op::MergeUpstream(..) => true,
-        Op::Resave(..) | Op::Revert(..) => true,
-        _ => false,
-    }
-}
-
 /// Where model key `k` is: file, section, key.
 fn place(k: Key) -> (String, &'static str, String) {
     (file_name(file_of(k)), "/r", record_key(k))

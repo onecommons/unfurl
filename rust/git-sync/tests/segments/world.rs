@@ -207,6 +207,33 @@ fn failed_export_op() -> impl Strategy<Value = Op> {
     ]
 }
 
+/// Whether the SQL side runs `op` yet.
+fn sql_supports(op: &Op) -> bool {
+    match op {
+        Op::Write(..) | Op::Commit(_) | Op::External(..) | Op::Move(..) | Op::Resolve(..) => true,
+        // a trailer is a commit's; there's no working-tree form of it
+        Op::DiskEdit(_, _, _, wins) => !matches!(wins, FileWins::Diverged),
+        Op::Fork(..) | Op::Rebuild(..) | Op::Rebase(..) | Op::Delete(_) => true,
+        Op::Export(_) | Op::FailedExport(_) | Op::Merge(..) | Op::Integrate(..) => true,
+        Op::MergeUpstream(..) => true,
+        Op::Resave(..) | Op::Revert(..) => true,
+        _ => false,
+    }
+}
+
+/// What the SQL side ran before merges: the filter the SQL harness's
+/// strategies saved their seeds under, which regenerate their histories
+/// only through it.
+fn ran_before_merges(op: &Op) -> bool {
+    sql_supports(op) && !matches!(op, Op::Merge(..))
+}
+
+/// The `one_worktree` searches' operations: what the SQL side ran before
+/// merges, which since phase 1 includes forks and rebuilds.
+fn phase1_op() -> impl Strategy<Value = Op> {
+    op().prop_filter("phase 1", ran_before_merges)
+}
+
 /// Weighted toward publishing after moves, rewrites and main's changes,
 /// where short histories find the most.
 fn publish_op() -> impl Strategy<Value = Op> {

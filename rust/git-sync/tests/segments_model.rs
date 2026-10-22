@@ -41,7 +41,17 @@ fn run(ops: &[Op]) {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(2000))]
+    // one_worktree's filter rejects ops, more of them than the default
+    // allows at a nightly's cases
+    #![proptest_config(ProptestConfig {
+        max_local_rejects: u32::MAX,
+        ..ProptestConfig::with_cases(2000)
+    })]
+
+    #[test]
+    fn one_worktree_agrees_with_the_model(ops in prop::collection::vec(phase1_op(), 1..40)) {
+        run(&ops);
+    }
 
     #[test]
     fn segments_agree_with_the_model(ops in prop::collection::vec(op(), 1..60)) {

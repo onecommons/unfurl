@@ -82,17 +82,6 @@ fn run(ops: &[Op]) {
     case_done();
 }
 
-/// What the SQL side ran before merges: the filter the strategies below
-/// saved their seeds under, which regenerate their histories only through it.
-fn ran_before_merges(op: &Op) -> bool {
-    sql_supports(op) && !matches!(op, Op::Merge(..))
-}
-
-/// Phase 1: the operations on main alone.
-fn phase1_op() -> impl Strategy<Value = Op> {
-    op().prop_filter("phase 1", ran_before_merges)
-}
-
 /// Exports, and only what the SQL side runs around them.
 fn sql_export_op() -> impl Strategy<Value = Op> {
     export_op().prop_filter("the SQL side runs it", ran_before_merges)
@@ -121,7 +110,12 @@ fn sql_failed_export_op() -> impl Strategy<Value = Op> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(20))]
+    // one_worktree's filter rejects ops, more of them than the default
+    // allows at a nightly's cases
+    #![proptest_config(ProptestConfig {
+        max_local_rejects: u32::MAX,
+        ..ProptestConfig::with_cases(20)
+    })]
 
     #[test]
     #[ignore]
