@@ -3376,7 +3376,10 @@ folds them without making one. In order:
    `version` are the live row W's chain holds there, else those the
    last of this family's rollups between `:b` and `:l` names (C.10),
    else new ones. A tombstone is added after the rebuild, as a deletion
-   of the record the rebuilt chain shows at its place, with its id.
+   of the record the rebuilt chain shows at its place, with its id. So a
+   deletion's id is the last record its place lost, and two can share
+   one where a record moved to a place since emptied: that's no move,
+   which needs the record still at one of its places.
 3. **Unfold and rebuild,** in one transaction holding the family lock
    (§4.14), below. `:l` must still be W's `commit_id`, and HEAD: a
    commit since step 2 wasn't unfolded. Then `refs/git-sync/rebased/<branch>`

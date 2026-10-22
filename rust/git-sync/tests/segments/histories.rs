@@ -2742,3 +2742,20 @@ fn a_deletion_of_a_head_row_that_hid_a_tombstone_names_its_record() {
         Op::MergeUpstream(0, 0, vec![(1, false)]),
     ]);
 }
+
+/// Since the base, key 3's record is deleted, and key 0's moves to key 3
+/// and is deleted there: two deletions, which name key 3's with the last
+/// record it lost, key 0's. That's no move, so the rebase goes ahead.
+#[test]
+fn a_rebase_over_a_record_moved_then_deleted_unfolds_both_deletions() {
+    run(&[
+        Op::Write(0, 3, true),
+        Op::Commit(0),
+        Op::Integrate(0, 0, vec![]),
+        Op::Commit(0),
+        Op::Move(0, 0, false),
+        Op::Write(0, 3, true),
+        Op::Commit(0),
+        Op::Integrate(0, 2, vec![]),
+    ]);
+}

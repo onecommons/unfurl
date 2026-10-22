@@ -318,14 +318,24 @@ fn pruned(v: serde_json::Value) -> serde_json::Value {
     }
 }
 
-/// Whether `edits` may move a record: one id at two places, or a record
-/// gone from one file where the same section and key of another changed,
-/// as a scan pairs them (§3.5) -- its id may be gone with the tombstone a
-/// fold purged. The draft holds one edit per record.
+/// Whether `edits` may move a record: one id at two places, the record
+/// still at one of them, or a record gone from one file where the same
+/// section and key of another changed, as a scan pairs them (§3.5) -- its
+/// id may be gone with the tombstone a fold purged. The draft holds one
+/// edit per record.
 pub(crate) fn moved(edits: &[&Unfolded]) -> bool {
-    let ids: Vec<i64> = edits.iter().filter_map(|e| e.key_id).collect();
+    // id: (places, whether the record is still at one); two deletions
+    // share a deletion's provisional id, the last record a place lost (C.21)
+    let mut ids: BTreeMap<i64, (usize, bool)> = BTreeMap::new();
+    for e in edits {
+        if let Some(id) = e.key_id {
+            let (places, kept) = ids.entry(id).or_default();
+            *places += 1;
+            *kept |= e.now.is_some();
+        }
+    }
     let gone = edits.iter().filter(|e| e.now.is_none());
-    ids.iter().collect::<BTreeSet<_>>().len() < ids.len()
+    ids.values().any(|&(places, kept)| places > 1 && kept)
         || gone.into_iter().any(|g| {
             edits.iter().any(|e| {
                 e.now.is_some()
@@ -547,4 +557,37 @@ async fn reread<DB: Store>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn edit(file: &str, key: &str, now: bool, key_id: i64) -> Unfolded {
+        Unfolded {
+            place: Place::new(file, "/r", key),
+            was: Some(serde_json::json!({"v": 1})),
+            now: now.then(|| serde_json::json!({"v": 2})),
+            key_id: Some(key_id),
+            version: None,
+        }
+    }
+
+    #[test]
+    fn one_id_at_two_places_with_the_record_at_one_is_a_move() {
+        let (from, to) = (
+            edit("a.json", "k0", false, 7),
+            edit("a.json", "k1", true, 7),
+        );
+        assert!(moved(&[&from, &to]));
+    }
+
+    #[test]
+    fn two_deletions_sharing_an_id_move_nothing() {
+        let (one, two) = (
+            edit("a.json", "k0", false, 7),
+            edit("b.json", "k1", false, 7),
+        );
+        assert!(!moved(&[&one, &two]));
+    }
 }
