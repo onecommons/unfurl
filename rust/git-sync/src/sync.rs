@@ -2904,7 +2904,14 @@ mod race_tests {
                 .expect("create schema");
             let sep = if base.contains('?') { '&' } else { '?' };
             let url = format!("{base}{sep}options=-c%20search_path%3D{schema}");
-            run(DbConfig::Postgres { url }, &test).await;
+            run(
+                DbConfig::Postgres {
+                    url,
+                    max_connections: None,
+                },
+                &test,
+            )
+            .await;
             sqlx::query(&format!("DROP SCHEMA \"{schema}\" CASCADE"))
                 .execute(&admin)
                 .await

@@ -229,7 +229,7 @@ async fn open_cloudmap(
     let scan = scan_options(config, db_url, config.cloudmap_recover);
     let accept = |o: &unfurl_git_sync::SyncOutcome| !report_scan(o, config.scan_abort_level);
     let db = or_exit(
-        cloudmap::connect(db_url).await,
+        cloudmap::connect(db_url, config.cloudmap_db_pool_size).await,
         "failed to open the cloudmap database",
     );
     match cloudmap::CloudMapState::open_locked(
@@ -272,7 +272,7 @@ async fn open_clones(
 ) -> Option<cloudmap::CloudMapState> {
     let root = std::path::Path::new(config.clone_root.as_deref()?);
     let db = or_exit(
-        cloudmap::db_config(db_url),
+        cloudmap::db_config(db_url, config.cloudmap_db_pool_size),
         "failed to open the cloudmap database",
     );
     tracing::info!(
@@ -299,7 +299,7 @@ async fn open_clones(
     .await;
     let served = unfurl_server::clone::serve(
         checkouts,
-        db_url,
+        &db,
         scan,
         |outcome| !report_scan(outcome, config.scan_abort_level),
         |e, path| open_hint(e, path, config, true),

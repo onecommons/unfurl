@@ -110,9 +110,12 @@ async fn a_first_run_creates_a_role_git_sync_can_migrate_as() {
     assert_eq!(outcome.database_state, DatabaseState::Created);
 
     let url = pg.url(&role, &database, Some("first-pw"));
-    match Db::connect(&DbConfig::Postgres { url })
-        .await
-        .expect("migrate")
+    match Db::connect(&DbConfig::Postgres {
+        url,
+        max_connections: None,
+    })
+    .await
+    .expect("migrate")
     {
         Db::Postgres(pool) => pool.close().await,
         Db::Sqlite(_) => unreachable!(),

@@ -266,21 +266,29 @@ fn request_credentials(
 
 /// The database `db_url` names, connected: every checkout opened on it
 /// shares its pool.
-pub async fn connect(db_url: &str) -> Result<Db, Box<dyn std::error::Error + Send + Sync>> {
-    Ok(Db::connect(&db_config(db_url)?).await?)
+pub async fn connect(
+    db_url: &str,
+    pool_size: Option<u32>,
+) -> Result<Db, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(Db::connect(&db_config(db_url, pool_size)?).await?)
 }
 
 /// The database `db_url` names: anything starting with `postgres://` or
 /// `postgresql://` is Postgres (only when the `unfurl-git-sync/postgres`
-/// feature is enabled at build time); everything else is SQLite.
-pub fn db_config(db_url: &str) -> Result<DbConfig, String> {
+/// feature is enabled at build time), its pool at most `pool_size`
+/// connections; everything else is SQLite.
+pub fn db_config(db_url: &str, pool_size: Option<u32>) -> Result<DbConfig, String> {
     if db_url.starts_with("postgres://") || db_url.starts_with("postgresql://") {
         #[cfg(feature = "postgres")]
         {
-            Ok(DbConfig::Postgres { url: db_url.into() })
+            Ok(DbConfig::Postgres {
+                url: db_url.into(),
+                max_connections: pool_size,
+            })
         }
         #[cfg(not(feature = "postgres"))]
         {
+            let _ = pool_size;
             Err(format!(
                 "cloudmap_db_url is Postgres ({db_url}) but unfurl-server was built \
                  without the `postgres` feature"
@@ -303,8 +311,8 @@ impl CloudMapState {
     /// Both `repo_path` and `db_url` must be set. The DB URL is parsed
     /// to pick the right backend: anything starting with `postgres://`
     /// or `postgresql://` is Postgres (only when the
-    /// `unfurl-git-sync/postgres` feature is enabled at build time);
-    /// everything else is treated as SQLite.
+    /// `unfurl-git-sync/postgres` feature is enabled at build time), its
+    /// pool git-sync's default size; everything else is treated as SQLite.
     pub async fn open(
         repo_path: &str,
         db_url: &str,
@@ -313,7 +321,7 @@ impl CloudMapState {
         (Self, Option<unfurl_git_sync::SyncOutcome>),
         Box<dyn std::error::Error + Send + Sync>,
     > {
-        Self::open_trusting(repo_path, &connect(db_url).await?, scan, Trust::Full).await
+        Self::open_trusting(repo_path, &connect(db_url, None).await?, scan, Trust::Full).await
     }
 
     /// [`Self::open`], trusting the checkout's own git config to `trust`
@@ -3137,6 +3145,26 @@ where
 
 #[cfg(test)]
 mod tests {
+    /// `--cloudmap-db-pool-size` is the Postgres pool's size.
+    #[cfg(feature = "postgres")]
+    #[test]
+    fn the_pool_size_setting_sizes_the_postgres_pool() {
+        use clap::Parser;
+        let config =
+            crate::config::Config::parse_from(["unfurl-server", "--cloudmap-db-pool-size", "7"]);
+        let db = super::db_config("postgres://h/db", config.cloudmap_db_pool_size).unwrap();
+        assert!(
+            matches!(
+                db,
+                unfurl_git_sync::DbConfig::Postgres {
+                    max_connections: Some(7),
+                    ..
+                }
+            ),
+            "{db:?}"
+        );
+    }
+
     use super::{
         branch_matches, delete_pointer, merge_deletes, merge_json, origin_matches,
         partition_copies, retry_if_head_moved,

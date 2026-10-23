@@ -655,22 +655,20 @@ fn left_out(checkout: &Checkout, error: &str) {
     );
 }
 
-/// Open each of `checkouts` on the database at `db_url`, scanning it with
+/// Open each of `checkouts` on the database `db` configures, scanning it with
 /// `scan`, and serve those that open and whose scan `accept` takes. One
 /// that doesn't is logged, with `hint`'s advice on its error, and left to
 /// python: the rest are still served.
 pub async fn serve(
     checkouts: Vec<Checkout>,
-    db_url: &str,
+    db: &DbConfig,
     scan: Option<unfurl_git_sync::ScanOptions>,
     accept: impl Fn(&unfurl_git_sync::SyncOutcome) -> bool,
     hint: impl Fn(&(dyn std::error::Error + 'static), &str) -> String,
     locks: Option<GitLocks>,
     trust: Trust,
 ) -> Result<Option<CloudMapState>, unfurl_git_sync::Error> {
-    let db = crate::cloudmap::connect(db_url)
-        .await
-        .map_err(|e| unfurl_git_sync::Error::Other(e.to_string()))?;
+    let db = Db::connect(db).await?;
     let mut open = Vec::new();
     let mut defaults = Vec::new();
     for checkout in checkouts {

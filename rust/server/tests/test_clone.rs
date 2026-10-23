@@ -293,12 +293,9 @@ async fn several_clones_open_on_one_database() {
     World::track(&world.tmp, &world.db, "org/two").await;
     let checkouts = world.prepare().await;
     assert_eq!(checkouts.len(), 2, "{checkouts:?}");
-    let DbConfig::Sqlite { url } = &world.db else {
-        unreachable!()
-    };
     let cm = serve(
         checkouts.clone(),
-        url,
+        &world.db,
         Some(ScanOptions::default()),
         |_| true,
         |_, _| String::new(),
@@ -330,9 +327,6 @@ async fn a_checkout_that_fails_is_left_out_of_the_rest() {
     World::track(&world.tmp, &world.db, "org/two").await;
     let mut checkouts = world.prepare().await;
     assert_eq!(checkouts.len(), 2);
-    let DbConfig::Sqlite { url } = &world.db else {
-        unreachable!()
-    };
     // a directory, outside any repository, that isn't a checkout
     std::fs::create_dir_all(world.tmp.path().join("nowhere")).expect("mkdir");
     checkouts.push(Checkout {
@@ -345,7 +339,7 @@ async fn a_checkout_that_fails_is_left_out_of_the_rest() {
     let scans = AtomicUsize::new(0);
     let cm = serve(
         checkouts.clone(),
-        url,
+        &world.db,
         Some(ScanOptions::default()),
         // the first checkout's scan is refused
         |_| scans.fetch_add(1, Ordering::SeqCst) > 0,
@@ -487,12 +481,9 @@ async fn a_scan_waits_for_its_git_lock() {
             .expect("del");
     });
 
-    let DbConfig::Sqlite { url } = &world.db else {
-        unreachable!()
-    };
     let cm = serve(
         checkouts,
-        url,
+        &world.db,
         Some(ScanOptions::default()),
         |_| true,
         |_, _| String::new(),
@@ -545,13 +536,10 @@ async fn the_default_branch_is_recorded() {
             .clone()
     };
 
-    let DbConfig::Sqlite { url } = &world.db else {
-        unreachable!()
-    };
     let open = || async {
         serve(
             world.prepare().await,
-            url,
+            &world.db,
             Some(ScanOptions::default()),
             |_| true,
             |_, _| String::new(),
@@ -737,12 +725,9 @@ impl World {
     }
 
     async fn serve_all(&self, checkouts: Vec<Checkout>) -> unfurl_server::cloudmap::CloudMapState {
-        let DbConfig::Sqlite { url } = &self.db else {
-            unreachable!()
-        };
         serve(
             checkouts,
-            url,
+            &self.db,
             Some(ScanOptions::default()),
             |_| true,
             |_, _| String::new(),

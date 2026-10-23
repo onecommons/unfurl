@@ -93,6 +93,7 @@ mod pg {
                     "{}{}options=-c%20search_path%3D{}",
                     self.base_url, connector, self.schema
                 ),
+                max_connections: None,
             }
         }
 

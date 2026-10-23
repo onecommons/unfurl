@@ -243,6 +243,11 @@ pub struct Config {
     #[arg(long, env = "UNFURL_CLOUDMAP_DB_URL")]
     pub cloudmap_db_url: Option<String>,
 
+    /// The most connections the cloudmap database's pool opens, on
+    /// Postgres; 20 when unset.
+    #[arg(long, env = "UNFURL_CLOUDMAP_DB_POOL_SIZE")]
+    pub cloudmap_db_pool_size: Option<u32>,
+
     /// With `cloudmap_db_url` and no `cloudmap_repo`: clone a checkout of
     /// every worktree the database tracks under this directory, or update
     /// the one there, at startup, and serve them all. The layout is python's
@@ -690,6 +695,7 @@ mod tests {
             branch_poll_interval_ms: 1000,
             cloudmap_repo: None,
             cloudmap_db_url: None,
+            cloudmap_db_pool_size: None,
             clone_root: None,
             cloud_server: "https://unfurl.cloud".into(),
             cloudmap_force: false,

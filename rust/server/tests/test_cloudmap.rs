@@ -84,6 +84,7 @@ impl TestDb {
             #[cfg(feature = "postgres")]
             Some(_) => DbConfig::Postgres {
                 url: self.url.clone(),
+                max_connections: None,
             },
             _ => DbConfig::Sqlite {
                 url: self.url.clone(),
@@ -156,6 +157,7 @@ fn default_config() -> Config {
         branch_poll_interval_ms: 50,
         cloudmap_repo: None,
         cloudmap_db_url: None,
+        cloudmap_db_pool_size: None,
         clone_root: None,
         cloud_server: "https://unfurl.cloud".into(),
         cloudmap_force: false,
@@ -4094,7 +4096,7 @@ async fn a_request_naming_no_branch_goes_to_the_default_branch() {
     let main = checkout(REMOTE_PROJECT, "main", &db).await;
     let dev = checkout(REMOTE_PROJECT, "dev", &db).await;
     let origin = main.0.get_worktree().await.expect("worktree").origin;
-    unfurl_git_sync::Db::connect(&unfurl_server::cloudmap::db_config(&db.url).expect("db"))
+    unfurl_git_sync::Db::connect(&unfurl_server::cloudmap::db_config(&db.url, None).expect("db"))
         .await
         .expect("connect")
         .set_default_branch(&origin, Some("dev"))

@@ -232,6 +232,7 @@ pub mod worktree;
 /// to choose a backend. `Postgres` is gated behind the `postgres`
 /// cargo feature.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum DbConfig {
     /// Connect to SQLite. URL must be in sqlx format, e.g.
     /// `sqlite::memory:` or `sqlite:///absolute/path.db`.
@@ -244,6 +245,8 @@ pub enum DbConfig {
     Postgres {
         /// Postgres connection URL (libpq syntax).
         url: String,
+        /// The most connections the pool opens; 20 when `None`.
+        max_connections: Option<u32>,
     },
 }
 
@@ -313,7 +316,10 @@ impl Db {
                 Ok(Db::Sqlite(pool))
             }
             #[cfg(feature = "postgres")]
-            DbConfig::Postgres { url } => {
+            DbConfig::Postgres {
+                url,
+                max_connections,
+            } => {
                 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
                 use std::str::FromStr;
 
@@ -341,15 +347,9 @@ impl Db {
 
                 // Postgres scales with concurrent connections better
                 // than SQLite (no global write lock), so default to a
-                // bigger pool. ``UNFURL_GIT_SYNC_DB_POOL_SIZE``
-                // overrides for tuning per deployment.
-                let max_connections = std::env::var("UNFURL_GIT_SYNC_DB_POOL_SIZE")
-                    .ok()
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(20);
-
+                // bigger pool.
                 let pool = PgPoolOptions::new()
-                    .max_connections(max_connections)
+                    .max_connections(max_connections.unwrap_or(20))
                     .connect_with(opts)
                     .await?;
                 sqlx::migrate!("./migrations/postgres").run(&pool).await?;

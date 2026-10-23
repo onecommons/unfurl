@@ -11,8 +11,8 @@
 
 mod common;
 
-use common::pg_fixture;
-use unfurl_git_sync::RecordQuery;
+use common::{pg_fixture, PgScope};
+use unfurl_git_sync::{Db, DbConfig, RecordQuery};
 
 #[tokio::test]
 async fn cloudmap_end_to_end_postgres() {
@@ -59,5 +59,29 @@ async fn cloudmap_end_to_end_postgres() {
 
     drop(sync);
     drop(tmp);
+    scope.teardown().await;
+}
+
+/// A pool opens at most its config's `max_connections`, 20 without one.
+#[tokio::test]
+async fn a_pool_is_the_size_its_config_says() {
+    let Some(scope) = PgScope::setup().await else {
+        eprintln!("skip: UNFURL_TEST_PG_URL not set");
+        return;
+    };
+    let DbConfig::Postgres { url, .. } = scope.db_config() else {
+        unreachable!("PgScope yields a postgres config")
+    };
+    for (asked, size) in [(Some(3), 3), (None, 20)] {
+        let config = DbConfig::Postgres {
+            url: url.clone(),
+            max_connections: asked,
+        };
+        let Db::Postgres(pool) = Db::connect(&config).await.expect("connect") else {
+            unreachable!("a postgres config connects to postgres")
+        };
+        assert_eq!(pool.options().get_max_connections(), size);
+        pool.close().await;
+    }
     scope.teardown().await;
 }

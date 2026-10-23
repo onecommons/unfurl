@@ -268,9 +268,12 @@ impl GrantStore {
             )),
         }
         .map_err(|e| e.to_string())?;
-        let db = Db::connect(&crate::cloudmap::db_config(db_url)?)
-            .await
-            .map_err(|e| format!("grant database: {e}"))?;
+        let db = Db::connect(&crate::cloudmap::db_config(
+            db_url,
+            config.cloudmap_db_pool_size,
+        )?)
+        .await
+        .map_err(|e| format!("grant database: {e}"))?;
         let ttl = Duration::from_secs(config.grant_ttl_days.saturating_mul(86_400));
         Self::open(db, key, ttl).await.map_err(|e| e.to_string())
     }

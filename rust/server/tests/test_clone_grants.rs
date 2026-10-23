@@ -388,12 +388,9 @@ async fn a_request_with_credentials_brings_up_a_private_project() {
         &[],
     )
     .await;
-    let DbConfig::Sqlite { url } = &world.db else {
-        unreachable!()
-    };
     let cm = unfurl_server::clone::serve(
         checkouts,
-        url,
+        &world.db,
         Some(ScanOptions::default()),
         |_| true,
         |_, _| String::new(),
@@ -490,12 +487,9 @@ impl World {
             &[],
         )
         .await;
-        let DbConfig::Sqlite { url } = &self.db else {
-            unreachable!()
-        };
         let cm = unfurl_server::clone::serve(
             checkouts,
-            url,
+            &self.db,
             Some(ScanOptions::default()),
             |_| true,
             |_, _| String::new(),

@@ -2576,7 +2576,7 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
         eprintln!("skip: UNFURL_TEST_PG_URL not set");
         return;
     };
-    let DbConfig::Postgres { url } = scope.db_config() else {
+    let DbConfig::Postgres { url, .. } = scope.db_config() else {
         unreachable!("pg_fixture yields a postgres config")
     };
     let pool = sqlx::PgPool::connect(&url).await.expect("connect");

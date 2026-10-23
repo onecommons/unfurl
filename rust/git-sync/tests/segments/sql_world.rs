@@ -139,7 +139,11 @@ impl SqlWorld {
                     let sep = if base.contains('?') { '&' } else { '?' };
                     let url = format!("{base}{sep}options=-c%20search_path%3D{schema}");
                     let pool = sqlx::PgPool::connect(&url).await.unwrap();
-                    (DbConfig::Postgres { url }, Raw::Postgres(pool, schema))
+                    let config = DbConfig::Postgres {
+                        url,
+                        max_connections: None,
+                    };
+                    (config, Raw::Postgres(pool, schema))
                 }
                 _ => {
                     let url = format!("sqlite://{}?mode=rwc", db.path().join("db.sqlite").display());
