@@ -515,7 +515,8 @@ Reads 1–7 didn't move beyond noise.
   and the entries in them,** which at the defaults is every facet
   across: 31,498 rows.
 - **Content is fetched only for the rows compared,** those at places
-  holding two live rows or more, and at a moved record's other places:
+  holding two live rows or more, and at every place of a record with
+  rows at several:
   17,316 of the 31,498 here, since main changes many records after the
   forks it has. Postgres compares `jsonb_hash_extended`, an `md5` of the
   JSON text costing 5 times as much; SQLite compares canonical JSON,

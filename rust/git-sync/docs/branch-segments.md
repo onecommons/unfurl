@@ -2611,7 +2611,7 @@ stopped. Past 300 places, it reads every row in the covered segments
 instead, and the entries in them. Content compares as
 `jsonb_hash_extended(r.json, 0)` on Postgres, and as canonical JSON text
 on SQLite, read only for the rows compared: those at places holding two
-live rows or more, and at a moved record's other places.
+live rows or more, and at every place of a record with rows at several.
 
 ```sql
 -- the merge bases' graph: the segments' parents and the merges' edges
