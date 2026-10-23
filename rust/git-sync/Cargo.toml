@@ -30,7 +30,9 @@ postgres = [
 # Compatibility alias so callers can still write `--features sqlite` —
 # SQLite is always built in, this is a no-op flag.
 sqlite = []
-# `SyncedRepo::export_failing`, for tests of what a failed export leaves.
+# Test-only hooks: `SyncedRepo::export_failing`, for tests of what a
+# failed export leaves, and `reading_every_row`, for a read across
+# worktrees' other way of reading rows.
 fault-injection = []
 
 [dependencies]

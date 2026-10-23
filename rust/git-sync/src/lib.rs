@@ -83,6 +83,8 @@ pub mod sync;
 
 #[doc(inline)]
 pub use commit::CommitId;
+#[cfg(feature = "fault-injection")]
+pub use db::across::reading_every_row;
 #[doc(inline)]
 pub use db::{Db, DbConfig};
 #[doc(inline)]

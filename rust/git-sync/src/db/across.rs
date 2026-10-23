@@ -50,6 +50,35 @@ fn ones(mask: &[u64]) -> impl Iterator<Item = usize> + '_ {
     })
 }
 
+/// Past how many places [`Covered::fetch`] reads every row in the covered
+/// segments rather than those at each place.
+const EVERY_ROW_PAST: usize = 300;
+
+#[cfg(feature = "fault-injection")]
+thread_local! {
+    static EVERY_ROW: std::cell::Cell<usize> = const { std::cell::Cell::new(EVERY_ROW_PAST) };
+}
+
+#[cfg(feature = "fault-injection")]
+fn every_row_past() -> usize {
+    EVERY_ROW.get()
+}
+
+#[cfg(not(feature = "fault-injection"))]
+fn every_row_past() -> usize {
+    EVERY_ROW_PAST
+}
+
+/// Run `f` with every read across worktrees on this thread reading every
+/// row in the covered segments, as one past 300 places does.
+#[cfg(feature = "fault-injection")]
+pub fn reading_every_row<T>(f: impl FnOnce() -> T) -> T {
+    let before = EVERY_ROW.replace(0);
+    let out = f();
+    EVERY_ROW.set(before);
+    out
+}
+
 /// A family's committed segments: their parents and the merges in them.
 struct Graph {
     parent: HashMap<i64, i64>,
@@ -228,7 +257,7 @@ impl Covered {
     ) -> Result<Rows> {
         let segments = self.segments();
         // past a few hundred places, reading every row is cheaper
-        if places.len() > 300 {
+        if places.len() > every_row_past() {
             let rows = DB::across_rows_in(tx, &segments).await?;
             return with_entries(tx, rows).await;
         }

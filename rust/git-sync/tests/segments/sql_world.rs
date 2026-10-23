@@ -691,7 +691,6 @@ impl SqlWorld {
                 .map(|r| (wt_of[&r.worktree_id], key_of(&r.file_path, &r.key), version_of(&r.json)))
                 .collect()
         };
-        let sql = live(self.rt.block_on(repo.find_records(&query)).unwrap());
         let imp = &world.imp;
         let expected: BTreeSet<(Wt, Key, Ver)> = imp
             .read_across_by(&open)
@@ -730,48 +729,54 @@ impl SqlWorld {
                     a.ver == v && !a.deleted && open.iter().any(|&u| u != w && moved_from_another(w, u, k, v, a.id))
                 })
         };
-        let extra: Vec<&(Wt, Key, Ver)> = sql.difference(&expected).collect();
-        allowed(8, extra.len());
-        assert!(
-            expected.is_subset(&sql) && extra.iter().all(|e| renamed_copy(e)),
-            "step {step}: a read across {open:?}\n  sql: {sql:?}\n want: {expected:?}"
-        );
-        // read as a client does: a page shorter than its limit is the last
-        let mut paged = Vec::new();
-        let mut after: Option<Cursor> = None;
-        loop {
-            let page = RecordQuery {
-                limit: Some(2),
-                whole_groups: true,
-                after: after.clone(),
-                ..query.clone()
-            };
-            let rows = self.rt.block_on(repo.find_records(&page)).unwrap();
-            let short = rows.len() < 2;
-            after = rows.last().map(|last| Cursor {
-                path: last.path.clone(),
-                key: last.key.clone(),
-                file_path: Some(last.file_path.clone()),
-                worktree_id: Some(last.worktree_id),
-            });
-            paged.extend(rows);
-            if short {
-                break;
-            }
-        }
-        assert_eq!(live(paged), sql, "step {step}: a read across {open:?}, paged");
         let spec = FacetSpec {
             group: FacetPath::new(vec!["v".to_string()], false).unwrap(),
             columns: vec![],
         };
-        let facets = self.rt.block_on(repo.facet_records(&query, &spec)).unwrap();
-        // a facet counts a (path, key), which a key in each file shares
-        let keys: BTreeSet<Key> = sql.iter().map(|&(_, k, _)| k % KEYS_PER_FILE).collect();
-        assert_eq!(
-            facets.total,
-            keys.len() as i64,
-            "step {step}: a facet across {open:?}"
-        );
+        // the read whole, paged and as a facet's total, `how` it reads rows
+        let reads = |how: &str| {
+            let sql = live(self.rt.block_on(repo.find_records(&query)).unwrap());
+            let extra: Vec<&(Wt, Key, Ver)> = sql.difference(&expected).collect();
+            allowed(8, extra.len());
+            assert!(
+                expected.is_subset(&sql) && extra.iter().all(|e| renamed_copy(e)),
+                "step {step}: a read across {open:?}, {how}\n  sql: {sql:?}\n want: {expected:?}"
+            );
+            // read as a client does: a page shorter than its limit is the last
+            let mut paged = Vec::new();
+            let mut after: Option<Cursor> = None;
+            loop {
+                let page = RecordQuery {
+                    limit: Some(2),
+                    whole_groups: true,
+                    after: after.clone(),
+                    ..query.clone()
+                };
+                let rows = self.rt.block_on(repo.find_records(&page)).unwrap();
+                let short = rows.len() < 2;
+                after = rows.last().map(|last| Cursor {
+                    path: last.path.clone(),
+                    key: last.key.clone(),
+                    file_path: Some(last.file_path.clone()),
+                    worktree_id: Some(last.worktree_id),
+                });
+                paged.extend(rows);
+                if short {
+                    break;
+                }
+            }
+            assert_eq!(live(paged), sql, "step {step}: a read across {open:?}, paged, {how}");
+            let facets = self.rt.block_on(repo.facet_records(&query, &spec)).unwrap();
+            // a facet counts a (path, key), which a key in each file shares
+            let keys: BTreeSet<Key> = sql.iter().map(|&(_, k, _)| k % KEYS_PER_FILE).collect();
+            assert_eq!(
+                facets.total,
+                keys.len() as i64,
+                "step {step}: a facet across {open:?}, {how}"
+            );
+        };
+        reads("by place");
+        unfurl_git_sync::reading_every_row(|| reads("reading every row"));
     }
 
     /// Rows of a query with no parameters, from either database.
