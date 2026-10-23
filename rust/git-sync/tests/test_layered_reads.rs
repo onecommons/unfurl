@@ -856,3 +856,111 @@ async fn a_value_main_brings_back_under_a_branchs_edit_is_hidden(sync: &SyncedRe
     );
 }
 crud_test!(a_value_main_brings_back_under_a_branchs_edit_is_hidden);
+
+/// A read across two repositories, which share no merge base, is each
+/// one's own view: the records both hold at the same places come back
+/// from each, and a facet counts each place once.
+async fn separate_repositories_are_each_their_own_view(sync: &SyncedRepo, _tmp: &TempDir) {
+    use unfurl_git_sync::{FacetPath, FacetSpec};
+    let dir = tempfile::tempdir().expect("tempdir");
+    common::init_repo_with_fixture(dir.path()).await;
+    let other = SyncedRepo::open_on(
+        dir.path(),
+        sync.db().clone(),
+        FormatRegistry::with_builtins(),
+        unfurl_git_sync::git::Trust::Full,
+    )
+    .await
+    .expect("open");
+    for repo in [sync, &other] {
+        repo.update_from_working_dir(ScanOptions::default())
+            .await
+            .expect("scan");
+    }
+    let own = RecordQuery {
+        path: Some("/repositories".into()),
+        ..Default::default()
+    };
+    let both = RecordQuery {
+        worktrees: Some(WorktreeFilter {
+            ids: Some(vec![sync.worktree_id(), other.worktree_id()]),
+            ..Default::default()
+        }),
+        ..own.clone()
+    };
+    let keys = |records: Vec<unfurl_git_sync::Record>| -> Vec<(i64, String)> {
+        let mut out: Vec<(i64, String)> = records
+            .into_iter()
+            .map(|r| (r.worktree_id, r.key))
+            .collect();
+        out.sort();
+        out
+    };
+    let mut expected = keys(sync.find_records(&own).await.expect("find"));
+    expected.extend(keys(other.find_records(&own).await.expect("find")));
+    expected.sort();
+    assert!(!expected.is_empty(), "the fixture has repositories");
+    assert_eq!(
+        keys(sync.find_records(&both).await.expect("find")),
+        expected
+    );
+
+    let spec = FacetSpec {
+        group: FacetPath::new(vec!["name".into()], false).expect("path"),
+        columns: vec![],
+    };
+    let one = sync.facet_records(&own, &spec).await.expect("facet");
+    let across = sync.facet_records(&both, &spec).await.expect("facet");
+    assert_eq!((across.total, across.groups), (one.total, one.groups));
+
+    // and rolled up by type, which reads the types the rule keeps
+    let records = [
+        ("/types", "Base", serde_json::json!({"extends": ["Base"]})),
+        (
+            "/types",
+            "Derived",
+            serde_json::json!({"extends": ["Derived", "Base"]}),
+        ),
+        (
+            "/artifacts",
+            "a1",
+            serde_json::json!({"type": {"Derived": {}}}),
+        ),
+        (
+            "/artifacts",
+            "a2",
+            serde_json::json!({"type": {"Base": {}}}),
+        ),
+    ];
+    for repo in [sync, &other] {
+        for (path, key, json) in &records {
+            repo.upsert_record(Some("cloudmap.yaml"), path, key, json.clone(), None, false)
+                .await
+                .expect("write");
+        }
+    }
+    let typed = |q: &RecordQuery| RecordQuery {
+        path: Some("/artifacts".into()),
+        ..q.clone()
+    };
+    let spec = FacetSpec {
+        group: FacetPath::new(vec!["type".into()], true).expect("path"),
+        columns: vec![],
+    };
+    let one = sync
+        .facet_records(&typed(&own), &spec)
+        .await
+        .expect("facet");
+    let across = sync
+        .facet_records(&typed(&both), &spec)
+        .await
+        .expect("facet");
+    let base = serde_json::json!("Base");
+    assert!(
+        one.groups.iter().any(|(g, n)| *g == base && *n == 2),
+        "Derived rolls up to Base: {:?}",
+        one.groups
+    );
+    assert_eq!((across.total, across.groups), (one.total, one.groups));
+}
+crud_test!(separate_repositories_are_each_their_own_view);

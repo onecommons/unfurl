@@ -997,9 +997,11 @@ implementation's. Its limits:
 - **The server's conflicts report across worktrees** reads every row
   across them, unpaged, and resolves them all before keeping its few
   conflict rows. Not yet measured.
-- **A facet across worktrees counts no conflict rows,** with
-  `include_conflicts` or without: the rule fetches none to resolve. A
-  find across keeps them. Nothing asks for both today.
+- **A facet across worktrees counts no conflict rows** where they share
+  a merge base, with `include_conflicts` or without: the rule fetches
+  none to resolve. A find across keeps them, and so does a facet across
+  separate repositories, which skips the rule. Nothing asks for both
+  today.
 
 Next: what drafts keep on other worktrees' rows (`other_entries`,
 `draft_entries_on`, `brought_back`'s hand-on and `take_over`'s

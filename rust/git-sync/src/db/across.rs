@@ -294,9 +294,10 @@ impl Covered {
         })
     }
 
-    /// Whether the read covers more than one worktree.
-    pub(crate) fn several(&self) -> bool {
-        self.worktrees.len() > 1
+    /// Whether the rule can leave anything out: whether two covered
+    /// worktrees have a merge base, as only a family's can.
+    pub(crate) fn may_drop(&self) -> bool {
+        !self.bases.classes.is_empty()
     }
 
     /// The covered views' segments.

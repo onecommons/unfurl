@@ -443,7 +443,7 @@ async fn without_copies<DB: Store>(
         None => load_covered(tx, scope).await?,
     };
     let covered = &*covered.insert(loaded);
-    if !covered.several() {
+    if !covered.may_drop() {
         return Ok(records);
     }
     covered.drop_copies(tx, records).await
@@ -1352,8 +1352,14 @@ async fn facet_sqlite(
     use sqlx::Arguments;
     // dropped with the transaction, which nothing here commits
     let mut tx = snapshot(pool, false).await?;
-    let across = query.worktrees.is_some();
-    let mut sql = match across {
+    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+    let covered = match query.worktrees {
+        Some(_) => Some(load_covered(&mut tx, &scope).await?),
+        None => None,
+    };
+    // across separate repositories the rule leaves nothing out: each view's rows
+    let resolve = covered.as_ref().is_some_and(across::Covered::may_drop);
+    let mut sql = match resolve {
         true => facet_candidates_sql(false, &ids),
         false => facet_rows_sql(false, &ids),
     };
@@ -1361,23 +1367,24 @@ async fn facet_sqlite(
     push_filter_sql_sqlite(&mut sql, query, &mut idx);
     let _ = idx;
     let mut args = sqlx::sqlite::SqliteArguments::default();
-    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
     args.add(scope.id).map_err(arg_err)?;
     args.add(scope.origin.clone()).map_err(arg_err)?;
     args.add(scope.branch.clone()).map_err(arg_err)?;
     add_filter_args_sqlite(&mut args, query)?;
-    if across {
+    if let Some(covered) = covered.as_ref().filter(|_| resolve) {
         // enough to choose how the rule reads them
         let probe = format!("{sql} LIMIT {}", across::every_row_past() + 1);
         let candidates = sqlx::query_scalar_with(&probe, args)
             .fetch_all(&mut *tx)
             .await?;
-        let file = query.file_path.as_deref();
-        across_facet_tables(&mut tx, &scope, candidates, spec, query, file).await?;
+        across_rows_table(&mut tx, covered, candidates, query).await?;
     } else {
         sqlx::query_with(&facet_rows_table(&sql), args)
             .execute(&mut *tx)
             .await?;
+    }
+    if let Some(covered) = covered.as_ref().filter(|_| rolls_up(spec)) {
+        across_types_table(&mut tx, covered, query.file_path.as_deref()).await?;
     }
     let (total,): (i64,) = sqlx::query_as(FACET_TOTAL).fetch_one(&mut *tx).await?;
 
@@ -1409,7 +1416,7 @@ fn facet_rows_sql(pg: bool, ids: &str) -> String {
 
 /// The ids of the covered segments' rows, to which the caller appends the
 /// filters' `WHERE` clauses: a read across worktrees' facet candidates,
-/// which [`across_facet_tables`] resolves.
+/// which [`across_rows_table`] resolves.
 fn facet_candidates_sql(pg: bool, ids: &str) -> String {
     format!(
         "SELECT r.id FROM record r WHERE r.segment_id IN (SELECT v.segment_id FROM {} v)",
@@ -1422,35 +1429,38 @@ fn rolls_up(spec: &FacetSpec) -> bool {
     spec.group.rollup || spec.columns.iter().flatten().any(|m| m.rollup)
 }
 
-/// Make the temporary tables a facet across worktrees reads: `facet_rows`,
-/// as [`facet_rows_table`] does, from those of the rows `candidates` some
-/// worktree of `scope` shows and git's rule keeps ([`across::Covered`]),
-/// or past [`across::every_row_past`] of them, from every row it keeps
-/// that `query`'s filters match; when `spec` rolls up, `facet_types`,
-/// the `/types` rows in `file_path`, or every file, it keeps.
-async fn across_facet_tables<DB: AcrossReads>(
+/// Make `facet_rows` for a facet across worktrees, as
+/// [`facet_rows_table`] does, from those of the rows `candidates` some
+/// worktree `covered` holds shows and git's rule keeps
+/// ([`across::Covered`]), or past [`across::every_row_past`] of them,
+/// from every row it keeps that `query`'s filters match.
+async fn across_rows_table<DB: AcrossReads>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    scope: &WorktreeScope,
+    covered: &across::Covered,
     candidates: Vec<i64>,
-    spec: &FacetSpec,
     query: &RecordQuery,
-    file_path: Option<&str>,
 ) -> Result<()> {
-    let covered = load_covered(tx, scope).await?;
     if candidates.len() > across::every_row_past() {
         let kept = covered.kept_every(tx).await?;
-        DB::filtered_rows(tx, query, kept).await?;
+        DB::filtered_rows(tx, query, kept).await
     } else {
         let kept = covered.kept(tx, candidates).await?;
         let rows = facet_rows_table("SELECT id, path, key FROM record WHERE {ids}");
-        DB::exec_ids(tx, &rows, &kept).await?;
+        DB::exec_ids(tx, &rows, &kept).await
     }
-    if rolls_up(spec) {
-        let types = across_types(tx, &covered, file_path).await?;
-        let sql = "CREATE TEMP TABLE facet_types AS SELECT id FROM record WHERE {ids}";
-        DB::exec_ids(tx, sql, &types).await?;
-    }
-    Ok(())
+}
+
+/// Make `facet_types` for a facet across worktrees: the `/types` rows in
+/// `file_path`, or every file, that a read across the worktrees `covered`
+/// holds keeps.
+async fn across_types_table<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    covered: &across::Covered,
+    file_path: Option<&str>,
+) -> Result<()> {
+    let types = across_types(tx, covered, file_path).await?;
+    let sql = "CREATE TEMP TABLE facet_types AS SELECT id FROM record WHERE {ids}";
+    DB::exec_ids(tx, sql, &types).await
 }
 
 /// Make the temporary table `facet_rows` from [`facet_rows_sql`]: each
@@ -1706,8 +1716,14 @@ async fn facet_pg(
         .execute(&mut *tx)
         .await?;
     sqlx::query("SET LOCAL jit = off").execute(&mut *tx).await?;
-    let across = query.worktrees.is_some();
-    let mut sql = match across {
+    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+    let covered = match query.worktrees {
+        Some(_) => Some(load_covered(&mut tx, &scope).await?),
+        None => None,
+    };
+    // across separate repositories the rule leaves nothing out: each view's rows
+    let resolve = covered.as_ref().is_some_and(across::Covered::may_drop);
+    let mut sql = match resolve {
         true => facet_candidates_sql(true, &ids),
         false => facet_rows_sql(true, &ids),
     };
@@ -1715,26 +1731,27 @@ async fn facet_pg(
     push_filter_sql_pg(&mut sql, query, &mut idx);
     let _ = idx;
     let mut args = sqlx::postgres::PgArguments::default();
-    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
     args.add(scope.id).map_err(arg_err)?;
     args.add(scope.origin.clone()).map_err(arg_err)?;
     args.add(scope.branch.clone()).map_err(arg_err)?;
     add_filter_args_pg(&mut args, query)?;
     // unnamed, so planned with its values, as `find_pg` explains
-    if across {
+    if let Some(covered) = covered.as_ref().filter(|_| resolve) {
         // enough to choose how the rule reads them
         let probe = format!("{sql} LIMIT {}", across::every_row_past() + 1);
         let candidates = sqlx::query_scalar_with(&probe, args)
             .persistent(false)
             .fetch_all(&mut *tx)
             .await?;
-        let file = query.file_path.as_deref();
-        across_facet_tables(&mut tx, &scope, candidates, spec, query, file).await?;
+        across_rows_table(&mut tx, covered, candidates, query).await?;
     } else {
         sqlx::query_with(&facet_rows_table(&sql), args)
             .persistent(false)
             .execute(&mut *tx)
             .await?;
+    }
+    if let Some(covered) = covered.as_ref().filter(|_| rolls_up(spec)) {
+        across_types_table(&mut tx, covered, query.file_path.as_deref()).await?;
     }
     let (total,): (i64,) = sqlx::query_as(FACET_TOTAL)
         .persistent(false)
