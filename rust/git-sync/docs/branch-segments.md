@@ -2606,22 +2606,34 @@ ORDER BY p.path COLLATE "C", p.key COLLATE "C", p.file_path COLLATE "C",
 ```
 
 That's each worktree's own view, read at twice the page's limit. Rust
-then leaves out the unchanged copies ([§4.1](#41-reads)), from the rows
-in the covered segments at the page's places and at those where its
-records have other rows, the entries on them, each worktree's chain,
-and the merge bases' graph; a page left short reads on from where it
-stopped. Past 300 places, it reads every row in the covered segments
-instead, and the entries in them. Content compares as `content_hash`,
-which each row is written with, so no JSON is read.
+then leaves out the unchanged copies ([§4.1](#41-reads)), from the
+covered worktrees with their chains, the merge bases' graph, and the
+rows in the covered segments at every place where the page's records
+have a row there, with the entries on them; a page left short reads on
+from where it stopped. Past 300 records, it reads every row in the
+covered segments instead, and the entries in them. Content compares as
+`content_hash`, which each row is written with, so no JSON is read.
 
 ```sql
 -- the merge bases' graph: the segments' parents and the merges' edges
-SELECT id, parent_id FROM segment
-WHERE family_id = :family AND kind <> 'draft';
-
-SELECT m.segment_id, m.merged_segment_id
+SELECT 0, id, parent_id FROM segment
+WHERE family_id = :family AND kind <> 'draft'
+UNION ALL
+SELECT 1, m.segment_id, m.merged_segment_id
 FROM segment_merge m JOIN segment s ON s.id = m.segment_id
 WHERE s.family_id = :family;
+
+-- the rows the rule compares, and the segments of the entries on them
+SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key,
+       r.deleted, r.content_hash,
+       (SELECT string_agg(CAST(e.segment_id AS TEXT), ',')
+        FROM superseded e WHERE e.record_id = r.id) AS entries
+FROM record r
+WHERE r.conflict IS NULL AND r.segment_id = ANY(:segments)
+  AND (r.file_path, r.path, r.key) IN (
+      SELECT o.file_path, o.path, o.key FROM record o
+      WHERE o.conflict IS NULL AND o.segment_id = ANY(:segments)
+        AND o.key_id = ANY(:records));
 ```
 
 On Postgres, a page with a cursor reads each view's entries from a CTE

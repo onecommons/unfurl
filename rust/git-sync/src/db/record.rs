@@ -7,7 +7,7 @@ use crate::commit::CommitId;
 use std::collections::BTreeSet;
 
 use crate::db::store::{Filter, Scope, Store};
-use crate::db::tables::{At, Candidate, RecordRow};
+use crate::db::tables::{At, RecordRow};
 use crate::db::{across, Db};
 use crate::error::{Error, Result};
 use crate::model::{
@@ -1254,7 +1254,9 @@ async fn facet_sqlite(
     args.add(scope.branch.clone()).map_err(arg_err)?;
     add_filter_args_sqlite(&mut args, query)?;
     if across {
-        let candidates = sqlx::query_as_with(&sql, args).fetch_all(&mut *tx).await?;
+        let candidates = sqlx::query_scalar_with(&sql, args)
+            .fetch_all(&mut *tx)
+            .await?;
         let file = query.file_path.as_deref();
         across_facet_tables(&mut tx, &scope, candidates, rolls_up(spec), file).await?;
     } else {
@@ -1290,13 +1292,12 @@ fn facet_rows_sql(pg: bool, ids: &str) -> String {
     )
 }
 
-/// The rows of the covered segments, each once, to which the caller
-/// appends the filters' `WHERE` clauses: a read across worktrees' facet
-/// candidates, which [`across_facet_rows`] resolves.
+/// The ids of the covered segments' rows, to which the caller appends the
+/// filters' `WHERE` clauses: a read across worktrees' facet candidates,
+/// which [`across_facet_tables`] resolves.
 fn facet_candidates_sql(pg: bool, ids: &str) -> String {
     format!(
-        "SELECT DISTINCT r.id, r.file_path, r.path, r.key, r.key_id FROM record r \
-         WHERE r.segment_id IN (SELECT v.segment_id FROM {} v)",
+        "SELECT r.id FROM record r WHERE r.segment_id IN (SELECT v.segment_id FROM {} v)",
         views(pg, ids)
     )
 }
@@ -1307,31 +1308,25 @@ fn rolls_up(spec: &FacetSpec) -> bool {
 }
 
 /// Make the temporary tables a facet across worktrees reads: `facet_rows`,
-/// as [`facet_rows_table`] does, from those of `candidates` some worktree
-/// of `scope` shows and git's rule keeps ([`across::Covered`]); with
-/// `rollup`, `facet_types`, the `/types` rows in `file_path`, or every
-/// file, it keeps.
+/// as [`facet_rows_table`] does, from those of the rows `candidates` some
+/// worktree of `scope` shows and git's rule keeps ([`across::Covered`]);
+/// with `rollup`, `facet_types`, the `/types` rows in `file_path`, or
+/// every file, it keeps.
 async fn across_facet_tables<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     scope: &WorktreeScope,
-    candidates: Vec<Candidate>,
+    candidates: Vec<i64>,
     rollup: bool,
     file_path: Option<&str>,
 ) -> Result<()> {
     let covered = load_covered(tx, scope).await?;
     let kept = covered.kept(tx, candidates).await?;
-    let rows = format!(
-        "SELECT id, path, key FROM record WHERE {}",
-        id_in("id", &kept)
-    );
-    DB::exec(tx, &facet_rows_table(&rows)).await?;
+    let rows = facet_rows_table("SELECT id, path, key FROM record WHERE {ids}");
+    DB::exec_ids(tx, &rows, &kept).await?;
     if rollup {
         let types = across_types(tx, &covered, file_path).await?;
-        let sql = format!(
-            "CREATE TEMP TABLE facet_types AS SELECT id FROM record WHERE {}",
-            id_in("id", &types)
-        );
-        DB::exec(tx, &sql).await?;
+        let sql = "CREATE TEMP TABLE facet_types AS SELECT id FROM record WHERE {ids}";
+        DB::exec_ids(tx, sql, &types).await?;
     }
     Ok(())
 }
@@ -1559,7 +1554,7 @@ async fn facet_pg(
     add_filter_args_pg(&mut args, query)?;
     // planned per call, as in `find_pg`
     if across {
-        let candidates = sqlx::query_as_with(&sql, args)
+        let candidates = sqlx::query_scalar_with(&sql, args)
             .persistent(false)
             .fetch_all(&mut *tx)
             .await?;

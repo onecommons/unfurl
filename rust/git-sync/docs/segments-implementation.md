@@ -986,10 +986,11 @@ implementation's. Its limits:
   collision would read a changed version as unchanged. A row written
   outside the store has none, and compares as changed: the bench fills
   in its generated rows' before timing.
-- **Past 300 places, a read fetches every row in the covered segments**
+- **Past 300 records, a read fetches every row in the covered segments**
   into memory, without its content: on the bench, every facet across,
-  31,498 rows. On SQLite, facets across take 1.9 and 1.3 times the old
-  rule's time (bench/segments/README.md).
+  31,498 rows. Facets across take 1.6 and 1.2 times the old rule's time
+  on SQLite, and on the bench's 500-record family, 1.7 and 1.5 on
+  Postgres (bench/segments/README.md).
 - **The server's conflicts report across worktrees** reads every row
   across them, unpaged, and resolves them all before keeping its few
   conflict rows. Not yet measured.

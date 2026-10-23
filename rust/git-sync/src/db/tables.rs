@@ -289,15 +289,19 @@ pub(crate) struct AcrossRow {
     pub(crate) content_hash: Option<i64>,
 }
 
-/// A row a read across worktrees keeps if git's rule does
-/// (`db::across::Covered::kept`).
+/// The rows a read across worktrees compares, and the entries on them as
+/// `(row, segment)`.
+pub(crate) struct AcrossRows {
+    pub(crate) rows: Vec<AcrossRow>,
+    pub(crate) entries: Vec<(i64, i64)>,
+}
+
+/// An [`AcrossRow`] and the segments of the entries on it, comma-separated.
 #[derive(Debug, Clone, sqlx::FromRow)]
-pub(crate) struct Candidate {
-    pub(crate) id: i64,
-    pub(crate) file_path: String,
-    pub(crate) path: String,
-    pub(crate) key: String,
-    pub(crate) key_id: i64,
+pub(crate) struct WithEntries {
+    #[sqlx(flatten)]
+    pub(crate) row: AcrossRow,
+    pub(crate) entries: Option<String>,
 }
 
 /// A family's committed segments with their parents, and the merges in
@@ -314,6 +318,15 @@ pub(crate) struct CoveredWorktree {
     pub(crate) head: i64,
     pub(crate) draft: i64,
     pub(crate) family: i64,
+}
+
+/// A covered worktree with one segment of its committed chain: what
+/// `Store::covered` reads, a row per segment.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub(crate) struct CoveredChain {
+    #[sqlx(flatten)]
+    pub(crate) worktree: CoveredWorktree,
+    pub(crate) segment_id: Option<i64>,
 }
 
 /// A segment, and the commit whose state it ends at.

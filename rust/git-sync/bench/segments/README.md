@@ -486,22 +486,29 @@ total 4 to 11 ms, so they vary by a third between runs.
 A read across worktrees now returns each worktree's own view, less a
 version unchanged since its merge base with another the read covers,
 which has changed it since (branch-segments.md §4.1). SQL reads the
-views, then the rows at the page's places and the entries on them, and
-Rust leaves out the copies (C.7). Read 8 is read 2's next page and read
-13 is read 10's. At the defaults, in release builds, on GDK's Postgres
-17 over its socket and the SQLite copy, a call's warm median in ms.
-"Before" is the merges' edges (0c4a4904), which left a row any covered
-worktree's entry superseded out of every view, run in the same session:
+views, then in one statement the rows at every place the page's records
+have a row, with the entries on them, and Rust leaves out the copies
+(C.7). Read 8 is read 2's next page and read 13 is read 10's. At the
+defaults, in release builds, on the `unfurl-pg-jit` container and the
+SQLite copy, the fastest of six warm calls over two runs, in ms, as
+`compare.py` takes them. "Before" is the nightly's baseline (09e8cd3a),
+which left a row any covered worktree's entry superseded out of every
+view, run alternately with it; it has no reads 8 and 13:
 
 | Read | Postgres before | now | statements | SQLite before | now | statements |
 |---|---|---|---|---|---|---|
-| 8. find, JSON filter, the next page | 3.2 | 3.0 | 1 | 1.9 | 1.6 | 1 |
-| 10. find across every `main` | 9.4 | 14.1 | 1 → 8 | 51 | 43 | 1 → 8 |
-| 11. 5 across every `main` | 321 | 237 | 5 → 17 | 175 | 334 | 3 → 15 |
-| 12. 6 across every `main` | 491 | 522 | 6 → 18 | 559 | 724 | 4 → 16 |
-| 13. 10's next page | 196 | 42 | 1 → 12 | 0.6 | 4.0 | 1 → 12 |
+| 8. find, JSON filter, the next page | | 5.8 | 1 | | 1.6 | 1 |
+| 10. find across every `main` | 10.0 | 19.4 | 1 → 4 | 47.8 | 38.2 | 1 → 4 |
+| 11. 5 across every `main` | 217 | 235 | 5 → 13 | 174 | 277 | 3 → 11 |
+| 12. 6 across every `main` | 433 | 506 | 6 → 14 | 555 | 656 | 4 → 12 |
+| 13. 10's next page | | 48.6 | 6 | | 3.5 | 6 |
 
-Reads 1–7 didn't move beyond noise.
+Reads 1–7 didn't move beyond noise. On the 500-record family, the
+nightly's limit of 1.5 times fails Postgres's reads 10, 11 and 12 (5.6,
+16.9 and 27.0 ms: 2.8, 1.7 and 1.5 times) and SQLite's read 11 (4.8 ms,
+1.6 times). Figures in the notes below not said to be the container's
+were measured earlier that day on GDK's Postgres 17 and its SQLite
+copy, 37,498 rows.
 
 - **A page reads twice its limit,** so the copies it leaves out seldom
   cost another round, and one left short reads on from where it stopped.
@@ -511,7 +518,15 @@ Reads 1–7 didn't move beyond noise.
   subquery, as SQLite's still are, the anti-join planned as a nested
   loop over the views per row: read 13's page statement took 372 ms in
   psql. On SQLite the CTE cost 80 ms a page.
-- **Past 300 places, a read fetches every row in the covered segments,
+- **A page's rows to compare are one statement,** with each row's
+  entries aggregated beside it and the records' ids bound as one
+  parameter. `+r.segment_id` keeps SQLite on the place index: probing
+  each segment at each place took 3 to 4 times as long.
+- **Ids are bound as an array on Postgres,** which its planner sees as
+  a constant. Bound as text and cast, `= ANY` checked each row against
+  every id in turn: 13.7 ms of the 500-record family's read 11 on the
+  container.
+- **Past 300 records, a read fetches every row in the covered segments,
   and the entries in them,** which at the defaults is every facet
   across: 31,498 rows.
 - **Content compares as the hash each row is written with**
@@ -522,6 +537,15 @@ Reads 1–7 didn't move beyond noise.
 - **The resolver numbers places and merge bases,** with each row's
   views and merge bases as bit sets, and takes 9 ms of read 11. Looking
   each place up by its strings took 146 ms on Postgres, 207 on SQLite.
-- **What SQLite's read 11 spends beyond the old rule** is reading the
-  rows twice: as candidates (71 ms), then to resolve (94). Its counts
-  take 103.
+- **What read 11 spends beyond the old rule** is reading the rows
+  twice: as candidates, then to resolve. On SQLite that's 71 and 94 ms,
+  and its counts take 103. Postgres reads them twice too, 19 and 38 ms
+  on the container under `auto_explain`, but its old facet cost more,
+  so its ratio is lower.
+- **Read 10 on Postgres spends its time in the page's anti-join,** over
+  each entry and view in the covered views: on the container, 73,864
+  pairs, 12 ms, where the old rule matched on the row alone. The
+  resolver's three statements take under half a millisecond.
+- **Fetching JSON only for the rows kept wouldn't pay:** a page that
+  returned none at all saved at most 1.8 ms of read 10 on the container,
+  about what the statement fetching the kept rows' would cost.

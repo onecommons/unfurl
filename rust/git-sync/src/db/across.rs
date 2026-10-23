@@ -4,8 +4,8 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use crate::db::store::Store;
-use crate::db::tables::{AcrossRow, Candidate, CoveredWorktree, SegmentGraph};
+use crate::db::store::{Records, Store};
+use crate::db::tables::{AcrossRow, AcrossRows, CoveredWorktree, SegmentGraph};
 use crate::error::Result;
 use crate::model::Record;
 
@@ -49,8 +49,8 @@ fn ones(mask: &[u64]) -> impl Iterator<Item = usize> + '_ {
     })
 }
 
-/// Past how many places [`Covered::fetch`] reads every row in the covered
-/// segments rather than those at each place.
+/// Past how many records [`Covered::fetch`] reads every row in the covered
+/// segments rather than those at the records' places.
 const EVERY_ROW_PAST: usize = 300;
 
 #[cfg(feature = "fault-injection")]
@@ -69,7 +69,7 @@ fn every_row_past() -> usize {
 }
 
 /// Run `f` with every read across worktrees on this thread reading every
-/// row in the covered segments, as one past 300 places does.
+/// row in the covered segments, as one past 300 records does.
 #[cfg(feature = "fault-injection")]
 pub fn reading_every_row<T>(f: impl FnOnce() -> T) -> T {
     let before = EVERY_ROW.replace(0);
@@ -237,19 +237,18 @@ impl Covered {
         branch: Option<&str>,
         ids: &str,
     ) -> Result<Self> {
-        let worktrees = DB::covered(tx, id, origin, branch, ids).await?;
+        let mut worktrees: Vec<CoveredWorktree> = Vec::new();
+        let mut chains: Vec<(usize, i64)> = Vec::new();
+        // a row per segment of each worktree's chain, by worktree
+        for row in DB::covered(tx, id, origin, branch, ids).await? {
+            if worktrees.last().is_none_or(|w| w.id != row.worktree.id) {
+                worktrees.push(row.worktree);
+            }
+            if let Some(s) = row.segment_id {
+                chains.push((worktrees.len() - 1, s));
+            }
+        }
         let words = worktrees.len().div_ceil(64).max(1);
-        let index: HashMap<i64, usize> = worktrees
-            .iter()
-            .enumerate()
-            .map(|(i, w)| (w.id, i))
-            .collect();
-        let ids: Vec<i64> = worktrees.iter().map(|w| w.id).collect();
-        let chains: Vec<(usize, i64)> = DB::chains(tx, &ids)
-            .await?
-            .into_iter()
-            .map(|(w, s)| (index[&w], s))
-            .collect();
         let drafts = worktrees.iter().enumerate().map(|(i, w)| (i, w.draft));
         let mut holds: HashMap<i64, Vec<u64>> = HashMap::new();
         for (i, s) in chains.into_iter().chain(drafts) {
@@ -290,44 +289,31 @@ impl Covered {
         all.into_iter().collect()
     }
 
-    /// The rows the rule compares for these places and records: those at
-    /// them in [`Self::segments`], and those at the places the records'
-    /// other rows are, with the entries on them.
+    /// The rows the rule compares for `records`: those in
+    /// [`Self::segments`] at every place the records have a row there,
+    /// with the entries on them; past `count` of them, every row there.
     async fn fetch<DB: Store>(
         &self,
         tx: &mut sqlx::Transaction<'_, DB>,
-        mut places: Vec<(String, String, String)>,
-        key_ids: &[i64],
+        records: Records<'_>,
+        count: usize,
     ) -> Result<Rows> {
-        places.sort_unstable();
-        places.dedup();
-        let mut key_ids = key_ids.to_vec();
-        key_ids.sort_unstable();
-        key_ids.dedup();
+        // past a few hundred, reading every row is cheaper than their places
+        if count > every_row_past() {
+            return self.fetch_every(tx).await;
+        }
+        Ok(with_entries(
+            DB::across_rows(tx, &self.segments(), records).await?,
+        ))
+    }
+
+    /// Every row in [`Self::segments`], with the entries in them.
+    async fn fetch_every<DB: Store>(&self, tx: &mut sqlx::Transaction<'_, DB>) -> Result<Rows> {
         let segments = self.segments();
-        // past a few hundred places, reading every row is cheaper
-        if places.len() > every_row_past() {
-            let rows = DB::across_rows_in(tx, &segments).await?;
-            // those in other segments neither view nor base holds
-            let entries = DB::entries_in_segments(tx, &segments).await?;
-            return Ok(with_entries(rows, entries));
-        }
-        let mut rows = DB::across_rows(tx, &segments, &places, &key_ids).await?;
-        let known: HashSet<(String, String, String)> = places.into_iter().collect();
-        let more: BTreeSet<(String, String, String)> = rows
-            .iter()
-            .map(place)
-            .filter(|p| !known.contains(p))
-            .collect();
-        if !more.is_empty() {
-            let more: Vec<(String, String, String)> = more.into_iter().collect();
-            rows.extend(DB::across_rows(tx, &segments, &more, &[]).await?);
-            rows.sort_unstable_by_key(|r| r.id);
-            rows.dedup_by_key(|r| r.id);
-        }
-        let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
-        let entries = DB::entries_on_rows(tx, &ids).await?;
-        Ok(with_entries(rows, entries))
+        let rows = DB::across_rows_in(tx, &segments).await?;
+        // those in other segments neither view nor base holds
+        let entries = DB::entries_in_segments(tx, &segments).await?;
+        Ok(with_entries(AcrossRows { rows, entries }))
     }
 
     /// `records` less the copies the rule leaves out: a record is the row
@@ -337,12 +323,10 @@ impl Covered {
         tx: &mut sqlx::Transaction<'_, DB>,
         records: Vec<Record>,
     ) -> Result<Vec<Record>> {
-        let places = records
-            .iter()
-            .map(|r| (r.file_path.clone(), r.path.clone(), r.key.clone()))
-            .collect();
-        let key_ids: Vec<i64> = records.iter().map(|r| r.id).collect();
-        let rows = self.fetch(tx, places, &key_ids).await?;
+        let mut ids: Vec<i64> = records.iter().map(|r| r.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let rows = self.fetch(tx, Records::Ids(&ids), ids.len()).await?;
         let resolved = Resolve::new(self, &rows).resolve();
         let index: HashMap<i64, usize> = self
             .worktrees
@@ -365,21 +349,19 @@ impl Covered {
             .collect())
     }
 
-    /// The ids of `candidates` some covered view shows and the rule keeps.
+    /// Those of the rows `candidates` some covered view shows and the rule
+    /// keeps.
     pub(crate) async fn kept<DB: Store>(
         &self,
         tx: &mut sqlx::Transaction<'_, DB>,
-        candidates: Vec<Candidate>,
+        candidates: Vec<i64>,
     ) -> Result<Vec<i64>> {
         if candidates.is_empty() {
             return Ok(Vec::new());
         }
-        let places = candidates
-            .iter()
-            .map(|c| (c.file_path.clone(), c.path.clone(), c.key.clone()))
-            .collect();
-        let key_ids: Vec<i64> = candidates.iter().map(|c| c.key_id).collect();
-        let rows = self.fetch(tx, places, &key_ids).await?;
+        let rows = self
+            .fetch(tx, Records::OfRows(&candidates), candidates.len())
+            .await?;
         let resolved = Resolve::new(self, &rows).resolve();
         let by_id: HashMap<i64, usize> = rows
             .rows
@@ -388,15 +370,14 @@ impl Covered {
             .map(|(i, r)| (r.id, i))
             .collect();
         Ok(candidates
-            .iter()
-            .map(|c| c.id)
+            .into_iter()
             .filter(|id| by_id.get(id).is_some_and(|&i| resolved.kept(i)))
             .collect())
     }
 }
 
-/// `rows` with `entries`, `(row, segment)`, by row.
-fn with_entries(rows: Vec<AcrossRow>, entries: Vec<(i64, i64)>) -> Rows {
+/// `rows` with their entries by row.
+fn with_entries(AcrossRows { rows, entries }: AcrossRows) -> Rows {
     let mut by_row: HashMap<i64, Vec<i64>> = HashMap::new();
     for (row, seg) in entries {
         by_row.entry(row).or_default().push(seg);
@@ -411,10 +392,6 @@ fn with_entries(rows: Vec<AcrossRow>, entries: Vec<(i64, i64)>) -> Rows {
 pub(crate) struct Rows {
     rows: Vec<AcrossRow>,
     entries: HashMap<i64, Vec<i64>>,
-}
-
-fn place(r: &AcrossRow) -> (String, String, String) {
-    (r.file_path.clone(), r.path.clone(), r.key.clone())
 }
 
 type Place<'a> = (&'a str, &'a str, &'a str);
