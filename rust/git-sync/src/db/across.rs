@@ -472,42 +472,63 @@ impl Covered {
         }
         candidates.sort_unstable();
         let batches = Batches::new(Records::OfRows(&candidates), candidates.len());
-        self.kept_of(tx, batches, |id| candidates.binary_search(&id).is_ok())
-            .await
+        let mut out = Vec::new();
+        self.kept_of(tx, batches, |r| {
+            if candidates.binary_search(&r.id).is_ok() {
+                out.push(r.id);
+            }
+        })
+        .await?;
+        Ok(out)
     }
 
-    /// Every covered row some covered view shows and the rule keeps.
+    /// Every covered row some covered view shows and the rule keeps, and
+    /// the live `/types` rows among them in `types_in`, or every file.
     pub(crate) async fn kept_every<DB: Store>(
         &self,
         tx: &mut sqlx::Transaction<'_, DB>,
-    ) -> Result<Vec<i64>> {
+        types_in: Option<&str>,
+    ) -> Result<KeptRows> {
         let batches = Batches::new(Records::Ids(&[]), usize::MAX);
-        self.kept_of(tx, batches, |_| true).await
+        let mut out = KeptRows {
+            rows: Vec::new(),
+            types: Vec::new(),
+        };
+        self.kept_of(tx, batches, |r| {
+            out.rows.push(r.id);
+            if r.path == "/types" && !r.deleted && types_in.is_none_or(|f| r.file_path == f) {
+                out.types.push(r.id);
+            }
+        })
+        .await?;
+        Ok(out)
     }
 
-    /// The rows of `batches` some covered view shows, the rule keeps, and
-    /// `wanted` takes.
+    /// Pass `keep` each row of `batches` some covered view shows and the
+    /// rule keeps.
     async fn kept_of<DB: Store>(
         &self,
         tx: &mut sqlx::Transaction<'_, DB>,
         mut batches: Batches<'_>,
-        wanted: impl Fn(i64) -> bool,
-    ) -> Result<Vec<i64>> {
-        let mut out = Vec::new();
+        mut keep: impl FnMut(&AcrossRow),
+    ) -> Result<()> {
         while let Some(batch) = self.next_batch(tx, &mut batches).await? {
             let resolved = Resolve::new(self, &batch.rows, batch.decided).resolve();
-            out.extend(
-                batch
-                    .rows
-                    .rows
-                    .iter()
-                    .enumerate()
-                    .filter(|&(i, r)| resolved.decides(i) && resolved.kept(i) && wanted(r.id))
-                    .map(|(_, r)| r.id),
-            );
+            for (i, r) in batch.rows.rows.iter().enumerate() {
+                if resolved.decides(i) && resolved.kept(i) {
+                    keep(r);
+                }
+            }
         }
-        Ok(out)
+        Ok(())
     }
+}
+
+/// What [`Covered::kept_every`] keeps: rows' ids, and the `/types` rows'
+/// among them.
+pub(crate) struct KeptRows {
+    pub(crate) rows: Vec<i64>,
+    pub(crate) types: Vec<i64>,
 }
 
 /// Up to [`rows_held`] rows in `segments` at the places after `after`,

@@ -1391,14 +1391,14 @@ async fn facet_sqlite(
         let candidates = sqlx::query_scalar_with(&probe, args)
             .fetch_all(&mut *tx)
             .await?;
-        across_rows_table(&mut tx, covered, candidates, query).await?;
+        across_tables(&mut tx, covered, candidates, spec, query).await?;
     } else {
         sqlx::query_with(&facet_rows_table(&sql), args)
             .execute(&mut *tx)
             .await?;
-    }
-    if let Some(covered) = covered.as_ref().filter(|_| rolls_up(spec)) {
-        across_types_table(&mut tx, covered, query.file_path.as_deref()).await?;
+        if let Some(covered) = covered.as_ref().filter(|_| rolls_up(spec)) {
+            across_types_table(&mut tx, covered, query.file_path.as_deref()).await?;
+        }
     }
     let (total,): (i64,) = sqlx::query_as(FACET_TOTAL).fetch_one(&mut *tx).await?;
 
@@ -1430,7 +1430,7 @@ fn facet_rows_sql(pg: bool, ids: &str) -> String {
 
 /// The ids of the covered segments' rows, to which the caller appends the
 /// filters' `WHERE` clauses: a read across worktrees' facet candidates,
-/// which [`across_rows_table`] resolves.
+/// which [`across_tables`] resolves.
 fn facet_candidates_sql(pg: bool, ids: &str) -> String {
     format!(
         "SELECT r.id FROM record r WHERE r.segment_id IN (SELECT v.segment_id FROM {} v)",
@@ -1443,25 +1443,40 @@ fn rolls_up(spec: &FacetSpec) -> bool {
     spec.group.rollup || spec.columns.iter().flatten().any(|m| m.rollup)
 }
 
-/// Make `facet_rows` for a facet across worktrees, as
-/// [`facet_rows_table`] does, from those of the rows `candidates` some
-/// worktree `covered` holds shows and git's rule keeps
-/// ([`across::Covered`]), or past [`across::every_row_past`] of them,
-/// from every row it keeps that `query`'s filters match.
-async fn across_rows_table<DB: AcrossReads>(
+/// Make the tables a facet across worktrees reads, git's rule resolving
+/// them ([`across::Covered`]): `facet_rows`, as [`facet_rows_table`]
+/// does, from those of the rows `candidates` some worktree `covered`
+/// holds shows and the rule keeps, or past [`across::every_row_past`] of
+/// them, from every row it keeps that `query`'s filters match; and when
+/// `spec` rolls up, `facet_types`, the `/types` rows in `query`'s file,
+/// or every file, it keeps.
+async fn across_tables<DB: AcrossReads>(
     tx: &mut sqlx::Transaction<'_, DB>,
     covered: &across::Covered,
     candidates: Vec<i64>,
+    spec: &FacetSpec,
     query: &RecordQuery,
 ) -> Result<()> {
-    if candidates.len() > across::every_row_past() {
-        let kept = covered.kept_every(tx).await?;
-        DB::filtered_rows(tx, query, kept).await
+    let file = query.file_path.as_deref();
+    let types = if candidates.len() > across::every_row_past() {
+        // the types are among the rows it reads
+        let kept = covered.kept_every(tx, file).await?;
+        DB::filtered_rows(tx, query, kept.rows).await?;
+        Some(kept.types)
     } else {
         let kept = covered.kept(tx, candidates).await?;
         let rows = facet_rows_table("SELECT id, path, key FROM record WHERE {ids}");
-        DB::exec_ids(tx, &rows, &kept).await
+        DB::exec_ids(tx, &rows, &kept).await?;
+        None
+    };
+    if rolls_up(spec) {
+        let types = match types {
+            Some(types) => types,
+            None => across_types(tx, covered, file).await?,
+        };
+        DB::exec_ids(tx, FACET_TYPES_TABLE, &types).await?;
     }
+    Ok(())
 }
 
 /// Make `facet_types` for a facet across worktrees: the `/types` rows in
@@ -1473,9 +1488,12 @@ async fn across_types_table<DB: Store>(
     file_path: Option<&str>,
 ) -> Result<()> {
     let types = across_types(tx, covered, file_path).await?;
-    let sql = "CREATE TEMP TABLE facet_types AS SELECT id FROM record WHERE {ids}";
-    DB::exec_ids(tx, sql, &types).await
+    DB::exec_ids(tx, FACET_TYPES_TABLE, &types).await
 }
+
+/// `facet_types` from the ids `Store::exec_ids` binds.
+const FACET_TYPES_TABLE: &str =
+    "CREATE TEMP TABLE facet_types AS SELECT id FROM record WHERE {ids}";
 
 /// Make the temporary table `facet_rows` from [`facet_rows_sql`]: each
 /// row's id, and `k` numbering its `(path, key)`, which its copies in other
@@ -1750,15 +1768,15 @@ async fn facet_pg(
             .persistent(false)
             .fetch_all(&mut *tx)
             .await?;
-        across_rows_table(&mut tx, covered, candidates, query).await?;
+        across_tables(&mut tx, covered, candidates, spec, query).await?;
     } else {
         sqlx::query_with(&facet_rows_table(&sql), args)
             .persistent(false)
             .execute(&mut *tx)
             .await?;
-    }
-    if let Some(covered) = covered.as_ref().filter(|_| rolls_up(spec)) {
-        across_types_table(&mut tx, covered, query.file_path.as_deref()).await?;
+        if let Some(covered) = covered.as_ref().filter(|_| rolls_up(spec)) {
+            across_types_table(&mut tx, covered, query.file_path.as_deref()).await?;
+        }
     }
     let (total,): (i64,) = sqlx::query_as(FACET_TOTAL)
         .persistent(false)

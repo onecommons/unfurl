@@ -376,6 +376,64 @@ async fn a_type_the_branch_changed_is_its_change_alone(sync: &SyncedRepo, tmp: &
 }
 crud_test!(a_type_the_branch_changed_is_its_change_alone);
 
+/// The same past 300 candidates, where a facet resolves every covered row
+/// and takes its types from the rows the rule keeps: a type neither
+/// changed rolls up, and one the branch changed rolls up as the branch's.
+async fn a_type_the_branch_changed_rolls_up_alone_past_300(sync: &SyncedRepo, tmp: &TempDir) {
+    use unfurl_git_sync::{canonical_facet_key, FacetPath, FacetSpec};
+    let write = async |on: &SyncedRepo, path: &str, key: &str, json: serde_json::Value| {
+        on.upsert_record(Some("cloudmap.yaml"), path, key, json, None, false)
+            .await
+            .expect("write");
+    };
+    let a_type =
+        |name: &str, extends: &[&str]| serde_json::json!({"name": name, "extends": extends});
+    write(
+        sync,
+        "/types",
+        "test.Top",
+        a_type("test.Top", &["test.Top"]),
+    )
+    .await;
+    for name in ["test.Sub", "test.Mid"] {
+        write(sync, "/types", name, a_type(name, &[name, "test.Top"])).await;
+        for i in 0..160 {
+            let typed = serde_json::json!({"type": {name: {}}});
+            write(sync, "/artifacts", &format!("{name}-{i}"), typed).await;
+        }
+    }
+    let (branch, _dir) = a_branch(sync, tmp).await;
+    write(
+        &branch,
+        "/types",
+        "test.Sub",
+        a_type("test.Sub", &["test.Sub"]),
+    )
+    .await;
+
+    let query = RecordQuery {
+        worktrees: both(sync, &branch),
+        path: Some("/artifacts".into()),
+        ..Default::default()
+    };
+    let spec = FacetSpec {
+        group: FacetPath::new(vec!["type".into()], true).expect("path"),
+        columns: vec![],
+    };
+    let rows = sync.facet_records(&query, &spec).await.expect("facet");
+    // the fixture's artifacts count under their own types
+    let mut groups: Vec<(String, i64)> = rows
+        .groups
+        .iter()
+        .map(|(v, n)| (canonical_facet_key(v), *n))
+        .filter(|(g, _)| g.starts_with("test."))
+        .collect();
+    groups.sort();
+    let expected = [("test.Mid", 160), ("test.Sub", 160), ("test.Top", 160)];
+    assert_eq!(groups, expected.map(|(g, n)| (g.to_string(), n)));
+}
+crud_test!(a_type_the_branch_changed_rolls_up_alone_past_300);
+
 /// Both worktrees, for a read across them.
 fn both(a: &SyncedRepo, b: &SyncedRepo) -> Option<WorktreeFilter> {
     Some(WorktreeFilter {

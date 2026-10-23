@@ -2674,7 +2674,8 @@ Facets take as candidates the covered segments' rows that match the
 filters, with no anti-join, up to 301 of them, resolve them the same
 way, and count those some view shows and the rule keeps
 ([C.5](#c5-facets)). Past 300, they resolve every covered row instead,
-and `facet_rows` takes the rows the rule keeps that the filters match.
+and `facet_rows` takes the rows the rule keeps that the filters match,
+and `facet_types` the `/types` rows among them.
 Where no two covered worktrees have a merge base, as separate
 repositories don't, the rule leaves nothing out: a find returns its
 pages as they are, and a facet counts each covered view's rows, as one
