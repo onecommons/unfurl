@@ -597,7 +597,8 @@ async fn bench_segments_pg() {
         SET auto_explain.log_buffers = on; \
         SET auto_explain.log_settings = on; \
         SET auto_explain.log_level = notice; \
-        SET client_min_messages = notice";
+        SET client_min_messages = notice; \
+        SET plan_cache_mode = force_custom_plan";
 
     subscribe();
     let url = std::env::var("BENCH_PG_URL")

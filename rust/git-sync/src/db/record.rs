@@ -411,7 +411,8 @@ async fn across_pages<DB: AcrossReads>(
             None => break,
         }
     }
-    tx.commit().await?;
+    // read only: dropped, it rolls back as the connection goes back to the pool
+    drop(tx);
     if let Some(n) = query.limit {
         out.truncate(usize::try_from(n).unwrap_or(usize::MAX));
     }
@@ -728,7 +729,7 @@ async fn subtypes(
                  SELECT name FROM sub ORDER BY name",
                 type_edges_cte_pg(rows)
             );
-            // planned per call, as in `find_pg`
+            // planned with its values, as `find_pg` explains
             let mut q = sqlx::query_scalar(&sql).persistent(false);
             if kept.is_none() {
                 q = q
@@ -1269,11 +1270,11 @@ async fn find_pg(
     if let Some(n) = limit {
         args.add(*n).map_err(arg_err)?;
     }
-    // Unnamed, so Postgres plans it with the values bound. A cached statement
-    // gets a generic plan, which can't see the type list's length or how many
-    // worktrees the scope matches, and probes the GIN index once per segment.
+    // Cached, and planned with the values bound: `plan_cache_mode` is
+    // `force_custom_plan` (`Db::connect`). A generic plan can't see the type
+    // list's length or how many worktrees the scope matches, and probes the
+    // GIN index once per segment.
     let rows = sqlx::query_as_with::<_, FoundColumns, _>(&sql, args)
-        .persistent(false)
         .fetch_all(exec)
         .await?;
     rows.into_iter().map(Record::try_from).collect()
@@ -1705,7 +1706,7 @@ async fn facet_pg(
     args.add(scope.origin.clone()).map_err(arg_err)?;
     args.add(scope.branch.clone()).map_err(arg_err)?;
     add_filter_args_pg(&mut args, query)?;
-    // planned per call, as in `find_pg`
+    // planned with its values, as `find_pg` explains
     if across {
         // enough to choose how the rule reads them
         let probe = format!("{sql} LIMIT {}", across::every_row_past() + 1);
@@ -1827,7 +1828,7 @@ async fn facet_aggregate_pg(
     if types_file_idx.is_some() {
         args.add(query.file_path.as_deref()).map_err(arg_err)?;
     }
-    // planned per call, as in `find_pg`
+    // planned with its values, as `find_pg` explains
     let rows = sqlx::query_with(&sql, args)
         .persistent(false)
         .fetch_all(&mut *conn)
@@ -1861,12 +1862,11 @@ pub(crate) async fn find_many(
         let mut tx = snapshot(pool, true).await?;
         let found = AcrossReads::many(&mut tx, scope.clone(), keys, alias, exclude_ids, since_version)
             .await?;
-        let out = match across {
-            true => without_copies(&mut tx, &scope, found, &mut None).await?,
-            false => found,
-        };
-        tx.commit().await?;
-        Ok(out)
+        // read only: dropped, it rolls back as the connection goes back to the pool
+        match across {
+            true => without_copies(&mut tx, &scope, found, &mut None).await,
+            false => Ok(found),
+        }
     })
 }
 
@@ -2011,7 +2011,7 @@ async fn find_many_pg(
     sql.push_str(" ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\", v.worktree_id");
     let _ = idx;
 
-    // planned per call, as in `find_pg`
+    // planned with its values, as `find_pg` explains
     let mut q = sqlx::query_as::<_, FoundColumns>(&sql)
         .persistent(false)
         .bind(scope.id)

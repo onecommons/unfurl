@@ -106,11 +106,11 @@ fn split_entries(found: Vec<WithEntries>) -> Result<AcrossRows> {
 }
 
 /// The condition that a value is one of the ids `store_impl!`'s `ids`
-/// binds as the parameter `?1`.
-fn one_of<DB: Store>() -> &'static str {
+/// binds as parameter `n`.
+fn one_of<DB: Store>(n: usize) -> String {
     match DB::POSTGRES {
-        true => "= ANY($1)",
-        false => "IN (SELECT value FROM json_each(?1))",
+        true => format!("= ANY(${n})"),
+        false => format!("IN (SELECT value FROM json_each(?{n}))"),
     }
 }
 
@@ -1582,9 +1582,8 @@ macro_rules! store_impl {
                      WHERE s.family_id IN ({families}) \
                      ORDER BY 1, 2"
                 );
-                // the ids list is inlined: a statement per call
+                // cached: its text changes only with the worktrees a filter lists
                 let rows: Vec<CoveredRow> = sqlx::query_as(&db::spell(&*tx, sql))
-                    .persistent(false)
                     .bind(id)
                     .bind(origin)
                     .bind(branch)
@@ -1630,24 +1629,24 @@ macro_rules! store_impl {
                         entries: Vec::new(),
                     });
                 }
-                let within = one_of::<Self>();
+                let (within, of) = (one_of::<Self>(1), one_of::<Self>(2));
                 let records = match of_rows {
-                    false => format!("o.key_id {within}"),
-                    true => format!("o.key_id IN (SELECT c.key_id FROM record c WHERE c.id {within})"),
+                    false => format!("o.key_id {of}"),
+                    true => format!("o.key_id IN (SELECT c.key_id FROM record c WHERE c.id {of})"),
                 };
-                let segments = db::id_list(segments);
-                // `+` keeps SQLite from probing every segment at each place
+                // `+` keeps SQLite from probing every segment at each place;
+                // the lists are bound, so the text is the same every call
                 let sql = format!(
                     "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted, \
                      r.content_hash, (SELECT string_agg(CAST(e.segment_id AS TEXT), ',') \
                      FROM superseded e WHERE e.record_id = r.id) AS entries \
-                     FROM record r WHERE r.conflict IS NULL AND +r.segment_id IN ({segments}) \
+                     FROM record r WHERE r.conflict IS NULL AND +r.segment_id {within} \
                        AND (r.file_path, r.path, r.key) IN (SELECT o.file_path, o.path, o.key \
-                       FROM record o WHERE o.conflict IS NULL AND o.segment_id IN ({segments}) \
+                       FROM record o WHERE o.conflict IS NULL AND o.segment_id {within} \
                        AND {records})"
                 );
                 let found = sqlx::query_as(&sql)
-                    .persistent(false)
+                    .bind(($ids)(segments))
                     .bind(($ids)(ids))
                     .fetch_all(&mut **tx)
                     .await?;
@@ -1726,7 +1725,7 @@ macro_rules! store_impl {
                 sql: &str,
                 ids: &[i64],
             ) -> Result<()> {
-                let within = one_of::<Self>();
+                let within = one_of::<Self>(1);
                 sqlx::query(&sql.replace("{ids}", &format!("id {within}")))
                     .persistent(false)
                     .bind(($ids)(ids))
