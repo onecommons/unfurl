@@ -408,6 +408,20 @@ pub(crate) trait Store: sqlx::Database + Sized {
         rows: &[i64],
     ) -> impl Future<Output = Result<Vec<(i64, i64)>>> + Send;
 
+    /// The entries in `segments`, as `(row, segment)`.
+    fn entries_in_segments(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        segments: &[i64],
+    ) -> impl Future<Output = Result<Vec<(i64, i64)>>> + Send;
+
+    /// `rows`' content as a read across worktrees compares it, by row: its
+    /// JSON's `jsonb_hash_extended` on Postgres; the JSON on SQLite, whose
+    /// text may order keys differently.
+    fn contents(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        rows: &[i64],
+    ) -> impl Future<Output = Result<Vec<(i64, String)>>> + Send;
+
     /// The live `/types` rows in `segments` and `file_path`, or every file.
     fn types_rows(
         tx: &mut sqlx::Transaction<'_, Self>,
@@ -1583,11 +1597,9 @@ macro_rules! store_impl {
                 if segments.is_empty() {
                     return Ok(Vec::new());
                 }
-                let content = if Self::POSTGRES { "jsonb_hash_extended(r.json, 0)::text" } else { "json(r.json)" };
                 let select = format!(
-                    "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted, \
-                     {content} AS content FROM record r \
-                     WHERE r.conflict IS NULL AND r.segment_id IN ({})",
+                    "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted \
+                     FROM record r WHERE r.conflict IS NULL AND r.segment_id IN ({})",
                     db::id_list(segments)
                 );
                 let mut out: Vec<AcrossRow> = Vec::new();
@@ -1628,11 +1640,9 @@ macro_rules! store_impl {
                 if segments.is_empty() {
                     return Ok(Vec::new());
                 }
-                let content = if Self::POSTGRES { "jsonb_hash_extended(r.json, 0)::text" } else { "json(r.json)" };
                 let sql = format!(
-                    "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted, \
-                     {content} AS content FROM record r \
-                     WHERE r.conflict IS NULL AND r.segment_id IN ({}) ORDER BY r.id",
+                    "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted \
+                     FROM record r WHERE r.conflict IS NULL AND r.segment_id IN ({}) ORDER BY r.id",
                     db::id_list(segments)
                 );
                 Ok(sqlx::query_as(&sql).persistent(false).fetch_all(&mut **tx).await?)
@@ -1661,6 +1671,45 @@ macro_rules! store_impl {
                     );
                 }
                 Ok(out)
+            }
+
+            async fn contents(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                rows: &[i64],
+            ) -> Result<Vec<(i64, String)>> {
+                let content = if Self::POSTGRES {
+                    "jsonb_hash_extended(r.json, 0)::text"
+                } else {
+                    "json(r.json)"
+                };
+                let mut out = Vec::new();
+                for chunk in rows.chunks(10_000) {
+                    let sql = format!(
+                        "SELECT r.id, {content} FROM record r WHERE r.id IN ({})",
+                        db::id_list(chunk)
+                    );
+                    out.extend(
+                        sqlx::query_as::<_, (i64, String)>(&sql)
+                            .persistent(false)
+                            .fetch_all(&mut **tx)
+                            .await?,
+                    );
+                }
+                Ok(out)
+            }
+
+            async fn entries_in_segments(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                segments: &[i64],
+            ) -> Result<Vec<(i64, i64)>> {
+                if segments.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let sql = format!(
+                    "SELECT record_id, segment_id FROM superseded WHERE segment_id IN ({})",
+                    db::id_list(segments)
+                );
+                Ok(sqlx::query_as(&sql).persistent(false).fetch_all(&mut **tx).await?)
             }
 
             async fn types_rows(

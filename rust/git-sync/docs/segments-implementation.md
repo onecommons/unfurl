@@ -984,11 +984,11 @@ implementation's. Its limits:
 - **Postgres compares content by a 64-bit hash,** `jsonb_hash_extended`
   (Postgres 11 and later), so a collision would read a changed version
   as unchanged. SQLite compares canonical JSON text, parsing each row
-  it fetches.
-- **Past 300 places, a read fetches every row in the covered
-  segments,** which on the bench is every facet across. Reads 11 and 12
-  each take 76 ms more than before the resolver
-  (bench/segments/README.md).
+  it compares.
+- **Past 300 places, a read fetches every row in the covered segments**
+  into memory, without its content: on the bench, every facet across,
+  31,498 rows. On SQLite, facets across take 2.7 and 1.5 times the old
+  rule's time (bench/segments/README.md).
 - **The server's conflicts report across worktrees** reads every row
   across them, unpaged, and resolves them all before keeping its few
   conflict rows. Not yet measured.

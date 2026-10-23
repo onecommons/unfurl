@@ -2,11 +2,10 @@
 //! covered worktree's own view, less a live version unchanged since its
 //! merge base with another the read covers, which has changed it since.
 
-use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::db::store::Store;
-use crate::db::tables::{AcrossRow, CoveredWorktree, SegmentGraph};
+use crate::db::tables::{AcrossRow, Candidate, CoveredWorktree, SegmentGraph};
 use crate::error::Result;
 use crate::model::Record;
 
@@ -157,14 +156,76 @@ impl Graph {
     }
 }
 
+/// Each two covered worktrees' merge bases, by number.
+struct Bases {
+    /// Worktrees `w` and `u`'s, at `w * n + u`, as an index into `classes`.
+    pair: Vec<Option<usize>>,
+    /// Each set of merge bases some two worktrees have.
+    classes: Vec<Vec<usize>>,
+    /// Each merge base's state: its segment and its parents.
+    views: Vec<HashSet<i64>>,
+    /// The words of a set of merge bases.
+    words: usize,
+    /// The merge bases whose states hold each segment.
+    holding: HashMap<i64, Vec<u64>>,
+}
+
+impl Bases {
+    fn new(graph: &mut Graph, worktrees: &[CoveredWorktree]) -> Self {
+        let n = worktrees.len();
+        let mut pair = vec![None; n * n];
+        let mut classes: Vec<Vec<usize>> = Vec::new();
+        let mut class_of: HashMap<Vec<usize>, usize> = HashMap::new();
+        let mut base_of: HashMap<i64, usize> = HashMap::new();
+        let mut views: Vec<HashSet<i64>> = Vec::new();
+        for (i, w) in worktrees.iter().enumerate() {
+            for (j, u) in worktrees.iter().enumerate().skip(i + 1) {
+                if w.family != u.family {
+                    continue;
+                }
+                let mut found: Vec<usize> = Vec::new();
+                for s in graph.merge_bases(w.head, u.head) {
+                    let b = *base_of.entry(s).or_insert_with(|| {
+                        views.push(graph.view(s));
+                        views.len() - 1
+                    });
+                    found.push(b);
+                }
+                if found.is_empty() {
+                    continue;
+                }
+                found.sort_unstable();
+                let c = *class_of.entry(found).or_insert_with_key(|f| {
+                    classes.push(f.clone());
+                    classes.len() - 1
+                });
+                (pair[i * n + j], pair[j * n + i]) = (Some(c), Some(c));
+            }
+        }
+        let words = views.len().div_ceil(64).max(1);
+        let mut holding: HashMap<i64, Vec<u64>> = HashMap::new();
+        for (b, view) in views.iter().enumerate() {
+            for &s in view {
+                set(holding.entry(s).or_insert_with(|| vec![0; words]), b);
+            }
+        }
+        Bases {
+            pair,
+            classes,
+            views,
+            words,
+            holding,
+        }
+    }
+}
+
 /// The worktrees a read covers, the views holding each segment, and each
-/// two's merge bases as the views of the segments ending at them.
+/// two's merge bases.
 pub(crate) struct Covered {
     worktrees: Vec<CoveredWorktree>,
     words: usize,
     holds: HashMap<i64, Vec<u64>>,
-    bases: HashMap<(usize, usize), Vec<i64>>,
-    base_views: HashMap<i64, HashSet<i64>>,
+    bases: Bases,
 }
 
 impl Covered {
@@ -197,29 +258,12 @@ impl Covered {
         let families: BTreeSet<i64> = worktrees.iter().map(|w| w.family).collect();
         let families: Vec<i64> = families.into_iter().collect();
         let mut graph = Graph::new(DB::segment_graph(tx, &families).await?);
-        let mut bases = HashMap::new();
-        let mut base_views = HashMap::new();
-        for (i, w) in worktrees.iter().enumerate() {
-            for (j, u) in worktrees.iter().enumerate().skip(i + 1) {
-                if w.family != u.family {
-                    continue;
-                }
-                let found = graph.merge_bases(w.head, u.head);
-                for &s in &found {
-                    base_views.entry(s).or_insert_with(|| graph.view(s));
-                }
-                if !found.is_empty() {
-                    bases.insert((j, i), found.clone());
-                    bases.insert((i, j), found);
-                }
-            }
-        }
+        let bases = Bases::new(&mut graph, &worktrees);
         Ok(Covered {
             worktrees,
             words,
             holds,
             bases,
-            base_views,
         })
     }
 
@@ -241,7 +285,7 @@ impl Covered {
             .holds
             .keys()
             .copied()
-            .chain(self.base_views.values().flatten().copied())
+            .chain(self.bases.views.iter().flatten().copied())
             .collect();
         all.into_iter().collect()
     }
@@ -249,19 +293,26 @@ impl Covered {
     /// The rows the rule compares for these places and records: those at
     /// them in [`Self::segments`], and those at the places the records'
     /// other rows are, with the entries on them.
-    pub(crate) async fn fetch<DB: Store>(
+    async fn fetch<DB: Store>(
         &self,
         tx: &mut sqlx::Transaction<'_, DB>,
-        places: Vec<(String, String, String)>,
+        mut places: Vec<(String, String, String)>,
         key_ids: &[i64],
     ) -> Result<Rows> {
+        places.sort_unstable();
+        places.dedup();
+        let mut key_ids = key_ids.to_vec();
+        key_ids.sort_unstable();
+        key_ids.dedup();
         let segments = self.segments();
         // past a few hundred places, reading every row is cheaper
         if places.len() > every_row_past() {
             let rows = DB::across_rows_in(tx, &segments).await?;
-            return with_entries(tx, rows).await;
+            // those in other segments neither view nor base holds
+            let entries = DB::entries_in_segments(tx, &segments).await?;
+            return Ok(with_entries::<DB>(rows, entries));
         }
-        let mut rows = DB::across_rows(tx, &segments, &places, key_ids).await?;
+        let mut rows = DB::across_rows(tx, &segments, &places, &key_ids).await?;
         let known: HashSet<(String, String, String)> = places.into_iter().collect();
         let more: BTreeSet<(String, String, String)> = rows
             .iter()
@@ -274,21 +325,44 @@ impl Covered {
             rows.sort_unstable_by_key(|r| r.id);
             rows.dedup_by_key(|r| r.id);
         }
-        with_entries(tx, rows).await
+        let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+        let entries = DB::entries_on_rows(tx, &ids).await?;
+        Ok(with_entries::<DB>(rows, entries))
     }
 
-    /// `records` less the copies the rule leaves out, `rows` being what
-    /// [`Self::fetch`] read for them: a record is the row its worktree's
-    /// view shows at its place.
-    pub(crate) fn drop_copies(&self, rows: &Rows, records: Vec<Record>) -> Vec<Record> {
-        let resolved = Resolve::new(self, rows).resolve();
+    /// `rows` resolved, with the content of those it compares.
+    async fn resolve<'r, DB: Store>(
+        &'r self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        rows: &'r Rows,
+    ) -> Result<Resolved<'r>> {
+        let mut resolve = Resolve::new(self, rows);
+        let content = DB::contents(tx, &resolve.compared()).await?;
+        resolve.set_content(content);
+        Ok(resolve.resolve())
+    }
+
+    /// `records` less the copies the rule leaves out: a record is the row
+    /// its worktree's view shows at its place.
+    pub(crate) async fn drop_copies<DB: Store>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        records: Vec<Record>,
+    ) -> Result<Vec<Record>> {
+        let places = records
+            .iter()
+            .map(|r| (r.file_path.clone(), r.path.clone(), r.key.clone()))
+            .collect();
+        let key_ids: Vec<i64> = records.iter().map(|r| r.id).collect();
+        let rows = self.fetch(tx, places, &key_ids).await?;
+        let resolved = self.resolve(tx, &rows).await?;
         let index: HashMap<i64, usize> = self
             .worktrees
             .iter()
             .enumerate()
             .map(|(i, w)| (w.id, i))
             .collect();
-        records
+        Ok(records
             .into_iter()
             .filter(|rec| {
                 if rec.deleted || rec.conflict.is_some() {
@@ -300,41 +374,50 @@ impl Covered {
                 let p = (rec.file_path.as_str(), rec.path.as_str(), rec.key.as_str());
                 !resolved.dropped_at(w, p)
             })
-            .collect()
+            .collect())
     }
 
-    /// The ids of `candidates` some covered view shows and keeps.
-    pub(crate) fn kept(&self, rows: &Rows, candidates: &[i64]) -> Vec<i64> {
-        let resolved = Resolve::new(self, rows).resolve();
+    /// The ids of `candidates` some covered view shows and the rule keeps.
+    pub(crate) async fn kept<DB: Store>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        candidates: Vec<Candidate>,
+    ) -> Result<Vec<i64>> {
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let places = candidates
+            .iter()
+            .map(|c| (c.file_path.clone(), c.path.clone(), c.key.clone()))
+            .collect();
+        let key_ids: Vec<i64> = candidates.iter().map(|c| c.key_id).collect();
+        let rows = self.fetch(tx, places, &key_ids).await?;
+        let resolved = self.resolve(tx, &rows).await?;
         let by_id: HashMap<i64, usize> = rows
             .rows
             .iter()
             .enumerate()
             .map(|(i, r)| (r.id, i))
             .collect();
-        candidates
+        Ok(candidates
             .iter()
-            .copied()
+            .map(|c| c.id)
             .filter(|id| by_id.get(id).is_some_and(|&i| resolved.kept(i)))
-            .collect()
+            .collect())
     }
 }
 
-/// `rows` with the entries on them.
-async fn with_entries<DB: Store>(
-    tx: &mut sqlx::Transaction<'_, DB>,
-    rows: Vec<AcrossRow>,
-) -> Result<Rows> {
-    let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
-    let mut entries: HashMap<i64, Vec<i64>> = HashMap::new();
-    for (row, seg) in DB::entries_on_rows(tx, &ids).await? {
-        entries.entry(row).or_default().push(seg);
+/// `rows` with `entries`, `(row, segment)`, by row.
+fn with_entries<DB: Store>(rows: Vec<AcrossRow>, entries: Vec<(i64, i64)>) -> Rows {
+    let mut by_row: HashMap<i64, Vec<i64>> = HashMap::new();
+    for (row, seg) in entries {
+        by_row.entry(row).or_default().push(seg);
     }
-    Ok(Rows {
+    Rows {
         rows,
-        entries,
+        entries: by_row,
         canonical: DB::POSTGRES,
-    })
+    }
 }
 
 /// What [`Covered::fetch`] read: rows, the entries on them by row, and
@@ -351,15 +434,22 @@ fn place(r: &AcrossRow) -> (String, String, String) {
 
 type Place<'a> = (&'a str, &'a str, &'a str);
 
-/// One resolution's indexes: rows by place and by record, the views
-/// showing each, and its content as it compares.
+/// One resolution's indexes: rows by place and by record, the views and
+/// the merge bases' states showing each row, and its content as it
+/// compares.
 struct Resolve<'a> {
     covered: &'a Covered,
     rows: &'a Rows,
-    at: HashMap<Place<'a>, Vec<usize>>,
+    /// Each place's rows.
+    at: Vec<Vec<usize>>,
+    /// Each row's place, an index into `at`.
+    place_of: Vec<usize>,
+    places: HashMap<Place<'a>, usize>,
     by_record: HashMap<i64, Vec<usize>>,
     shown: Masks,
-    content: Vec<Cow<'a, str>>,
+    based: Masks,
+    /// Each compared row's content, canonical.
+    content: Vec<Option<String>>,
 }
 
 /// A resolution: the views showing each row, and those leaving it out.
@@ -378,48 +468,75 @@ impl Resolved<'_> {
     /// Whether view `w` leaves out the live row it shows at `p`.
     fn dropped_at(&self, w: usize, p: Place<'_>) -> bool {
         self.resolve
-            .shows(w, p)
+            .places
+            .get(&p)
+            .and_then(|&q| self.resolve.shows(w, q))
             .is_some_and(|i| has(self.dropped.get(i), w))
     }
 }
 
+/// Set `mask` to what `holding` holds `segment` for, less what it holds
+/// each of `entries`' segments for.
+fn hold(mask: &mut [u64], holding: &HashMap<i64, Vec<u64>>, segment: i64, entries: &[i64]) {
+    let Some(holds) = holding.get(&segment) else {
+        return;
+    };
+    mask.copy_from_slice(holds);
+    for s in entries {
+        if let Some(gone) = holding.get(s) {
+            mask.iter_mut().zip(gone).for_each(|(m, g)| *m &= !g);
+        }
+    }
+}
+
+/// One live row at place `q` while it's resolved: what each view shows
+/// there, and whether each class of merge bases has its content there.
+struct AtRow<'s> {
+    q: usize,
+    shows: &'s [Option<usize>],
+    here: Vec<Option<bool>>,
+    /// Whether its record has a row at another place.
+    elsewhere: bool,
+}
+
 impl<'a> Resolve<'a> {
     fn new(covered: &'a Covered, rows: &'a Rows) -> Self {
-        let mut at: HashMap<Place<'a>, Vec<usize>> = HashMap::new();
+        let count = rows.rows.len();
+        let mut at: Vec<Vec<usize>> = Vec::new();
+        let mut places: HashMap<Place<'a>, usize> = HashMap::new();
+        let mut place_of = Vec::with_capacity(count);
         let mut by_record: HashMap<i64, Vec<usize>> = HashMap::new();
-        let mut shown = Masks::new(covered.words, rows.rows.len());
+        let mut shown = Masks::new(covered.words, count);
+        let mut based = Masks::new(covered.bases.words, count);
         for (i, r) in rows.rows.iter().enumerate() {
-            at.entry((&r.file_path, &r.path, &r.key))
-                .or_default()
-                .push(i);
+            let q = *places
+                .entry((&r.file_path, &r.path, &r.key))
+                .or_insert_with(|| {
+                    at.push(Vec::new());
+                    at.len() - 1
+                });
+            at[q].push(i);
+            place_of.push(q);
             by_record.entry(r.key_id).or_default().push(i);
-            let Some(holds) = covered.holds.get(&r.segment_id) else {
-                continue;
-            };
-            let mask = shown.get_mut(i);
-            mask.copy_from_slice(holds);
-            for s in rows.entries.get(&r.id).into_iter().flatten() {
-                if let Some(gone) = covered.holds.get(s) {
-                    mask.iter_mut().zip(gone).for_each(|(m, g)| *m &= !g);
-                }
-            }
+            let entries = rows.entries.get(&r.id).map_or(&[][..], Vec::as_slice);
+            hold(shown.get_mut(i), &covered.holds, r.segment_id, entries);
+            hold(
+                based.get_mut(i),
+                &covered.bases.holding,
+                r.segment_id,
+                entries,
+            );
         }
-        let content = rows
-            .rows
-            .iter()
-            .map(|r| match rows.canonical {
-                true => Cow::Borrowed(r.content.as_str()),
-                false => serde_json::from_str(&r.content)
-                    .map(|v| Cow::Owned(crate::model::canonical_json_text(&v)))
-                    .unwrap_or(Cow::Borrowed(r.content.as_str())),
-            })
-            .collect();
+        let content = vec![None; count];
         Resolve {
             covered,
             rows,
             at,
+            place_of,
+            places,
             by_record,
             shown,
+            based,
             content,
         }
     }
@@ -428,39 +545,89 @@ impl<'a> Resolve<'a> {
         &self.rows.rows[i]
     }
 
-    fn same(&self, a: usize, b: usize) -> bool {
-        self.content[a] == self.content[b]
+    /// The ids of the rows [`Self::resolve`] compares by content: the live
+    /// rows at each place it resolves holding two or more, and the live
+    /// rows at every place a record has rows at, where it has several.
+    fn compared(&self) -> Vec<i64> {
+        let n = self.covered.worktrees.len();
+        let live = |q: usize| self.at[q].iter().copied().filter(|&i| !self.row(i).deleted);
+        let mut want = vec![false; self.rows.rows.len()];
+        for q in 0..self.at.len() {
+            let here: Vec<usize> = live(q).collect();
+            // every view shows the one row: nothing to compare
+            if here
+                .iter()
+                .any(|&i| (0..n).all(|w| has(self.shown.get(i), w)))
+            {
+                continue;
+            }
+            for &i in &here {
+                want[i] |= here.len() > 1;
+                for &o in &self.by_record[&self.row(i).key_id] {
+                    let r = self.place_of[o];
+                    if r != q {
+                        want[i] = true;
+                        live(r).for_each(|x| want[x] = true);
+                    }
+                }
+            }
+        }
+        want.iter()
+            .enumerate()
+            .filter(|&(_, &w)| w)
+            .map(|(i, _)| self.row(i).id)
+            .collect()
     }
 
-    /// The live row view `u` shows at `p`.
-    fn shows(&self, u: usize, p: Place<'_>) -> Option<usize> {
-        self.at
-            .get(&p)?
+    /// Take `content`, `(row id, content)`, as [`Store::contents`] reads it.
+    fn set_content(&mut self, content: Vec<(i64, String)>) {
+        for (id, text) in content {
+            // the rows come sorted by id
+            let Ok(i) = self.rows.rows.binary_search_by_key(&id, |r| r.id) else {
+                continue;
+            };
+            self.content[i] = Some(match self.rows.canonical {
+                true => text,
+                false => serde_json::from_str(&text)
+                    .map(|v| crate::model::canonical_json_text(&v))
+                    .unwrap_or(text),
+            });
+        }
+    }
+
+    fn same(&self, a: usize, b: usize) -> bool {
+        if a == b {
+            return true;
+        }
+        let (x, y) = (&self.content[a], &self.content[b]);
+        debug_assert!(
+            x.is_some() && y.is_some(),
+            "rows {a} and {b} compared without their content"
+        );
+        x.is_some() && x == y
+    }
+
+    /// The live row view `u` shows at place `q`.
+    fn shows(&self, u: usize, q: usize) -> Option<usize> {
+        self.at[q]
             .iter()
             .copied()
             .find(|&i| !self.row(i).deleted && has(self.shown.get(i), u))
     }
 
-    /// The live row the state at base segment `b` has at `p`.
-    fn base_at(&self, b: i64, p: Place<'_>) -> Option<usize> {
-        let view = &self.covered.base_views[&b];
-        self.at.get(&p)?.iter().copied().find(|&i| {
-            let r = self.row(i);
-            !r.deleted
-                && view.contains(&r.segment_id)
-                && !self
-                    .rows
-                    .entries
-                    .get(&r.id)
-                    .is_some_and(|e| e.iter().any(|s| view.contains(s)))
-        })
+    /// The live row the state at merge base `b` has at place `q`.
+    fn base_at(&self, b: usize, q: usize) -> Option<usize> {
+        self.at[q]
+            .iter()
+            .copied()
+            .find(|&i| !self.row(i).deleted && has(self.based.get(i), b))
     }
 
     /// Each live row's views that leave it out.
     fn resolve(self) -> Resolved<'a> {
         let n = self.covered.worktrees.len();
         let mut dropped = Masks::new(self.covered.words, self.rows.rows.len());
-        for (&p, here) in &self.at {
+        for (q, here) in self.at.iter().enumerate() {
             let live: Vec<usize> = here
                 .iter()
                 .copied()
@@ -477,8 +644,16 @@ impl<'a> Resolve<'a> {
                 .map(|u| live.iter().copied().find(|&i| has(self.shown.get(i), u)))
                 .collect();
             for &i in &live {
+                let mut row = AtRow {
+                    q,
+                    shows: &shows,
+                    here: vec![None; self.covered.bases.classes.len()],
+                    elsewhere: self.by_record[&self.row(i).key_id]
+                        .iter()
+                        .any(|&o| self.place_of[o] != q),
+                };
                 for w in ones(self.shown.get(i)) {
-                    if self.unchanged_copy(i, w, p, &shows) {
+                    if self.unchanged_copy(i, w, &mut row) {
                         set(dropped.get_mut(i), w);
                     }
                 }
@@ -490,42 +665,42 @@ impl<'a> Resolve<'a> {
         }
     }
 
-    /// Whether row `i`, which view `w` shows at `p`, where each view shows
-    /// `shows`, is unchanged since `w`'s merge base with another covered
-    /// worktree which has changed it since.
-    fn unchanged_copy(&self, i: usize, w: usize, p: Place<'_>, shows: &[Option<usize>]) -> bool {
-        (0..shows.len()).any(|u| {
-            let Some(bases) = self.covered.bases.get(&(w, u)) else {
+    /// Whether row `i`, which view `w` shows at `row.q`, is unchanged since
+    /// `w`'s merge base with another covered worktree which has changed it
+    /// since.
+    fn unchanged_copy(&self, i: usize, w: usize, row: &mut AtRow<'_>) -> bool {
+        let n = row.shows.len();
+        (0..n).any(|u| {
+            let Some(c) = self.covered.bases.pair[w * n + u] else {
                 return false;
             };
-            if shows[u].is_some_and(|x| self.same(x, i)) {
+            if row.shows[u].is_some_and(|x| self.same(x, i)) {
                 return false;
             }
-            // the base had it here, and the other has changed it here
-            let here = bases
-                .iter()
-                .all(|&b| self.base_at(b, p).is_some_and(|x| self.same(x, i)));
-            here || self.moved(i, u, bases, p)
+            // the bases had it here, and the other has changed it here
+            let here = *row.here[c].get_or_insert_with(|| {
+                self.covered.bases.classes[c]
+                    .iter()
+                    .all(|&b| self.base_at(b, row.q).is_some_and(|x| self.same(x, i)))
+            });
+            here || (row.elsewhere && self.moved(i, u, c, row.q))
         })
     }
 
-    /// Whether row `i` moved to `p` since every one of `bases`, and `u`
-    /// has modified it where the base had it, a live value: a rename and
-    /// a deletion keep both.
-    fn moved(&self, i: usize, u: usize, bases: &[i64], p: Place<'_>) -> bool {
-        let others: Vec<Place<'a>> = self.by_record[&self.row(i).key_id]
+    /// Whether row `i` moved to place `q` since every merge base of class
+    /// `c`, and `u` has modified it where the base had it, a live value: a
+    /// rename and a deletion keep both.
+    fn moved(&self, i: usize, u: usize, c: usize, q: usize) -> bool {
+        let others: Vec<usize> = self.by_record[&self.row(i).key_id]
             .iter()
-            .map(|&o| {
-                let r = self.row(o);
-                (r.file_path.as_str(), r.path.as_str(), r.key.as_str())
-            })
-            .filter(|&q| q != p)
+            .map(|&o| self.place_of[o])
+            .filter(|&r| r != q)
             .collect();
-        bases.iter().all(|&b| {
-            !self.base_at(b, p).is_some_and(|x| self.same(x, i))
-                && others.iter().any(|&q| {
-                    self.base_at(b, q).is_some_and(|x| self.same(x, i))
-                        && self.shows(u, q).is_some_and(|y| !self.same(y, i))
+        self.covered.bases.classes[c].iter().all(|&b| {
+            !self.base_at(b, q).is_some_and(|x| self.same(x, i))
+                && others.iter().any(|&r| {
+                    self.base_at(b, r).is_some_and(|x| self.same(x, i))
+                        && self.shows(u, r).is_some_and(|y| !self.same(y, i))
                 })
         })
     }

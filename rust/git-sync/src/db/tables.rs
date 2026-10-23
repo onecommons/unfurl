@@ -286,9 +286,6 @@ pub(crate) struct AcrossRow {
     pub(crate) path: String,
     pub(crate) key: String,
     pub(crate) deleted: bool,
-    /// Its JSON's `jsonb_hash_extended` on Postgres; the JSON on SQLite,
-    /// whose text may order keys differently.
-    pub(crate) content: String,
 }
 
 /// A row a read across worktrees keeps if git's rule does

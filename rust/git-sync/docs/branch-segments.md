@@ -2608,8 +2608,10 @@ in the covered segments at the page's places and at those where its
 records have other rows, the entries on them, each worktree's chain,
 and the merge bases' graph; a page left short reads on from where it
 stopped. Past 300 places, it reads every row in the covered segments
-instead. Content compares as `jsonb_hash_extended(r.json, 0)` on
-Postgres, and as canonical JSON text on SQLite.
+instead, and the entries in them. Content compares as
+`jsonb_hash_extended(r.json, 0)` on Postgres, and as canonical JSON text
+on SQLite, read only for the rows compared: those at places holding two
+live rows or more, and at a moved record's other places.
 
 ```sql
 -- the merge bases' graph: the segments' parents and the merges' edges
@@ -2621,10 +2623,12 @@ FROM segment_merge m JOIN segment s ON s.id = m.segment_id
 WHERE s.family_id = :family;
 ```
 
-A page with a cursor reads each view's entries from a CTE instead: with
-the cursor's row comparison beside it, the page's `NOT EXISTS` planned
-as a nested loop over the views per row: 372 ms for the bench's next
-page's statement, where the whole read with the CTE takes 37.
+On Postgres, a page with a cursor reads each view's entries from a CTE
+instead: with the cursor's row comparison beside it, the page's
+`NOT EXISTS` planned as a nested loop over the views per row, 372 ms for
+the bench's next page's statement, where the whole read with the CTE
+takes 37. SQLite plans the subquery well, and materializing the CTE
+would cost it every page.
 
 ```sql
 WITH hidden AS MATERIALIZED (

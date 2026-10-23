@@ -330,15 +330,6 @@ async fn without_copies(
         return Ok(records);
     }
     let scope = WorktreeScope::new(worktree_id, filter);
-    let mut places: Vec<(String, String, String)> = records
-        .iter()
-        .map(|r| (r.file_path.clone(), r.path.clone(), r.key.clone()))
-        .collect();
-    places.sort_unstable();
-    places.dedup();
-    let mut key_ids: Vec<i64> = records.iter().map(|r| r.id).collect();
-    key_ids.sort_unstable();
-    key_ids.dedup();
     on_pool!(db, pool => {
         let mut tx = pool.begin().await?;
         let loaded = match covered.take() {
@@ -349,8 +340,7 @@ async fn without_copies(
         if !covered.several() {
             return Ok(records);
         }
-        let rows = covered.fetch(&mut tx, places, &key_ids).await?;
-        Ok(covered.drop_copies(&rows, records))
+        covered.drop_copies(&mut tx, records).await
     })
 }
 
@@ -369,30 +359,6 @@ async fn load_covered<DB: Store>(
     .await
 }
 
-/// The ids of `candidates` some worktree `covered` holds shows and git's
-/// rule keeps.
-async fn kept_across<DB: Store>(
-    tx: &mut sqlx::Transaction<'_, DB>,
-    covered: &across::Covered,
-    candidates: Vec<Candidate>,
-) -> Result<Vec<i64>> {
-    if candidates.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut places: Vec<(String, String, String)> = candidates
-        .iter()
-        .map(|c| (c.file_path.clone(), c.path.clone(), c.key.clone()))
-        .collect();
-    places.sort_unstable();
-    places.dedup();
-    let mut key_ids: Vec<i64> = candidates.iter().map(|c| c.key_id).collect();
-    key_ids.sort_unstable();
-    key_ids.dedup();
-    let ids: Vec<i64> = candidates.iter().map(|c| c.id).collect();
-    let rows = covered.fetch(tx, places, &key_ids).await?;
-    Ok(covered.kept(&rows, &ids))
-}
-
 /// The `/types` rows in `file_path`, or every file, that a read across the
 /// worktrees `covered` holds keeps.
 async fn across_types<DB: Store>(
@@ -401,7 +367,7 @@ async fn across_types<DB: Store>(
     file_path: Option<&str>,
 ) -> Result<Vec<i64>> {
     let candidates = DB::types_rows(tx, &covered.view_segments(), file_path).await?;
-    kept_across(tx, covered, candidates).await
+    covered.kept(tx, candidates).await
 }
 
 /// `{column} IN (ids)`, or false where `ids` is empty.
@@ -562,17 +528,19 @@ fn view_join(pg: bool, ids: &str) -> String {
     format!(" JOIN {} v ON v.segment_id = r.segment_id", views(pg, ids))
 }
 
-/// A statement's `WITH` of `hidden(record_id, worktree_id)`: the rows each
-/// view's entries supersede, once, for [`visible_across`].
-fn hidden_cte(pg: bool, ids: &str) -> String {
+/// A Postgres statement's `WITH` of `hidden(record_id, worktree_id)`: the
+/// rows each view's entries supersede, once, for [`VISIBLE_ACROSS`].
+#[cfg(feature = "postgres")]
+fn hidden_cte(ids: &str) -> String {
     format!(
         "WITH hidden AS MATERIALIZED (SELECT x.record_id, vx.worktree_id FROM superseded x \
          JOIN {} vx ON vx.segment_id = x.segment_id) ",
-        views(pg, ids)
+        views(true, ids)
     )
 }
 
 /// [`visible`] in a statement starting with [`hidden_cte`].
+#[cfg(feature = "postgres")]
 const VISIBLE_ACROSS: &str =
     "NOT EXISTS (SELECT 1 FROM hidden h WHERE h.record_id = r.id AND h.worktree_id = v.worktree_id)";
 
@@ -937,22 +905,13 @@ async fn find_sqlite(
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     let RecordQuery { after, limit, .. } = query;
-    // with a cursor, the views would otherwise be planned once a row
-    let across = query.worktrees.is_some() && after.is_some();
-    let mut sql = match across {
-        true => hidden_cte(false, &ids),
-        false => String::new(),
-    };
-    sql.push_str(
+    let mut sql = String::from(
         "SELECT r.key_id AS id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
          json(r.json) AS json, r.version, r.deleted, r.conflict FROM record r",
     );
     sql.push_str(&view_join(false, &ids));
     sql.push_str(" WHERE ");
-    match across {
-        true => sql.push_str(VISIBLE_ACROSS),
-        false => sql.push_str(&visible(false, &ids)),
-    }
+    sql.push_str(&visible(false, &ids));
     let mut idx: usize = 4;
     push_filter_sql_sqlite(&mut sql, query, &mut idx);
     if after.is_some() {
@@ -1130,7 +1089,8 @@ async fn find_pg(
     // candidate's JSON would be rendered and carried through the anti-join.
     // SQLite computes it only for the rows the limit keeps, so its arm
     // doesn't need this.
-    // with a cursor, the views would otherwise be planned once a row
+    // with a cursor, the views would otherwise be planned once a row;
+    // SQLite plans them well, and materializing costs it every page
     let across = query.worktrees.is_some() && after.is_some();
     let mut sql = String::from("SELECT r.id, v.worktree_id FROM record r");
     sql.push_str(&view_join(true, &ids));
@@ -1179,7 +1139,7 @@ async fn find_pg(
     }
     let _ = idx;
     let with = match across {
-        true => hidden_cte(true, &ids),
+        true => hidden_cte(&ids),
         false => String::new(),
     };
     let sql = format!(
@@ -1359,7 +1319,7 @@ async fn across_facet_tables<DB: Store>(
     file_path: Option<&str>,
 ) -> Result<()> {
     let covered = load_covered(tx, scope).await?;
-    let kept = kept_across(tx, &covered, candidates).await?;
+    let kept = covered.kept(tx, candidates).await?;
     let rows = format!(
         "SELECT id, path, key FROM record WHERE {}",
         id_in("id", &kept)

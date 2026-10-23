@@ -481,44 +481,48 @@ total 4 to 11 ms, so they vary by a third between runs.
   and deletes of 1,000 took 0.39 to 0.45 ms a write over three runs, and
   0.36 in the one without, and single writes were no faster.
 
-## Reads across worktrees by git's rule, 2026-10-22
+## Reads across worktrees by git's rule, 2026-10-23
 
 A read across worktrees now returns each worktree's own view, less a
 version unchanged since its merge base with another the read covers,
 which has changed it since (branch-segments.md §4.1). SQL reads the
 views, then the rows at the page's places and the entries on them, and
 Rust leaves out the copies (C.7). Read 8 is read 2's next page and read
-13 is read 10's. On GDK's Postgres 17 over its socket, at the defaults,
-in release builds, a call's warm median. "Before" is the merges' edges
-(0c4a4904), which left a row any covered worktree's entry superseded out
-of every view:
+13 is read 10's. At the defaults, in release builds, on GDK's Postgres
+17 over its socket and the SQLite copy, a call's warm median in ms.
+"Before" is the merges' edges (0c4a4904), which left a row any covered
+worktree's entry superseded out of every view, run in the same session:
 
-| Read | statements before | after | ms before | after |
-|---|---|---|---|---|
-| 8. find, JSON filter, the next page | — | 1 | — | 2.8 |
-| 10. find across every `main` | 1 | 8 | 9.9 | 14.5 |
-| 11. 5 across every `main` | 5 | 15 | 359 | 435 |
-| 12. 6 across every `main` | 6 | 16 | 517 | 593 |
-| 13. 10's next page | — | 16 | 192¹ | 37 |
+| Read | Postgres before | now | statements | SQLite before | now | statements |
+|---|---|---|---|---|---|---|
+| 8. find, JSON filter, the next page | 2.7 | 3.3 | 1 | 1.9 | 1.6 | 1 |
+| 10. find across every `main` | 10.5 | 14.6 | 1 → 9 | 48 | 44 | 1 → 9 |
+| 11. 5 across every `main` | 354 | 265 | 5 → 19 | 175 | 481 | 3 → 17 |
+| 12. 6 across every `main` | 511 | 517 | 6 → 20 | 567 | 845 | 4 → 18 |
+| 13. 10's next page | 196 | 40 | 1 → 14 | 0.6 | 4.4 | 1 → 14 |
 
-¹ The old rule's statement for that page alone, run in psql: the
-fastest of six sessions.
-
-Reads 1–7 didn't move beyond noise. SQLite wasn't measured.
+Reads 1–7 didn't move beyond noise.
 
 - **A page reads twice its limit,** so the copies it leaves out seldom
   cost another round, and one left short reads on from where it stopped.
-  The page's statement is most of read 10; the resolver's seven take
-  under 1 ms between them. Read 13 reads on once, so it runs two pages.
-- **With a cursor, the page reads the entries from a materialized CTE**
-  of each view's hidden rows. Matched per view in a subquery, as a page
-  without a cursor still is, the anti-join planned as a nested loop over
-  the views per row: read 13's page statement took 372 ms in psql.
-- **Content compares as `jsonb_hash_extended`** on Postgres. An `md5` of
-  the JSON text took 188 ms over the rows reads 11 and 12 fetch; the
-  hash takes 35.
-- **Facets resolve once per call.** Their candidates are the covered
-  segments' rows matching the filters; past 300 places the resolver
-  reads every row in the covered segments rather than by place, which
-  at the defaults is every facet across. Reads 11 and 12 each take
-  76 ms more than before, net of the anti-join they no longer run.
+  Read 13 reads on once, so it runs two pages.
+- **On Postgres, a page with a cursor reads the entries from a
+  materialized CTE** of each view's hidden rows. Matched per view in a
+  subquery, as SQLite's still are, the anti-join planned as a nested
+  loop over the views per row: read 13's page statement took 372 ms in
+  psql. On SQLite the CTE cost 80 ms a page.
+- **Past 300 places, a read fetches every row in the covered segments,
+  and the entries in them,** which at the defaults is every facet
+  across: 31,498 rows.
+- **Content is fetched only for the rows compared,** those at places
+  holding two live rows or more, and at a moved record's other places:
+  17,316 of the 31,498 here, since main changes many records after the
+  forks it has. Postgres compares `jsonb_hash_extended`, an `md5` of the
+  JSON text costing 5 times as much; SQLite compares canonical JSON,
+  parsed per row. That's 141 ms of read 11 on SQLite, 40 on Postgres.
+- **The resolver numbers places and merge bases,** with each row's
+  views and merge bases as bit sets, and takes 9 ms of read 11. Looking
+  each place up by its strings took 146 ms on Postgres, 207 on SQLite.
+- **What SQLite's read 11 spends beyond the old rule** is the content,
+  and reading the rows twice: as candidates (71 ms), then to resolve
+  (94). Its counts take 103.
