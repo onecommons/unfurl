@@ -988,9 +988,12 @@ implementation's. Its limits:
   in its generated rows' before timing.
 - **Past 300 records, a read fetches every row in the covered segments**
   into memory, without its content: on the bench, every facet across,
-  31,498 rows. Facets across take 1.6 and 1.2 times the old rule's time
-  on SQLite, and on the bench's 500-record family, 1.7 and 1.5 on
-  Postgres (bench/segments/README.md).
+  31,498 rows. Past 50,000 it walks them in place order instead, 50,000
+  at a time, which on the bench's 20k data took twice the one read. A
+  facet across still holds its candidates' and kept rows' ids, and a
+  find across its result. Facets across take 1.6 and 1.2 times the old
+  rule's time on SQLite, and on the bench's 500-record family, 1.7 and
+  1.5 on Postgres (bench/segments/README.md).
 - **The server's conflicts report across worktrees** reads every row
   across them, unpaged, and resolves them all before keeping its few
   conflict rows. Not yet measured.

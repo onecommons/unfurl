@@ -2610,9 +2610,13 @@ then leaves out the unchanged copies ([§4.1](#41-reads)), from two
 statements: the covered worktrees with their chains and their families'
 graph, and the rows in the covered segments at every place where the
 page's records have a row there, with the entries on them. A page left
-short reads on from where it stopped. Past 300 records, it reads every row in the
-covered segments instead, and the entries in them. Content compares as
-`content_hash`, which each row is written with, so no JSON is read.
+short reads on from where it stopped. Past 300 records, it reads every
+row in the covered segments instead, and the entries in them. Past
+50,000 of those rows, it walks them in place order, 50,000 at a time
+but whole places, each batch resolved with the rows at the other places
+of its records that have rows at more than one place, found first.
+Content compares as `content_hash`, which each row is written with, so
+no JSON is read.
 
 ```sql
 -- the covered worktrees, a row per segment of each's chain, then their

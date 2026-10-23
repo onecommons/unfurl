@@ -91,6 +91,20 @@ pub(crate) enum Records<'a> {
     OfRows(&'a [i64]),
 }
 
+/// `found`'s rows, and the entries on them as `(row, segment)`.
+fn split_entries(found: Vec<WithEntries>) -> Result<AcrossRows> {
+    let mut rows = Vec::with_capacity(found.len());
+    let mut entries = Vec::new();
+    for WithEntries { row, entries: on } in found {
+        for s in on.iter().flat_map(|on| on.split(',')) {
+            let s = s.parse().map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+            entries.push((row.id, s));
+        }
+        rows.push(row);
+    }
+    Ok(AcrossRows { rows, entries })
+}
+
 /// The condition that a value is one of the ids `store_impl!`'s `ids`
 /// binds as the parameter `?1`.
 fn one_of<DB: Store>() -> &'static str {
@@ -397,11 +411,29 @@ pub(crate) trait Store: sqlx::Database + Sized {
     ) -> impl Future<Output = Result<AcrossRows>> + Send;
 
     /// Every row in `segments` but conflict rows, as [`Store::across_rows`]
-    /// reads them.
+    /// reads them, by id, up to `limit` of them.
     fn across_rows_in(
         tx: &mut sqlx::Transaction<'_, Self>,
         segments: &[i64],
+        limit: usize,
     ) -> impl Future<Output = Result<Vec<AcrossRow>>> + Send;
+
+    /// The records with rows in `segments`, but conflict rows, at more
+    /// than one place.
+    fn moved_records(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        segments: &[i64],
+    ) -> impl Future<Output = Result<Vec<i64>>> + Send;
+
+    /// Up to `limit` rows in `segments`, but conflict rows, at the places
+    /// after `after` in place order, and the entries on them, as
+    /// [`Store::across_rows`] reads them.
+    fn rows_after(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        segments: &[i64],
+        after: Option<At<'_>>,
+        limit: usize,
+    ) -> impl Future<Output = Result<AcrossRows>> + Send;
 
     /// Run `sql`, a statement whose `{ids}` is replaced by the condition
     /// that a row's `id` is one of `ids`, bound as one parameter.
@@ -1614,26 +1646,18 @@ macro_rules! store_impl {
                        FROM record o WHERE o.conflict IS NULL AND o.segment_id IN ({segments}) \
                        AND {records})"
                 );
-                let found: Vec<WithEntries> = sqlx::query_as(&sql)
+                let found = sqlx::query_as(&sql)
                     .persistent(false)
                     .bind(($ids)(ids))
                     .fetch_all(&mut **tx)
                     .await?;
-                let mut rows = Vec::with_capacity(found.len());
-                let mut entries = Vec::new();
-                for WithEntries { row, entries: on } in found {
-                    for s in on.iter().flat_map(|on| on.split(',')) {
-                        let s = s.parse().map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
-                        entries.push((row.id, s));
-                    }
-                    rows.push(row);
-                }
-                Ok(AcrossRows { rows, entries })
+                split_entries(found)
             }
 
             async fn across_rows_in(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 segments: &[i64],
+                limit: usize,
             ) -> Result<Vec<AcrossRow>> {
                 if segments.is_empty() {
                     return Ok(Vec::new());
@@ -1641,10 +1665,60 @@ macro_rules! store_impl {
                 let sql = format!(
                     "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted, \
                      r.content_hash FROM record r \
-                     WHERE r.conflict IS NULL AND r.segment_id IN ({}) ORDER BY r.id",
+                     WHERE r.conflict IS NULL AND r.segment_id IN ({}) ORDER BY r.id LIMIT {limit}",
                     db::id_list(segments)
                 );
                 Ok(sqlx::query_as(&sql).persistent(false).fetch_all(&mut **tx).await?)
+            }
+
+            async fn moved_records(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                segments: &[i64],
+            ) -> Result<Vec<i64>> {
+                if segments.is_empty() {
+                    return Ok(Vec::new());
+                }
+                // two places differ in one of their parts
+                let sql = format!(
+                    "SELECT key_id FROM record WHERE conflict IS NULL AND segment_id IN ({}) \
+                     GROUP BY key_id HAVING MIN(file_path) <> MAX(file_path) \
+                       OR MIN(path) <> MAX(path) OR MIN(key) <> MAX(key)",
+                    db::id_list(segments)
+                );
+                Ok(sqlx::query_scalar(&sql).persistent(false).fetch_all(&mut **tx).await?)
+            }
+
+            async fn rows_after(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                segments: &[i64],
+                after: Option<At<'_>>,
+                limit: usize,
+            ) -> Result<AcrossRows> {
+                if segments.is_empty() {
+                    return Ok(AcrossRows {
+                        rows: Vec::new(),
+                        entries: Vec::new(),
+                    });
+                }
+                let from = match after {
+                    Some(_) => " AND (r.file_path, r.path, r.key) > (?1, ?2, ?3)",
+                    None => "",
+                };
+                // in idx_record_key's order; `+` keeps SQLite on it
+                let sql = format!(
+                    "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted, \
+                     r.content_hash, (SELECT string_agg(CAST(e.segment_id AS TEXT), ',') \
+                     FROM superseded e WHERE e.record_id = r.id) AS entries \
+                     FROM record r WHERE r.conflict IS NULL AND +r.segment_id IN ({}){from} \
+                     ORDER BY r.file_path, r.path, r.key LIMIT {limit}",
+                    db::id_list(segments)
+                );
+                let sql = db::spell(&*tx, sql);
+                let mut q = sqlx::query_as::<_, WithEntries>(&sql).persistent(false);
+                if let Some(at) = after {
+                    q = q.bind(at.file_path).bind(at.path).bind(at.key);
+                }
+                split_entries(q.fetch_all(&mut **tx).await?)
             }
 
             async fn exec_ids(

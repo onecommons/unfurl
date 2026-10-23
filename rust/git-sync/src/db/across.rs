@@ -5,7 +5,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::db::store::{Records, Store};
-use crate::db::tables::{AcrossRow, AcrossRows, Coverage, CoveredWorktree, SegmentGraph};
+use crate::db::tables::{AcrossRow, AcrossRows, At, Coverage, CoveredWorktree, SegmentGraph};
 use crate::error::Result;
 use crate::model::Record;
 
@@ -49,13 +49,18 @@ fn ones(mask: &[u64]) -> impl Iterator<Item = usize> + '_ {
     })
 }
 
-/// Past how many records [`Covered::fetch`] reads every row in the covered
-/// segments rather than those at the records' places.
+/// Past how many records [`Covered::first_batch`] reads every row in the
+/// covered segments rather than those at the records' places.
 const EVERY_ROW_PAST: usize = 300;
+
+/// Past how many covered rows a read across holds at once, it walks them
+/// in place order instead.
+const ROWS_HELD: usize = 50_000;
 
 #[cfg(feature = "fault-injection")]
 thread_local! {
     static EVERY_ROW: std::cell::Cell<usize> = const { std::cell::Cell::new(EVERY_ROW_PAST) };
+    static HELD: std::cell::Cell<usize> = const { std::cell::Cell::new(ROWS_HELD) };
 }
 
 #[cfg(feature = "fault-injection")]
@@ -68,6 +73,16 @@ fn every_row_past() -> usize {
     EVERY_ROW_PAST
 }
 
+#[cfg(feature = "fault-injection")]
+fn rows_held() -> usize {
+    HELD.get()
+}
+
+#[cfg(not(feature = "fault-injection"))]
+fn rows_held() -> usize {
+    ROWS_HELD
+}
+
 /// Run `f` with every read across worktrees on this thread reading every
 /// row in the covered segments, as one past 300 records does.
 #[cfg(feature = "fault-injection")]
@@ -75,6 +90,18 @@ pub fn reading_every_row<T>(f: impl FnOnce() -> T) -> T {
     let before = EVERY_ROW.replace(0);
     let out = f();
     EVERY_ROW.set(before);
+    out
+}
+
+/// Run `f` with every read across worktrees on this thread reading every
+/// row in the covered segments, holding at most `n` at once, as one past
+/// 50,000 rows does.
+#[cfg(feature = "fault-injection")]
+pub fn walking_rows<T>(n: usize, f: impl FnOnce() -> T) -> T {
+    let before = (EVERY_ROW.replace(0), HELD.replace(n));
+    let out = f();
+    EVERY_ROW.set(before.0);
+    HELD.set(before.1);
     out
 }
 
@@ -288,31 +315,105 @@ impl Covered {
         all.into_iter().collect()
     }
 
-    /// The rows the rule compares for `records`: those in
-    /// [`Self::segments`] at every place the records have a row there,
-    /// with the entries on them; past `count` of them, every row there.
-    async fn fetch<DB: Store>(
+    /// The next batch of the rows the rule compares for `b`, or `None`
+    /// past the last.
+    async fn next_batch<DB: Store>(
         &self,
         tx: &mut sqlx::Transaction<'_, DB>,
-        records: Records<'_>,
-        count: usize,
-    ) -> Result<Rows> {
-        // past a few hundred, reading every row is cheaper than their places
-        if count > every_row_past() {
-            return self.fetch_every(tx).await;
+        b: &mut Batches<'_>,
+    ) -> Result<Option<Batch>> {
+        loop {
+            match std::mem::replace(&mut b.next, Next::Done) {
+                Next::Done => return Ok(None),
+                Next::Start => {
+                    if let Some(batch) = self.first_batch(tx, b).await? {
+                        return Ok(Some(batch));
+                    }
+                }
+                Next::Walk { after, moved } => return self.walk_batch(tx, b, after, moved).await,
+            }
         }
-        Ok(with_entries(
-            DB::across_rows(tx, &self.segments(), records).await?,
-        ))
     }
 
-    /// Every row in [`Self::segments`], with the entries in them.
-    async fn fetch_every<DB: Store>(&self, tx: &mut sqlx::Transaction<'_, DB>) -> Result<Rows> {
+    /// The rows in [`Self::segments`] at every place `b`'s records have a
+    /// row there, with the entries on them; past [`every_row_past`]
+    /// records, every row there. `None`, with `b` set to walk them, past
+    /// [`rows_held`] of those.
+    async fn first_batch<DB: Store>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        b: &mut Batches<'_>,
+    ) -> Result<Option<Batch>> {
         let segments = self.segments();
-        let rows = DB::across_rows_in(tx, &segments).await?;
-        // those in other segments neither view nor base holds
-        let entries = DB::entries_in_segments(tx, &segments).await?;
-        Ok(with_entries(AcrossRows { rows, entries }))
+        // past a few hundred, reading every row is cheaper than their places
+        if b.count <= every_row_past() {
+            let rows = DB::across_rows(tx, &segments, b.records).await?;
+            return Ok(Some(Batch::all(with_entries(rows))));
+        }
+        let held = rows_held();
+        let rows = DB::across_rows_in(tx, &segments, held + 1).await?;
+        if rows.len() <= held {
+            // those in other segments neither view nor base holds
+            let entries = DB::entries_in_segments(tx, &segments).await?;
+            return Ok(Some(Batch::all(with_entries(AcrossRows { rows, entries }))));
+        }
+        let moved = DB::moved_records(tx, &segments)
+            .await?
+            .into_iter()
+            .collect();
+        b.next = Next::Walk { after: None, moved };
+        Ok(None)
+    }
+
+    /// The rows in [`Self::segments`] at the places after `after`, up to
+    /// [`rows_held`] of them but whole places, and the rows at the other
+    /// places of the `moved` records among them.
+    async fn walk_batch<DB: Store>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        b: &mut Batches<'_>,
+        after: Option<(String, String, String)>,
+        moved: HashSet<i64>,
+    ) -> Result<Option<Batch>> {
+        let segments = self.segments();
+        let from = after.as_ref().map(|(file_path, path, key)| At {
+            file_path,
+            path,
+            key,
+        });
+        let (mut found, last) = whole_places::<DB>(tx, &segments, from).await?;
+        let Some(end) = found.rows.last().map(place) else {
+            return Ok(None);
+        };
+        let decided = found.rows.len();
+        let mut ids: Vec<i64> = found
+            .rows
+            .iter()
+            .map(|r| r.key_id)
+            .filter(|k| moved.contains(k))
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        if !ids.is_empty() {
+            let more = DB::across_rows(tx, &segments, Records::Ids(&ids)).await?;
+            let have: HashSet<i64> = found.rows.iter().map(|r| r.id).collect();
+            found
+                .entries
+                .extend(more.entries.into_iter().filter(|(r, _)| !have.contains(r)));
+            found
+                .rows
+                .extend(more.rows.into_iter().filter(|r| !have.contains(&r.id)));
+        }
+        if !last {
+            b.next = Next::Walk {
+                after: Some(end),
+                moved,
+            };
+        }
+        Ok(Some(Batch {
+            rows: with_entries(found),
+            decided,
+        }))
     }
 
     /// `records` less the copies the rule leaves out: a record is the row
@@ -325,26 +426,34 @@ impl Covered {
         let mut ids: Vec<i64> = records.iter().map(|r| r.id).collect();
         ids.sort_unstable();
         ids.dedup();
-        let rows = self.fetch(tx, Records::Ids(&ids), ids.len()).await?;
-        let resolved = Resolve::new(self, &rows).resolve();
         let index: HashMap<i64, usize> = self
             .worktrees
             .iter()
             .enumerate()
             .map(|(i, w)| (w.id, i))
             .collect();
-        Ok(records
-            .into_iter()
-            .filter(|rec| {
+        let mut dropped = vec![false; records.len()];
+        let mut batches = Batches::new(Records::Ids(&ids), ids.len());
+        while let Some(batch) = self.next_batch(tx, &mut batches).await? {
+            let resolved = Resolve::new(self, &batch.rows, batch.decided).resolve();
+            for (rec, gone) in records.iter().zip(dropped.iter_mut()) {
                 if rec.deleted || rec.conflict.is_some() {
-                    return true;
+                    continue;
                 }
                 let Some(&w) = index.get(&rec.worktree_id) else {
-                    return true;
+                    continue;
                 };
                 let p = (rec.file_path.as_str(), rec.path.as_str(), rec.key.as_str());
-                !resolved.dropped_at(w, p)
-            })
+                if let Some(d) = resolved.dropped_at(w, p) {
+                    *gone = d;
+                }
+            }
+        }
+        Ok(records
+            .into_iter()
+            .zip(dropped)
+            .filter(|(_, gone)| !gone)
+            .map(|(rec, _)| rec)
             .collect())
     }
 
@@ -353,25 +462,108 @@ impl Covered {
     pub(crate) async fn kept<DB: Store>(
         &self,
         tx: &mut sqlx::Transaction<'_, DB>,
-        candidates: Vec<i64>,
+        mut candidates: Vec<i64>,
     ) -> Result<Vec<i64>> {
         if candidates.is_empty() {
             return Ok(Vec::new());
         }
-        let rows = self
-            .fetch(tx, Records::OfRows(&candidates), candidates.len())
-            .await?;
-        let resolved = Resolve::new(self, &rows).resolve();
-        let by_id: HashMap<i64, usize> = rows
-            .rows
-            .iter()
-            .enumerate()
-            .map(|(i, r)| (r.id, i))
-            .collect();
-        Ok(candidates
-            .into_iter()
-            .filter(|id| by_id.get(id).is_some_and(|&i| resolved.kept(i)))
-            .collect())
+        candidates.sort_unstable();
+        let mut out = Vec::new();
+        let mut batches = Batches::new(Records::OfRows(&candidates), candidates.len());
+        while let Some(batch) = self.next_batch(tx, &mut batches).await? {
+            let resolved = Resolve::new(self, &batch.rows, batch.decided).resolve();
+            out.extend(
+                batch
+                    .rows
+                    .rows
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, r)| {
+                        resolved.decides(i)
+                            && resolved.kept(i)
+                            && candidates.binary_search(&r.id).is_ok()
+                    })
+                    .map(|(_, r)| r.id),
+            );
+        }
+        Ok(out)
+    }
+}
+
+/// Up to [`rows_held`] rows in `segments` at the places after `after`,
+/// ending on a whole place, and whether they're the last.
+async fn whole_places<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    segments: &[i64],
+    after: Option<At<'_>>,
+) -> Result<(AcrossRows, bool)> {
+    let mut limit = rows_held().max(1);
+    loop {
+        let mut found = DB::rows_after(tx, segments, after, limit).await?;
+        let Some(last) = found.rows.last().map(place) else {
+            return Ok((found, true));
+        };
+        if found.rows.len() < limit {
+            return Ok((found, true));
+        }
+        // the last place may go on past the limit: leave it to the next
+        match found.rows.iter().rposition(|r| place(r) != last) {
+            Some(i) => {
+                let gone: HashSet<i64> = found.rows.drain(i + 1..).map(|r| r.id).collect();
+                found.entries.retain(|(r, _)| !gone.contains(r));
+                return Ok((found, false));
+            }
+            // one place fills them
+            None => limit *= 2,
+        }
+    }
+}
+
+/// A row's place.
+fn place(r: &AcrossRow) -> (String, String, String) {
+    (r.file_path.clone(), r.path.clone(), r.key.clone())
+}
+
+/// Rows to resolve: the first `decided` of them those whose places the
+/// resolution decides, the rest moved records' rows elsewhere.
+struct Batch {
+    rows: Rows,
+    decided: usize,
+}
+
+impl Batch {
+    fn all(rows: Rows) -> Self {
+        let decided = rows.rows.len();
+        Batch { rows, decided }
+    }
+}
+
+/// Where [`Covered::next_batch`] reads on from.
+enum Next {
+    Start,
+    /// Walking the covered rows in place order, after `after`; `moved` are
+    /// the records with rows at more than one place.
+    Walk {
+        after: Option<(String, String, String)>,
+        moved: HashSet<i64>,
+    },
+    Done,
+}
+
+/// The batches of the rows the rule compares for `count` `records`.
+struct Batches<'r> {
+    records: Records<'r>,
+    count: usize,
+    next: Next,
+}
+
+impl<'r> Batches<'r> {
+    fn new(records: Records<'r>, count: usize) -> Self {
+        Batches {
+            records,
+            count,
+            next: Next::Start,
+        }
     }
 }
 
@@ -387,7 +579,7 @@ fn with_entries(AcrossRows { rows, entries }: AcrossRows) -> Rows {
     }
 }
 
-/// What [`Covered::fetch`] read: rows, and the entries on them by row.
+/// A batch's rows, and the entries on them by row.
 pub(crate) struct Rows {
     rows: Vec<AcrossRow>,
     entries: HashMap<i64, Vec<i64>>,
@@ -408,6 +600,8 @@ struct Resolve<'a> {
     by_record: HashMap<i64, Vec<usize>>,
     shown: Masks,
     based: Masks,
+    /// The places it decides: those below this, the batch's own.
+    decided: usize,
 }
 
 /// A resolution: the views showing each row, and those leaving it out.
@@ -423,13 +617,20 @@ impl Resolved<'_> {
         shown.iter().zip(dropped).any(|(s, d)| s & !d != 0)
     }
 
-    /// Whether view `w` leaves out the live row it shows at `p`.
-    fn dropped_at(&self, w: usize, p: Place<'_>) -> bool {
-        self.resolve
-            .places
-            .get(&p)
-            .and_then(|&q| self.resolve.shows(w, q))
-            .is_some_and(|i| has(self.dropped.get(i), w))
+    /// Whether it decides row `i`'s place.
+    fn decides(&self, i: usize) -> bool {
+        self.resolve.place_of[i] < self.resolve.decided
+    }
+
+    /// Whether view `w` leaves out the live row it shows at `p`, if it
+    /// decides `p`.
+    fn dropped_at(&self, w: usize, p: Place<'_>) -> Option<bool> {
+        let q = *self.resolve.places.get(&p)?;
+        (q < self.resolve.decided).then(|| {
+            self.resolve
+                .shows(w, q)
+                .is_some_and(|i| has(self.dropped.get(i), w))
+        })
     }
 }
 
@@ -458,7 +659,9 @@ struct AtRow<'s> {
 }
 
 impl<'a> Resolve<'a> {
-    fn new(covered: &'a Covered, rows: &'a Rows) -> Self {
+    /// The resolution of `rows`, deciding the places of the first
+    /// `decided` of them.
+    fn new(covered: &'a Covered, rows: &'a Rows, decided: usize) -> Self {
         let count = rows.rows.len();
         let mut at: Vec<Vec<usize>> = Vec::new();
         let mut places: HashMap<Place<'a>, usize> = HashMap::new();
@@ -485,6 +688,8 @@ impl<'a> Resolve<'a> {
                 entries,
             );
         }
+        // places are numbered as their first rows come
+        let decided = place_of[..decided].iter().max().map_or(0, |&q| q + 1);
         Resolve {
             covered,
             rows,
@@ -494,6 +699,7 @@ impl<'a> Resolve<'a> {
             by_record,
             shown,
             based,
+            decided,
         }
     }
 
@@ -528,7 +734,7 @@ impl<'a> Resolve<'a> {
     fn resolve(self) -> Resolved<'a> {
         let n = self.covered.worktrees.len();
         let mut dropped = Masks::new(self.covered.words, self.rows.rows.len());
-        for (q, here) in self.at.iter().enumerate() {
+        for (q, here) in self.at.iter().enumerate().take(self.decided) {
             let live: Vec<usize> = here
                 .iter()
                 .copied()

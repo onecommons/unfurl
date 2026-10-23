@@ -528,7 +528,11 @@ copy, 37,498 rows.
   container.
 - **Past 300 records, a read fetches every row in the covered segments,
   and the entries in them,** which at the defaults is every facet
-  across: 31,498 rows.
+  across: 31,498 rows. Past 50,000 it walks them in `idx_record_key`'s
+  order, a batch at a time, so the bench doesn't reach it. Walked 5,000
+  at a time, read 11's rows took 84 ms on SQLite and 32 on Postgres,
+  against 46 and 16.5 read at once; through `across_rows`, a chunk of
+  candidates at a time, 281 and 144 or more.
 - **Content compares as the hash each row is written with**
   (`content_hash`), so no JSON is read. Fetching and canonicalising the
   JSON of the rows compared, 17,316 of the 31,498 here, took 141 ms of

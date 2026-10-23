@@ -781,6 +781,7 @@ impl SqlWorld {
         };
         reads("by place");
         unfurl_git_sync::reading_every_row(|| reads("reading every row"));
+        unfurl_git_sync::walking_rows(2, || reads("walking the rows two at a time"));
     }
 
     /// Rows of a query with no parameters, from either database.

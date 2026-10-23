@@ -84,7 +84,7 @@ pub mod sync;
 #[doc(inline)]
 pub use commit::CommitId;
 #[cfg(feature = "fault-injection")]
-pub use db::across::reading_every_row;
+pub use db::across::{reading_every_row, walking_rows};
 #[doc(inline)]
 pub use db::{Db, DbConfig};
 #[doc(inline)]
