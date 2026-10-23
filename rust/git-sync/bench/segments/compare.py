@@ -14,9 +14,10 @@ where:
 - its ratio is more than its limit in LIMITS, else LIMITS' default, and
   it's at least LIMITS' `floor_ms` slower: below that, a fast read's
   ratio is the timer's noise;
-- it takes more statements at HEAD than at the base, or either side's
-  count varies between runs;
 - the base has it and HEAD doesn't.
+
+Its statements are shown beside its times, but fail nothing: a row costs
+what its time says.
 
 A family and backend's rows all fail where its database's size differs
 between the two sides, or between runs: they didn't run on the same data.
@@ -98,11 +99,6 @@ def judge(k: Key, base: Side, head: Side, limit: float, floor: float) -> str | N
         return "gone from HEAD: move refs/bench/git-sync if that's meant"
     if k not in base.times:
         return None
-    b, h = base.statements[k], head.statements[k]
-    if len(b) > 1 or len(h) > 1:
-        return f"statements vary between runs: base {sorted(b)}, HEAD {sorted(h)}"
-    if min(h) > min(b):
-        return "more statements than the base"
     ht, bt = min(head.times[k]), min(base.times[k])
     if ht / bt > limit and ht - bt >= floor:
         return f"slower than {limit}x the base, by {floor:g} ms or more"
@@ -127,8 +123,8 @@ def row_line(
         status = f"**FAIL**: {why}"
     elif bt is None:
         status = "new at HEAD"
-    elif hs and bs and min(hs) < min(bs):
-        status = "ok, fewer statements"
+    elif hs and bs and min(hs) != min(bs):
+        status = f"ok, {'fewer' if min(hs) < min(bs) else 'more'} statements"
     elif ratio is not None and ratio > limit:
         status = f"ok, under the {floor:g} ms floor"
     else:

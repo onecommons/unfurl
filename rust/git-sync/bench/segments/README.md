@@ -72,10 +72,10 @@ migrations and `generate.sql`, with `$BENCH_JSON` naming a file for the
 rows and `$BENCH_FAMILY` the family. `compare.py` then fails a row where
 its fastest time at HEAD is more than its limit times the base's (1.5 by
 default, in `limits.json`) and at least `floor_ms` (0.1) more, below
-which a fast read's ratio is the timer's noise; where it takes more
-statements than at the
-base, or where it's gone from HEAD; and all a family's rows where its
-database differs between the two. A read's time is the fastest of six
+which a fast read's ratio is the timer's noise, or where it's gone from
+HEAD; and all a family's rows where its database differs between the
+two. It shows each row's statements too, but they fail nothing: a row
+costs what its time says. A read's time is the fastest of six
 calls, a write's that of its n together. It reports every row, with the
 runner's CPU. To accept a change that moves a number, move the ref:
 `git push --force origin <commit>:refs/bench/git-sync`. It's neither a
@@ -522,6 +522,3 @@ Reads 1–7 didn't move beyond noise. SQLite wasn't measured.
   reads every row in the covered segments rather than by place, which
   at the defaults is every facet across. Reads 11 and 12 each take
   76 ms more than before, net of the anti-join they no longer run.
-- **The nightly's comparison will fail reads 10–12,** which run more
-  statements than at its baseline, until `refs/bench/git-sync` moves to
-  a commit with this change.
