@@ -2795,3 +2795,147 @@ fn main_s_unchanged_save_of_a_re_created_row_stays_an_over_report() {
         Op::Resave(0, 0),
     ]);
 }
+
+/// A merge of a worktree's head, which then commits on: the merged commit
+/// still ends a segment, the merge base of a read across the two.
+#[test]
+fn a_merged_head_stays_a_merge_base_after_it_moves_on() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Write(7, 0, false),
+        Op::Commit(13),
+        Op::Write(43, 3, false),
+        Op::Merge(0, vec![(19, 0)], MergeKind::Regular, 0, vec![(0, false)]),
+        Op::Commit(215),
+    ]);
+}
+
+/// An octopus merge of two commits of one line: ending a segment at the
+/// older splits the one ending at the newer, and its edge follows.
+#[test]
+fn an_octopus_merge_ends_a_segment_at_each_commit() {
+    run(&[
+        Op::External(0, vec![(0, false)]),
+        Op::Write(0, 0, false),
+        Op::Fork(0, 0),
+        Op::Commit(56),
+        Op::Rebuild(1, 67, 0, false),
+        Op::Merge(187, vec![(6, 1), (152, 2)], MergeKind::Regular, 0, vec![]),
+    ]);
+}
+
+/// A fork's merge base with a worktree that fast-forwarded through its
+/// line outlives the fork's deletion: compaction keeps the merged line.
+#[test]
+fn deleting_a_fork_keeps_the_merge_base_others_share() {
+    run(&[
+        Op::External(0, vec![(0, false)]),
+        Op::NewUser,
+        Op::External(0, vec![(0, false)]),
+        Op::Fork(0, 1),
+        Op::Fork(0, 2),
+        Op::External(190, vec![(1, false)]),
+        Op::Publish(0),
+        Op::Merge(29, vec![(136, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Delete(109),
+    ]);
+}
+
+/// A fork at an empty head that moved past its parent, through a commit
+/// changing no record: the head closes, so the fork's merge base ends a
+/// segment.
+#[test]
+fn a_fork_at_an_empty_head_past_its_parent_closes_it() {
+    run(&[
+        Op::Write(0, 2, false),
+        Op::Commit(0),
+        Op::Integrate(0, 0, vec![]),
+        Op::Fork(0, 0),
+        Op::Write(11, 0, false),
+        Op::Commit(152),
+        Op::Commit(71),
+    ]);
+}
+
+/// A fork at a worktree's head, placed on the segment a merge split
+/// another's line to end there: it takes the split's ids.
+#[test]
+fn a_fork_on_a_merge_split_takes_its_ids() {
+    run(&[
+        Op::External(0, vec![(0, false)]),
+        Op::External(0, vec![(0, true)]),
+        Op::Fork(0, 2),
+        Op::Fork(0, 2),
+        Op::Merge(17, vec![(66, 1)], MergeKind::Regular, 0, vec![]),
+        Op::Fork(188, 0),
+    ]);
+}
+
+/// A user branch after main fast-forwards to a fork's commit, whose
+/// head then ends there too: it's built on main's line, so its edits
+/// are made over main's rows.
+#[test]
+fn a_user_branch_after_a_fast_forward_is_on_mains_line() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Write(20, 1, false),
+        Op::Write(151, 1, false),
+        Op::Commit(5),
+        Op::Merge(20, vec![(187, 0)], MergeKind::Regular, 0, vec![]),
+        Op::NewUser,
+        Op::Write(0, 0, false),
+        Op::UserWrite(0, vec![], 1, false),
+        Op::Resolve(0, false, 0, false),
+    ]);
+}
+
+/// The same without user branches, which the SQL side doesn't run yet.
+#[test]
+fn deleting_a_fork_keeps_the_merge_base_others_share_without_users() {
+    run(&[
+        Op::External(0, vec![(0, false)]),
+        Op::External(0, vec![(0, false)]),
+        Op::Fork(0, 1),
+        Op::Fork(0, 2),
+        Op::External(190, vec![(1, false)]),
+        Op::Merge(29, vec![(136, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Delete(0),
+    ]);
+}
+
+/// A rebase onto a line whose segment a merge brought in: the merged
+/// segment isn't folded into its child, which ends later.
+#[test]
+fn a_merged_segment_is_not_folded_by_a_rebase() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::Fork(0, 2),
+        Op::Merge(13, vec![(56, 1)], MergeKind::Regular, 0, vec![]),
+        Op::Write(12, 0, false),
+        Op::Commit(20),
+        Op::Fork(44, 0),
+        Op::Fork(0, 0),
+        Op::Rebase(102, 0, 220, 0, false),
+    ]);
+}
+
+/// A deletion's compaction after merges and a rebase: a segment a merge
+/// brought in isn't folded into its child.
+#[test]
+fn a_merged_segment_is_not_folded_by_a_deletion() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Rebuild(0, 103, 0, false),
+        Op::Merge(19, vec![(30, 0)], MergeKind::Regular, 0, vec![]),
+        Op::External(158, vec![(0, false)]),
+        Op::Fork(0, 0),
+        Op::External(15, vec![(0, false)]),
+        Op::Merge(3, vec![(43, 0)], MergeKind::Rebase, 0, vec![]),
+        Op::Merge(165, vec![(178, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Fork(144, 1),
+        Op::Delete(4),
+    ]);
+}

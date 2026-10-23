@@ -830,6 +830,15 @@ pub(crate) async fn scan_in_pool<DB: Store>(
         // before reading the head: a fork or split may close or split it
         // (§4.14)
         DB::lock_family(&mut tx, sync.family_id()).await?;
+        let mut history = history;
+        let merged = crate::fork::end_merged_lines(
+            &mut tx,
+            history.as_deref_mut(),
+            sync.family_id(),
+            w,
+            head,
+        )
+        .await?;
         let named = match history {
             Some(history) => Named::Walk(history),
             None => Named::Rollup(&BTreeMap::new()),
@@ -850,6 +859,7 @@ pub(crate) async fn scan_in_pool<DB: Store>(
             .await?;
         }
         DB::set_head_commit(&mut tx, w, head).await?;
+        crate::fork::record_merges(&mut tx, sync.family_id(), w, &merged).await?;
     }
     for (from, to) in renames {
         rename_file(&mut tx, sync, from, to).await?;

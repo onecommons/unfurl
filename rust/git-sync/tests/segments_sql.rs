@@ -49,6 +49,7 @@ fn run(ops: &[Op]) {
     let mut sql = supported.then(|| SqlWorld::new(&mirror));
     if let Some(sql) = &mut sql {
         sql.check(&world, 0);
+        sql.check_merge_bases(&world, &mirror, 0);
     }
     for (i, op) in ops.iter().enumerate() {
         let before = Before::of(&world, op);
@@ -77,6 +78,7 @@ fn run(ops: &[Op]) {
                 sql.scan(before.w, false);
             }
             sql.check(&world, i + 1);
+            sql.check_merge_bases(&world, &mirror, i + 1);
         }
     }
     case_done();

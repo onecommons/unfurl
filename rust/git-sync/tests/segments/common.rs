@@ -52,6 +52,31 @@ struct Git {
 }
 
 impl Git {
+    /// `c` and every commit it descends from.
+    fn ancestors(&self, c: CommitId) -> BTreeSet<CommitId> {
+        let mut out = BTreeSet::from([c]);
+        let mut todo = vec![c];
+        while let Some(x) = todo.pop() {
+            for &p in &self.parents[x] {
+                if out.insert(p) {
+                    todo.push(p);
+                }
+            }
+        }
+        out
+    }
+
+    /// `git merge-base --all a b`: the common ancestors no other one
+    /// descends from; none for unrelated histories.
+    fn merge_bases(&self, a: CommitId, b: CommitId) -> Vec<CommitId> {
+        let common: BTreeSet<CommitId> = self.ancestors(a).intersection(&self.ancestors(b)).copied().collect();
+        common
+            .iter()
+            .copied()
+            .filter(|&c| !common.iter().any(|&x| x != c && self.ancestors(x).contains(&c)))
+            .collect()
+    }
+
     /// A commit made outside git-sync: no rollup.
     fn commit(&mut self, tree: BTreeMap<Key, Ver>, parents: Vec<CommitId>) -> CommitId {
         self.commits.push(tree);

@@ -415,6 +415,95 @@ impl World {
         }
     }
 
+    /// §4.1's read across `across`, the worktrees with a handle, as git's
+    /// three-dot diff with rename detection has it, a version standing for
+    /// its content: each one's view, less a version that's unchanged since
+    /// its merge base with another which has since changed it. Pending
+    /// edits count as changes on top of a head.
+    fn read_across(&self, across: &[Wt]) -> BTreeSet<(Key, Ver)> {
+        let views: BTreeMap<Wt, BTreeMap<Key, Ver>> =
+            across.iter().map(|&w| (w, self.model.wts[w].view())).collect();
+        let lines: BTreeMap<Wt, BTreeSet<CommitId>> = across
+            .iter()
+            .map(|&w| (w, self.ancestors(*self.imp.wts[w].history.last().unwrap())))
+            .collect();
+        // `w` and `u`'s merge bases' trees
+        let bases = |w: Wt, u: Wt| -> Vec<&BTreeMap<Key, Ver>> {
+            let common: BTreeSet<CommitId> = lines[&w].intersection(&lines[&u]).copied().collect();
+            common
+                .iter()
+                .copied()
+                .filter(|&c| !common.iter().any(|&x| x != c && self.ancestors(x).contains(&c)))
+                .map(|c| &self.git.commits[c])
+                .collect()
+        };
+        let unchanged_copy = |w: Wt, k: Key, v: Ver| {
+            across.iter().any(|&u| {
+                let trees = bases(w, u);
+                if u == w || trees.is_empty() {
+                    return false;
+                }
+                let theirs = &views[&u];
+                // the base had it here, and the other has changed it here
+                let here = trees.iter().all(|t| t.get(&k) == Some(&v)) && theirs.get(&k) != Some(&v);
+                // moved here since the base, and the other, not moving it
+                // here too, has modified it where the base had it: a rename
+                // and a modification, where a rename and a deletion is a
+                // conflict that keeps both
+                let moved = theirs.get(&k) != Some(&v)
+                    && trees.iter().all(|t| {
+                        t.get(&k) != Some(&v)
+                            && t.iter().any(|(j, &x)| x == v && theirs.get(j).is_some_and(|&y| y != v))
+                    });
+                here || moved
+            })
+        };
+        across
+            .iter()
+            .flat_map(|&w| views[&w].iter().map(move |(&k, &v)| (w, k, v)))
+            .filter(|&(w, k, v)| !unchanged_copy(w, k, v))
+            .map(|(_, k, v)| (k, v))
+            .collect()
+    }
+
+    /// The implementation's read across the worktrees with a handle (C.7)
+    /// against the model's, and each two's merge bases, the segments'
+    /// against git's.
+    fn check_across(&self, step: usize, op: &Op) {
+        let across: Vec<Wt> = (0..self.model.wts.len())
+            .filter(|&w| {
+                let m = &self.model.wts[w];
+                m.alive && !m.user && !m.exported
+            })
+            .collect();
+        if across.len() < 2 {
+            return;
+        }
+        let got: BTreeSet<(Key, Ver)> = self
+            .imp
+            .read_across(&across)
+            .into_iter()
+            .map(|r| &self.imp.rows[&r])
+            .filter(|r| !r.deleted)
+            .map(|r| (r.key, r.ver))
+            .collect();
+        for (i, &w) in across.iter().enumerate() {
+            for &u in &across[i + 1..] {
+                let head = |x: Wt| *self.imp.wts[x].history.last().unwrap();
+                let graph: BTreeSet<CommitId> = self
+                    .imp
+                    .merge_bases(w, u)
+                    .into_iter()
+                    .map(|s| self.imp.segs[s].head_commit.unwrap())
+                    .collect();
+                let git: BTreeSet<CommitId> = self.git.merge_bases(head(w), head(u)).into_iter().collect();
+                assert_eq!(graph, git, "step {step} ({op:?}): worktrees {w} and {u}'s merge bases");
+            }
+        }
+        let want = self.read_across(&across);
+        assert_eq!(got, want, "step {step} ({op:?}): a read across {across:?}");
+    }
+
     fn ancestors(&self, c: CommitId) -> BTreeSet<CommitId> {
         let mut out = BTreeSet::from([c]);
         let mut todo = vec![c];
@@ -937,6 +1026,40 @@ impl World {
         self.fill_origins();
         self.apply_op(op);
         self.fill_origins();
+        self.adopt_merged_splits();
+    }
+
+    /// Each worktree's ids at a commit a scan split its line at, as
+    /// [`Self::split_ids`] has them.
+    fn adopt_merged_splits(&mut self) {
+        for (u, c) in std::mem::take(&mut self.imp.merged_splits) {
+            let ending = self.imp.wts[u].chain.iter().map(|&(s, _)| s).find(|&s| self.imp.segs[s].head_commit == Some(c));
+            let Some(s) = ending else { continue };
+            let mut chain = self.imp.ancestors(s);
+            chain.insert(s);
+            let ids = self.split_ids(self.ids_at(u, c), &chain, c);
+            self.own_ids.insert((u, c), ids);
+        }
+    }
+
+    /// `ids` at commit `c`, with the id `chain`, what a split built, shows
+    /// at each key no rollup names there, or whose rollup names an id the
+    /// worktree didn't give it at `c` or another key took (§4.7).
+    fn split_ids(&self, mut ids: BTreeMap<Key, Ver>, chain: &BTreeSet<SegId>, c: CommitId) -> BTreeMap<Key, Ver> {
+        for (k, id) in ids.iter_mut() {
+            let named = self.named_id(*k, c);
+            let lost = named
+                .is_some_and(|n| n != *id || (0..KEYS).any(|j| j != *k && self.imp.live_id(chain, j) == Some(n)));
+            // the split falls back on the ids it has, which can miss a
+            // record deleted and re-created after `c` outside git-sync
+            if named.is_none() || lost {
+                if let Some(got) = self.imp.live_id(chain, *k) {
+                    allowed(6, usize::from(got != *id));
+                    *id = got;
+                }
+            }
+        }
+        ids
     }
 
     /// Origins for commits made since, with one parent or none: a value
@@ -980,26 +1103,7 @@ impl World {
                 u => self.ids_at(u, c),
             }
         } else {
-            let mut ids = self.ids_at(w, c);
-            // Where no rollup names a record's id at `c`, the split
-            // falls back on the ids it has, which can miss a record
-            // deleted and re-created after `c` outside git-sync.
-            // So does a key whose rollup names an id the worktree
-            // didn't give it at `c`, or another key took first (§4.7).
-            let chain = self.imp.chain_set(f);
-            for (k, id) in ids.iter_mut() {
-                let named = self.named_id(*k, c);
-                let lost = named.is_some_and(|n| {
-                    n != *id
-                        || (0..KEYS).any(|j| j != *k && self.imp.live_id(&chain, j) == Some(n))
-                });
-                if named.is_none() || lost {
-                    if let Some(got) = self.imp.live_id(&chain, *k) {
-                        allowed(6, usize::from(got != *id));
-                        *id = got;
-                    }
-                }
-            }
+            let ids = self.split_ids(self.ids_at(w, c), &self.imp.chain_set(f), c);
             // the worktree forked from shares the split segment
             self.own_ids.insert((w, c), ids.clone());
             ids
@@ -1479,7 +1583,7 @@ impl World {
             Op::FailedExport(n) => self.export(n / 3, Some(n % 3)),
             Op::NewUser => {
                 let pos = self.imp.wts[MAIN].history.len() - 1;
-                let f = self.imp.fork(MAIN, pos, &self.git);
+                let f = self.imp.branch_off(MAIN, &self.git);
                 let ids = self.forked_ids(MAIN, pos, f);
                 let committed = self.model.wts[MAIN].committed.clone();
                 let mut user = OWt::new(committed, ids, true);
@@ -1849,6 +1953,7 @@ impl World {
     }
 
     fn check(&self, step: usize, op: &Op) {
+        self.check_across(step, op);
         for w in 0..self.model.wts.len() {
             let m = &self.model.wts[w];
             if !m.alive {

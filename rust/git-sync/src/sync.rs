@@ -1036,9 +1036,7 @@ impl SyncedRepo {
             });
         }
 
-        let mut history = self
-            .scan_history(head.is_some() && !head_files.is_empty())
-            .await?;
+        let mut history = self.scan_history(head.is_some()).await?;
         let head = head.map(|commit| crate::scan::Head {
             commit,
             files: &head_files,

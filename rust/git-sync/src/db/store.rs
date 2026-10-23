@@ -296,22 +296,54 @@ pub(crate) trait Store: sqlx::Database + Sized {
         origin: &str,
     ) -> impl Future<Output = Result<Option<i64>>> + Send;
 
-    /// A segment of `family` whose state is `commit`'s (C.16), an internal
-    /// one first, since it needs no closing.
+    /// A segment of `family` a chain holds whose state is `commit`'s
+    /// (C.16), an internal one first, since it needs no closing.
     fn segment_ending_at(
         tx: &mut sqlx::Transaction<'_, Self>,
         family: i64,
         commit: CommitId,
     ) -> impl Future<Output = Result<Option<i64>>> + Send;
 
-    /// Segment `base` made one to build on: an open head that isn't empty
-    /// closes, its owner getting a new empty one above it at its commit; an
-    /// empty one isn't needed, and its parent is the base instead.
+    /// Segment `base` made one to build on: an open head closes
+    /// ([`Store::close_head`]), unless it's empty and its parent ends at
+    /// its commit too, when the parent is the base instead.
     fn prepare_base(
         tx: &mut sqlx::Transaction<'_, Self>,
         family: i64,
         base: i64,
     ) -> impl Future<Output = Result<Option<i64>>> + Send;
+
+    /// Close `head` if it's an open head: internal now, its owner getting
+    /// a new empty head above it at its commit.
+    fn close_head(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+        head: i64,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// Record that segment `segment`'s commit `merge` brought in the line
+    /// of segment `merged`, which ends at the commit merged.
+    fn add_merge(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        segment: i64,
+        merge: CommitId,
+        merged: i64,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// The merge commits segment `segment` records.
+    fn merges_in(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        segment: i64,
+    ) -> impl Future<Output = Result<Vec<CommitId>>> + Send;
+
+    /// After `s` splits into `s2` above it: `s`'s merges at `later` move to
+    /// `s2`, and the merges of `s`'s line point to `s2`.
+    fn split_merges(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        s: i64,
+        s2: i64,
+        later: &[CommitId],
+    ) -> impl Future<Output = Result<()>> + Send;
 
     /// C.13: create worktree `(origin, branch)` at `commit`, in `family`,
     /// on segment `base`, whose state is `commit`'s, prepared by
@@ -324,6 +356,12 @@ pub(crate) trait Store: sqlx::Database + Sized {
         branch: &str,
         commit: CommitId,
     ) -> impl Future<Output = Result<i64>> + Send;
+
+    /// Each worktree of `family` with its head commit, by id.
+    fn family_lines(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+    ) -> impl Future<Output = Result<Vec<(i64, Option<CommitId>)>>> + Send;
 
     /// Each worktree of `family`'s head segment.
     fn family_heads(
@@ -404,9 +442,10 @@ pub(crate) trait Store: sqlx::Database + Sized {
         w: i64,
     ) -> impl Future<Output = Result<()>> + Send;
 
-    /// C.14: delete `family`'s committed segments no chain holds, and fold
-    /// each internal segment left with one internal child into it, unless
-    /// that crosses a fork boundary (§4.13).
+    /// C.14: delete `family`'s committed segments no chain's history holds,
+    /// merged lines included, and fold each internal segment left with one
+    /// internal child into it, unless that crosses a fork boundary
+    /// (§4.13) or a merge brought it in.
     fn compact(
         tx: &mut sqlx::Transaction<'_, Self>,
         family: i64,
@@ -414,7 +453,8 @@ pub(crate) trait Store: sqlx::Database + Sized {
 
     /// The first internal segment of `family`, by id, with exactly one
     /// child that's internal too, where no worktree holds the two with
-    /// different `inherited` flags: `(parent, child)`.
+    /// different `inherited` flags and no merge brought it in:
+    /// `(parent, child)`.
     fn fold_pair(
         tx: &mut sqlx::Transaction<'_, Self>,
         family: i64,
@@ -1167,6 +1207,7 @@ macro_rules! store_impl {
                     tx,
                     "SELECT id FROM segment \
                      WHERE family_id = ?1 AND head_commit = ?2 AND kind <> 'draft' \
+                       AND EXISTS (SELECT 1 FROM worktree_segment ws WHERE ws.segment_id = segment.id) \
                      ORDER BY CASE WHEN kind = 'internal' THEN 0 ELSE 1 END, id LIMIT 1"
                 ))
                 .bind(family)
@@ -1188,64 +1229,145 @@ macro_rules! store_impl {
                 .bind(base)
                 .fetch_one(&mut **tx)
                 .await?;
-                let mut prepared = Some(base);
-                if let ("head", Some(owner)) = (kind.as_str(), owner) {
-                    // empty: no rows, and no entries hiding rows below
-                    let (empty,): (bool,) = sqlx::query_as(sql!(
-                        tx,
-                        "SELECT NOT EXISTS (SELECT 1 FROM record WHERE segment_id = ?1) \
-                            AND NOT EXISTS (SELECT 1 FROM superseded WHERE segment_id = ?1)"
-                    ))
-                    .bind(base)
-                    .fetch_one(&mut **tx)
-                    .await?;
-                    if empty {
-                        prepared = parent;
-                    } else {
-                        let (v,): (i64,) = sqlx::query_as(sql!(
-                            tx,
-                            "SELECT next_version FROM version_seq WHERE worktree_id = ?1"
-                        ))
-                        .bind(family)
-                        .fetch_one(&mut **tx)
-                        .await?;
-                        sqlx::query(sql!(
-                            tx,
-                            "UPDATE segment SET kind = 'internal', owner_id = NULL WHERE id = ?1"
-                        ))
-                        .bind(base)
-                        .execute(&mut **tx)
-                        .await?;
-                        let (head,): (i64,) = sqlx::query_as(sql!(
-                            tx,
-                            "INSERT INTO segment (family_id, kind, parent_id, head_commit, owner_id) \
-                             SELECT family_id, 'head', id, head_commit, ?2 FROM segment WHERE id = ?1 \
-                             RETURNING id"
-                        ))
-                        .bind(base)
-                        .bind(owner)
-                        .fetch_one(&mut **tx)
-                        .await?;
-                        sqlx::query(sql!(tx, "UPDATE worktree SET head_segment_id = ?2 WHERE id = ?1"))
-                            .bind(owner)
-                            .bind(head)
-                            .execute(&mut **tx)
-                            .await?;
-                        sqlx::query(sql!(
-                            tx,
-                            "INSERT INTO worktree_segment \
-                             (worktree_id, segment_id, added_version, inherited) \
-                             VALUES (?1, ?2, ?3, ?4)"
-                        ))
-                        .bind(owner)
-                        .bind(head)
-                        .bind(v)
-                        .bind(false)
-                        .execute(&mut **tx)
-                        .await?;
-                    }
+                if kind != "head" || owner.is_none() {
+                    return Ok(Some(base));
                 }
-                Ok(prepared)
+                // empty: no rows, and no entries hiding rows below; and the
+                // parent ends where it does, or the fork's merge base would
+                // end no segment
+                let (empty,): (bool,) = sqlx::query_as(sql!(
+                    tx,
+                    "SELECT NOT EXISTS (SELECT 1 FROM record WHERE segment_id = ?1) \
+                        AND NOT EXISTS (SELECT 1 FROM superseded WHERE segment_id = ?1) \
+                        AND EXISTS (SELECT 1 FROM segment h JOIN segment p ON p.id = h.parent_id \
+                                    WHERE h.id = ?1 AND p.head_commit = h.head_commit)"
+                ))
+                .bind(base)
+                .fetch_one(&mut **tx)
+                .await?;
+                if empty {
+                    return Ok(parent);
+                }
+                Self::close_head(tx, family, base).await?;
+                Ok(Some(base))
+            }
+
+            async fn close_head(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+                head: i64,
+            ) -> Result<()> {
+                let (kind, owner): (String, Option<i64>) =
+                    sqlx::query_as(sql!(tx, "SELECT kind, owner_id FROM segment WHERE id = ?1"))
+                        .bind(head)
+                        .fetch_one(&mut **tx)
+                        .await?;
+                let (Some(owner), "head") = (owner, kind.as_str()) else {
+                    return Ok(());
+                };
+                let (v,): (i64,) = sqlx::query_as(sql!(
+                    tx,
+                    "SELECT next_version FROM version_seq WHERE worktree_id = ?1"
+                ))
+                .bind(family)
+                .fetch_one(&mut **tx)
+                .await?;
+                sqlx::query(sql!(
+                    tx,
+                    "UPDATE segment SET kind = 'internal', owner_id = NULL WHERE id = ?1"
+                ))
+                .bind(head)
+                .execute(&mut **tx)
+                .await?;
+                let (above,): (i64,) = sqlx::query_as(sql!(
+                    tx,
+                    "INSERT INTO segment (family_id, kind, parent_id, head_commit, owner_id) \
+                     SELECT family_id, 'head', id, head_commit, ?2 FROM segment WHERE id = ?1 \
+                     RETURNING id"
+                ))
+                .bind(head)
+                .bind(owner)
+                .fetch_one(&mut **tx)
+                .await?;
+                sqlx::query(sql!(tx, "UPDATE worktree SET head_segment_id = ?2 WHERE id = ?1"))
+                    .bind(owner)
+                    .bind(above)
+                    .execute(&mut **tx)
+                    .await?;
+                sqlx::query(sql!(
+                    tx,
+                    "INSERT INTO worktree_segment \
+                     (worktree_id, segment_id, added_version, inherited) \
+                     VALUES (?1, ?2, ?3, ?4)"
+                ))
+                .bind(owner)
+                .bind(above)
+                .bind(v)
+                .bind(false)
+                .execute(&mut **tx)
+                .await?;
+                Ok(())
+            }
+
+            async fn add_merge(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                segment: i64,
+                merge: CommitId,
+                merged: i64,
+            ) -> Result<()> {
+                sqlx::query(sql!(
+                    tx,
+                    "INSERT INTO segment_merge (segment_id, merge_commit, merged_segment_id) \
+                     VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING"
+                ))
+                .bind(segment)
+                .bind(merge)
+                .bind(merged)
+                .execute(&mut **tx)
+                .await?;
+                Ok(())
+            }
+
+            async fn merges_in(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                segment: i64,
+            ) -> Result<Vec<CommitId>> {
+                let rows: Vec<(CommitId,)> = sqlx::query_as(sql!(
+                    tx,
+                    "SELECT DISTINCT merge_commit FROM segment_merge WHERE segment_id = ?1"
+                ))
+                .bind(segment)
+                .fetch_all(&mut **tx)
+                .await?;
+                Ok(rows.into_iter().map(|(c,)| c).collect())
+            }
+
+            async fn split_merges(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                s: i64,
+                s2: i64,
+                later: &[CommitId],
+            ) -> Result<()> {
+                for &m in later {
+                    sqlx::query(sql!(
+                        tx,
+                        "UPDATE segment_merge SET segment_id = ?2 WHERE segment_id = ?1 AND merge_commit = ?3"
+                    ))
+                    .bind(s)
+                    .bind(s2)
+                    .bind(m)
+                    .execute(&mut **tx)
+                    .await?;
+                }
+                sqlx::query(sql!(
+                    tx,
+                    "UPDATE segment_merge SET merged_segment_id = ?2 WHERE merged_segment_id = ?1"
+                ))
+                .bind(s)
+                .bind(s2)
+                .execute(&mut **tx)
+                .await?;
+                Ok(())
             }
 
             async fn fork_at(
@@ -1325,6 +1447,21 @@ macro_rules! store_impl {
                 .execute(&mut **tx)
                 .await?;
                 Ok(w)
+            }
+
+            async fn family_lines(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+            ) -> Result<Vec<(i64, Option<CommitId>)>> {
+                Ok(sqlx::query_as(sql!(
+                    tx,
+                    "SELECT w.id, s.head_commit FROM worktree w \
+                     JOIN segment s ON s.id = w.head_segment_id \
+                     WHERE w.family_id = ?1 ORDER BY w.id"
+                ))
+                .bind(family)
+                .fetch_all(&mut **tx)
+                .await?)
             }
 
             async fn family_heads(
@@ -1577,13 +1714,24 @@ macro_rules! store_impl {
                 family: i64,
             ) -> Result<()> {
                 loop {
-                    // descendants of a segment no chain holds are in none
-                    // either (I1), so one statement takes them all
+                    // a segment no chain's history holds, through parents and
+                    // merges, has no descendant one holds (I1), so one
+                    // statement takes them all
                     let dead = sqlx::query(sql!(
                         tx,
                         "DELETE FROM segment WHERE family_id = ?1 AND kind <> 'draft' \
-                         AND NOT EXISTS (SELECT 1 FROM worktree_segment ws \
-                                         WHERE ws.segment_id = segment.id)"
+                         AND id NOT IN ( \
+                             WITH RECURSIVE held(id) AS ( \
+                                 SELECT ws.segment_id FROM worktree_segment ws \
+                                 JOIN segment s ON s.id = ws.segment_id WHERE s.family_id = ?1 \
+                                 UNION \
+                                 SELECT e.below FROM held h JOIN ( \
+                                     SELECT id AS above, parent_id AS below FROM segment \
+                                     WHERE parent_id IS NOT NULL \
+                                     UNION ALL \
+                                     SELECT segment_id, merged_segment_id FROM segment_merge \
+                                 ) e ON e.above = h.id) \
+                             SELECT id FROM held)"
                     ))
                     .bind(family)
                     .execute(&mut **tx)
@@ -1608,6 +1756,7 @@ macro_rules! store_impl {
                     "SELECT p.id, MIN(c.id), MIN(c.kind) FROM segment p \
                      JOIN segment c ON c.parent_id = p.id \
                      WHERE p.family_id = ?1 AND p.kind = 'internal' \
+                       AND NOT EXISTS (SELECT 1 FROM segment_merge m WHERE m.merged_segment_id = p.id) \
                      GROUP BY p.id HAVING COUNT(*) = 1 ORDER BY p.id"
                 ))
                 .bind(family)
@@ -1642,7 +1791,7 @@ macro_rules! store_impl {
                 p: i64,
                 c: i64,
             ) -> Result<()> {
-                const STEPS: [&str; 7] = [
+                const STEPS: [&str; 9] = [
                     // the parent's rows the child overrides are hidden in
                     // every chain that holds the parent
                     "DELETE FROM record WHERE segment_id = ?1 AND EXISTS \
@@ -1653,6 +1802,11 @@ macro_rules! store_impl {
                      SELECT record_id, ?2, key_id FROM superseded WHERE segment_id = ?1 \
                      ON CONFLICT DO NOTHING",
                     "DELETE FROM superseded WHERE segment_id = ?1",
+                    // the merges in its commits are the child's now
+                    "INSERT INTO segment_merge (segment_id, merge_commit, merged_segment_id) \
+                     SELECT ?2, merge_commit, merged_segment_id FROM segment_merge WHERE segment_id = ?1 \
+                     ON CONFLICT DO NOTHING",
+                    "DELETE FROM segment_merge WHERE segment_id = ?1",
                     "UPDATE segment SET parent_id = \
                      (SELECT parent_id FROM segment WHERE id = ?1) WHERE id = ?2",
                     "DELETE FROM worktree_segment WHERE segment_id = ?1",

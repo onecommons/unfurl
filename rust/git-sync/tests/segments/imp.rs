@@ -84,6 +84,12 @@ struct Segments {
     vacated: BTreeSet<(Wt, Key)>,
     /// Every `key_id` a row has had: a real row's id is never reused.
     given: BTreeSet<Ver>,
+    /// `(segment, merge, merged)`: commit `merge`, one of `segment`'s,
+    /// brought in the line ending at segment `merged`.
+    merges: BTreeSet<(SegId, CommitId, SegId)>,
+    /// `(worktree, commit)`: each split a scan made of another worktree's
+    /// line at a commit it merged, until the world takes them.
+    merged_splits: Vec<(Wt, CommitId)>,
 }
 
 impl Segments {
@@ -401,6 +407,114 @@ impl Segments {
                         .any(|&(_, s)| view.contains(&s))
             })
             .map(|(id, _)| *id)
+            .collect()
+    }
+
+    /// §4.1's read across `across`: each one's own view, less a live
+    /// version unchanged since its merge base with another that has
+    /// changed it since. Content is `(ver, deleted)`.
+    fn read_across(&self, across: &[Wt]) -> Vec<RowId> {
+        assert!(across.len() <= 128);
+        let mut mask: BTreeMap<SegId, u128> = BTreeMap::new();
+        for (b, &w) in across.iter().enumerate() {
+            for s in self.own_view(w) {
+                *mask.entry(s).or_default() |= 1 << b;
+            }
+        }
+        let in_view = |s: SegId| mask.get(&s).copied().unwrap_or(0);
+        let rows: Vec<(RowId, &Row, u128)> = self
+            .rows
+            .iter()
+            .filter(|(_, r)| r.conflict.is_none() && in_view(r.seg) != 0)
+            .map(|(&id, r)| {
+                let gone = self.sup.range((id, 0)..(id + 1, 0)).fold(0, |a, &(_, s)| a | in_view(s));
+                (id, r, in_view(r.seg) & !gone)
+            })
+            .collect();
+        let shows = |u: usize, key: Key| {
+            rows.iter()
+                .find(|(_, r, vis)| r.key == key && !r.deleted && vis & (1 << u) != 0)
+                .map(|(_, r, _)| r.ver)
+        };
+        // each pair's merge bases, as the views of the segments ending there
+        let mut bases: BTreeMap<(usize, usize), Vec<BTreeSet<SegId>>> = BTreeMap::new();
+        for w in 0..across.len() {
+            for u in (0..across.len()).filter(|&u| u != w) {
+                let views: Vec<BTreeSet<SegId>> = self
+                    .merge_bases(across[w], across[u])
+                    .into_iter()
+                    .map(|s| {
+                        let mut v = self.ancestors(s);
+                        v.insert(s);
+                        v
+                    })
+                    .collect();
+                if !views.is_empty() {
+                    bases.insert((w, u), views);
+                }
+            }
+        }
+        let unchanged_copy = |w: usize, r: &Row| {
+            (0..across.len()).any(|u| {
+                let Some(trees) = bases.get(&(w, u)) else {
+                    return false;
+                };
+                if shows(u, r.key) == Some(r.ver) {
+                    return false;
+                }
+                // the base had it here, and the other has changed it here
+                let here = trees.iter().all(|t| self.live(t, r.key) == Some(r.ver));
+                // moved here since the base, and the other has modified it
+                // where the base had it, a live value: a rename and a
+                // deletion is a conflict that keeps both
+                let moved = trees.iter().all(|t| {
+                    self.live(t, r.key) != Some(r.ver)
+                        && rows.iter().any(|(_, b, _)| {
+                            b.key != r.key
+                                && b.ver == r.ver
+                                && self.live(t, b.key) == Some(r.ver)
+                                && shows(u, b.key).is_some_and(|y| y != r.ver)
+                        })
+                });
+                here || moved
+            })
+        };
+        rows.iter()
+            .filter(|(_, r, vis)| {
+                *vis != 0 && (r.deleted || (0..across.len()).any(|w| vis & (1 << w) != 0 && !unchanged_copy(w, r)))
+            })
+            .map(|(id, _, _)| *id)
+            .collect()
+    }
+
+    /// The segments `s`'s history holds: its parents' and those the
+    /// merges in them brought in, with `s`.
+    fn history_of(&self, s: SegId) -> BTreeSet<SegId> {
+        let mut out = BTreeSet::from([s]);
+        let mut todo = vec![s];
+        while let Some(x) = todo.pop() {
+            let merged = self.merges.iter().filter(|&&(from, _, _)| from == x).map(|&(_, _, to)| to);
+            for y in self.segs[x].parent.into_iter().chain(merged) {
+                if out.insert(y) {
+                    todo.push(y);
+                }
+            }
+        }
+        out
+    }
+
+    /// The segments ending at `w` and `u`'s merge bases: the latest their
+    /// committed histories share.
+    fn merge_bases(&self, w: Wt, u: Wt) -> Vec<SegId> {
+        let common: BTreeSet<SegId> = self
+            .history_of(self.wts[w].head)
+            .intersection(&self.history_of(self.wts[u].head))
+            .copied()
+            .collect();
+        common
+            .iter()
+            .copied()
+            .filter(|&s| !common.iter().any(|&x| x != s && self.history_of(x).contains(&s)))
             .collect()
     }
 
@@ -904,6 +1018,17 @@ impl Segments {
         disk: &BTreeMap<Key, Ver>,
         git: &Git,
     ) {
+        // what this brings in of other worktrees' lines: the commit itself
+        // where one holds it, else a merge's other parents
+        let theirs = self.wts.iter().enumerate().any(|(u, wt)| u != w && wt.alive && wt.history.contains(&commit));
+        let own = |c: &CommitId| self.wts[w].chain.iter().any(|&(s, _)| self.segs[s].head_commit == Some(*c));
+        let merged: Vec<CommitId> = match theirs {
+            true => vec![commit],
+            false => git.parents[commit].iter().skip(1).copied().filter(|c| !own(c)).collect(),
+        };
+        for &c in &merged {
+            self.end_segment_at(c, git);
+        }
         // A record that left one file and arrived in the other in this scan
         // moved: it keeps its `key_id`, and with the same content its
         // entries (§3.5).
@@ -1000,6 +1125,12 @@ impl Segments {
         let h = self.wts[w].head;
         self.segs[h].head_commit = Some(commit);
         self.wts[w].history.push(commit);
+        // each split above done, so the segments ending at them now
+        for c in merged {
+            if let Some((u, i)) = self.ending_at(c) {
+                self.merges.insert((h, commit, self.wts[u].chain[i].0));
+            }
+        }
         self.relink_draft(w);
     }
 
@@ -1402,8 +1533,10 @@ impl Segments {
     fn base_at_head(&mut self, w: Wt) -> (Option<SegId>, Vec<(SegId, bool)>) {
         let h = self.wts[w].head;
         let commit = *self.wts[w].history.last().unwrap();
-        // empty: no rows, and no entries hiding rows below
-        if self.rows_in(h).is_empty() && !self.sup.iter().any(|&(_, s)| s == h) {
+        // empty: no rows, and no entries hiding rows below; and its parent
+        // ends where it does, or the fork's merge base would end no segment
+        let parent_ends_here = self.segs[h].parent.is_some_and(|p| self.segs[p].head_commit == Some(commit));
+        if parent_ends_here && self.rows_in(h).is_empty() && !self.sup.iter().any(|&(_, s)| s == h) {
             let chain = self.wts[w]
                 .chain
                 .iter()
@@ -1413,12 +1546,37 @@ impl Segments {
             (self.segs[h].parent, chain)
         } else {
             let chain = self.wts[w].chain.iter().map(|&(s, _)| (s, true)).collect();
-            self.segs[h].kind = Kind::Internal;
-            self.segs[h].owner = None;
-            let hw = self.new_seg(Kind::Head, Some(h), Some(w), Some(commit));
-            self.wts[w].chain.push((hw, false));
-            self.wts[w].head = hw;
-            (Some(h), chain)
+            (Some(self.close_head(w)), chain)
+        }
+    }
+
+    /// End `w`'s head where it is, internal now, under a new empty head.
+    fn close_head(&mut self, w: Wt) -> SegId {
+        let h = self.wts[w].head;
+        let commit = self.segs[h].head_commit;
+        self.segs[h].kind = Kind::Internal;
+        self.segs[h].owner = None;
+        let hw = self.new_seg(Kind::Head, Some(h), Some(w), commit);
+        self.wts[w].chain.push((hw, false));
+        self.wts[w].head = hw;
+        h
+    }
+
+    /// Make commit `c` of another worktree's line end a segment: closing
+    /// the head ending there, or splitting the segment it falls inside.
+    fn end_segment_at(&mut self, c: CommitId, git: &Git) {
+        match self.ending_at(c) {
+            Some((u, i)) => {
+                let s = self.wts[u].chain[i].0;
+                if let Some(owner) = self.segs[s].owner.filter(|_| self.segs[s].kind == Kind::Head) {
+                    self.close_head(owner);
+                }
+            }
+            None => {
+                if let Some((u, _)) = self.inside(c, git) {
+                    self.merged_splits.push((u, c));
+                }
+            }
         }
     }
 
@@ -1540,9 +1698,32 @@ impl Segments {
     /// segment, wherever it is, even where `w`'s own head ends there too;
     /// else splitting `w`'s segment the commit falls inside.
     fn fork(&mut self, w: Wt, pos: usize, git: &Git) -> Wt {
+        let at = self.ending_at(self.wts[w].history[pos]);
+        self.fork_at(w, pos, git, at)
+    }
+
+    /// §4.12: a user branch off `w`'s head, on `w`'s own line where a
+    /// segment of its chain ends there, an internal one first.
+    fn branch_off(&mut self, w: Wt, git: &Git) -> Wt {
+        let pos = self.wts[w].history.len() - 1;
+        let c = self.wts[w].history[pos];
+        let own = self.wts[w]
+            .chain
+            .iter()
+            .enumerate()
+            .filter(|&(_, &(s, _))| self.segs[s].head_commit == Some(c))
+            .min_by_key(|&(i, &(s, _))| (self.segs[s].kind != Kind::Internal, i))
+            .map(|(i, _)| (w, i));
+        let at = own.or_else(|| self.ending_at(c));
+        self.fork_at(w, pos, git, at)
+    }
+
+    /// [`Self::fork`] on `at`, a chain's segment ending at the commit,
+    /// where there's one.
+    fn fork_at(&mut self, w: Wt, pos: usize, git: &Git, at: Option<(Wt, usize)>) -> Wt {
         let history = self.wts[w].history.clone();
         let c = history[pos];
-        if let Some((u, i)) = self.ending_at(c) {
+        if let Some((u, i)) = at {
             let s = self.wts[u].chain[i].0;
             // `u`'s line up to the commit, as its chain is: a merge can have
             // brought `w` there along another
@@ -1585,6 +1766,17 @@ impl Segments {
         let h_commit = self.segs[s].head_commit.unwrap();
         let (kind, owner) = (self.segs[s].kind, self.segs[s].owner);
         let s2 = self.new_seg(kind, Some(s), owner, Some(h_commit));
+        let after = |m: CommitId| {
+            let pos = |x: CommitId| history.iter().position(|&y| y == x);
+            pos(m).zip(pos(c)).is_some_and(|(m, c)| m > c)
+        };
+        self.merges = std::mem::take(&mut self.merges)
+            .into_iter()
+            .map(|(from, m, to)| {
+                let from = if from == s && after(m) { s2 } else { from };
+                (from, m, if to == s { s2 } else { to })
+            })
+            .collect();
         if kind == Kind::Head {
             self.segs[s].kind = Kind::Internal;
             self.segs[s].owner = None;
@@ -2098,6 +2290,7 @@ impl Segments {
         }
         self.sup.retain(|&(_, seg)| seg != s);
         self.tags.retain(|&(_, seg), _| seg != s);
+        self.merges.retain(|&(from, _, to)| from != s && to != s);
         for wt in &mut self.wts {
             wt.chain.retain(|&(seg, _)| seg != s);
         }
@@ -2112,20 +2305,18 @@ impl Segments {
         self.compact();
     }
 
+    /// C.14: what no live worktree's history holds goes, merges' lines
+    /// included, and a segment a merge brought in isn't folded.
     fn compact(&mut self) {
         loop {
             let referenced: BTreeSet<SegId> = self
                 .wts
                 .iter()
                 .filter(|w| w.alive)
-                .flat_map(|w| w.chain.iter().map(|&(s, _)| s))
+                .flat_map(|w| self.history_of(w.head))
                 .collect();
             let dead: Vec<SegId> = (0..self.segs.len())
-                .filter(|&s| {
-                    self.segs[s].alive
-                        && self.segs[s].kind != Kind::Draft
-                        && !referenced.contains(&s)
-                })
+                .filter(|&s| self.segs[s].alive && self.segs[s].kind != Kind::Draft && !referenced.contains(&s))
                 .collect();
             if !dead.is_empty() {
                 for s in dead {
@@ -2135,6 +2326,9 @@ impl Segments {
             }
             let fold = (0..self.segs.len()).find_map(|p| {
                 if !self.segs[p].alive || self.segs[p].kind != Kind::Internal {
+                    return None;
+                }
+                if self.merges.iter().any(|&(_, _, to)| to == p) {
                     return None;
                 }
                 let children: Vec<SegId> = (0..self.segs.len())
@@ -2172,6 +2366,10 @@ impl Segments {
             for r in moved {
                 self.move_entry(r, p, c);
             }
+            self.merges = std::mem::take(&mut self.merges)
+                .into_iter()
+                .map(|(from, m, to)| (if from == p { c } else { from }, m, to))
+                .collect();
             self.segs[c].parent = self.segs[p].parent;
             self.segs[p].alive = false;
             for wt in &mut self.wts {

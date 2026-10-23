@@ -7,7 +7,7 @@ use crate::commit::CommitId;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::store::{Filter, Scope, Store};
-use crate::db::tables::{At, FileRow, NewRecordRow, Place, RecordRow};
+use crate::db::tables::{At, FileRow, NewRecordRow, Place, RecordRow, SegmentEnd};
 use crate::db::{self, on_pool, Db};
 use crate::error::{Error, Result};
 use crate::format::FormatRegistry;
@@ -399,6 +399,223 @@ async fn place_commit<DB: Store>(
     Ok(None)
 }
 
+/// A commit a scan brings in of another worktree's line: `merged`, which
+/// `merge`, a commit of HEAD's first-parent line, brought in, and the
+/// worktree whose first-parent line holds it, if one does.
+pub(crate) struct Merged {
+    merge: CommitId,
+    merged: CommitId,
+    line: Option<i64>,
+}
+
+/// The commits a scan from `recorded` up to `head` brings in of other
+/// worktrees' lines. A commit another worktree's line holds brings in
+/// itself; otherwise a merge brings in its other parents.
+pub(crate) async fn merged_in<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    history: &mut History<'_>,
+    family: i64,
+    w: i64,
+    recorded: CommitId,
+    head: CommitId,
+) -> Result<Vec<Merged>> {
+    let own_head = DB::segs(tx, w).await?.head;
+    let own: BTreeSet<CommitId> = DB::segment_chain(tx, own_head)
+        .await?
+        .into_iter()
+        .filter_map(|seg| seg.head_commit)
+        .collect();
+    let others: Vec<(i64, CommitId)> = DB::family_lines(tx, family)
+        .await?
+        .into_iter()
+        .filter(|&(u, _)| u != w)
+        .filter_map(|(u, h)| h.map(|h| (u, h)))
+        .collect();
+    merged_on_line(history.repo(), &own, &others, recorded, head)
+}
+
+/// [`merged_in`]'s walk of `head`'s first-parent line down to `recorded`
+/// or a commit ending a segment of the scanning worktree's chain, `own`.
+fn merged_on_line(
+    repo: &gix::Repository,
+    own: &BTreeSet<CommitId>,
+    others: &[(i64, CommitId)],
+    recorded: CommitId,
+    head: CommitId,
+) -> Result<Vec<Merged>> {
+    let lines = other_lines(repo, own, others)?;
+    let mut merged = Vec::new();
+    let mut at = head;
+    while at != recorded && !own.contains(&at) {
+        if let Some(&u) = lines.get(&at) {
+            merged.push(Merged {
+                merge: at,
+                merged: at,
+                line: Some(u),
+            });
+            break;
+        }
+        let parents = git::commit_parents(repo, at)?;
+        merged.extend(
+            parents
+                .iter()
+                .skip(1)
+                .filter(|p| !own.contains(p))
+                .map(|&p| Merged {
+                    merge: at,
+                    merged: p,
+                    line: None,
+                }),
+        );
+        match parents.first() {
+            Some(&p) => at = p,
+            None => break,
+        }
+    }
+    Ok(merged)
+}
+
+/// The commits on each of `others`' first-parent lines, each walked from
+/// its head down to the first commit ending a segment of `own`, with the
+/// worktree whose line holds it, the lowest id first.
+fn other_lines(
+    repo: &gix::Repository,
+    own: &BTreeSet<CommitId>,
+    others: &[(i64, CommitId)],
+) -> Result<BTreeMap<CommitId, i64>> {
+    let mut lines = BTreeMap::new();
+    for &(u, h) in others {
+        if !git::has_commit(repo, h)? {
+            continue;
+        }
+        let mut at = h;
+        // below `own`, an ancestor of what the scan brings in, nothing it
+        // brings in is held
+        while !own.contains(&at) {
+            lines.entry(at).or_insert(u);
+            match git::commit_parents(repo, at)?.first() {
+                Some(&p) => at = p,
+                None => break,
+            }
+        }
+    }
+    Ok(lines)
+}
+
+/// The commits a scan of worktree `w` up to `head` brings in of other
+/// worktrees' lines ([`merged_in`]), each made to end a segment.
+pub(crate) async fn end_merged_lines<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    history: Option<&mut History<'_>>,
+    family: i64,
+    w: i64,
+    head: CommitId,
+) -> Result<Vec<Merged>> {
+    let (Some(recorded), Some(history)) = (DB::head_commit(tx, w).await?, history) else {
+        return Ok(Vec::new());
+    };
+    if recorded == head {
+        return Ok(Vec::new());
+    }
+    let merged = merged_in(tx, history, family, w, recorded, head).await?;
+    end_merged(tx, history, family, &merged).await?;
+    Ok(merged)
+}
+
+/// Make each commit `merged` brought in end a segment, as a fork placed
+/// there would: closing the head ending there, or splitting the segment
+/// it falls inside.
+async fn end_merged<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    history: &mut History<'_>,
+    family: i64,
+    merged: &[Merged],
+) -> Result<()> {
+    for m in merged {
+        let placed = match m.line {
+            Some(u) => place_on_line(tx, history, family, u, m.merged).await?,
+            None => place_commit(tx, history, family, m.merged).await?,
+        };
+        match placed {
+            None => {}
+            Some(Placement::At(seg)) => DB::close_head(tx, family, seg).await?,
+            Some(Placement::Inside {
+                s,
+                segment_head,
+                split_at,
+            }) => split(tx, history, family, s, split_at, segment_head).await?,
+        }
+    }
+    Ok(())
+}
+
+/// [`place_commit`] of `c`, which worktree `u`'s first-parent line holds:
+/// a segment ending at `c`, else the one of `u`'s chain `c` falls inside.
+async fn place_on_line<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    history: &mut History<'_>,
+    family: i64,
+    u: i64,
+    c: CommitId,
+) -> Result<Option<Placement>> {
+    if let Some(seg) = DB::segment_ending_at(tx, family, c).await? {
+        return Ok(Some(Placement::At(seg)));
+    }
+    let head = DB::segs(tx, u).await?.head;
+    let chain = DB::segment_chain(tx, head).await?;
+    line_segment(history.repo(), &chain, c)
+}
+
+/// The segment of `chain`, top down, holding `c`, walking the first-parent
+/// line from its head.
+fn line_segment(
+    repo: &gix::Repository,
+    chain: &[SegmentEnd],
+    c: CommitId,
+) -> Result<Option<Placement>> {
+    let Some(mut at) = chain.first().and_then(|seg| seg.head_commit) else {
+        return Ok(None);
+    };
+    let mut i = 0;
+    loop {
+        while chain.get(i + 1).and_then(|seg| seg.head_commit) == Some(at) {
+            i += 1;
+        }
+        if at == c {
+            let seg = &chain[i];
+            return Ok(Some(match seg.head_commit {
+                Some(h) if h != c => Placement::Inside {
+                    s: seg.id,
+                    segment_head: h,
+                    split_at: c,
+                },
+                _ => Placement::At(seg.id),
+            }));
+        }
+        match git::commit_parents(repo, at)?.first() {
+            Some(&p) => at = p,
+            None => return Ok(None),
+        }
+    }
+}
+
+/// An edge from worktree `w`'s head to the segment ending at each commit
+/// `merged` brought in.
+pub(crate) async fn record_merges<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    family: i64,
+    w: i64,
+    merged: &[Merged],
+) -> Result<()> {
+    let head = DB::segs(tx, w).await?.head;
+    for m in merged {
+        if let Some(seg) = DB::segment_ending_at(tx, family, m.merged).await? {
+            DB::add_merge(tx, head, m.merge, seg).await?;
+        }
+    }
+    Ok(())
+}
+
 /// What a split knows of one place (§4.7): its value at `split_at`, the rows
 /// below `s` there, and `s`'s own row, if any.
 struct Key {
@@ -449,10 +666,14 @@ async fn split<DB: Store>(
     let chain = DB::segment_chain(tx, s).await?;
     let own = DB::rows_in(tx, s, None, false).await?;
     let late = written_after(history, &own, split_at)?;
+    let merges = DB::merges_in(tx, s).await?;
+    let later = merges_after(history, merges, split_at)?;
+    let s2 = DB::split_segment(tx, s, split_at).await?;
+    DB::split_merges(tx, s, s2, &later).await?;
     let sp = Split {
         family,
         s,
-        s2: DB::split_segment(tx, s, split_at).await?,
+        s2,
         split_at,
         segment_head,
         lower: chain.iter().map(|seg| seg.id).collect(),
@@ -479,6 +700,22 @@ async fn split<DB: Store>(
         }
     }
     Ok(())
+}
+
+/// The merge commits of `merges` after `split_at`, which `split_at` is an
+/// ancestor of.
+fn merges_after(
+    history: &History<'_>,
+    merges: Vec<CommitId>,
+    split_at: CommitId,
+) -> Result<Vec<CommitId>> {
+    let mut later = Vec::new();
+    for m in merges {
+        if m != split_at && git::is_ancestor(history.repo(), split_at, m)? {
+            later.push(m);
+        }
+    }
+    Ok(later)
 }
 
 /// `own`'s rows written after `split_at`: by a commit `split_at` is an ancestor of.

@@ -702,6 +702,79 @@ impl SqlWorld {
         assert_eq!(sql, expected, "step {step}: a read across {open:?}");
     }
 
+    /// Rows of a query with no parameters, from either database.
+    fn raw_all<T>(&self, sql: &str) -> Vec<T>
+    where
+        T: for<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> + Send + Unpin,
+        T: RawPg,
+    {
+        match &self.raw {
+            Raw::Sqlite(pool) => self.rt.block_on(sqlx::query_as(sql).fetch_all(pool)).unwrap(),
+            #[cfg(feature = "postgres")]
+            Raw::Postgres(pool, _) => self.rt.block_on(sqlx::query_as(sql).fetch_all(pool)).unwrap(),
+        }
+    }
+
+    /// Each two open worktrees' merge bases, as SQL's segments have them
+    /// (the latest their histories share, through parents and merges),
+    /// against the in-memory implementation's, as commits.
+    fn check_merge_bases(&self, world: &World, mirror: &GitMirror, step: usize) {
+        let open: Vec<Wt> = self.repos.keys().copied().collect();
+        if open.len() < 2 || std::env::var_os("SEGMENTS_VISIBLE_ONLY").is_some() {
+            return;
+        }
+        let segs: Vec<(i64, Option<i64>, Option<String>)> =
+            self.raw_all("SELECT id, parent_id, head_commit FROM segment WHERE kind <> 'draft'");
+        let merges: Vec<(i64, i64)> = self.raw_all("SELECT segment_id, merged_segment_id FROM segment_merge");
+        let heads: BTreeMap<i64, i64> = self
+            .raw_all::<(i64, Option<i64>)>("SELECT id, head_segment_id FROM worktree")
+            .into_iter()
+            .filter_map(|(w, h)| h.map(|h| (w, h)))
+            .collect();
+        let below: BTreeMap<i64, Vec<i64>> = segs
+            .iter()
+            .filter_map(|&(id, parent, _)| parent.map(|p| (id, p)))
+            .chain(merges.iter().copied())
+            .fold(BTreeMap::new(), |mut m, (from, to)| {
+                m.entry(from).or_insert_with(Vec::new).push(to);
+                m
+            });
+        let ends: BTreeMap<i64, &str> = segs.iter().filter_map(|(id, _, c)| c.as_deref().map(|c| (*id, c))).collect();
+        let history = |s: i64| {
+            let mut out = BTreeSet::from([s]);
+            let mut todo = vec![s];
+            while let Some(x) = todo.pop() {
+                for &y in below.get(&x).into_iter().flatten() {
+                    if out.insert(y) {
+                        todo.push(y);
+                    }
+                }
+            }
+            out
+        };
+        let bases = |a: BTreeSet<i64>, b: BTreeSet<i64>| -> BTreeSet<String> {
+            let common: BTreeSet<i64> = a.intersection(&b).copied().collect();
+            common
+                .iter()
+                .copied()
+                .filter(|&s| !common.iter().any(|&x| x != s && history(x).contains(&s)))
+                .map(|s| ends[&s].to_string())
+                .collect()
+        };
+        let imp = &world.imp;
+        for (i, &w) in open.iter().enumerate() {
+            for &u in &open[i + 1..] {
+                let sql = bases(history(heads[&self.worktree_id(w)]), history(heads[&self.worktree_id(u)]));
+                let want: BTreeSet<String> = imp
+                    .merge_bases(w, u)
+                    .into_iter()
+                    .map(|s| mirror.oids[imp.segs[s].head_commit.unwrap()].clone())
+                    .collect();
+                assert_eq!(sql, want, "step {step}: worktrees {w} and {u}'s merge bases");
+            }
+        }
+    }
+
     fn check(&mut self, world: &World, step: usize) {
         let imp = &world.imp;
         let rows = |view: BTreeSet<SegId>| -> BTreeMap<Key, (Ver, Ver)> {
@@ -794,3 +867,16 @@ impl Drop for SqlWorld {
         }
     }
 }
+
+/// A row Postgres can give [`SqlWorld::raw_all`] too.
+#[cfg(feature = "postgres")]
+trait RawPg: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> {}
+
+#[cfg(feature = "postgres")]
+impl<T: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow>> RawPg for T {}
+
+#[cfg(not(feature = "postgres"))]
+trait RawPg {}
+
+#[cfg(not(feature = "postgres"))]
+impl<T> RawPg for T {}
