@@ -302,6 +302,14 @@ async fn find_page(db: &Db, worktree_id: i64, query: &RecordQuery) -> Result<Vec
 /// The reads across worktrees each backend spells its own way, for the
 /// code around them to stay generic.
 trait AcrossReads: Store {
+    /// The first page of [`find`], and the worktrees it covers where the
+    /// same statement reads them.
+    fn first_page(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+        query: &RecordQuery,
+    ) -> impl Future<Output = Result<FirstPage>> + Send;
+
     /// One page of [`find`], each covered worktree's own view.
     fn page(
         tx: &mut sqlx::Transaction<'_, Self>,
@@ -329,6 +337,17 @@ trait AcrossReads: Store {
 }
 
 impl AcrossReads for sqlx::Sqlite {
+    async fn first_page(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+        query: &RecordQuery,
+    ) -> Result<FirstPage> {
+        Ok(FirstPage {
+            records: find_sqlite(&mut **tx, worktree_id, query).await?,
+            coverage: None,
+        })
+    }
+
     async fn page(
         tx: &mut sqlx::Transaction<'_, Self>,
         worktree_id: i64,
@@ -359,6 +378,14 @@ impl AcrossReads for sqlx::Sqlite {
 
 #[cfg(feature = "postgres")]
 impl AcrossReads for sqlx::Postgres {
+    async fn first_page(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+        query: &RecordQuery,
+    ) -> Result<FirstPage> {
+        first_page_pg(&mut **tx, worktree_id, query).await
+    }
+
     async fn page(
         tx: &mut sqlx::Transaction<'_, Self>,
         worktree_id: i64,
@@ -387,6 +414,13 @@ impl AcrossReads for sqlx::Postgres {
     }
 }
 
+/// The first page of a read across worktrees, and what it covers where
+/// the statement that read it read that too.
+struct FirstPage {
+    records: Vec<Record>,
+    coverage: Option<crate::db::tables::Coverage>,
+}
+
 /// [`find`] across worktrees, in one snapshot ([`across_pages`]).
 async fn find_across(db: &Db, worktree_id: i64, query: &RecordQuery) -> Result<Vec<Record>> {
     on_pool!(db, pool => across_pages(pool, worktree_id, query).await)
@@ -408,9 +442,10 @@ async fn across_pages<DB: AcrossReads>(
     };
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
     let mut tx = snapshot(pool, Snapshot::Read).await?;
-    let mut found = DB::page(&mut tx, worktree_id, &wide).await?;
+    let first = DB::first_page(&mut tx, worktree_id, &wide).await?;
+    let mut found = first.records;
+    let mut covered = first.coverage.map(across::Covered::new);
     let mut out = Vec::new();
-    let mut covered = None;
     loop {
         let full = wide.limit.is_some_and(|n| found.len() as i64 == n);
         let next = found.last().map(|r| crate::model::Cursor {
@@ -1195,6 +1230,25 @@ fn add_filter_args_pg(args: &mut sqlx::postgres::PgArguments, query: &RecordQuer
     Ok(())
 }
 
+/// A Postgres page of [`find`]: its `WITH`, if any, the select of its
+/// rows' ids and worktrees, sorted and limited, and their arguments.
+#[cfg(feature = "postgres")]
+struct PagePg {
+    with: String,
+    ids: String,
+    args: sqlx::postgres::PgArguments,
+}
+
+/// What [`find_pg`] selects of a page's rows, as `p` joined to `r`.
+#[cfg(feature = "postgres")]
+const PAGE_COLUMNS: &str = "r.key_id AS id, p.worktree_id, r.file_path, r.path, r.key, \
+     r.commit_id, r.json::text AS json, r.version, r.deleted, r.conflict";
+
+/// The order of a page's rows: byte-wise, as [`page_pg`] explains.
+#[cfg(feature = "postgres")]
+const PAGE_ORDER: &str =
+    "r.path COLLATE \"C\", r.key COLLATE \"C\", r.file_path COLLATE \"C\", p.worktree_id, r.id";
+
 #[cfg(feature = "postgres")]
 async fn find_pg(
     exec: impl sqlx::PgExecutor<'_>,
@@ -1202,6 +1256,135 @@ async fn find_pg(
     query: &RecordQuery,
     cached: bool,
 ) -> Result<Vec<Record>> {
+    let PagePg { with, ids, args } = page_pg(worktree_id, query)?;
+    let sql = format!(
+        "{with}SELECT {PAGE_COLUMNS} FROM ({ids}) p JOIN record r ON r.id = p.id \
+         ORDER BY {PAGE_ORDER}"
+    );
+    // Planned with the values bound: unnamed, or `cached` in a [`snapshot`].
+    // A generic plan can't see the type list's length or how many worktrees
+    // the scope matches, and probes the GIN index once per segment. sqlx runs
+    // a cached statement whose text matches, unnamed or not, so the cached
+    // one's text is its own.
+    let sql = match cached {
+        true => format!("/* snapshot */ {sql}"),
+        false => sql,
+    };
+    let rows = sqlx::query_as_with::<_, FoundColumns, _>(&sql, args)
+        .persistent(cached)
+        .fetch_all(exec)
+        .await?;
+    rows.into_iter().map(Record::try_from).collect()
+}
+
+/// [`find_pg`]'s page, and the worktrees it covers as [`Store::covered`]
+/// reads them, in one statement: a page across worktrees in one round
+/// trip, not two.
+#[cfg(feature = "postgres")]
+async fn first_page_pg(
+    exec: impl sqlx::PgExecutor<'_>,
+    worktree_id: i64,
+    query: &RecordQuery,
+) -> Result<FirstPage> {
+    let covered = crate::db::pg(&crate::db::store::covered_sql(&WorktreeFilter::ids_sql(
+        query.worktrees.as_ref(),
+    )));
+    let PagePg { with, ids, args } = page_pg(worktree_id, query)?;
+    // the hidden rows' CTE, with a cursor, then the page's
+    let ctes = match with.is_empty() {
+        true => "WITH ".to_string(),
+        false => format!("{}, ", with.trim_end()),
+    };
+    // kinds 0-2 are the coverage's rows, 3 the page's, in its order
+    let sql = format!(
+        "{ctes}page AS MATERIALIZED (SELECT {PAGE_COLUMNS}, \
+         row_number() OVER (ORDER BY {PAGE_ORDER}) AS pos \
+         FROM ({ids}) p JOIN record r ON r.id = p.id) \
+         SELECT CAST(3 AS BIGINT) AS kind, pos, id, worktree_id, file_path, path, key, \
+         commit_id, json, version, deleted, conflict, CAST(NULL AS BIGINT) AS a, \
+         CAST(NULL AS BIGINT) AS b, CAST(NULL AS BIGINT) AS c, CAST(NULL AS BIGINT) AS d, \
+         CAST(NULL AS BIGINT) AS e FROM page \
+         UNION ALL SELECT c.kind, 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, \
+         NULL, NULL, c.a, c.b, c.c, c.d, c.e FROM ({covered}) c \
+         ORDER BY 1, 2, 13"
+    );
+    let rows: Vec<FirstRow> = sqlx::query_as_with(&sql, args).fetch_all(exec).await?;
+    let mut records = Vec::new();
+    let mut coverage = Vec::new();
+    for row in rows {
+        match row.kind {
+            3 => records.push(Record::try_from(row.found()?)?),
+            _ => coverage.push(row.covered()?),
+        }
+    }
+    Ok(FirstPage {
+        records,
+        coverage: Some(crate::db::store::coverage_of(coverage)),
+    })
+}
+
+/// A row of [`first_page_pg`]'s statement: a page's record (`kind` 3) or a
+/// [`crate::db::tables::CoveredRow`], the other's columns NULL.
+#[cfg(feature = "postgres")]
+#[derive(sqlx::FromRow)]
+struct FirstRow {
+    kind: i64,
+    id: Option<i64>,
+    worktree_id: Option<i64>,
+    file_path: Option<String>,
+    path: Option<String>,
+    key: Option<String>,
+    commit_id: Option<CommitId>,
+    json: Option<String>,
+    version: Option<i64>,
+    deleted: Option<bool>,
+    conflict: Option<String>,
+    a: Option<i64>,
+    b: Option<i64>,
+    c: Option<i64>,
+    d: Option<i64>,
+    e: Option<i64>,
+}
+
+#[cfg(feature = "postgres")]
+impl FirstRow {
+    fn found(self) -> Result<FoundColumns> {
+        Ok(FoundColumns {
+            id: present(self.id)?,
+            worktree_id: present(self.worktree_id)?,
+            file_path: present(self.file_path)?,
+            path: present(self.path)?,
+            key: present(self.key)?,
+            commit_id: self.commit_id,
+            json: present(self.json)?,
+            version: present(self.version)?,
+            deleted: present(self.deleted)?,
+            conflict: self.conflict,
+        })
+    }
+
+    fn covered(self) -> Result<crate::db::tables::CoveredRow> {
+        Ok((
+            self.kind,
+            present(self.a)?,
+            present(self.b)?,
+            present(self.c)?,
+            present(self.d)?,
+            self.e,
+        ))
+    }
+}
+
+/// `value`, which its row's kind always has.
+#[cfg(feature = "postgres")]
+fn present<T>(value: Option<T>) -> Result<T> {
+    value
+        .ok_or_else(|| sqlx::Error::Decode("a NULL where its row's kind has a value".into()).into())
+}
+
+/// [`find_pg`]'s page, built for it and [`first_page_pg`].
+#[cfg(feature = "postgres")]
+fn page_pg(worktree_id: i64, query: &RecordQuery) -> Result<PagePg> {
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     let RecordQuery { after, limit, .. } = query;
@@ -1263,13 +1446,6 @@ async fn find_pg(
         true => hidden_cte(&ids),
         false => String::new(),
     };
-    let sql = format!(
-        "{with}SELECT r.key_id AS id, p.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
-         r.json::text AS json, r.version, r.deleted, r.conflict \
-         FROM ({sql}) p JOIN record r ON r.id = p.id \
-         ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\", \
-         r.file_path COLLATE \"C\", p.worktree_id, r.id"
-    );
 
     let mut args = sqlx::postgres::PgArguments::default();
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
@@ -1292,20 +1468,11 @@ async fn find_pg(
     if let Some(n) = limit {
         args.add(*n).map_err(arg_err)?;
     }
-    // Planned with the values bound: unnamed, or `cached` in a [`snapshot`].
-    // A generic plan can't see the type list's length or how many worktrees
-    // the scope matches, and probes the GIN index once per segment. sqlx runs
-    // a cached statement whose text matches, unnamed or not, so the cached
-    // one's text is its own.
-    let sql = match cached {
-        true => format!("/* snapshot */ {sql}"),
-        false => sql,
-    };
-    let rows = sqlx::query_as_with::<_, FoundColumns, _>(&sql, args)
-        .persistent(cached)
-        .fetch_all(exec)
-        .await?;
-    rows.into_iter().map(Record::try_from).collect()
+    Ok(PagePg {
+        with,
+        ids: sql,
+        args,
+    })
 }
 
 /// Run a facet aggregation: group the records matching `query` by the

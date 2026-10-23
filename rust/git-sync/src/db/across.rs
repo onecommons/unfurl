@@ -263,10 +263,15 @@ impl Covered {
         branch: Option<&str>,
         ids: &str,
     ) -> Result<Self> {
+        Ok(Self::new(DB::covered(tx, id, origin, branch, ids).await?))
+    }
+
+    /// The worktrees `coverage` holds, and their merge bases.
+    pub(crate) fn new(coverage: Coverage) -> Self {
         let Coverage {
             chains: rows,
             graph,
-        } = DB::covered(tx, id, origin, branch, ids).await?;
+        } = coverage;
         let mut worktrees: Vec<CoveredWorktree> = Vec::new();
         let mut chains: Vec<(usize, i64)> = Vec::new();
         // a row per segment of each worktree's chain, by worktree
@@ -286,12 +291,12 @@ impl Covered {
         }
         let mut graph = Graph::new(graph);
         let bases = Bases::new(&mut graph, &worktrees);
-        Ok(Covered {
+        Covered {
             worktrees,
             words,
             holds,
             bases,
-        })
+        }
     }
 
     /// Whether the rule can leave anything out: whether two covered

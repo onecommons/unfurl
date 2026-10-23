@@ -118,6 +118,62 @@ fn across_rows_json(text: &str) -> Result<Vec<AcrossRow>> {
         .collect())
 }
 
+/// [`Store::covered`]'s statement, in SQLite's spelling, unordered: the
+/// worktrees `?1`..`?3` and `ids` cover, a row per segment of each's
+/// chain, then their families' graph, as [`CoveredRow`]s in the columns
+/// `kind, a, b, c, d, e`.
+pub(crate) fn covered_sql(ids: &str) -> String {
+    let covers = format!(
+        "(CAST(?1 AS BIGINT) IS NULL OR w.id = ?1) \
+         AND (CAST(?2 AS TEXT) IS NULL OR w.origin = ?2) \
+         AND (CAST(?3 AS TEXT) IS NULL OR w.branch = ?3){ids} \
+         AND w.head_segment_id IS NOT NULL AND w.draft_segment_id IS NOT NULL"
+    );
+    let families = format!("SELECT COALESCE(w.family_id, w.id) FROM worktree w WHERE {covers}");
+    // 0: a worktree, its head, draft and family, and a segment of its
+    // chain; 1: a segment and its parent; 2: a merge's segment and the one
+    // it merged
+    format!(
+        "SELECT CAST(0 AS BIGINT) AS kind, w.id AS a, w.head_segment_id AS b, \
+         w.draft_segment_id AS c, COALESCE(w.family_id, w.id) AS d, ws.segment_id AS e \
+         FROM worktree w LEFT JOIN worktree_segment ws ON ws.worktree_id = w.id WHERE {covers} \
+         UNION ALL SELECT CAST(1 AS BIGINT), s.id, s.parent_id, CAST(0 AS BIGINT), \
+         CAST(0 AS BIGINT), CAST(NULL AS BIGINT) FROM segment s \
+         WHERE s.kind <> 'draft' AND s.parent_id IS NOT NULL AND s.family_id IN ({families}) \
+         UNION ALL SELECT CAST(2 AS BIGINT), m.segment_id, m.merged_segment_id, \
+         CAST(0 AS BIGINT), CAST(0 AS BIGINT), CAST(NULL AS BIGINT) \
+         FROM segment_merge m JOIN segment s ON s.id = m.segment_id \
+         WHERE s.family_id IN ({families})"
+    )
+}
+
+/// The [`Coverage`] [`covered_sql`]'s `rows` give, its worktrees by id.
+pub(crate) fn coverage_of(rows: Vec<CoveredRow>) -> Coverage {
+    let mut out = Coverage {
+        chains: Vec::new(),
+        graph: SegmentGraph {
+            segments: Vec::new(),
+            merges: Vec::new(),
+        },
+    };
+    for (kind, a, b, draft, family, segment_id) in rows {
+        match kind {
+            0 => out.chains.push(CoveredChain {
+                worktree: CoveredWorktree {
+                    id: a,
+                    head: b,
+                    draft,
+                    family,
+                },
+                segment_id,
+            }),
+            1 => out.graph.segments.push((a, b)),
+            _ => out.graph.merges.push((a, b)),
+        }
+    }
+    out
+}
+
 /// `found`'s rows, and the entries on them as `(row, segment)`.
 fn split_entries(found: Vec<WithEntries>) -> Result<AcrossRows> {
     let mut rows = Vec::with_capacity(found.len());
@@ -1585,30 +1641,7 @@ macro_rules! store_impl {
                 branch: Option<&str>,
                 ids: &str,
             ) -> Result<Coverage> {
-                let covers = format!(
-                    "(CAST(?1 AS BIGINT) IS NULL OR w.id = ?1) \
-                     AND (CAST(?2 AS TEXT) IS NULL OR w.origin = ?2) \
-                     AND (CAST(?3 AS TEXT) IS NULL OR w.branch = ?3){ids} \
-                     AND w.head_segment_id IS NOT NULL AND w.draft_segment_id IS NOT NULL"
-                );
-                let families = format!("SELECT COALESCE(w.family_id, w.id) FROM worktree w WHERE {covers}");
-                // 0: a worktree, its head, draft and family, and a segment
-                // of its chain; 1: a segment and its parent; 2: a merge's
-                // segment and the one it merged
-                let sql = format!(
-                    "SELECT CAST(0 AS BIGINT), w.id, w.head_segment_id, w.draft_segment_id, \
-                     COALESCE(w.family_id, w.id), ws.segment_id FROM worktree w \
-                     LEFT JOIN worktree_segment ws ON ws.worktree_id = w.id WHERE {covers} \
-                     UNION ALL SELECT CAST(1 AS BIGINT), s.id, s.parent_id, CAST(0 AS BIGINT), \
-                     CAST(0 AS BIGINT), CAST(NULL AS BIGINT) FROM segment s \
-                     WHERE s.kind <> 'draft' AND s.parent_id IS NOT NULL \
-                       AND s.family_id IN ({families}) \
-                     UNION ALL SELECT CAST(2 AS BIGINT), m.segment_id, m.merged_segment_id, \
-                     CAST(0 AS BIGINT), CAST(0 AS BIGINT), CAST(NULL AS BIGINT) \
-                     FROM segment_merge m JOIN segment s ON s.id = m.segment_id \
-                     WHERE s.family_id IN ({families}) \
-                     ORDER BY 1, 2"
-                );
+                let sql = format!("{} ORDER BY 1, 2", covered_sql(ids));
                 // cached: its text changes only with the worktrees a filter lists
                 let rows: Vec<CoveredRow> = sqlx::query_as(&db::spell(&*tx, sql))
                     .bind(id)
@@ -1616,29 +1649,7 @@ macro_rules! store_impl {
                     .bind(branch)
                     .fetch_all(&mut **tx)
                     .await?;
-                let mut out = Coverage {
-                    chains: Vec::new(),
-                    graph: SegmentGraph {
-                        segments: Vec::new(),
-                        merges: Vec::new(),
-                    },
-                };
-                for (kind, a, b, draft, family, segment_id) in rows {
-                    match kind {
-                        0 => out.chains.push(CoveredChain {
-                            worktree: CoveredWorktree {
-                                id: a,
-                                head: b,
-                                draft,
-                                family,
-                            },
-                            segment_id,
-                        }),
-                        1 => out.graph.segments.push((a, b)),
-                        _ => out.graph.merges.push((a, b)),
-                    }
-                }
-                Ok(out)
+                Ok(coverage_of(rows))
             }
 
             async fn across_rows(
