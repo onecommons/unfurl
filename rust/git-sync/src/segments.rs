@@ -82,6 +82,7 @@ enum Held {
     /// them, which debug builds check; `places` comes from the rows
     /// loaded, which debug builds check against the database.
     Around {
+        #[cfg(debug_assertions)]
         place: Place,
         records: BTreeSet<i64>,
         places: BTreeSet<Place>,
@@ -202,6 +203,7 @@ impl Draft {
             conflicts: Some(conflicts),
             entries,
             held: Held::Around {
+                #[cfg(debug_assertions)]
                 place,
                 records,
                 places,
