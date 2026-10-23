@@ -63,13 +63,15 @@ thread_local! {
     static HELD: std::cell::Cell<usize> = const { std::cell::Cell::new(ROWS_HELD) };
 }
 
+/// Past how many records a read across worktrees reads every covered row.
 #[cfg(feature = "fault-injection")]
-fn every_row_past() -> usize {
+pub(crate) fn every_row_past() -> usize {
     EVERY_ROW.get()
 }
 
+/// Past how many records a read across worktrees reads every covered row.
 #[cfg(not(feature = "fault-injection"))]
-fn every_row_past() -> usize {
+pub(crate) fn every_row_past() -> usize {
     EVERY_ROW_PAST
 }
 
@@ -468,8 +470,29 @@ impl Covered {
             return Ok(Vec::new());
         }
         candidates.sort_unstable();
+        let batches = Batches::new(Records::OfRows(&candidates), candidates.len());
+        self.kept_of(tx, batches, |id| candidates.binary_search(&id).is_ok())
+            .await
+    }
+
+    /// Every covered row some covered view shows and the rule keeps.
+    pub(crate) async fn kept_every<DB: Store>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+    ) -> Result<Vec<i64>> {
+        let batches = Batches::new(Records::Ids(&[]), usize::MAX);
+        self.kept_of(tx, batches, |_| true).await
+    }
+
+    /// The rows of `batches` some covered view shows, the rule keeps, and
+    /// `wanted` takes.
+    async fn kept_of<DB: Store>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        mut batches: Batches<'_>,
+        wanted: impl Fn(i64) -> bool,
+    ) -> Result<Vec<i64>> {
         let mut out = Vec::new();
-        let mut batches = Batches::new(Records::OfRows(&candidates), candidates.len());
         while let Some(batch) = self.next_batch(tx, &mut batches).await? {
             let resolved = Resolve::new(self, &batch.rows, batch.decided).resolve();
             out.extend(
@@ -478,11 +501,7 @@ impl Covered {
                     .rows
                     .iter()
                     .enumerate()
-                    .filter(|&(i, r)| {
-                        resolved.decides(i)
-                            && resolved.kept(i)
-                            && candidates.binary_search(&r.id).is_ok()
-                    })
+                    .filter(|&(i, r)| resolved.decides(i) && resolved.kept(i) && wanted(r.id))
                     .map(|(_, r)| r.id),
             );
         }

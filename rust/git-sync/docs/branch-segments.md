@@ -2605,8 +2605,10 @@ ORDER BY p.path COLLATE "C", p.key COLLATE "C", p.file_path COLLATE "C",
          p.worktree_id, p.id;
 ```
 
-That's each worktree's own view, read at twice the page's limit. Rust
-then leaves out the unchanged copies ([§4.1](#41-reads)), from two
+That's each worktree's own view, read at twice the page's limit, in
+one snapshot with the reads after it: on Postgres, a `REPEATABLE READ,
+READ ONLY` transaction. Rust then leaves out the unchanged copies
+([§4.1](#41-reads)), from two
 statements: the covered worktrees with their chains and their families'
 graph, and the rows in the covered segments at every place where the
 page's records have a row there, with the entries on them. A page left
@@ -2669,8 +2671,10 @@ WITH hidden AS MATERIALIZED (
 ```
 
 Facets take as candidates the covered segments' rows that match the
-filters, with no anti-join, resolve them the same way, and count those
-some view shows and the rule keeps ([C.5](#c5-facets)).
+filters, with no anti-join, up to 301 of them, resolve them the same
+way, and count those some view shows and the rule keeps
+([C.5](#c5-facets)). Past 300, they resolve every covered row instead,
+and `facet_rows` takes the rows the rule keeps that the filters match.
 
 ### C.8 Create a record
 

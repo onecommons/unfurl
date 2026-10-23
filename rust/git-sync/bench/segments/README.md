@@ -541,11 +541,12 @@ copy, 37,498 rows.
 - **The resolver numbers places and merge bases,** with each row's
   views and merge bases as bit sets, and takes 9 ms of read 11. Looking
   each place up by its strings took 146 ms on Postgres, 207 on SQLite.
-- **What read 11 spends beyond the old rule** is reading the rows
-  twice: as candidates, then to resolve. On SQLite that's 71 and 94 ms,
-  and its counts take 103. Postgres reads them twice too, 19 and 38 ms
-  on the container under `auto_explain`, but its old facet cost more,
-  so its ratio is lower.
+- **Read 11 read the rows twice:** as candidates, then to resolve. On
+  SQLite that was 71 and 94 ms, and its counts take 103; on Postgres,
+  19 and 38 ms on the container under `auto_explain`. A facet across
+  now reads at most 301 candidates, enough to choose how the rule
+  reads; past 300, `facet_rows` applies the filters to the rows the
+  rule keeps.
 - **Read 10 on Postgres spends its time in the page's anti-join,** over
   each entry and view in the covered views: on the container, 73,864
   pairs, 12 ms, where the old rule matched on the row alone. The

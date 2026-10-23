@@ -778,6 +778,23 @@ impl SqlWorld {
                 keys.len() as i64,
                 "step {step}: a facet across {open:?}, {how}"
             );
+            // and its filters take the rows the rule keeps
+            let one_file = RecordQuery {
+                file_path: Some(file_name(0)),
+                ..query.clone()
+            };
+            let in_file = self.rt.block_on(repo.facet_records(&one_file, &spec)).unwrap();
+            let keys: BTreeSet<Key> = sql
+                .iter()
+                .map(|&(_, k, _)| k)
+                .filter(|&k| file_of(k) == 0)
+                .collect();
+            assert_eq!(
+                in_file.total,
+                keys.len() as i64,
+                "step {step}: a facet across {open:?} of {}, {how}",
+                file_name(0)
+            );
         };
         reads("by place");
         unfurl_git_sync::reading_every_row(|| reads("reading every row"));

@@ -5,6 +5,7 @@
 
 use crate::commit::CommitId;
 use std::collections::BTreeSet;
+use std::future::Future;
 
 use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{At, RecordRow};
@@ -83,6 +84,21 @@ async fn read<DB: Store, T>(
     let out = f(&mut tx).await?;
     tx.commit().await?;
     Ok(out)
+}
+
+/// A transaction reading one snapshot, read-only unless it makes
+/// temporary tables. Postgres reads each statement afresh otherwise;
+/// SQLite in WAL mode reads one anyway.
+async fn snapshot<DB: Store>(
+    pool: &sqlx::Pool<DB>,
+    read_only: bool,
+) -> Result<sqlx::Transaction<'static, DB>> {
+    let begin = match (DB::POSTGRES, read_only) {
+        (false, _) => return Ok(pool.begin().await?),
+        (true, true) => "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY",
+        (true, false) => "BEGIN ISOLATION LEVEL REPEATABLE READ",
+    };
+    Ok(pool.begin_with(begin).await?)
 }
 
 /// The records a commit of `files` changes, in version order, with their
@@ -248,15 +264,7 @@ pub(crate) async fn find(db: &Db, worktree_id: i64, query: &RecordQuery) -> Resu
     let expanded = with_subtypes(db, worktree_id, query).await?;
     let query = expanded.as_ref().unwrap_or(query);
     match query.worktrees {
-        // twice a page, so the copies left out seldom need another
-        Some(_) => {
-            let wide = RecordQuery {
-                limit: query.limit.map(|n| n.saturating_mul(2)),
-                ..query.clone()
-            };
-            let page = find_page(db, worktree_id, &wide).await?;
-            find_across(db, worktree_id, &wide, query.limit, page).await
-        }
+        Some(_) => find_across(db, worktree_id, query).await,
         None => find_page(db, worktree_id, query).await,
     }
 }
@@ -270,78 +278,167 @@ async fn find_page(db: &Db, worktree_id: i64, query: &RecordQuery) -> Result<Vec
     }
 }
 
-/// `page` of a read across worktrees, read with `query`'s limit, less its
-/// copies ([`across::Covered`]), read on from where a full page stopped
-/// until `limit` are kept or the read ends.
-async fn find_across(
-    db: &Db,
+/// The reads across worktrees each backend spells its own way, for the
+/// code around them to stay generic.
+trait AcrossReads: Store {
+    /// One page of [`find`], each covered worktree's own view.
+    fn page(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+        query: &RecordQuery,
+    ) -> impl Future<Output = Result<Vec<Record>>> + Send;
+
+    /// [`find_many`]'s rows, each covered worktree's own view.
+    fn many(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        scope: WorktreeScope,
+        keys: &[&str],
+        alias: bool,
+        exclude_ids: &[i64],
+        since_version: Option<i64>,
+    ) -> impl Future<Output = Result<Vec<Record>>> + Send;
+
+    /// Make `facet_rows` from those of the rows `kept` that `query`'s
+    /// filters match.
+    fn filtered_rows(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        query: &RecordQuery,
+        kept: Vec<i64>,
+    ) -> impl Future<Output = Result<()>> + Send;
+}
+
+impl AcrossReads for sqlx::Sqlite {
+    async fn page(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+        query: &RecordQuery,
+    ) -> Result<Vec<Record>> {
+        find_sqlite(&mut **tx, worktree_id, query).await
+    }
+
+    async fn many(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        scope: WorktreeScope,
+        keys: &[&str],
+        alias: bool,
+        exclude_ids: &[i64],
+        since_version: Option<i64>,
+    ) -> Result<Vec<Record>> {
+        find_many_sqlite(&mut **tx, scope, keys, alias, exclude_ids, since_version).await
+    }
+
+    async fn filtered_rows(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        query: &RecordQuery,
+        kept: Vec<i64>,
+    ) -> Result<()> {
+        filtered_rows_sqlite(tx, query, kept).await
+    }
+}
+
+#[cfg(feature = "postgres")]
+impl AcrossReads for sqlx::Postgres {
+    async fn page(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktree_id: i64,
+        query: &RecordQuery,
+    ) -> Result<Vec<Record>> {
+        find_pg(&mut **tx, worktree_id, query).await
+    }
+
+    async fn many(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        scope: WorktreeScope,
+        keys: &[&str],
+        alias: bool,
+        exclude_ids: &[i64],
+        since_version: Option<i64>,
+    ) -> Result<Vec<Record>> {
+        find_many_pg(&mut **tx, scope, keys, alias, exclude_ids, since_version).await
+    }
+
+    async fn filtered_rows(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        query: &RecordQuery,
+        kept: Vec<i64>,
+    ) -> Result<()> {
+        filtered_rows_pg(tx, query, kept).await
+    }
+}
+
+/// [`find`] across worktrees, in one snapshot ([`across_pages`]).
+async fn find_across(db: &Db, worktree_id: i64, query: &RecordQuery) -> Result<Vec<Record>> {
+    on_pool!(db, pool => across_pages(pool, worktree_id, query).await)
+}
+
+/// Pages of `query`, each covered worktree's own view read at twice the
+/// limit, less their copies ([`across::Covered`]), read on from where a
+/// full page stopped until the limit is kept or the read ends, all in
+/// one snapshot.
+async fn across_pages<DB: AcrossReads>(
+    pool: &sqlx::Pool<DB>,
     worktree_id: i64,
     query: &RecordQuery,
-    limit: Option<i64>,
-    mut page: Vec<Record>,
 ) -> Result<Vec<Record>> {
+    // twice a page, so the copies left out seldom need another
+    let wide = RecordQuery {
+        limit: query.limit.map(|n| n.saturating_mul(2)),
+        ..query.clone()
+    };
+    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+    let mut tx = snapshot(pool, true).await?;
+    let mut found = DB::page(&mut tx, worktree_id, &wide).await?;
     let mut out = Vec::new();
     let mut covered = None;
     loop {
-        let full = query.limit.is_some_and(|n| page.len() as i64 == n);
-        let next = page.last().map(|r| crate::model::Cursor {
+        let full = wide.limit.is_some_and(|n| found.len() as i64 == n);
+        let next = found.last().map(|r| crate::model::Cursor {
             path: r.path.clone(),
             key: r.key.clone(),
             file_path: Some(r.file_path.clone()),
             worktree_id: Some(r.worktree_id),
         });
-        let kept = without_copies(
-            db,
-            worktree_id,
-            query.worktrees.as_ref(),
-            page,
-            &mut covered,
-        );
-        out.extend(kept.await?);
-        let short = limit.is_some_and(|n| (out.len() as i64) < n);
+        out.extend(without_copies(&mut tx, &scope, found, &mut covered).await?);
+        let short = query.limit.is_some_and(|n| (out.len() as i64) < n);
         match next.filter(|_| full && short) {
             Some(after) => {
                 let rest = RecordQuery {
                     after: Some(after),
-                    ..query.clone()
+                    ..wide.clone()
                 };
-                page = find_page(db, worktree_id, &rest).await?;
+                found = DB::page(&mut tx, worktree_id, &rest).await?;
             }
             None => break,
         }
     }
-    if let Some(n) = limit {
+    tx.commit().await?;
+    if let Some(n) = query.limit {
         out.truncate(usize::try_from(n).unwrap_or(usize::MAX));
     }
     Ok(out)
 }
 
-/// `records`, read across the worktrees `filter` covers, less the copies
+/// `records`, read across the worktrees `scope` covers, less the copies
 /// git's rule leaves out ([`across::Covered`]), `covered` loaded if it's
 /// `None`.
-async fn without_copies(
-    db: &Db,
-    worktree_id: i64,
-    filter: Option<&WorktreeFilter>,
+async fn without_copies<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    scope: &WorktreeScope,
     records: Vec<Record>,
     covered: &mut Option<across::Covered>,
 ) -> Result<Vec<Record>> {
     if records.is_empty() {
         return Ok(records);
     }
-    let scope = WorktreeScope::new(worktree_id, filter);
-    on_pool!(db, pool => {
-        let mut tx = pool.begin().await?;
-        let loaded = match covered.take() {
-            Some(c) => c,
-            None => load_covered(&mut tx, &scope).await?,
-        };
-        let covered = &*covered.insert(loaded);
-        if !covered.several() {
-            return Ok(records);
-        }
-        covered.drop_copies(&mut tx, records).await
-    })
+    let loaded = match covered.take() {
+        Some(c) => c,
+        None => load_covered(tx, scope).await?,
+    };
+    let covered = &*covered.insert(loaded);
+    if !covered.several() {
+        return Ok(records);
+    }
+    covered.drop_copies(tx, records).await
 }
 
 /// The worktrees `scope` covers ([`across::Covered::load`]).
@@ -393,6 +490,7 @@ fn arg_err(err: sqlx::error::BoxDynError) -> Error {
 /// The worktrees a read covers, bound as parameters 1-3 of
 /// [`views`]: the handle's own
 /// worktree, or every one `filter` matches.
+#[derive(Clone)]
 struct WorktreeScope {
     id: Option<i64>,
     origin: Option<String>,
@@ -898,7 +996,7 @@ fn add_filter_args_sqlite<'q>(
 }
 
 async fn find_sqlite(
-    pool: &sqlx::Pool<sqlx::Sqlite>,
+    exec: impl sqlx::SqliteExecutor<'_>,
     worktree_id: i64,
     query: &RecordQuery,
 ) -> Result<Vec<Record>> {
@@ -969,7 +1067,7 @@ async fn find_sqlite(
         args.add(*n).map_err(arg_err)?;
     }
     let rows = sqlx::query_as_with::<_, FoundColumns, _>(&sql, args)
-        .fetch_all(pool)
+        .fetch_all(exec)
         .await?;
 
     rows.into_iter().map(Record::try_from).collect()
@@ -1077,7 +1175,7 @@ fn add_filter_args_pg(args: &mut sqlx::postgres::PgArguments, query: &RecordQuer
 
 #[cfg(feature = "postgres")]
 async fn find_pg(
-    pool: &sqlx::Pool<sqlx::Postgres>,
+    exec: impl sqlx::PgExecutor<'_>,
     worktree_id: i64,
     query: &RecordQuery,
 ) -> Result<Vec<Record>> {
@@ -1176,7 +1274,7 @@ async fn find_pg(
     // worktrees the scope matches, and probes the GIN index once per segment.
     let rows = sqlx::query_as_with::<_, FoundColumns, _>(&sql, args)
         .persistent(false)
-        .fetch_all(pool)
+        .fetch_all(exec)
         .await?;
     rows.into_iter().map(Record::try_from).collect()
 }
@@ -1238,7 +1336,7 @@ async fn facet_sqlite(
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     // dropped with the transaction, which nothing here commits
-    let mut tx = pool.begin().await?;
+    let mut tx = snapshot(pool, false).await?;
     let across = query.worktrees.is_some();
     let mut sql = match across {
         true => facet_candidates_sql(false, &ids),
@@ -1254,11 +1352,13 @@ async fn facet_sqlite(
     args.add(scope.branch.clone()).map_err(arg_err)?;
     add_filter_args_sqlite(&mut args, query)?;
     if across {
-        let candidates = sqlx::query_scalar_with(&sql, args)
+        // enough to choose how the rule reads them
+        let probe = format!("{sql} LIMIT {}", across::every_row_past() + 1);
+        let candidates = sqlx::query_scalar_with(&probe, args)
             .fetch_all(&mut *tx)
             .await?;
         let file = query.file_path.as_deref();
-        across_facet_tables(&mut tx, &scope, candidates, rolls_up(spec), file).await?;
+        across_facet_tables(&mut tx, &scope, candidates, spec, query, file).await?;
     } else {
         sqlx::query_with(&facet_rows_table(&sql), args)
             .execute(&mut *tx)
@@ -1309,21 +1409,28 @@ fn rolls_up(spec: &FacetSpec) -> bool {
 
 /// Make the temporary tables a facet across worktrees reads: `facet_rows`,
 /// as [`facet_rows_table`] does, from those of the rows `candidates` some
-/// worktree of `scope` shows and git's rule keeps ([`across::Covered`]);
-/// with `rollup`, `facet_types`, the `/types` rows in `file_path`, or
-/// every file, it keeps.
-async fn across_facet_tables<DB: Store>(
+/// worktree of `scope` shows and git's rule keeps ([`across::Covered`]),
+/// or past [`across::every_row_past`] of them, from every row it keeps
+/// that `query`'s filters match; when `spec` rolls up, `facet_types`,
+/// the `/types` rows in `file_path`, or every file, it keeps.
+async fn across_facet_tables<DB: AcrossReads>(
     tx: &mut sqlx::Transaction<'_, DB>,
     scope: &WorktreeScope,
     candidates: Vec<i64>,
-    rollup: bool,
+    spec: &FacetSpec,
+    query: &RecordQuery,
     file_path: Option<&str>,
 ) -> Result<()> {
     let covered = load_covered(tx, scope).await?;
-    let kept = covered.kept(tx, candidates).await?;
-    let rows = facet_rows_table("SELECT id, path, key FROM record WHERE {ids}");
-    DB::exec_ids(tx, &rows, &kept).await?;
-    if rollup {
+    if candidates.len() > across::every_row_past() {
+        let kept = covered.kept_every(tx).await?;
+        DB::filtered_rows(tx, query, kept).await?;
+    } else {
+        let kept = covered.kept(tx, candidates).await?;
+        let rows = facet_rows_table("SELECT id, path, key FROM record WHERE {ids}");
+        DB::exec_ids(tx, &rows, &kept).await?;
+    }
+    if rolls_up(spec) {
         let types = across_types(tx, &covered, file_path).await?;
         let sql = "CREATE TEMP TABLE facet_types AS SELECT id FROM record WHERE {ids}";
         DB::exec_ids(tx, sql, &types).await?;
@@ -1340,6 +1447,52 @@ fn facet_rows_table(rows: &str) -> String {
         "CREATE TEMP TABLE facet_rows AS \
          SELECT id, DENSE_RANK() OVER (ORDER BY path, key) AS k FROM ({rows}) t"
     )
+}
+
+/// Make `facet_rows` from those of the rows `kept` that `query`'s
+/// filters match.
+async fn filtered_rows_sqlite(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    query: &RecordQuery,
+    kept: Vec<i64>,
+) -> Result<()> {
+    use sqlx::Arguments;
+    let mut rows = String::from(
+        "SELECT r.id, r.path, r.key FROM record r WHERE r.id IN (SELECT value FROM json_each(?1))",
+    );
+    let mut idx: usize = 2;
+    push_filter_sql_sqlite(&mut rows, query, &mut idx);
+    let _ = idx;
+    let mut args = sqlx::sqlite::SqliteArguments::default();
+    args.add(format!("[{}]", crate::db::id_list(&kept)))
+        .map_err(arg_err)?;
+    add_filter_args_sqlite(&mut args, query)?;
+    sqlx::query_with(&facet_rows_table(&rows), args)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Postgres twin of [`filtered_rows_sqlite`].
+#[cfg(feature = "postgres")]
+async fn filtered_rows_pg(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    query: &RecordQuery,
+    kept: Vec<i64>,
+) -> Result<()> {
+    use sqlx::Arguments;
+    let mut rows = String::from("SELECT r.id, r.path, r.key FROM record r WHERE r.id = ANY($1)");
+    let mut idx: usize = 2;
+    push_filter_sql_pg(&mut rows, query, &mut idx);
+    let _ = idx;
+    let mut args = sqlx::postgres::PgArguments::default();
+    args.add(kept).map_err(arg_err)?;
+    add_filter_args_pg(&mut args, query)?;
+    sqlx::query_with(&facet_rows_table(&rows), args)
+        .persistent(false)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
 }
 
 /// ` FROM` the records of `facet_rows`, as `r`.
@@ -1530,7 +1683,7 @@ async fn facet_pg(
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     // dropped with the transaction, which nothing here commits
-    let mut tx = pool.begin().await?;
+    let mut tx = snapshot(pool, false).await?;
     // enough to hash the cells' DISTINCT, which otherwise sorts on disk;
     // JIT compiling costs more than it saves at the sizes the planner
     // overestimates the extraction and the rollup join to
@@ -1554,12 +1707,14 @@ async fn facet_pg(
     add_filter_args_pg(&mut args, query)?;
     // planned per call, as in `find_pg`
     if across {
-        let candidates = sqlx::query_scalar_with(&sql, args)
+        // enough to choose how the rule reads them
+        let probe = format!("{sql} LIMIT {}", across::every_row_past() + 1);
+        let candidates = sqlx::query_scalar_with(&probe, args)
             .persistent(false)
             .fetch_all(&mut *tx)
             .await?;
         let file = query.file_path.as_deref();
-        across_facet_tables(&mut tx, &scope, candidates, rolls_up(spec), file).await?;
+        across_facet_tables(&mut tx, &scope, candidates, spec, query, file).await?;
     } else {
         sqlx::query_with(&facet_rows_table(&sql), args)
             .persistent(false)
@@ -1701,23 +1856,22 @@ pub(crate) async fn find_many(
         return Ok(Vec::new());
     }
     let scope = WorktreeScope::new(worktree_id, worktrees);
-    let found = match db {
-        Db::Sqlite(pool) => {
-            find_many_sqlite(pool, scope, keys, alias, exclude_ids, since_version).await
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            find_many_pg(pool, scope, keys, alias, exclude_ids, since_version).await
-        }
-    }?;
-    match worktrees {
-        Some(_) => without_copies(db, worktree_id, worktrees, found, &mut None).await,
-        None => Ok(found),
-    }
+    let across = worktrees.is_some();
+    on_pool!(db, pool => {
+        let mut tx = snapshot(pool, true).await?;
+        let found = AcrossReads::many(&mut tx, scope.clone(), keys, alias, exclude_ids, since_version)
+            .await?;
+        let out = match across {
+            true => without_copies(&mut tx, &scope, found, &mut None).await?,
+            false => found,
+        };
+        tx.commit().await?;
+        Ok(out)
+    })
 }
 
 async fn find_many_sqlite(
-    pool: &sqlx::Pool<sqlx::Sqlite>,
+    exec: impl sqlx::SqliteExecutor<'_>,
     scope: WorktreeScope,
     keys: &[&str],
     alias: bool,
@@ -1792,14 +1946,14 @@ async fn find_many_sqlite(
     if let Some(v) = since_version {
         q = q.bind(v);
     }
-    let rows = q.fetch_all(pool).await?;
+    let rows = q.fetch_all(exec).await?;
 
     rows.into_iter().map(Record::try_from).collect()
 }
 
 #[cfg(feature = "postgres")]
 async fn find_many_pg(
-    pool: &sqlx::Pool<sqlx::Postgres>,
+    exec: impl sqlx::PgExecutor<'_>,
     scope: WorktreeScope,
     keys: &[&str],
     alias: bool,
@@ -1877,7 +2031,7 @@ async fn find_many_pg(
     if let Some(v) = since_version {
         q = q.bind(v);
     }
-    let rows = q.fetch_all(pool).await?;
+    let rows = q.fetch_all(exec).await?;
     rows.into_iter().map(Record::try_from).collect()
 }
 
