@@ -391,8 +391,19 @@ A layered read also reports, for each row, which worktree it came from,
 and counts the copies of each record it returns, matched by
 `(path, key)`.
 Cross-worktree reads build one view per worktree a `WorktreeFilter`
-matches, and return one row per (worktree, visible record), as they do
-today. See [Appendix C](#appendix-c-example-queries).
+matches, each with its own entries, and return one row per (worktree,
+visible record), less a version that's unchanged since its merge base
+with another worktree the read covers, which has changed it since.
+That's git's three-dot diff, with rename detection by content: a version
+moved since the base is left out where the other worktree has modified it
+at its old place, a rename and a deletion keep both, and unrelated
+histories, with no merge base, hide nothing. Pending edits count as
+changes. Two worktrees' merge bases are the latest segments their
+histories share, through parents and merges ([§4.9](#49-merges)). SQL
+returns the views, and for each place they disagree at, its rows and
+each worktree's chain; Rust leaves out the unchanged copies
+([C.7](#c7-find-across-worktrees)). See
+[Appendix C](#appendix-c-example-queries).
 
 **Counting.** Aggregations, such as the facet endpoint's totals and group
 counts ([C.5](#c5-facets)), count distinct visible rows:
@@ -600,6 +611,20 @@ row over-report ([§10](#10-verification-plan)).
 commit, as today. Rows that didn't change keep theirs
 ([§6](#6-behaviour-changes)). `file.commit_id` is refreshed as today.
 
+**What it brings in of another worktree's line ends a segment.** The scan
+walks HEAD's first parents down to the recorded head. A commit another
+worktree's first-parent line holds is brought in itself, and that line's
+own merges bring in the rest; otherwise each merge's other parents are,
+but for one already ending a segment of W's chain. Each is made to end a
+segment, closing the head that ends there or splitting the segment it
+falls inside: one another line holds is found walking that line down to
+it, a merged parent as placing a fork there would
+([§4.6](#46-placement)). Then W's head records an edge to that segment
+([§4.9](#49-merges)). Each other line is walked once per scan, from its
+head down to the first commit ending a segment of W's chain: an
+ancestor of what the scan brings in, so below where that line would
+hold it. A commit the repository lacks gets no boundary or edge.
+
 If HEAD does not descend from the recorded commit, or the recorded commit
 no longer exists, the scan rebuilds instead ([§4.8](#48-rebuilding-after-a-rewrite)).
 
@@ -674,11 +699,13 @@ To create worktree C at commit *c*:
 1. **Place *c*** ([§4.6](#46-placement)) to find the base segment.
 2. **If the base is W's open head, ending exactly at *c*, close it.** It
    becomes internal, and W gets a new empty head with the old one as its
-   parent. This is Decibel's branch operation. An empty head doesn't need
-   to close: C branches from its parent, and W keeps it. So repeated forks
-   from the same commit don't lengthen W's chain. Empty means no rows and
-   no `superseded` entries: a head whose rows a scan deleted can still
-   hide rows below it.
+   parent. This is Decibel's branch operation. An empty head whose parent
+   ends at *c* too doesn't need to close: C branches from its parent, and
+   W keeps it. So repeated forks from the same commit don't lengthen W's
+   chain. Empty means no rows and no `superseded` entries: a head whose
+   rows a scan deleted can still hide rows below it. One that has moved
+   past its parent, through commits that changed no record, closes like
+   any other, so C's merge base with W ends a segment.
 3. **Give C an empty head and an empty draft.** C's head's parent is the
    base. C's `worktree_segment` rows are the base's chain, marked
    `inherited`, plus its own head. Its `file` rows are copied from W when
@@ -699,6 +726,9 @@ uncommitted edits.
 **A branch that isn't in git yet is created the same way.** It has no
 checkout until it's published, so its head stays empty and its draft
 holds its changes ([§4.12](#412-layered-reads-user-branches-and-private-overlays)).
+It's placed on W's own chain where a segment of it ends at *c*, an
+internal one first, not wherever [§4.6](#46-placement) finds one: its
+edits are made over W's rows.
 For any other branch, the caller creates the checkout on disk, as today,
 with a clone or `git worktree add`.
 
@@ -707,11 +737,12 @@ with a clone or `git worktree add`.
 Given a commit *c*, either a new branch's head or a rebuilt worktree's new
 HEAD, the base segment is found as follows:
 
-1. **If *c* is some segment's head commit,** use that segment, closing it
-   if it's an open head ([§4.5](#45-creating-a-branch-or-fork)). Where
-   several end at *c*, as two heads do after one fast-forwards to the
-   other's commit, take an internal one, which needs no closing, else the
-   oldest, even for a fork at the worktree's own head.
+1. **If *c* is the head commit of a segment a chain holds,** use that
+   segment, closing it if it's an open head
+   ([§4.5](#45-creating-a-branch-or-fork)). Where several end at *c*, as
+   two heads do after one fast-forwards to the other's commit, take an
+   internal one, which needs no closing, else the oldest, even for a
+   fork at the worktree's own head.
 2. **If *c* is an ancestor of some tracked worktree's head,** walk that
    worktree's chain down from its head. The segment that contains *c* is
    the one where *c* is an ancestor of its head commit and not of its
@@ -826,6 +857,10 @@ Splitting S (head commit *h*, parent P) at commit *c* works as follows:
   The split already parses those files at *h* for the diff, so the
   restored row reads its value from there.
 
+**Merge edges follow the split** ([§4.9](#49-merges)): those S recorded at
+commits after *c* move to S2, and those that brought in S's line point to
+S2, which ends where S did.
+
 **Cost:** one parse per file changed between *c* and *h*, and writes only
 for keys whose value differs. A cloudmap is essentially one file, so
 that's one parse.
@@ -936,11 +971,18 @@ the layer changed.
 
 ### 4.9 Merges
 
-**Phase 1 handles merges as content.** A merge commit that arrives by
+**Merges are content, and an edge.** A merge commit that arrives by
 fast-forward goes through [§4.3](#43-scan-moving-forward): the head gets a
 row for every record where the merged tree differs from W's committed
 chain. That's correct for any history shape. A merge segment would add
-sharing, not correctness.
+sharing, not correctness. The scan also makes each commit it brings in of
+another worktree's line end a segment, and records an edge,
+`segment_merge`, from the segment holding the merge to it. A read across
+worktrees takes two worktrees' merge bases from those edges and the
+segments' parents, the latest segments both histories hold
+([§4.1](#41-reads)), so it needs no git, and works across a family's
+repositories. Merges scanned before the edges existed have none: those
+worktrees' merge bases are older ones, until a later merge records one.
 
 **Ids through merges.** Merges are made outside the database, as regular,
 octopus or rebase merges of a published branch, and reach W by a
@@ -1198,8 +1240,9 @@ No rows are copied.
 In the tree model, only two events leave anything to collect:
 
 - **Deleting a worktree.** Its draft and head, and any internal segment
-  no other worktree lists, lose their last reference and are deleted.
-  Rows, aliases and entries cascade.
+  no other worktree's history holds, through parents and merges, lose
+  their last reference and are deleted. Rows, aliases, entries and merge
+  edges cascade.
 - **A rebuild,** including a user branch's rebase. The worktree's old
   exclusive segments go the same way.
 
@@ -1212,13 +1255,16 @@ changes. Nor is it folded while the child is an open head: the head's
 writes replace its rows in place, so a later change to a key would erase
 the parent's row outright rather than hide it, and with it the record
 id a split at the parent's head commit recovers. The pair folds once the
-head closes. The fold goes like this:
+head closes. Nor is a parent folded that a merge brought in: a read
+across takes a merge base's state from it, and the child ends later. The
+fold goes like this:
 1. Keep the id of whichever side has fewer rows to move.
 2. Delete the parent's rows that the child overrides. The chains that
    contain the parent all contain the child, so those rows are hidden
    everywhere.
 3. Move the other rows.
-4. Repoint entries that named the dropped segment to the survivor.
+4. Repoint entries and merge edges that named the dropped segment to the
+   survivor.
 
 Compaction runs as part of those operations or in a deferred pass.
 Correctness never depends on it, because stale entries are harmless.
@@ -1589,6 +1635,10 @@ It also found two rules for writing the queries:
 11. **The server's types cache goes,** and `section_stat` with it.
     Subtype expansion and the facet rollup are computed in the query, so
     they're never a write behind.
+12. **A read across worktrees leaves out unchanged copies, by git's
+    rule** ([§4.1](#41-reads)). Where one worktree changed a record since
+    its merge base with another, the other's unchanged version isn't
+    returned; where both changed it, both are, as copies.
 
 Guards kept, each mapped above:
 - OCC: `enforce_conflict`, and the SQL-level version guard, which moves
@@ -2118,6 +2168,17 @@ CREATE TABLE worktree_segment (
 );
 CREATE INDEX idx_worktree_segment_segment ON worktree_segment(segment_id, worktree_id);
 
+-- a merge in a segment's commits, or a fast-forward to its head: the
+-- segment holding merge_commit brought in the line of merged_segment_id,
+-- which ends at the commit merged (§4.9)
+CREATE TABLE segment_merge (
+    segment_id        BIGINT NOT NULL REFERENCES segment(id) ON DELETE CASCADE,
+    merge_commit      TEXT   NOT NULL,
+    merged_segment_id BIGINT NOT NULL REFERENCES segment(id) ON DELETE CASCADE,
+    PRIMARY KEY (segment_id, merge_commit, merged_segment_id)
+);
+CREATE INDEX idx_segment_merge_merged ON segment_merge(merged_segment_id);
+
 CREATE TABLE file (
     worktree_id   BIGINT  NOT NULL REFERENCES worktree(id) ON DELETE CASCADE,
     path          TEXT    NOT NULL,
@@ -2540,6 +2601,23 @@ ORDER BY p.path COLLATE "C", p.key COLLATE "C", p.file_path COLLATE "C",
          p.worktree_id, p.id;
 ```
 
+That's each worktree's own view. Rust then leaves out the unchanged copies
+([§4.1](#41-reads)), from the rows at the page's places in the covered
+segments, the entries on them, each worktree's chain, and the merge bases'
+graph; a page that loses rows reads on. Facets fetch each row in the
+covered segments once instead, with the views that show it as a mask,
+resolve, and count what's left ([C.5](#c5-facets)).
+
+```sql
+-- the merge bases' graph: the segments' parents and the merges' edges
+SELECT id, parent_id, head_commit FROM segment
+WHERE family_id = :family AND kind <> 'draft';
+
+SELECT m.segment_id, m.merged_segment_id
+FROM segment_merge m JOIN segment s ON s.id = m.segment_id
+WHERE s.family_id = :family;
+```
+
 ### C.8 Create a record
 
 ```sql
@@ -2667,6 +2745,17 @@ is, in order ([§4.3](#43-scan-moving-forward)):
 4. a new one, as in C.8.
 
 An id another key keeps, or took earlier in the scan, is passed over.
+
+A scan that brings in another worktree's line first makes each commit it
+brings in end a segment ([§4.3](#43-scan-moving-forward)): C.16 finds it,
+and a head ending there closes as in C.13, or C.17 splits the segment it
+falls inside. With W's head at HEAD, the edges:
+
+```sql
+INSERT INTO segment_merge (segment_id, merge_commit, merged_segment_id)
+VALUES (:w_head, :merge, :merged)
+ON CONFLICT DO NOTHING;
+```
 
 ```sql
 -- other drafts' entries on the head's current version, and on the row
@@ -2869,16 +2958,18 @@ WHERE t.id = k.id AND k.deleted
 ### C.13 Fork at W's head
 
 This is how a user's branch is created too. It assumes W's head `:h` isn't
-empty. An empty head stays open instead
-([§4.5](#45-creating-a-branch-or-fork)): skip closing it and W's new
-head, and give `:nw`'s head `:h`'s parent. The internal-only copy below
-already leaves `:h` out.
+empty, or is past its parent. An empty head whose parent ends at its
+commit stays open instead ([§4.5](#45-creating-a-branch-or-fork)): skip
+closing it and W's new head, and give `:nw`'s head `:h`'s parent. The
+internal-only copy below already leaves `:h` out.
 
 ```sql
 -- empty: no rows and no entries, since a head whose rows a scan deleted
 -- can still hide rows below it
 SELECT NOT EXISTS (SELECT 1 FROM record WHERE segment_id = :h)
-   AND NOT EXISTS (SELECT 1 FROM superseded WHERE segment_id = :h) AS empty;
+   AND NOT EXISTS (SELECT 1 FROM superseded WHERE segment_id = :h)
+   AND EXISTS (SELECT 1 FROM segment h JOIN segment p ON p.id = h.parent_id
+               WHERE h.id = :h AND p.head_commit = h.head_commit) AS empty;
 
 -- in one transaction that holds the family's version_seq lock (§4.14);
 -- the new worktree :nw is already inserted, with family_id = :family and no
@@ -2931,14 +3022,26 @@ WHERE worktree_id = :w AND committed_oid IS NOT NULL;
 ### C.14 Compaction
 
 ```sql
--- committed segments in no chain; their descendants are in no chain either
--- (I1), so they go in one statement. Drafts go with their worktree.
+-- committed segments no chain's history holds, through parents and
+-- merges; their descendants are held by none either (I1), so they go in
+-- one statement. Drafts go with their worktree.
 DELETE FROM segment s
 WHERE s.kind <> 'draft'
-  AND NOT EXISTS (SELECT 1 FROM worktree_segment ws WHERE ws.segment_id = s.id);
+  AND s.id NOT IN (
+      WITH RECURSIVE held(id) AS (
+          SELECT segment_id FROM worktree_segment
+          UNION
+          SELECT e.below FROM held h JOIN (
+              SELECT id AS above, parent_id AS below FROM segment
+              WHERE parent_id IS NOT NULL
+              UNION ALL
+              SELECT segment_id, merged_segment_id FROM segment_merge
+          ) e ON e.above = h.id)
+      SELECT id FROM held);
 
 -- fold internal segment :p into its only child :c (keeping :c's id);
--- never while :c is an open head (§4.13)
+-- never while :c is an open head, nor :p a segment a merge brought in
+-- (§4.13)
 DELETE FROM record r
 WHERE r.segment_id = :p
   AND EXISTS (SELECT 1 FROM superseded x
@@ -2951,6 +3054,12 @@ SELECT record_id, :c, key_id FROM superseded WHERE segment_id = :p
 ON CONFLICT DO NOTHING;
 
 DELETE FROM superseded WHERE segment_id = :p;
+
+INSERT INTO segment_merge (segment_id, merge_commit, merged_segment_id)
+SELECT :c, merge_commit, merged_segment_id FROM segment_merge WHERE segment_id = :p
+ON CONFLICT DO NOTHING;
+
+DELETE FROM segment_merge WHERE segment_id = :p;
 
 UPDATE segment SET parent_id = (SELECT parent_id FROM segment WHERE id = :p)
 WHERE id = :c;
@@ -3064,10 +3173,12 @@ read what it needs, and what it finds.
 SELECT family_id FROM worktree WHERE origin = :origin LIMIT 1;
 SELECT family_id FROM worktree WHERE origin = :family_origin AND id = family_id;
 
--- case 1: a segment ending at :commit; an internal one needs no closing
+-- case 1: a segment a chain holds ending at :commit; an internal one needs
+-- no closing
 SELECT id, kind, owner_id
 FROM segment
 WHERE family_id = :family AND head_commit = :commit AND kind <> 'draft'
+  AND EXISTS (SELECT 1 FROM worktree_segment ws WHERE ws.segment_id = segment.id)
 ORDER BY kind = 'internal' DESC
 LIMIT 1;
 
@@ -3165,6 +3276,16 @@ ON CONFLICT DO NOTHING;
 
 The new rows take ids by §4.7's order, the rollup's first; their
 `commit_id` is the file's last-touching commit at *c*.
+
+The merge edges ([§4.7](#47-splitting-a-segment)); `:later` are the merge
+commits S recorded that *c* is an ancestor of:
+
+```sql
+UPDATE segment_merge SET segment_id = :s2
+WHERE segment_id = :s AND merge_commit IN (:later);
+
+UPDATE segment_merge SET merged_segment_id = :s2 WHERE merged_segment_id = :s;
+```
 
 ### C.18 Rebuild W onto a base
 

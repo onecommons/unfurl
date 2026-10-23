@@ -7,9 +7,10 @@ itself isn't restated.
 
 ## 1. What shapes the plan
 
-- **Nothing is released,** so there's no migration
-  ([§7](branch-segments.md#7-starting-from-scratch)). The new schema
-  replaces the migrations, and databases are rebuilt by scanning.
+- **The segments schema replaced the migrations once**
+  ([§7](branch-segments.md#7-starting-from-scratch)), and databases were
+  rebuilt by scanning. Each change since adds its own migration, as
+  `20260101000012_segment_merge.sql` does for merges.
 - **The server is the only Rust consumer,** through the public API; it
   has no SQL of its own. Python reaches it over HTTP. The wire contract
   carries row ids: `unfurl.server.id` is `Record::id`, `exclude` takes
@@ -29,7 +30,9 @@ itself isn't restated.
 ## 2. Testing: SQL against the in-memory implementation
 
 The model test checks the in-memory `Segments` against a reference with
-a few allowed over-reports. The SQL implementation is checked against
+a few allowed over-reports, its reads across worktrees against git's
+rule (`check_across`), and each two worktrees' merge bases, the
+segments', against git's. The SQL implementation is checked against
 the in-memory one, step by step, for **exact** agreement. So the
 allowances stay a question about the design, and SQL needs no internals
 exposed: no `recreated` flag, no entries.
@@ -39,7 +42,16 @@ exposed: no `recreated` flag, no entries.
 - its committed chain, the same way;
 - its conflicts: key → (theirs, resolved);
 - each layered stack's rows, from phase 3;
+- a read across the open worktrees: (key, content), against the
+  in-memory implementation's union of their views until SQL leaves out
+  copies by git's rule (§7.7), then its `read_across`;
+- each two open worktrees' merge bases, through the segments' parents
+  and merges, as commits;
 - the tree of every commit the implementation makes.
+
+`SEGMENTS_VISIBLE_ONLY` leaves out what no read sees, chain length, draft
+entries and merge bases, so a random search shrinks onto a difference a
+user could see.
 
 **`key_id`s are compared through a bijection** kept across the run, not
 by value. The in-memory ids are versions; SQL's come from a sequence.
@@ -206,6 +218,13 @@ pub struct LayeredRecord { pub record: Record, pub layer: i64, pub copies: i64 }
 `Layers` shares the handle's `Db` and repository. It's a value, not a
 connection: a stack is named per request, as the server will name it.
 
+**`create_user_branch` places the branch on this worktree's own line**,
+where a segment of its chain ends at the head commit, an internal one
+first, not wherever C.16 finds one: after main fast-forwards to a fork's
+commit, the fork's closed head ends there too, and a user branch built
+on it has its edits made over the fork's rows, not main's. The
+in-memory implementation's `branch_off` does this.
+
 ### Remotes (phase 5, proposed)
 
 [§4.15](branch-segments.md#415-remotes-pulling-pushing-and-conflicts) of
@@ -331,6 +350,8 @@ trait; see §7.1.)
 | Rebuild after a rewrite | §4.8 |
 | The rollup id lookup through parents | §3.5, §4.9 |
 | Worktree deletion and compaction | §4.13, C.14 |
+| Merges between segments, and merge bases from them | §4.3, §4.9, C.10, `segment_merge` |
+| Reads across worktrees by git's rule, the copies left out in Rust | §4.1, C.7 |
 | User branches, layered reads and writes, publish | §4.12, C.2, C.9, C.15 |
 
 ## 5. Behaviour changes
@@ -557,7 +578,8 @@ How it differs from the plan:
 - **A rebuild can land on another worktree's line,** as `git rebase
   main` does after main moved on. It prepares the base as a fork does
   (`Store::prepare_base`, shared with C.13): another worktree's open
-  head closes, or an empty one steps to its parent. The rebuilt chain
+  head closes, or an empty one steps to its parent where that ends at
+  the same commit. The rebuilt chain
   takes the base's ancestry it didn't hold. The harness's `Op::Rebase`
   covers it, with a strategy of its own so seeds saved under `op()` still
   replay the same histories.
@@ -934,23 +956,35 @@ where nothing live is. A write naming no file, of a key live in more
 than one, fails (`Error::Ambiguous`, a 409) rather than taking the
 first. Pages already end on a `(path, key)` (`whole_groups`).
 
-A row superseded in the view of any worktree a read covers is left out,
-so a branch's unchanged copy of a record another branch changed or
-deleted isn't returned; a record both changed still comes back from
-each, and one deleted on a branch and changed on another is the change.
-Facets count the same rows. The harness checks every read across the
-open worktrees against the in-memory implementation (`check_across`),
-and each draft's entries against its own. The disagreement that held
-the rule back was SQL's scan not giving a moved record's new row other
-drafts' entries (§3.5), not the rebase. A write takes over other drafts'
-entries on the rows it was made over (§3.3), so a fork's edit hides
-main's save of an unchanged value too. A fold that drops a draft's copy
-of what the chain already shows hands them on to the row the copy
-matches; a scan never replaces a row with one of the same content, so
-it needn't. The SQL harness has
-no user branches, so a draft entry on a row outside its own view, as
-§4.12's second branch point makes, is checked only once phase 3 adds
-them.
+**Which copies are left out** follows git: a version one worktree shows
+is left out where it's unchanged since its merge base with another the
+read covers, which has changed it since (branch-segments.md §4.1). The
+merge bases come from the segments' parents and the merges' edges
+(§4.9), which a scan records for each commit it brings in of another
+worktree's line, made to end a segment there; compaction keeps what live
+histories hold through them. Each worktree's entries apply in its own
+view only, so a draft's entry on another worktree's row no longer hides
+it there.
+
+**Status.** The in-memory implementation reads across this way, which
+the model test checks against git's rule at every step, and its merge
+bases against git's. SQL records the merges, ending segments and keeping
+edges as the in-memory implementation does, and the SQL harness checks
+their merge bases against its. SQL's reads across still use the rule this
+replaces, leaving out a row any covered worktree's entry supersedes, and
+the SQL harness's `check_across` compares that with the in-memory
+implementation's union read. Next:
+1. The resolver in `find_records` and `facet_records`: each worktree's
+   own view in SQL, and the copies left out in Rust, with `check_across`
+   comparing SQL with the in-memory implementation's `read_across`.
+2. Deleting what drafts keep on other worktrees' rows, which only the
+   old rule read: `other_entries`, `draft_entries_on`, `brought_back`'s
+   hand-on and `take_over`'s other-drafts part, in SQL and in memory,
+   after mutation runs show nothing reads them.
+
+The SQL harness has no user branches, so a draft entry on a row outside
+its own view, as §4.12's second branch point makes, is checked only once
+phase 3 adds them.
 
 ## 8. For review
 
