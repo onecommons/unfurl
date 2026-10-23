@@ -533,6 +533,9 @@ copy, 37,498 rows.
   at a time, read 11's rows took 84 ms on SQLite and 32 on Postgres,
   against 46 and 16.5 read at once; through `across_rows`, a chunk of
   candidates at a time, 281 and 144 or more.
+- **On SQLite, every covered row comes back as one JSON array.** sqlx
+  hands SQLite's rows over one at a time: read 11's 31,498 took 105 ms
+  of its 270, where SQLite builds them as one array in about 25.
 - **Content compares as the hash each row is written with**
   (`content_hash`), so no JSON is read. Fetching and canonicalising the
   JSON of the rows compared, 17,316 of the 31,498 here, took 141 ms of

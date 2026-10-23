@@ -91,6 +91,33 @@ pub(crate) enum Records<'a> {
     OfRows(&'a [i64]),
 }
 
+/// An [`AcrossRow`] as SQLite's `json_array` writes it.
+#[derive(serde::Deserialize)]
+struct JsonRow(i64, i64, i64, String, String, String, i64, Option<i64>);
+
+/// The rows of `text`, a JSON array of [`JsonRow`]s.
+fn across_rows_json(text: &str) -> Result<Vec<AcrossRow>> {
+    let rows: Vec<JsonRow> =
+        serde_json::from_str(text).map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |JsonRow(id, segment_id, key_id, file_path, path, key, deleted, content_hash)| {
+                AcrossRow {
+                    id,
+                    segment_id,
+                    key_id,
+                    file_path,
+                    path,
+                    key,
+                    deleted: deleted != 0,
+                    content_hash,
+                }
+            },
+        )
+        .collect())
+}
+
 /// `found`'s rows, and the entries on them as `(row, segment)`.
 fn split_entries(found: Vec<WithEntries>) -> Result<AcrossRows> {
     let mut rows = Vec::with_capacity(found.len());
@@ -1667,7 +1694,20 @@ macro_rules! store_impl {
                      WHERE r.conflict IS NULL AND r.segment_id IN ({}) ORDER BY r.id LIMIT {limit}",
                     db::id_list(segments)
                 );
-                Ok(sqlx::query_as(&sql).persistent(false).fetch_all(&mut **tx).await?)
+                if Self::POSTGRES {
+                    return Ok(sqlx::query_as(&sql).persistent(false).fetch_all(&mut **tx).await?);
+                }
+                // sqlx hands SQLite's rows over one at a time, at three times
+                // what one JSON array of them costs
+                let sql = format!(
+                    "SELECT json_group_array(json_array(id, segment_id, key_id, file_path, path, \
+                     key, deleted, content_hash)) FROM ({sql}) t"
+                );
+                let text: String = sqlx::query_scalar(&sql)
+                    .persistent(false)
+                    .fetch_one(&mut **tx)
+                    .await?;
+                across_rows_json(&text)
             }
 
             async fn moved_records(
