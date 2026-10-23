@@ -307,6 +307,9 @@ jobs:
           git config --global init.defaultBranch main
       - name: Run cargo clippy
         run: cargo clippy --manifest-path rust/Cargo.toml --all-features --all-targets -- -D warnings
+      - name: Run cargo clippy on release builds
+        # without debug assertions, code only debug builds read can warn
+        run: cargo clippy --manifest-path rust/Cargo.toml --release --all-features --all-targets -- -D warnings
       - name: Check the generated types are committed
         # clippy ran the build scripts, which regenerated these from the
         # OpenAPI spec and the cloudmap schema; every other build uses the
