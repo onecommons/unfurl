@@ -102,6 +102,17 @@ pub(crate) fn spell<B: Backend + ?Sized>(on: &B, sql: String) -> String {
     }
 }
 
+/// `json`'s content hash, as `record.content_hash` holds it: FNV-1a of its
+/// canonical text ([`crate::model::canonical_json_text`]).
+pub(crate) fn content_hash(json: &serde_json::Value) -> i64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in crate::model::canonical_json_text(json).bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    i64::from_ne_bytes(hash.to_ne_bytes())
+}
+
 /// `ids` as a comma-separated list for an `IN (..)`: integers, so written
 /// into the statement as they are.
 pub(crate) fn id_list(ids: &[i64]) -> String {

@@ -310,7 +310,7 @@ impl Covered {
             let rows = DB::across_rows_in(tx, &segments).await?;
             // those in other segments neither view nor base holds
             let entries = DB::entries_in_segments(tx, &segments).await?;
-            return Ok(with_entries::<DB>(rows, entries));
+            return Ok(with_entries(rows, entries));
         }
         let mut rows = DB::across_rows(tx, &segments, &places, &key_ids).await?;
         let known: HashSet<(String, String, String)> = places.into_iter().collect();
@@ -327,19 +327,7 @@ impl Covered {
         }
         let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
         let entries = DB::entries_on_rows(tx, &ids).await?;
-        Ok(with_entries::<DB>(rows, entries))
-    }
-
-    /// `rows` resolved, with the content of those it compares.
-    async fn resolve<'r, DB: Store>(
-        &'r self,
-        tx: &mut sqlx::Transaction<'_, DB>,
-        rows: &'r Rows,
-    ) -> Result<Resolved<'r>> {
-        let mut resolve = Resolve::new(self, rows);
-        let content = DB::contents(tx, &resolve.compared()).await?;
-        resolve.set_content(content);
-        Ok(resolve.resolve())
+        Ok(with_entries(rows, entries))
     }
 
     /// `records` less the copies the rule leaves out: a record is the row
@@ -355,7 +343,7 @@ impl Covered {
             .collect();
         let key_ids: Vec<i64> = records.iter().map(|r| r.id).collect();
         let rows = self.fetch(tx, places, &key_ids).await?;
-        let resolved = self.resolve(tx, &rows).await?;
+        let resolved = Resolve::new(self, &rows).resolve();
         let index: HashMap<i64, usize> = self
             .worktrees
             .iter()
@@ -392,7 +380,7 @@ impl Covered {
             .collect();
         let key_ids: Vec<i64> = candidates.iter().map(|c| c.key_id).collect();
         let rows = self.fetch(tx, places, &key_ids).await?;
-        let resolved = self.resolve(tx, &rows).await?;
+        let resolved = Resolve::new(self, &rows).resolve();
         let by_id: HashMap<i64, usize> = rows
             .rows
             .iter()
@@ -408,7 +396,7 @@ impl Covered {
 }
 
 /// `rows` with `entries`, `(row, segment)`, by row.
-fn with_entries<DB: Store>(rows: Vec<AcrossRow>, entries: Vec<(i64, i64)>) -> Rows {
+fn with_entries(rows: Vec<AcrossRow>, entries: Vec<(i64, i64)>) -> Rows {
     let mut by_row: HashMap<i64, Vec<i64>> = HashMap::new();
     for (row, seg) in entries {
         by_row.entry(row).or_default().push(seg);
@@ -416,16 +404,13 @@ fn with_entries<DB: Store>(rows: Vec<AcrossRow>, entries: Vec<(i64, i64)>) -> Ro
     Rows {
         rows,
         entries: by_row,
-        canonical: DB::POSTGRES,
     }
 }
 
-/// What [`Covered::fetch`] read: rows, the entries on them by row, and
-/// whether their content compares as it is.
+/// What [`Covered::fetch`] read: rows, and the entries on them by row.
 pub(crate) struct Rows {
     rows: Vec<AcrossRow>,
     entries: HashMap<i64, Vec<i64>>,
-    canonical: bool,
 }
 
 fn place(r: &AcrossRow) -> (String, String, String) {
@@ -434,9 +419,8 @@ fn place(r: &AcrossRow) -> (String, String, String) {
 
 type Place<'a> = (&'a str, &'a str, &'a str);
 
-/// One resolution's indexes: rows by place and by record, the views and
-/// the merge bases' states showing each row, and its content as it
-/// compares.
+/// One resolution's indexes: rows by place and by record, and the views
+/// and the merge bases' states showing each row.
 struct Resolve<'a> {
     covered: &'a Covered,
     rows: &'a Rows,
@@ -448,8 +432,6 @@ struct Resolve<'a> {
     by_record: HashMap<i64, Vec<usize>>,
     shown: Masks,
     based: Masks,
-    /// Each compared row's content, canonical.
-    content: Vec<Option<String>>,
 }
 
 /// A resolution: the views showing each row, and those leaving it out.
@@ -527,7 +509,6 @@ impl<'a> Resolve<'a> {
                 entries,
             );
         }
-        let content = vec![None; count];
         Resolve {
             covered,
             rows,
@@ -537,7 +518,6 @@ impl<'a> Resolve<'a> {
             by_record,
             shown,
             based,
-            content,
         }
     }
 
@@ -545,66 +525,11 @@ impl<'a> Resolve<'a> {
         &self.rows.rows[i]
     }
 
-    /// The ids of the rows [`Self::resolve`] compares by content: the live
-    /// rows at each place it resolves holding two or more, and the live
-    /// rows at every place a record has rows at, where it has several.
-    fn compared(&self) -> Vec<i64> {
-        let n = self.covered.worktrees.len();
-        let live = |q: usize| self.at[q].iter().copied().filter(|&i| !self.row(i).deleted);
-        let mut want = vec![false; self.rows.rows.len()];
-        for q in 0..self.at.len() {
-            let here: Vec<usize> = live(q).collect();
-            // every view shows the one row: nothing to compare
-            if here
-                .iter()
-                .any(|&i| (0..n).all(|w| has(self.shown.get(i), w)))
-            {
-                continue;
-            }
-            for &i in &here {
-                want[i] |= here.len() > 1;
-                for &o in &self.by_record[&self.row(i).key_id] {
-                    let r = self.place_of[o];
-                    if r != q {
-                        want[i] = true;
-                        live(r).for_each(|x| want[x] = true);
-                    }
-                }
-            }
-        }
-        want.iter()
-            .enumerate()
-            .filter(|&(_, &w)| w)
-            .map(|(i, _)| self.row(i).id)
-            .collect()
-    }
-
-    /// Take `content`, `(row id, content)`, as [`Store::contents`] reads it.
-    fn set_content(&mut self, content: Vec<(i64, String)>) {
-        for (id, text) in content {
-            // the rows come sorted by id
-            let Ok(i) = self.rows.rows.binary_search_by_key(&id, |r| r.id) else {
-                continue;
-            };
-            self.content[i] = Some(match self.rows.canonical {
-                true => text,
-                false => serde_json::from_str(&text)
-                    .map(|v| crate::model::canonical_json_text(&v))
-                    .unwrap_or(text),
-            });
-        }
-    }
-
+    /// Whether rows `a` and `b` hold the same content.
     fn same(&self, a: usize, b: usize) -> bool {
-        if a == b {
-            return true;
-        }
-        let (x, y) = (&self.content[a], &self.content[b]);
-        debug_assert!(
-            x.is_some() && y.is_some(),
-            "rows {a} and {b} compared without their content"
-        );
-        x.is_some() && x == y
+        let (x, y) = (self.row(a).content_hash, self.row(b).content_hash);
+        debug_assert!(x.is_some() && y.is_some(), "rows {a} and {b} have no hash");
+        a == b || (x.is_some() && x == y)
     }
 
     /// The live row view `u` shows at place `q`.

@@ -2207,6 +2207,9 @@ CREATE TABLE record (
     -- taken in from a dirty file keeps the file's last-touching commit
     commit_id      TEXT,
     json           JSONB   NOT NULL,
+    -- a hash of the JSON's canonical text, equal for equal content
+    -- whatever its keys' order: what a read across compares (C.7)
+    content_hash   BIGINT,
     deleted        BOOLEAN NOT NULL DEFAULT FALSE,
     version        BIGINT  NOT NULL DEFAULT 0,
     -- in a draft: the commit of the committed version this edit started from
@@ -2608,10 +2611,8 @@ in the covered segments at the page's places and at those where its
 records have other rows, the entries on them, each worktree's chain,
 and the merge bases' graph; a page left short reads on from where it
 stopped. Past 300 places, it reads every row in the covered segments
-instead, and the entries in them. Content compares as
-`jsonb_hash_extended(r.json, 0)` on Postgres, and as canonical JSON text
-on SQLite, read only for the rows compared: those at places holding two
-live rows or more, and at every place of a record with rows at several.
+instead, and the entries in them. Content compares as `content_hash`,
+which each row is written with, so no JSON is read.
 
 ```sql
 -- the merge bases' graph: the segments' parents and the merges' edges

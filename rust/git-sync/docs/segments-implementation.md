@@ -981,13 +981,14 @@ implementation's. Its limits:
   fast-forward or a fork (§3.5), SQL doesn't see the move, and a read
   across shows a version git's rule leaves out: the SQL harness's
   `renamed-copy` allowance.
-- **Postgres compares content by a 64-bit hash,** `jsonb_hash_extended`
-  (Postgres 11 and later), so a collision would read a changed version
-  as unchanged. SQLite compares canonical JSON text, parsing each row
-  it compares.
+- **Content compares by a 64-bit hash** of its canonical JSON, which
+  `Store::insert` writes with each row (`record.content_hash`), so a
+  collision would read a changed version as unchanged. A row written
+  outside the store has none, and compares as changed: the bench fills
+  in its generated rows' before timing.
 - **Past 300 places, a read fetches every row in the covered segments**
   into memory, without its content: on the bench, every facet across,
-  31,498 rows. On SQLite, facets across take 2.7 and 1.5 times the old
+  31,498 rows. On SQLite, facets across take 1.9 and 1.3 times the old
   rule's time (bench/segments/README.md).
 - **The server's conflicts report across worktrees** reads every row
   across them, unpaged, and resolves them all before keeping its few

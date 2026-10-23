@@ -542,6 +542,50 @@ async fn take_in<DB: Store>(pool: &sqlx::Pool<DB>, keys: std::ops::Range<usize>)
     tx.commit().await.expect("commit");
 }
 
+/// Write the content hashes [`crate::db::content_hash`] gives the rows
+/// `generate.sql` made, as `Store::insert` would have.
+#[cfg(feature = "postgres")]
+async fn hash_rows_pg(pool: &sqlx::PgPool) {
+    let rows: Vec<(i64, serde_json::Value)> =
+        sqlx::query_as("SELECT id, json FROM record WHERE content_hash IS NULL")
+            .fetch_all(pool)
+            .await
+            .expect("read the rows to hash");
+    let (ids, hashes): (Vec<i64>, Vec<i64>) = rows
+        .iter()
+        .map(|(id, json)| (*id, crate::db::content_hash(json)))
+        .unzip();
+    sqlx::query(
+        "UPDATE record r SET content_hash = v.h \
+         FROM unnest($1::bigint[], $2::bigint[]) AS v(id, h) WHERE r.id = v.id",
+    )
+    .bind(&ids)
+    .bind(&hashes)
+    .execute(pool)
+    .await
+    .expect("write the hashes");
+}
+
+/// [`hash_rows_pg`] for the SQLite copy.
+async fn hash_rows_sqlite(pool: &sqlx::SqlitePool) {
+    let rows: Vec<(i64, String)> =
+        sqlx::query_as("SELECT id, json(json) FROM record WHERE content_hash IS NULL")
+            .fetch_all(pool)
+            .await
+            .expect("read the rows to hash");
+    let mut tx = pool.begin().await.expect("begin");
+    for (id, json) in rows {
+        let json: serde_json::Value = serde_json::from_str(&json).expect("a row's JSON");
+        sqlx::query("UPDATE record SET content_hash = ?2 WHERE id = ?1")
+            .bind(id)
+            .bind(crate::db::content_hash(&json))
+            .execute(&mut *tx)
+            .await
+            .expect("write a hash");
+    }
+    tx.commit().await.expect("commit the hashes");
+}
+
 #[cfg(feature = "postgres")]
 #[tokio::test]
 #[ignore = "needs a database built by bench/segments/run.sh"]
@@ -573,6 +617,7 @@ async fn bench_segments_pg() {
         .connect(&format!("{url}/{name}"))
         .await
         .expect("connect to the bench database");
+    hash_rows_pg(&pool).await;
     let (cursor,): (i64,) = sqlx::query_as("SELECT max(version) - 1000 FROM record")
         .fetch_one(&pool)
         .await
@@ -599,6 +644,7 @@ async fn bench_segments_sqlite() {
         .connect(&format!("sqlite://{path}"))
         .await
         .expect("open the SQLite copy");
+    hash_rows_sqlite(&pool).await;
     let (cursor,): (i64,) = sqlx::query_as("SELECT max(version) - 1000 FROM record")
         .fetch_one(&pool)
         .await

@@ -101,6 +101,10 @@ CREATE TABLE record (
     -- taken in from a dirty file keeps the file's last-touching commit.
     commit_id      TEXT,
     json           JSONB   NOT NULL,
+    -- A hash of the JSON's canonical text (`db::content_hash`), the same
+    -- for equal content whatever its keys' order. NULL only where rows are
+    -- written outside the store, as the bench's generated ones are.
+    content_hash   BIGINT,
     deleted        BOOLEAN NOT NULL DEFAULT FALSE,
     -- Drawn from the family's `version_seq`. The optimistic-concurrency
     -- token (`CommitRef::Pending`) and the `list_changes` cursor.

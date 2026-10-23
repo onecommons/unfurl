@@ -414,14 +414,6 @@ pub(crate) trait Store: sqlx::Database + Sized {
         segments: &[i64],
     ) -> impl Future<Output = Result<Vec<(i64, i64)>>> + Send;
 
-    /// `rows`' content as a read across worktrees compares it, by row: its
-    /// JSON's `jsonb_hash_extended` on Postgres; the JSON on SQLite, whose
-    /// text may order keys differently.
-    fn contents(
-        tx: &mut sqlx::Transaction<'_, Self>,
-        rows: &[i64],
-    ) -> impl Future<Output = Result<Vec<(i64, String)>>> + Send;
-
     /// The live `/types` rows in `segments` and `file_path`, or every file.
     fn types_rows(
         tx: &mut sqlx::Transaction<'_, Self>,
@@ -782,10 +774,11 @@ macro_rules! store_impl {
                     .base_json
                     .map(|b| serde_json::to_string(b).expect("a value serializes"));
                 let sql = sql!(tx, "INSERT INTO record (key_id, segment_id, file_path, path, key, commit_id, \
-                         json, deleted, version, base_commit_id, settled, conflict, base_json) \
+                         json, deleted, version, base_commit_id, settled, conflict, base_json, \
+                         content_hash) \
                      VALUES (COALESCE(CAST(?1 AS BIGINT), 0), ?2, ?3, ?4, ?5, CAST(?6 AS TEXT), \
                          jsonb(?7), ?8, ?9, CAST(?10 AS TEXT), jsonb(?11), CAST(?12 AS TEXT), \
-                         jsonb(?13)) \
+                         jsonb(?13), ?14) \
                      RETURNING id",);
                 let (id,): (i64,) = sqlx::query_as(&sql)
                     .bind(row.key_id)
@@ -801,6 +794,7 @@ macro_rules! store_impl {
                     .bind(settled)
                     .bind(row.conflict.map(|c| c.to_column()))
                     .bind(base_json)
+                    .bind(db::content_hash(row.json))
                     .fetch_one(&mut **tx)
                     .await?;
                 let key_id = match row.key_id {
@@ -1598,8 +1592,8 @@ macro_rules! store_impl {
                     return Ok(Vec::new());
                 }
                 let select = format!(
-                    "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted \
-                     FROM record r WHERE r.conflict IS NULL AND r.segment_id IN ({})",
+                    "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted, \
+                     r.content_hash FROM record r WHERE r.conflict IS NULL AND r.segment_id IN ({})",
                     db::id_list(segments)
                 );
                 let mut out: Vec<AcrossRow> = Vec::new();
@@ -1641,8 +1635,9 @@ macro_rules! store_impl {
                     return Ok(Vec::new());
                 }
                 let sql = format!(
-                    "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted \
-                     FROM record r WHERE r.conflict IS NULL AND r.segment_id IN ({}) ORDER BY r.id",
+                    "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted, \
+                     r.content_hash FROM record r \
+                     WHERE r.conflict IS NULL AND r.segment_id IN ({}) ORDER BY r.id",
                     db::id_list(segments)
                 );
                 Ok(sqlx::query_as(&sql).persistent(false).fetch_all(&mut **tx).await?)
@@ -1665,31 +1660,6 @@ macro_rules! store_impl {
                     );
                     out.extend(
                         sqlx::query_as::<_, (i64, i64)>(&sql)
-                            .persistent(false)
-                            .fetch_all(&mut **tx)
-                            .await?,
-                    );
-                }
-                Ok(out)
-            }
-
-            async fn contents(
-                tx: &mut sqlx::Transaction<'_, Self>,
-                rows: &[i64],
-            ) -> Result<Vec<(i64, String)>> {
-                let content = if Self::POSTGRES {
-                    "jsonb_hash_extended(r.json, 0)::text"
-                } else {
-                    "json(r.json)"
-                };
-                let mut out = Vec::new();
-                for chunk in rows.chunks(10_000) {
-                    let sql = format!(
-                        "SELECT r.id, {content} FROM record r WHERE r.id IN ({})",
-                        db::id_list(chunk)
-                    );
-                    out.extend(
-                        sqlx::query_as::<_, (i64, String)>(&sql)
                             .persistent(false)
                             .fetch_all(&mut **tx)
                             .await?,

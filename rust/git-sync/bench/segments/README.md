@@ -495,11 +495,11 @@ worktree's entry superseded out of every view, run in the same session:
 
 | Read | Postgres before | now | statements | SQLite before | now | statements |
 |---|---|---|---|---|---|---|
-| 8. find, JSON filter, the next page | 2.7 | 3.3 | 1 | 1.9 | 1.6 | 1 |
-| 10. find across every `main` | 10.5 | 14.6 | 1 → 9 | 48 | 44 | 1 → 9 |
-| 11. 5 across every `main` | 354 | 265 | 5 → 19 | 175 | 481 | 3 → 17 |
-| 12. 6 across every `main` | 511 | 517 | 6 → 20 | 567 | 845 | 4 → 18 |
-| 13. 10's next page | 196 | 40 | 1 → 14 | 0.6 | 4.4 | 1 → 14 |
+| 8. find, JSON filter, the next page | 3.2 | 3.0 | 1 | 1.9 | 1.6 | 1 |
+| 10. find across every `main` | 9.4 | 14.1 | 1 → 8 | 51 | 43 | 1 → 8 |
+| 11. 5 across every `main` | 321 | 237 | 5 → 17 | 175 | 334 | 3 → 15 |
+| 12. 6 across every `main` | 491 | 522 | 6 → 18 | 559 | 724 | 4 → 16 |
+| 13. 10's next page | 196 | 42 | 1 → 12 | 0.6 | 4.0 | 1 → 12 |
 
 Reads 1–7 didn't move beyond noise.
 
@@ -514,16 +514,14 @@ Reads 1–7 didn't move beyond noise.
 - **Past 300 places, a read fetches every row in the covered segments,
   and the entries in them,** which at the defaults is every facet
   across: 31,498 rows.
-- **Content is fetched only for the rows compared,** those at places
-  holding two live rows or more, and at every place of a record with
-  rows at several:
-  17,316 of the 31,498 here, since main changes many records after the
-  forks it has. Postgres compares `jsonb_hash_extended`, an `md5` of the
-  JSON text costing 5 times as much; SQLite compares canonical JSON,
-  parsed per row. That's 141 ms of read 11 on SQLite, 40 on Postgres.
+- **Content compares as the hash each row is written with**
+  (`content_hash`), so no JSON is read. Fetching and canonicalising the
+  JSON of the rows compared, 17,316 of the 31,498 here, took 141 ms of
+  read 11 on SQLite and 40 on Postgres. `bench.rs` fills in the hashes
+  of the rows `generate.sql` made before it times anything.
 - **The resolver numbers places and merge bases,** with each row's
   views and merge bases as bit sets, and takes 9 ms of read 11. Looking
   each place up by its strings took 146 ms on Postgres, 207 on SQLite.
-- **What SQLite's read 11 spends beyond the old rule** is the content,
-  and reading the rows twice: as candidates (71 ms), then to resolve
-  (94). Its counts take 103.
+- **What SQLite's read 11 spends beyond the old rule** is reading the
+  rows twice: as candidates (71 ms), then to resolve (94). Its counts
+  take 103.

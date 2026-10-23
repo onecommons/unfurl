@@ -286,6 +286,7 @@ pub(crate) struct AcrossRow {
     pub(crate) path: String,
     pub(crate) key: String,
     pub(crate) deleted: bool,
+    pub(crate) content_hash: Option<i64>,
 }
 
 /// A row a read across worktrees keeps if git's rule does
