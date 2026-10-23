@@ -86,23 +86,37 @@ async fn read<DB: Store, T>(
     Ok(out)
 }
 
-/// A transaction reading one snapshot, read-only unless it makes
-/// temporary tables. Postgres reads each statement afresh otherwise;
-/// SQLite in WAL mode reads one anyway. On Postgres its statements are
-/// planned with their values, cached or not, as [`find_pg`] needs.
+/// What a [`snapshot`] is for.
+#[derive(Debug, Clone, Copy)]
+enum Snapshot {
+    /// Reads alone.
+    Read,
+    /// A facet, which makes temporary tables.
+    Facet,
+}
+
+/// A transaction reading one snapshot. Postgres reads each statement
+/// afresh otherwise; SQLite in WAL mode reads one anyway. On Postgres its
+/// statements are planned with their values, cached or not, as
+/// [`find_pg`] needs.
 async fn snapshot<DB: Store>(
     pool: &sqlx::Pool<DB>,
-    read_only: bool,
+    kind: Snapshot,
 ) -> Result<sqlx::Transaction<'static, DB>> {
-    // one round trip: a simple query takes both
-    let begin = match (DB::POSTGRES, read_only) {
+    // one round trip: a simple query takes them all
+    let begin = match (DB::POSTGRES, kind) {
         (false, _) => return Ok(pool.begin().await?),
-        (true, true) => {
+        (true, Snapshot::Read) => {
             "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY; \
              SET LOCAL plan_cache_mode = force_custom_plan"
         }
-        (true, false) => {
-            "BEGIN ISOLATION LEVEL REPEATABLE READ; SET LOCAL plan_cache_mode = force_custom_plan"
+        // enough to hash the cells' DISTINCT, which otherwise sorts on
+        // disk; JIT compiling costs more than it saves at the sizes the
+        // planner overestimates the extraction and the rollup join to
+        (true, Snapshot::Facet) => {
+            "BEGIN ISOLATION LEVEL REPEATABLE READ; \
+             SET LOCAL plan_cache_mode = force_custom_plan; \
+             SET LOCAL work_mem = '32MB'; SET LOCAL jit = off"
         }
     };
     Ok(pool.begin_with(begin).await?)
@@ -393,7 +407,7 @@ async fn across_pages<DB: AcrossReads>(
         ..query.clone()
     };
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
-    let mut tx = snapshot(pool, true).await?;
+    let mut tx = snapshot(pool, Snapshot::Read).await?;
     let mut found = DB::page(&mut tx, worktree_id, &wide).await?;
     let mut out = Vec::new();
     let mut covered = None;
@@ -754,7 +768,7 @@ async fn subtypes(
 /// `scope` keeps.
 async fn kept_types(db: &Db, scope: &WorktreeScope, file_path: Option<&str>) -> Result<Vec<i64>> {
     on_pool!(db, pool => {
-        let mut tx = snapshot(pool, true).await?;
+        let mut tx = snapshot(pool, Snapshot::Read).await?;
         let covered = load_covered(&mut tx, scope).await?;
         across_types(&mut tx, &covered, file_path).await
     })
@@ -1351,7 +1365,7 @@ async fn facet_sqlite(
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     // dropped with the transaction, which nothing here commits
-    let mut tx = snapshot(pool, false).await?;
+    let mut tx = snapshot(pool, Snapshot::Facet).await?;
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
     let covered = match query.worktrees {
         Some(_) => Some(load_covered(&mut tx, &scope).await?),
@@ -1708,14 +1722,7 @@ async fn facet_pg(
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     // dropped with the transaction, which nothing here commits
-    let mut tx = snapshot(pool, false).await?;
-    // enough to hash the cells' DISTINCT, which otherwise sorts on disk;
-    // JIT compiling costs more than it saves at the sizes the planner
-    // overestimates the extraction and the rollup join to
-    sqlx::query("SET LOCAL work_mem = '32MB'")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("SET LOCAL jit = off").execute(&mut *tx).await?;
+    let mut tx = snapshot(pool, Snapshot::Facet).await?;
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
     let covered = match query.worktrees {
         Some(_) => Some(load_covered(&mut tx, &scope).await?),
@@ -1890,7 +1897,7 @@ pub(crate) async fn find_many(
     let scope = WorktreeScope::new(worktree_id, worktrees);
     let across = worktrees.is_some();
     on_pool!(db, pool => {
-        let mut tx = snapshot(pool, true).await?;
+        let mut tx = snapshot(pool, Snapshot::Read).await?;
         let found = AcrossReads::many(&mut tx, scope.clone(), keys, alias, exclude_ids, since_version)
             .await?;
         // read only: dropped, it rolls back as the connection goes back to the pool
