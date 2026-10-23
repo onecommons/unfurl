@@ -7,8 +7,8 @@ use crate::commit::CommitId;
 use std::collections::BTreeSet;
 
 use crate::db::store::{Filter, Scope, Store};
-use crate::db::tables::{At, RecordRow};
-use crate::db::Db;
+use crate::db::tables::{At, Candidate, RecordRow};
+use crate::db::{across, Db};
 use crate::error::{Error, Result};
 use crate::model::{
     ConflictState, FacetColumnRow, FacetPath, FacetRows, FacetSpec, QueryOp, Record, RecordQuery,
@@ -247,10 +247,168 @@ pub(crate) async fn find(db: &Db, worktree_id: i64, query: &RecordQuery) -> Resu
     check_reset(db, worktree_id, query).await?;
     let expanded = with_subtypes(db, worktree_id, query).await?;
     let query = expanded.as_ref().unwrap_or(query);
+    match query.worktrees {
+        // twice a page, so the copies left out seldom need another
+        Some(_) => {
+            let wide = RecordQuery {
+                limit: query.limit.map(|n| n.saturating_mul(2)),
+                ..query.clone()
+            };
+            let page = find_page(db, worktree_id, &wide).await?;
+            find_across(db, worktree_id, &wide, query.limit, page).await
+        }
+        None => find_page(db, worktree_id, query).await,
+    }
+}
+
+/// One page of [`find`], each covered worktree's own view.
+async fn find_page(db: &Db, worktree_id: i64, query: &RecordQuery) -> Result<Vec<Record>> {
     match db {
         Db::Sqlite(pool) => find_sqlite(pool, worktree_id, query).await,
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => find_pg(pool, worktree_id, query).await,
+    }
+}
+
+/// `page` of a read across worktrees, read with `query`'s limit, less its
+/// copies ([`across::Covered`]), read on from where a full page stopped
+/// until `limit` are kept or the read ends.
+async fn find_across(
+    db: &Db,
+    worktree_id: i64,
+    query: &RecordQuery,
+    limit: Option<i64>,
+    mut page: Vec<Record>,
+) -> Result<Vec<Record>> {
+    let mut out = Vec::new();
+    let mut covered = None;
+    loop {
+        let full = query.limit.is_some_and(|n| page.len() as i64 == n);
+        let next = page.last().map(|r| crate::model::Cursor {
+            path: r.path.clone(),
+            key: r.key.clone(),
+            file_path: Some(r.file_path.clone()),
+            worktree_id: Some(r.worktree_id),
+        });
+        let kept = without_copies(
+            db,
+            worktree_id,
+            query.worktrees.as_ref(),
+            page,
+            &mut covered,
+        );
+        out.extend(kept.await?);
+        let short = limit.is_some_and(|n| (out.len() as i64) < n);
+        match next.filter(|_| full && short) {
+            Some(after) => {
+                let rest = RecordQuery {
+                    after: Some(after),
+                    ..query.clone()
+                };
+                page = find_page(db, worktree_id, &rest).await?;
+            }
+            None => break,
+        }
+    }
+    if let Some(n) = limit {
+        out.truncate(usize::try_from(n).unwrap_or(usize::MAX));
+    }
+    Ok(out)
+}
+
+/// `records`, read across the worktrees `filter` covers, less the copies
+/// git's rule leaves out ([`across::Covered`]), `covered` loaded if it's
+/// `None`.
+async fn without_copies(
+    db: &Db,
+    worktree_id: i64,
+    filter: Option<&WorktreeFilter>,
+    records: Vec<Record>,
+    covered: &mut Option<across::Covered>,
+) -> Result<Vec<Record>> {
+    if records.is_empty() {
+        return Ok(records);
+    }
+    let scope = WorktreeScope::new(worktree_id, filter);
+    let mut places: Vec<(String, String, String)> = records
+        .iter()
+        .map(|r| (r.file_path.clone(), r.path.clone(), r.key.clone()))
+        .collect();
+    places.sort_unstable();
+    places.dedup();
+    let mut key_ids: Vec<i64> = records.iter().map(|r| r.id).collect();
+    key_ids.sort_unstable();
+    key_ids.dedup();
+    on_pool!(db, pool => {
+        let mut tx = pool.begin().await?;
+        let loaded = match covered.take() {
+            Some(c) => c,
+            None => load_covered(&mut tx, &scope).await?,
+        };
+        let covered = &*covered.insert(loaded);
+        if !covered.several() {
+            return Ok(records);
+        }
+        let rows = covered.fetch(&mut tx, places, &key_ids).await?;
+        Ok(covered.drop_copies(&rows, records))
+    })
+}
+
+/// The worktrees `scope` covers ([`across::Covered::load`]).
+async fn load_covered<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    scope: &WorktreeScope,
+) -> Result<across::Covered> {
+    across::Covered::load(
+        tx,
+        scope.id,
+        scope.origin.as_deref(),
+        scope.branch.as_deref(),
+        &scope.ids,
+    )
+    .await
+}
+
+/// The ids of `candidates` some worktree `covered` holds shows and git's
+/// rule keeps.
+async fn kept_across<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    covered: &across::Covered,
+    candidates: Vec<Candidate>,
+) -> Result<Vec<i64>> {
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut places: Vec<(String, String, String)> = candidates
+        .iter()
+        .map(|c| (c.file_path.clone(), c.path.clone(), c.key.clone()))
+        .collect();
+    places.sort_unstable();
+    places.dedup();
+    let mut key_ids: Vec<i64> = candidates.iter().map(|c| c.key_id).collect();
+    key_ids.sort_unstable();
+    key_ids.dedup();
+    let ids: Vec<i64> = candidates.iter().map(|c| c.id).collect();
+    let rows = covered.fetch(tx, places, &key_ids).await?;
+    Ok(covered.kept(&rows, &ids))
+}
+
+/// The `/types` rows in `file_path`, or every file, that a read across the
+/// worktrees `covered` holds keeps.
+async fn across_types<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    covered: &across::Covered,
+    file_path: Option<&str>,
+) -> Result<Vec<i64>> {
+    let candidates = DB::types_rows(tx, &covered.view_segments(), file_path).await?;
+    kept_across(tx, covered, candidates).await
+}
+
+/// `{column} IN (ids)`, or false where `ids` is empty.
+fn id_in(column: &str, ids: &[i64]) -> String {
+    match ids.is_empty() {
+        true => "1 = 0".to_string(),
+        false => format!("{column} IN ({})", crate::db::id_list(ids)),
     }
 }
 
@@ -404,13 +562,26 @@ fn view_join(pg: bool, ids: &str) -> String {
     format!(" JOIN {} v ON v.segment_id = r.segment_id", views(pg, ids))
 }
 
-/// `r` is visible: nothing in the view of any worktree the read covers
-/// supersedes it (§3.3), so a read across worktrees leaves out a branch's
-/// unchanged copy of what another changed or deleted.
+/// A statement's `WITH` of `hidden(record_id, worktree_id)`: the rows each
+/// view's entries supersede, once, for [`visible_across`].
+fn hidden_cte(pg: bool, ids: &str) -> String {
+    format!(
+        "WITH hidden AS MATERIALIZED (SELECT x.record_id, vx.worktree_id FROM superseded x \
+         JOIN {} vx ON vx.segment_id = x.segment_id) ",
+        views(pg, ids)
+    )
+}
+
+/// [`visible`] in a statement starting with [`hidden_cte`].
+const VISIBLE_ACROSS: &str =
+    "NOT EXISTS (SELECT 1 FROM hidden h WHERE h.record_id = r.id AND h.worktree_id = v.worktree_id)";
+
+/// `r` is visible in `v`'s view: nothing in that view supersedes it
+/// (§3.3).
 fn visible(pg: bool, ids: &str) -> String {
     format!(
         "NOT EXISTS (SELECT 1 FROM superseded x JOIN {} vx ON vx.segment_id = x.segment_id \
-         WHERE x.record_id = r.id)",
+         WHERE x.record_id = r.id AND vx.worktree_id = v.worktree_id)",
         views(pg, ids)
     )
 }
@@ -446,81 +617,142 @@ async fn subtypes(
     names: &[String],
 ) -> Result<Vec<String>> {
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
-    let ids = scope.ids.clone();
+    // a read across reads the types git's rule keeps, already in the file
+    let kept = match query.worktrees {
+        Some(_) => Some(id_in(
+            "r.id",
+            &kept_types(db, &scope, query.file_path.as_deref()).await?,
+        )),
+        None => None,
+    };
+    let (rows, at) = match &kept {
+        Some(within) => (TypeRows::Kept(within), 1),
+        None => (
+            TypeRows::View {
+                ids: &scope.ids,
+                file: 4,
+            },
+            5,
+        ),
+    };
     match db {
         Db::Sqlite(pool) => {
             let sql = format!(
-                "WITH RECURSIVE {}, sub(name) AS (SELECT value FROM json_each(?5) \
+                "WITH RECURSIVE {}, sub(name) AS (SELECT value FROM json_each(?{at}) \
                  UNION SELECT e.child FROM edges e JOIN sub s ON e.parent = s.name) \
                  SELECT name FROM sub ORDER BY name",
-                type_edges_cte_sqlite(4, &ids, false)
+                type_edges_cte_sqlite(rows, false)
             );
             let names = serde_json::to_string(names).map_err(|e| Error::Other(e.to_string()))?;
-            Ok(sqlx::query_scalar(&sql)
-                .bind(scope.id)
-                .bind(scope.origin)
-                .bind(scope.branch)
-                .bind(query.file_path.as_deref())
-                .bind(names)
-                .fetch_all(pool)
-                .await?)
+            let mut q = sqlx::query_scalar(&sql).persistent(kept.is_none());
+            if kept.is_none() {
+                q = q
+                    .bind(scope.id)
+                    .bind(scope.origin)
+                    .bind(scope.branch)
+                    .bind(query.file_path.as_deref());
+            }
+            Ok(q.bind(names).fetch_all(pool).await?)
         }
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
             let sql = format!(
-                "WITH RECURSIVE {}, sub(name) AS (SELECT unnest($5::text[]) \
+                "WITH RECURSIVE {}, sub(name) AS (SELECT unnest(${at}::text[]) \
                  UNION SELECT e.child FROM edges e JOIN sub s ON e.parent = s.name) \
                  SELECT name FROM sub ORDER BY name",
-                type_edges_cte_pg(4, &ids)
+                type_edges_cte_pg(rows)
             );
             // planned per call, as in `find_pg`
-            Ok(sqlx::query_scalar(&sql)
-                .persistent(false)
-                .bind(scope.id)
-                .bind(scope.origin)
-                .bind(scope.branch)
-                .bind(query.file_path.as_deref())
-                .bind(names)
-                .fetch_all(pool)
-                .await?)
+            let mut q = sqlx::query_scalar(&sql).persistent(false);
+            if kept.is_none() {
+                q = q
+                    .bind(scope.id)
+                    .bind(scope.origin)
+                    .bind(scope.branch)
+                    .bind(query.file_path.as_deref());
+            }
+            Ok(q.bind(names).fetch_all(pool).await?)
+        }
+    }
+}
+
+/// The `/types` rows in `file_path`, or every file, that a read across
+/// `scope` keeps.
+async fn kept_types(db: &Db, scope: &WorktreeScope, file_path: Option<&str>) -> Result<Vec<i64>> {
+    on_pool!(db, pool => {
+        let mut tx = pool.begin().await?;
+        let covered = load_covered(&mut tx, scope).await?;
+        across_types(&mut tx, &covered, file_path).await
+    })
+}
+
+/// The `/types` records a type closure reads.
+enum TypeRows<'a> {
+    /// Those visible in the [`WorktreeScope`] bound as parameters 1-3,
+    /// `ids` its [`WorktreeFilter::ids_sql`], in the file bound as
+    /// parameter `file` (NULL for every file).
+    View { ids: &'a str, file: usize },
+    /// Those a condition on `r` selects.
+    Kept(&'a str),
+}
+
+impl<'a> TypeRows<'a> {
+    /// A facet call's: [`TypeRows::View`] in the file bound as parameter
+    /// `file`, or with none, the rows in `facet_types`.
+    fn facet(ids: &'a str, file: Option<usize>) -> Self {
+        match file {
+            Some(file) => TypeRows::View { ids, file },
+            None => TypeRows::Kept("r.id IN (SELECT id FROM facet_types)"),
         }
     }
 }
 
 /// The CTE `edges(child, parent)`: one row per name in a `/types`
-/// record's `extends` list, over the records in the
-/// [`WorktreeScope`] bound as `?1`-`?3` and the file bound as
-/// `?{file_idx}` (NULL for every file). `materialized` computes every
+/// record's `extends` list, over `rows`. `materialized` computes every
 /// edge once, for a query reading the whole closure.
-fn type_edges_cte_sqlite(file_idx: usize, ids: &str, materialized: bool) -> String {
+fn type_edges_cte_sqlite(rows: TypeRows<'_>, materialized: bool) -> String {
     // `typeof(e.key) = 'integer'` keeps array elements only: an object's
     // members have text keys and a scalar's key is NULL.
     let materialized = if materialized { "MATERIALIZED " } else { "" };
+    let (join, within) = match rows {
+        TypeRows::View { ids, file } => (
+            view_join(false, ids),
+            format!(
+                "{} AND r.path = '/types' AND r.deleted = 0 AND r.conflict IS NULL \
+                 AND (?{file} IS NULL OR r.file_path = ?{file})",
+                visible(false, ids)
+            ),
+        ),
+        TypeRows::Kept(within) => (String::new(), within.to_string()),
+    };
     format!(
         "edges(child, parent) AS {materialized}(SELECT r.key, e.value \
-         FROM record r{}, json_each(r.json, '$.extends') e \
-         WHERE {} AND r.path = '/types' AND r.deleted = 0 \
-         AND r.conflict IS NULL AND (?{file_idx} IS NULL OR r.file_path = ?{file_idx}) \
-         AND typeof(e.key) = 'integer' AND e.type = 'text')",
-        view_join(false, ids),
-        visible(false, ids)
+         FROM record r{join}, json_each(r.json, '$.extends') e \
+         WHERE {within} AND typeof(e.key) = 'integer' AND e.type = 'text')"
     )
 }
 
 /// Postgres twin of [`type_edges_cte_sqlite`].
 #[cfg(feature = "postgres")]
-fn type_edges_cte_pg(file_idx: usize, ids: &str) -> String {
+fn type_edges_cte_pg(rows: TypeRows<'_>) -> String {
+    let (join, within) = match rows {
+        TypeRows::View { ids, file } => (
+            view_join(true, ids),
+            format!(
+                "{} AND r.path = '/types' AND r.deleted = FALSE AND r.conflict IS NULL \
+                 AND (${file}::text IS NULL OR r.file_path = ${file})",
+                visible(true, ids)
+            ),
+        ),
+        TypeRows::Kept(within) => (String::new(), within.to_string()),
+    };
     // `jsonb_array_elements` raises on a non-array, hence the CASE.
     format!(
         "edges(child, parent) AS (SELECT r.key, e.value #>> '{{}}' \
-         FROM record r{} CROSS JOIN LATERAL jsonb_array_elements(\
+         FROM record r{join} CROSS JOIN LATERAL jsonb_array_elements(\
          CASE WHEN jsonb_typeof(r.json -> 'extends') = 'array' \
          THEN r.json -> 'extends' ELSE '[]'::jsonb END) e(value) \
-         WHERE {} AND r.path = '/types' AND r.deleted = FALSE \
-         AND r.conflict IS NULL AND (${file_idx}::text IS NULL OR r.file_path = ${file_idx}) \
-         AND jsonb_typeof(e.value) = 'string')",
-        view_join(true, ids),
-        visible(true, ids)
+         WHERE {within} AND jsonb_typeof(e.value) = 'string')"
     )
 }
 
@@ -705,13 +937,22 @@ async fn find_sqlite(
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
     let RecordQuery { after, limit, .. } = query;
-    let mut sql = String::from(
+    // with a cursor, the views would otherwise be planned once a row
+    let across = query.worktrees.is_some() && after.is_some();
+    let mut sql = match across {
+        true => hidden_cte(false, &ids),
+        false => String::new(),
+    };
+    sql.push_str(
         "SELECT r.key_id AS id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
          json(r.json) AS json, r.version, r.deleted, r.conflict FROM record r",
     );
     sql.push_str(&view_join(false, &ids));
     sql.push_str(" WHERE ");
-    sql.push_str(&visible(false, &ids));
+    match across {
+        true => sql.push_str(VISIBLE_ACROSS),
+        false => sql.push_str(&visible(false, &ids)),
+    }
     let mut idx: usize = 4;
     push_filter_sql_sqlite(&mut sql, query, &mut idx);
     if after.is_some() {
@@ -889,10 +1130,15 @@ async fn find_pg(
     // candidate's JSON would be rendered and carried through the anti-join.
     // SQLite computes it only for the rows the limit keeps, so its arm
     // doesn't need this.
+    // with a cursor, the views would otherwise be planned once a row
+    let across = query.worktrees.is_some() && after.is_some();
     let mut sql = String::from("SELECT r.id, v.worktree_id FROM record r");
     sql.push_str(&view_join(true, &ids));
     sql.push_str(" WHERE ");
-    sql.push_str(&visible(true, &ids));
+    match across {
+        true => sql.push_str(VISIBLE_ACROSS),
+        false => sql.push_str(&visible(true, &ids)),
+    }
     let mut idx: usize = 4;
     push_filter_sql_pg(&mut sql, query, &mut idx);
     if after.is_some() {
@@ -932,8 +1178,12 @@ async fn find_pg(
         idx += 1;
     }
     let _ = idx;
+    let with = match across {
+        true => hidden_cte(true, &ids),
+        false => String::new(),
+    };
     let sql = format!(
-        "SELECT r.key_id AS id, p.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
+        "{with}SELECT r.key_id AS id, p.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
          r.json::text AS json, r.version, r.deleted, r.conflict \
          FROM ({sql}) p JOIN record r ON r.id = p.id \
          ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\", \
@@ -1029,18 +1279,29 @@ async fn facet_sqlite(
     use sqlx::Arguments;
     // dropped with the transaction, which nothing here commits
     let mut tx = pool.begin().await?;
-    let mut sql = facet_rows_sql(false, &ids);
+    let across = query.worktrees.is_some();
+    let mut sql = match across {
+        true => facet_candidates_sql(false, &ids),
+        false => facet_rows_sql(false, &ids),
+    };
     let mut idx: usize = 4;
     push_filter_sql_sqlite(&mut sql, query, &mut idx);
     let _ = idx;
-    let sql = facet_rows_table(&sql);
     let mut args = sqlx::sqlite::SqliteArguments::default();
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
     args.add(scope.id).map_err(arg_err)?;
-    args.add(scope.origin).map_err(arg_err)?;
-    args.add(scope.branch).map_err(arg_err)?;
+    args.add(scope.origin.clone()).map_err(arg_err)?;
+    args.add(scope.branch.clone()).map_err(arg_err)?;
     add_filter_args_sqlite(&mut args, query)?;
-    sqlx::query_with(&sql, args).execute(&mut *tx).await?;
+    if across {
+        let candidates = sqlx::query_as_with(&sql, args).fetch_all(&mut *tx).await?;
+        let file = query.file_path.as_deref();
+        across_facet_tables(&mut tx, &scope, candidates, rolls_up(spec), file).await?;
+    } else {
+        sqlx::query_with(&facet_rows_table(&sql), args)
+            .execute(&mut *tx)
+            .await?;
+    }
     let (total,): (i64,) = sqlx::query_as(FACET_TOTAL).fetch_one(&mut *tx).await?;
 
     let groups = facet_aggregate_sqlite(&mut tx, worktree_id, query, spec, &[])
@@ -1067,6 +1328,52 @@ fn facet_rows_sql(pg: bool, ids: &str) -> String {
         view_join(pg, ids),
         visible(pg, ids)
     )
+}
+
+/// The rows of the covered segments, each once, to which the caller
+/// appends the filters' `WHERE` clauses: a read across worktrees' facet
+/// candidates, which [`across_facet_rows`] resolves.
+fn facet_candidates_sql(pg: bool, ids: &str) -> String {
+    format!(
+        "SELECT DISTINCT r.id, r.file_path, r.path, r.key, r.key_id FROM record r \
+         WHERE r.segment_id IN (SELECT v.segment_id FROM {} v)",
+        views(pg, ids)
+    )
+}
+
+/// Whether `spec` rolls a path up by type.
+fn rolls_up(spec: &FacetSpec) -> bool {
+    spec.group.rollup || spec.columns.iter().flatten().any(|m| m.rollup)
+}
+
+/// Make the temporary tables a facet across worktrees reads: `facet_rows`,
+/// as [`facet_rows_table`] does, from those of `candidates` some worktree
+/// of `scope` shows and git's rule keeps ([`across::Covered`]); with
+/// `rollup`, `facet_types`, the `/types` rows in `file_path`, or every
+/// file, it keeps.
+async fn across_facet_tables<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    scope: &WorktreeScope,
+    candidates: Vec<Candidate>,
+    rollup: bool,
+    file_path: Option<&str>,
+) -> Result<()> {
+    let covered = load_covered(tx, scope).await?;
+    let kept = kept_across(tx, &covered, candidates).await?;
+    let rows = format!(
+        "SELECT id, path, key FROM record WHERE {}",
+        id_in("id", &kept)
+    );
+    DB::exec(tx, &facet_rows_table(&rows)).await?;
+    if rollup {
+        let types = across_types(tx, &covered, file_path).await?;
+        let sql = format!(
+            "CREATE TEMP TABLE facet_types AS SELECT id FROM record WHERE {}",
+            id_in("id", &types)
+        );
+        DB::exec(tx, &sql).await?;
+    }
+    Ok(())
 }
 
 /// Make the temporary table `facet_rows` from [`facet_rows_sql`]: each
@@ -1142,14 +1449,15 @@ async fn facet_aggregate_sqlite(
 ) -> Result<Vec<FacetColumnRow>> {
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
-    use sqlx::Row as _;
     let group = &spec.group;
     let with_pairs = group.rollup || members.iter().any(|m| m.rollup);
+    // a read across reads its types from `facet_types`
+    let scoped = with_pairs && query.worktrees.is_none();
 
     // Placeholder allocation order is bind order: the worktree scope, which
     // only the types' CTE reads, group path, member paths, the types' file.
     // The filters were applied making `facet_rows`.
-    let mut idx: usize = if with_pairs { 4 } else { 1 };
+    let mut idx: usize = if scoped { 4 } else { 1 };
     let group_idx = idx;
     idx += 1;
     let member_idx: Vec<usize> = members
@@ -1160,7 +1468,7 @@ async fn facet_aggregate_sqlite(
             i
         })
         .collect();
-    let types_file_idx = with_pairs.then(|| {
+    let types_file_idx = scoped.then(|| {
         let i = idx;
         idx += 1;
         i
@@ -1168,7 +1476,8 @@ async fn facet_aggregate_sqlite(
     let _ = idx;
 
     let mut sql = String::new();
-    if let Some(fi) = types_file_idx {
+    if with_pairs {
+        let rows = TypeRows::facet(&ids, types_file_idx);
         // MATERIALIZED so the pairs are computed once and the planner
         // can build an automatic index for the joins below; the edges
         // too, or sqlite reruns them, visibility check and all, in each
@@ -1178,7 +1487,7 @@ async fn facet_aggregate_sqlite(
              rollup_pairs(decl, anc) AS MATERIALIZED (\
              SELECT json_quote(decl), json_quote(anc) FROM closure \
              UNION SELECT json_quote(decl), json_quote(decl) FROM closure) ",
-            type_edges_cte_sqlite(fi, &ids, true)
+            type_edges_cte_sqlite(rows, true)
         ));
     }
     let mut extracted = format!("SELECT vis.k, {} AS g", facet_value_sqlite("jg"));
@@ -1196,7 +1505,7 @@ async fn facet_aggregate_sqlite(
     sql.push_str(&facet_cells_sql(group.rollup, members, &extracted));
 
     let mut args = sqlx::sqlite::SqliteArguments::default();
-    if with_pairs {
+    if scoped {
         let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
         args.add(scope.id).map_err(arg_err)?;
         args.add(scope.origin).map_err(arg_err)?;
@@ -1210,15 +1519,26 @@ async fn facet_aggregate_sqlite(
         args.add(query.file_path.as_deref()).map_err(arg_err)?;
     }
     let rows = sqlx::query_with(&sql, args).fetch_all(&mut *conn).await?;
+    column_rows(rows, members.len())
+}
+
+/// A facet aggregate's `rows`: the group's value as text, each of
+/// `members` values', and the count.
+fn column_rows<R: sqlx::Row>(rows: Vec<R>, members: usize) -> Result<Vec<FacetColumnRow>>
+where
+    for<'r> String: sqlx::Decode<'r, R::Database> + sqlx::Type<R::Database>,
+    for<'r> i64: sqlx::Decode<'r, R::Database> + sqlx::Type<R::Database>,
+    usize: sqlx::ColumnIndex<R>,
+{
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         let group_text: String = row.try_get(0)?;
-        let mut member_values = Vec::with_capacity(members.len());
-        for i in 0..members.len() {
+        let mut member_values = Vec::with_capacity(members);
+        for i in 0..members {
             let text: String = row.try_get(i + 1)?;
             member_values.push(parse_facet_value(&text)?);
         }
-        let count: i64 = row.try_get(members.len() + 1)?;
+        let count: i64 = row.try_get(members + 1)?;
         out.push(FacetColumnRow {
             group: parse_facet_value(&group_text)?,
             members: member_values,
@@ -1263,22 +1583,34 @@ async fn facet_pg(
         .execute(&mut *tx)
         .await?;
     sqlx::query("SET LOCAL jit = off").execute(&mut *tx).await?;
-    let mut sql = facet_rows_sql(true, &ids);
+    let across = query.worktrees.is_some();
+    let mut sql = match across {
+        true => facet_candidates_sql(true, &ids),
+        false => facet_rows_sql(true, &ids),
+    };
     let mut idx: usize = 4;
     push_filter_sql_pg(&mut sql, query, &mut idx);
     let _ = idx;
-    let sql = facet_rows_table(&sql);
     let mut args = sqlx::postgres::PgArguments::default();
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
     args.add(scope.id).map_err(arg_err)?;
-    args.add(scope.origin).map_err(arg_err)?;
-    args.add(scope.branch).map_err(arg_err)?;
+    args.add(scope.origin.clone()).map_err(arg_err)?;
+    args.add(scope.branch.clone()).map_err(arg_err)?;
     add_filter_args_pg(&mut args, query)?;
     // planned per call, as in `find_pg`
-    sqlx::query_with(&sql, args)
-        .persistent(false)
-        .execute(&mut *tx)
-        .await?;
+    if across {
+        let candidates = sqlx::query_as_with(&sql, args)
+            .persistent(false)
+            .fetch_all(&mut *tx)
+            .await?;
+        let file = query.file_path.as_deref();
+        across_facet_tables(&mut tx, &scope, candidates, rolls_up(spec), file).await?;
+    } else {
+        sqlx::query_with(&facet_rows_table(&sql), args)
+            .persistent(false)
+            .execute(&mut *tx)
+            .await?;
+    }
     let (total,): (i64,) = sqlx::query_as(FACET_TOTAL)
         .persistent(false)
         .fetch_one(&mut *tx)
@@ -1313,14 +1645,15 @@ async fn facet_aggregate_pg(
 ) -> Result<Vec<FacetColumnRow>> {
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
-    use sqlx::Row as _;
     let group = &spec.group;
     let with_pairs = group.rollup || members.iter().any(|m| m.rollup);
+    // a read across reads its types from `facet_types`
+    let scoped = with_pairs && query.worktrees.is_none();
 
     // Placeholder allocation order is bind order: the worktree scope, which
     // only the types' CTE reads, group path, member paths, the types' file.
     // The filters were applied making `facet_rows`.
-    let mut idx: usize = if with_pairs { 4 } else { 1 };
+    let mut idx: usize = if scoped { 4 } else { 1 };
     let group_idx = idx;
     idx += 1;
     let member_idx: Vec<usize> = members
@@ -1331,7 +1664,7 @@ async fn facet_aggregate_pg(
             i
         })
         .collect();
-    let types_file_idx = with_pairs.then(|| {
+    let types_file_idx = scoped.then(|| {
         let i = idx;
         idx += 1;
         i
@@ -1339,13 +1672,14 @@ async fn facet_aggregate_pg(
     let _ = idx;
 
     let mut sql = String::new();
-    if let Some(fi) = types_file_idx {
+    if with_pairs {
+        let rows = TypeRows::facet(&ids, types_file_idx);
         sql.push_str(&format!(
             "WITH RECURSIVE {}, {TYPE_CLOSURE_CTE}, \
              rollup_pairs(decl, anc) AS MATERIALIZED (\
              SELECT to_jsonb(decl)::text COLLATE \"C\", to_jsonb(anc)::text COLLATE \"C\" FROM closure \
              UNION SELECT to_jsonb(decl)::text COLLATE \"C\", to_jsonb(decl)::text COLLATE \"C\" FROM closure) ",
-            type_edges_cte_pg(fi, &ids)
+            type_edges_cte_pg(rows)
         ));
     }
     // fenced, so each path is read once per record rather than once per
@@ -1370,7 +1704,7 @@ async fn facet_aggregate_pg(
     sql.push_str(&facet_cells_sql(group.rollup, members, &extracted));
 
     let mut args = sqlx::postgres::PgArguments::default();
-    if with_pairs {
+    if scoped {
         let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
         args.add(scope.id).map_err(arg_err)?;
         args.add(scope.origin).map_err(arg_err)?;
@@ -1388,22 +1722,7 @@ async fn facet_aggregate_pg(
         .persistent(false)
         .fetch_all(&mut *conn)
         .await?;
-    let mut out = Vec::with_capacity(rows.len());
-    for row in rows {
-        let group_text: String = row.try_get(0)?;
-        let mut member_values = Vec::with_capacity(members.len());
-        for i in 0..members.len() {
-            let text: String = row.try_get(i + 1)?;
-            member_values.push(parse_facet_value(&text)?);
-        }
-        let count: i64 = row.try_get(members.len() + 1)?;
-        out.push(FacetColumnRow {
-            group: parse_facet_value(&group_text)?,
-            members: member_values,
-            count,
-        });
-    }
-    Ok(out)
+    column_rows(rows, members.len())
 }
 
 /// Search records whose `key` matches one of `keys`, optionally
@@ -1427,7 +1746,7 @@ pub(crate) async fn find_many(
         return Ok(Vec::new());
     }
     let scope = WorktreeScope::new(worktree_id, worktrees);
-    match db {
+    let found = match db {
         Db::Sqlite(pool) => {
             find_many_sqlite(pool, scope, keys, alias, exclude_ids, since_version).await
         }
@@ -1435,6 +1754,10 @@ pub(crate) async fn find_many(
         Db::Postgres(pool) => {
             find_many_pg(pool, scope, keys, alias, exclude_ids, since_version).await
         }
+    }?;
+    match worktrees {
+        Some(_) => without_copies(db, worktree_id, worktrees, found, &mut None).await,
+        None => Ok(found),
     }
 }
 

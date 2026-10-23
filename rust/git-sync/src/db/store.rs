@@ -19,8 +19,8 @@ use std::future::Future;
 use crate::commit::CommitId;
 use crate::db;
 use crate::db::tables::{
-    At, DraftedColumns, FileRow, NewRecordRow, RecordColumns, RecordRow, SegmentEnd, Superseded,
-    WorktreeSegs, ROW_COLUMNS,
+    AcrossRow, At, Candidate, CoveredWorktree, DraftedColumns, FileRow, NewRecordRow,
+    RecordColumns, RecordRow, SegmentEnd, SegmentGraph, Superseded, WorktreeSegs, ROW_COLUMNS,
 };
 use crate::error::{Error, Result};
 use crate::model::ConflictState;
@@ -356,6 +356,64 @@ pub(crate) trait Store: sqlx::Database + Sized {
         branch: &str,
         commit: CommitId,
     ) -> impl Future<Output = Result<i64>> + Send;
+
+    /// The worktrees a read covers: `id`, else every one of `origin` and
+    /// `branch`, either `None` for any, and `ids`, a
+    /// [`crate::model::WorktreeFilter::ids_sql`] clause; by id.
+    fn covered(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        id: Option<i64>,
+        origin: Option<&str>,
+        branch: Option<&str>,
+        ids: &str,
+    ) -> impl Future<Output = Result<Vec<CoveredWorktree>>> + Send;
+
+    /// Each of `worktrees`' committed chain, as `(worktree, segment)`.
+    fn chains(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        worktrees: &[i64],
+    ) -> impl Future<Output = Result<Vec<(i64, i64)>>> + Send;
+
+    /// `families`' committed segments and the merges in them.
+    fn segment_graph(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        families: &[i64],
+    ) -> impl Future<Output = Result<SegmentGraph>> + Send;
+
+    /// The rows in `segments` at `places`, or of a record in `key_ids`, but
+    /// conflict rows.
+    fn across_rows(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        segments: &[i64],
+        places: &[(String, String, String)],
+        key_ids: &[i64],
+    ) -> impl Future<Output = Result<Vec<AcrossRow>>> + Send;
+
+    /// Every row in `segments` but conflict rows, as [`Store::across_rows`]
+    /// reads them.
+    fn across_rows_in(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        segments: &[i64],
+    ) -> impl Future<Output = Result<Vec<AcrossRow>>> + Send;
+
+    /// Run `sql`, a statement with no parameters.
+    fn exec(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        sql: &str,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// The entries on `rows`, as `(row, segment)`.
+    fn entries_on_rows(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        rows: &[i64],
+    ) -> impl Future<Output = Result<Vec<(i64, i64)>>> + Send;
+
+    /// The live `/types` rows in `segments` and `file_path`, or every file.
+    fn types_rows(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        segments: &[i64],
+        file_path: Option<&str>,
+    ) -> impl Future<Output = Result<Vec<Candidate>>> + Send;
 
     /// Each worktree of `family` with its head commit, by id.
     fn family_lines(
@@ -1447,6 +1505,183 @@ macro_rules! store_impl {
                 .execute(&mut **tx)
                 .await?;
                 Ok(w)
+            }
+
+            async fn covered(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                id: Option<i64>,
+                origin: Option<&str>,
+                branch: Option<&str>,
+                ids: &str,
+            ) -> Result<Vec<CoveredWorktree>> {
+                let sql = format!(
+                    "SELECT w.id, w.head_segment_id AS head, w.draft_segment_id AS draft, \
+                     COALESCE(w.family_id, w.id) AS family FROM worktree w \
+                     WHERE (CAST(?1 AS BIGINT) IS NULL OR w.id = ?1) \
+                       AND (CAST(?2 AS TEXT) IS NULL OR w.origin = ?2) \
+                       AND (CAST(?3 AS TEXT) IS NULL OR w.branch = ?3){ids} \
+                       AND w.head_segment_id IS NOT NULL AND w.draft_segment_id IS NOT NULL \
+                     ORDER BY w.id"
+                );
+                // the ids list is inlined: a statement per call
+                Ok(sqlx::query_as(&db::spell(&*tx, sql))
+                    .persistent(false)
+                    .bind(id)
+                    .bind(origin)
+                    .bind(branch)
+                    .fetch_all(&mut **tx)
+                    .await?)
+            }
+
+            async fn chains(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                worktrees: &[i64],
+            ) -> Result<Vec<(i64, i64)>> {
+                if worktrees.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let sql = format!(
+                    "SELECT worktree_id, segment_id FROM worktree_segment WHERE worktree_id IN ({})",
+                    db::id_list(worktrees)
+                );
+                Ok(sqlx::query_as(&sql).persistent(false).fetch_all(&mut **tx).await?)
+            }
+
+            async fn segment_graph(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                families: &[i64],
+            ) -> Result<SegmentGraph> {
+                if families.is_empty() {
+                    return Ok(SegmentGraph {
+                        segments: Vec::new(),
+                        merges: Vec::new(),
+                    });
+                }
+                let families = db::id_list(families);
+                let segments = sqlx::query_as(&format!(
+                    "SELECT id, parent_id FROM segment WHERE family_id IN ({families}) AND kind <> 'draft'"
+                ))
+                .persistent(false)
+                .fetch_all(&mut **tx)
+                .await?;
+                let merges = sqlx::query_as(&format!(
+                    "SELECT m.segment_id, m.merged_segment_id FROM segment_merge m \
+                     JOIN segment s ON s.id = m.segment_id WHERE s.family_id IN ({families})"
+                ))
+                .persistent(false)
+                .fetch_all(&mut **tx)
+                .await?;
+                Ok(SegmentGraph { segments, merges })
+            }
+
+            async fn across_rows(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                segments: &[i64],
+                places: &[(String, String, String)],
+                key_ids: &[i64],
+            ) -> Result<Vec<AcrossRow>> {
+                if segments.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let content = if Self::POSTGRES { "jsonb_hash_extended(r.json, 0)::text" } else { "json(r.json)" };
+                let select = format!(
+                    "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted, \
+                     {content} AS content FROM record r \
+                     WHERE r.conflict IS NULL AND r.segment_id IN ({})",
+                    db::id_list(segments)
+                );
+                let mut out: Vec<AcrossRow> = Vec::new();
+                // a statement's parameters are bounded: SQLite's at 32766
+                for chunk in places.chunks(1000) {
+                    let values: Vec<String> = (0..chunk.len())
+                        .map(|i| format!("(?{}, ?{}, ?{})", 3 * i + 1, 3 * i + 2, 3 * i + 3))
+                        .collect();
+                    let sql = format!(
+                        "{select} AND (r.file_path, r.path, r.key) IN (VALUES {})",
+                        values.join(", ")
+                    );
+                    let sql = db::spell(&*tx, sql);
+                    let mut q = sqlx::query_as::<_, AcrossRow>(&sql).persistent(false);
+                    for (file_path, path, key) in chunk {
+                        q = q.bind(file_path).bind(path).bind(key);
+                    }
+                    out.extend(q.fetch_all(&mut **tx).await?);
+                }
+                for chunk in key_ids.chunks(10_000) {
+                    let sql = format!("{select} AND r.key_id IN ({})", db::id_list(chunk));
+                    out.extend(
+                        sqlx::query_as::<_, AcrossRow>(&sql)
+                            .persistent(false)
+                            .fetch_all(&mut **tx)
+                            .await?,
+                    );
+                }
+                out.sort_unstable_by_key(|r| r.id);
+                out.dedup_by_key(|r| r.id);
+                Ok(out)
+            }
+
+            async fn across_rows_in(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                segments: &[i64],
+            ) -> Result<Vec<AcrossRow>> {
+                if segments.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let content = if Self::POSTGRES { "jsonb_hash_extended(r.json, 0)::text" } else { "json(r.json)" };
+                let sql = format!(
+                    "SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key, r.deleted, \
+                     {content} AS content FROM record r \
+                     WHERE r.conflict IS NULL AND r.segment_id IN ({}) ORDER BY r.id",
+                    db::id_list(segments)
+                );
+                Ok(sqlx::query_as(&sql).persistent(false).fetch_all(&mut **tx).await?)
+            }
+
+            async fn exec(tx: &mut sqlx::Transaction<'_, Self>, sql: &str) -> Result<()> {
+                sqlx::query(sql).persistent(false).execute(&mut **tx).await?;
+                Ok(())
+            }
+
+            async fn entries_on_rows(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                rows: &[i64],
+            ) -> Result<Vec<(i64, i64)>> {
+                let mut out = Vec::new();
+                for chunk in rows.chunks(10_000) {
+                    let sql = format!(
+                        "SELECT record_id, segment_id FROM superseded WHERE record_id IN ({})",
+                        db::id_list(chunk)
+                    );
+                    out.extend(
+                        sqlx::query_as::<_, (i64, i64)>(&sql)
+                            .persistent(false)
+                            .fetch_all(&mut **tx)
+                            .await?,
+                    );
+                }
+                Ok(out)
+            }
+
+            async fn types_rows(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                segments: &[i64],
+                file_path: Option<&str>,
+            ) -> Result<Vec<Candidate>> {
+                if segments.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let sql = format!(
+                    "SELECT r.id, r.file_path, r.path, r.key, r.key_id FROM record r \
+                     WHERE r.segment_id IN ({}) AND r.path = '/types' AND NOT r.deleted \
+                       AND r.conflict IS NULL AND (CAST(?1 AS TEXT) IS NULL OR r.file_path = ?1)",
+                    db::id_list(segments)
+                );
+                Ok(sqlx::query_as(&db::spell(&*tx, sql))
+                    .persistent(false)
+                    .bind(file_path)
+                    .fetch_all(&mut **tx)
+                    .await?)
             }
 
             async fn family_lines(

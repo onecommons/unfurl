@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 
 use proptest::prelude::*;
 use unfurl_git_sync::{
-    ConflictState, DataFormat, DbConfig, Exported, FormatRegistry, Record, RecordQuery, Resolution,
-    ScanOptions, SyncedRepo, WorktreeFilter,
+    ConflictState, Cursor, DataFormat, DbConfig, Exported, FacetPath, FacetSpec, FormatRegistry,
+    Record, RecordQuery, Resolution, ScanOptions, SyncedRepo, WorktreeFilter,
 };
 
 include!("segments/common.rs");

@@ -1,9 +1,10 @@
 // Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
-//! A read across two branches of one family: a row superseded in either's
-//! view is left out, so a record one changed shows only its change, and
-//! one both changed comes back once from each (docs/branch-segments.md
-//! §4.12), on both backends.
+//! A read across two branches of one family: a version one left unchanged
+//! since the branch was made, which the other has changed since, is left
+//! out, so a record one changed shows only its change, and one both
+//! changed comes back once from each (docs/branch-segments.md §4.1), on
+//! both backends.
 
 mod common;
 
@@ -308,6 +309,378 @@ async fn a_facet_counts_the_branchs_change_alone(sync: &SyncedRepo, tmp: &TempDi
     assert_eq!((rows.total, groups), (1, vec![("feature".into(), 1)]));
 }
 crud_test!(a_facet_counts_the_branchs_change_alone);
+
+/// A type the branch changed to extend nothing is no subtype in a read
+/// across both: main's copy, unchanged since, is left out, so neither a
+/// type filter with subtypes nor a rolled-up facet finds its records
+/// under the type main's copy extends.
+async fn a_type_the_branch_changed_is_its_change_alone(sync: &SyncedRepo, tmp: &TempDir) {
+    use unfurl_git_sync::{canonical_facet_key, FacetPath, FacetSpec};
+    let write = async |on: &SyncedRepo, path: &str, key: &str, json: serde_json::Value| {
+        on.upsert_record(Some("cloudmap.yaml"), path, key, json, None, false)
+            .await
+            .expect("write");
+    };
+    let a_type =
+        |name: &str, extends: &[&str]| serde_json::json!({"name": name, "extends": extends});
+    write(
+        sync,
+        "/types",
+        "test.Top",
+        a_type("test.Top", &["test.Top"]),
+    )
+    .await;
+    let sub = a_type("test.Sub", &["test.Sub", "test.Top"]);
+    write(sync, "/types", "test.Sub", sub).await;
+    let typed = serde_json::json!({"type": {"test.Sub": {}}});
+    write(sync, "/artifacts", "test-artifact", typed).await;
+    let (branch, _dir) = a_branch(sync, tmp).await;
+    write(
+        &branch,
+        "/types",
+        "test.Sub",
+        a_type("test.Sub", &["test.Sub"]),
+    )
+    .await;
+
+    let worktrees = Some(WorktreeFilter {
+        ids: Some(vec![sync.worktree_id(), branch.worktree_id()]),
+        ..Default::default()
+    });
+    let under_top = RecordQuery {
+        worktrees: worktrees.clone(),
+        type_names: Some(vec!["test.Top".into()]),
+        subtypes: true,
+        ..Default::default()
+    };
+    let found = sync.find_records(&under_top).await.expect("find");
+    assert!(found.is_empty(), "{found:?}");
+
+    let query = RecordQuery {
+        worktrees,
+        path: Some("/artifacts".into()),
+        key: Some("test-artifact".into()),
+        ..Default::default()
+    };
+    let spec = FacetSpec {
+        group: FacetPath::new(vec!["type".into()], true).expect("path"),
+        columns: vec![],
+    };
+    let rows = sync.facet_records(&query, &spec).await.expect("facet");
+    let groups: Vec<(String, i64)> = rows
+        .groups
+        .iter()
+        .map(|(v, n)| (canonical_facet_key(v), *n))
+        .collect();
+    assert_eq!(groups, [("test.Sub".to_string(), 1)]);
+}
+crud_test!(a_type_the_branch_changed_is_its_change_alone);
+
+/// Both worktrees, for a read across them.
+fn both(a: &SyncedRepo, b: &SyncedRepo) -> Option<WorktreeFilter> {
+    Some(WorktreeFilter {
+        ids: Some(vec![a.worktree_id(), b.worktree_id()]),
+        ..Default::default()
+    })
+}
+
+/// A record a read across both follows to, which the branch changed, is
+/// the branch's change alone: main's copy, unchanged since, is left out.
+async fn a_followed_record_the_branch_changed_is_its_change_alone(
+    sync: &SyncedRepo,
+    tmp: &TempDir,
+) {
+    let (branch, _dir) = a_branch(sync, tmp).await;
+    let odoo = RecordQuery {
+        worktrees: both(sync, &branch),
+        path: Some("/repositories".into()),
+        key: Some("git://unfurl.cloud/onecommons/blueprints/odoo.git".into()),
+        ..Default::default()
+    };
+    let (_, followed) = sync
+        .find_records_follow(&odoo, 10, Vec::new())
+        .await
+        .expect("follow");
+    let target = followed.first().expect("a followed record").clone();
+    let mut changed = target.json.clone();
+    changed["note"] = "changed".into();
+    let file = Some(target.file_path.as_str());
+    branch
+        .upsert_record(file, &target.path, &target.key, changed, None, false)
+        .await
+        .expect("write");
+    let (_, followed) = sync
+        .find_records_follow(&odoo, 10, Vec::new())
+        .await
+        .expect("follow");
+    let rows: Vec<(i64, bool)> = followed
+        .iter()
+        .filter(|r| (&r.path, &r.key) == (&target.path, &target.key))
+        .map(|r| (r.worktree_id, r.json.get("note").is_some()))
+        .collect();
+    assert_eq!(rows, [(branch.worktree_id(), true)]);
+}
+crud_test!(a_followed_record_the_branch_changed_is_its_change_alone);
+
+/// A read naming one worktree is its own view: the records, and a facet's
+/// total and groups, of a read naming none, a version its own edit hides
+/// left out.
+async fn a_read_of_one_worktree_is_its_own_view(sync: &SyncedRepo, tmp: &TempDir) {
+    use unfurl_git_sync::{FacetPath, FacetSpec};
+    let (_branch, _dir) = a_branch(sync, tmp).await;
+    name(sync, "main").await;
+    let own = RecordQuery {
+        path: Some("/repositories".into()),
+        ..Default::default()
+    };
+    let named = RecordQuery {
+        worktrees: Some(WorktreeFilter {
+            ids: Some(vec![sync.worktree_id()]),
+            ..Default::default()
+        }),
+        ..own.clone()
+    };
+    let rows = async |query: &RecordQuery| -> Vec<(String, String, serde_json::Value)> {
+        let found = sync.find_records(query).await.expect("find");
+        found
+            .into_iter()
+            .map(|r| (r.file_path, r.key, r.json))
+            .collect()
+    };
+    assert_eq!(rows(&named).await, rows(&own).await);
+    let spec = FacetSpec {
+        group: FacetPath::new(vec!["name".into()], false).expect("path"),
+        columns: vec![],
+    };
+    let facet = async |query: &RecordQuery| {
+        let found = sync.facet_records(query, &spec).await.expect("facet");
+        (found.total, found.groups)
+    };
+    let (total, groups) = facet(&own).await;
+    assert_eq!(facet(&named).await, (total, groups.clone()));
+    assert!(!groups.iter().any(|(v, _)| v == "dashboard"), "{groups:?}");
+}
+crud_test!(a_read_of_one_worktree_is_its_own_view);
+
+/// A filter only main's stale copy matches finds nothing across both, and
+/// a facet over it counts nothing.
+async fn a_filter_on_the_stale_copy_finds_nothing(sync: &SyncedRepo, tmp: &TempDir) {
+    use unfurl_git_sync::{FacetPath, FacetSpec, JsonQuery, QueryOp};
+    let (branch, _dir) = a_branch(sync, tmp).await;
+    name(&branch, "feature").await;
+    let query = RecordQuery {
+        worktrees: both(sync, &branch),
+        path: Some("/repositories".into()),
+        json_queries: vec![JsonQuery {
+            tokens: vec!["name".into()],
+            value: "dashboard".into(),
+            op: QueryOp::Equals,
+        }],
+        ..Default::default()
+    };
+    let found = sync.find_records(&query).await.expect("find");
+    assert!(found.is_empty(), "{found:?}");
+    let spec = FacetSpec {
+        group: FacetPath::new(vec!["name".into()], false).expect("path"),
+        columns: vec![],
+    };
+    let facet = sync.facet_records(&query, &spec).await.expect("facet");
+    assert_eq!((facet.total, facet.groups.len()), (0, 0));
+}
+crud_test!(a_filter_on_the_stale_copy_finds_nothing);
+
+/// A record the branch moved to another file, unchanged, while main edited
+/// it where it was, is main's edit alone, and a filter only the moved copy
+/// matches finds nothing: the rule reads the rows at every place the
+/// record has, not just those the filter matched.
+async fn a_moved_copy_main_edited_is_left_out(sync: &SyncedRepo, tmp: &TempDir) {
+    use unfurl_git_sync::{FacetPath, FacetSpec, JsonQuery, QueryOp};
+    let (branch, dir) = a_branch(sync, tmp).await;
+    moved(&branch, &dir.path().join("feature")).await;
+    name(sync, "main").await;
+    let (main, b) = (sync.worktree_id(), branch.worktree_id());
+    assert_eq!(
+        read_of(sync, vec![main, b]).await,
+        [(main, "cloudmap.yaml".to_string(), false)]
+    );
+    let query = RecordQuery {
+        worktrees: both(sync, &branch),
+        path: Some("/repositories".into()),
+        json_queries: vec![JsonQuery {
+            tokens: vec!["name".into()],
+            value: "dashboard".into(),
+            op: QueryOp::Equals,
+        }],
+        ..Default::default()
+    };
+    let found = sync.find_records(&query).await.expect("find");
+    assert!(found.is_empty(), "{found:?}");
+    let spec = FacetSpec {
+        group: FacetPath::new(vec!["name".into()], false).expect("path"),
+        columns: vec![],
+    };
+    let facet = sync.facet_records(&query, &spec).await.expect("facet");
+    assert_eq!((facet.total, facet.groups.len()), (0, 0));
+}
+crud_test!(a_moved_copy_main_edited_is_left_out);
+
+/// The branch's save of the dashboard unchanged but for its keys' order is
+/// no change: main's edit alone comes back.
+async fn a_save_reordering_keys_is_no_change(sync: &SyncedRepo, tmp: &TempDir) {
+    let (branch, _dir) = a_branch(sync, tmp).await;
+    let shown = branch
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    let fields = shown.json.as_object().expect("an object");
+    assert!(fields.len() > 1, "{fields:?}");
+    let reordered: serde_json::Map<String, serde_json::Value> = fields
+        .iter()
+        .rev()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    branch
+        .upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            DASHBOARD,
+            reordered.into(),
+            None,
+            false,
+        )
+        .await
+        .expect("save");
+    name(sync, "main").await;
+    assert_eq!(
+        read_across(sync, &branch).await,
+        [(sync.worktree_id(), "main".into())]
+    );
+}
+crud_test!(a_save_reordering_keys_is_no_change);
+
+/// A read across both with tombstones shows main's deletion, and not the
+/// branch's copy, unchanged since.
+async fn a_deletion_on_main_alone_is_its_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
+    let (branch, _dir) = a_branch(sync, tmp).await;
+    delete(sync).await;
+    let query = RecordQuery {
+        worktrees: both(sync, &branch),
+        path: Some("/repositories".into()),
+        key: Some(DASHBOARD.into()),
+        include_deleted: true,
+        ..Default::default()
+    };
+    let found = sync.find_records(&query).await.expect("find");
+    let rows: Vec<(i64, bool)> = found.iter().map(|r| (r.worktree_id, r.deleted)).collect();
+    assert_eq!(rows, [(sync.worktree_id(), true)]);
+}
+crud_test!(a_deletion_on_main_alone_is_its_tombstone);
+
+/// A read across both with conflicts shows main's edit and the file's side
+/// it conflicts with, and not the branch's copy, unchanged since.
+async fn a_conflict_on_main_comes_back_with_its_edit(sync: &SyncedRepo, tmp: &TempDir) {
+    let (branch, _dir) = a_branch(sync, tmp).await;
+    common::stand_up_conflict(sync, tmp).await;
+    let query = RecordQuery {
+        worktrees: both(sync, &branch),
+        path: Some("/repositories".into()),
+        key: Some(DASHBOARD.into()),
+        include_conflicts: true,
+        ..Default::default()
+    };
+    let found = sync.find_records(&query).await.expect("find");
+    let mut rows: Vec<(i64, String, bool)> = found
+        .iter()
+        .map(|r| {
+            let name = r.json["name"].as_str().unwrap_or("").to_string();
+            (r.worktree_id, name, r.conflict.is_some())
+        })
+        .collect();
+    rows.sort();
+    let main = sync.worktree_id();
+    assert_eq!(
+        rows,
+        [(main, "ours".into(), false), (main, "theirs".into(), true)]
+    );
+}
+crud_test!(a_conflict_on_main_comes_back_with_its_edit);
+
+/// A read across both of more places than the rule reads one by one, each
+/// side having changed some records: a record one side changed is that
+/// change alone, in a find and a facet, and every other comes back from
+/// both.
+async fn a_read_of_many_places_is_resolved_whole(sync: &SyncedRepo, tmp: &TempDir) {
+    use unfurl_git_sync::{canonical_facet_key, FacetPath, FacetSpec};
+    let key = |i: usize| format!("git://example.com/r{i:03}.git");
+    let write = async |on: &SyncedRepo, i: usize, name: &str| {
+        let json = serde_json::json!({"name": name});
+        on.upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            &key(i),
+            json,
+            None,
+            false,
+        )
+        .await
+        .expect("write");
+    };
+    for i in 0..320 {
+        write(sync, i, &key(i)).await;
+    }
+    let (branch, _dir) = a_branch(sync, tmp).await;
+    for i in 0..10 {
+        write(&branch, i, "branch").await;
+        write(sync, i + 10, "main").await;
+    }
+    let (main, b) = (sync.worktree_id(), branch.worktree_id());
+    let query = RecordQuery {
+        worktrees: both(sync, &branch),
+        path: Some("/repositories".into()),
+        ..Default::default()
+    };
+    let found = sync.find_records(&query).await.expect("find");
+    let rows: std::collections::BTreeSet<(i64, String, String)> = found
+        .into_iter()
+        .filter(|r| r.key.starts_with("git://example.com/r"))
+        .map(|r| {
+            (
+                r.worktree_id,
+                r.key,
+                r.json["name"].as_str().unwrap_or("").into(),
+            )
+        })
+        .collect();
+    let want: std::collections::BTreeSet<(i64, String, String)> = (0..320)
+        .flat_map(|i| match i {
+            0..10 => vec![(b, key(i), "branch".to_string())],
+            10..20 => vec![(main, key(i), "main".to_string())],
+            _ => vec![(main, key(i), key(i)), (b, key(i), key(i))],
+        })
+        .collect();
+    assert_eq!(rows, want);
+
+    let spec = FacetSpec {
+        group: FacetPath::new(vec!["name".into()], false).expect("path"),
+        columns: vec![],
+    };
+    let facet = sync.facet_records(&query, &spec).await.expect("facet");
+    let groups: std::collections::BTreeMap<String, i64> = facet
+        .groups
+        .iter()
+        .map(|(v, n)| (canonical_facet_key(v), *n))
+        .collect();
+    assert_eq!(
+        (groups.get("branch"), groups.get("main")),
+        (Some(&10), Some(&10))
+    );
+    assert!(
+        !groups.contains_key(&key(0)) && !groups.contains_key(&key(10)),
+        "{groups:?}"
+    );
+}
+crud_test!(a_read_of_many_places_is_resolved_whole);
 
 /// A branch of `sync`'s repository at its HEAD as it is, with nothing
 /// committed first, opened on the same database and scanned: it joins

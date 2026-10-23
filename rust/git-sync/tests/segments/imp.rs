@@ -414,6 +414,13 @@ impl Segments {
     /// version unchanged since its merge base with another that has
     /// changed it since. Content is `(ver, deleted)`.
     fn read_across(&self, across: &[Wt]) -> Vec<RowId> {
+        let ids: BTreeSet<RowId> = self.read_across_by(across).into_iter().map(|(_, id)| id).collect();
+        ids.into_iter().collect()
+    }
+
+    /// [`Self::read_across`] by worktree: each row with every worktree
+    /// whose view shows it and keeps it.
+    fn read_across_by(&self, across: &[Wt]) -> Vec<(Wt, RowId)> {
         assert!(across.len() <= 128);
         let mut mask: BTreeMap<SegId, u128> = BTreeMap::new();
         for (b, &w) in across.iter().enumerate() {
@@ -479,12 +486,15 @@ impl Segments {
                 here || moved
             })
         };
-        rows.iter()
-            .filter(|(_, r, vis)| {
-                *vis != 0 && (r.deleted || (0..across.len()).any(|w| vis & (1 << w) != 0 && !unchanged_copy(w, r)))
-            })
-            .map(|(id, _, _)| *id)
-            .collect()
+        let mut out = Vec::new();
+        for (id, r, vis) in &rows {
+            for w in (0..across.len()).filter(|&w| vis & (1 << w) != 0) {
+                if r.deleted || !unchanged_copy(w, r) {
+                    out.push((across[w], *id));
+                }
+            }
+        }
+        out
     }
 
     /// The segments `s`'s history holds: its parents' and those the

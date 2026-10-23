@@ -102,6 +102,15 @@ pub(crate) fn spell<B: Backend + ?Sized>(on: &B, sql: String) -> String {
     }
 }
 
+/// `ids` as a comma-separated list for an `IN (..)`: integers, so written
+/// into the statement as they are.
+pub(crate) fn id_list(ids: &[i64]) -> String {
+    ids.iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// The length of [`pg_write`]'s spelling of `sql`.
 pub(crate) const fn pg_len(sql: &str) -> usize {
     pg_write(sql, &mut [])
@@ -199,6 +208,7 @@ const fn put_range(out: &mut [u8], n: usize, b: &[u8], from: usize, to: usize) -
     n + to - from
 }
 
+pub(crate) mod across;
 #[cfg(test)]
 mod bench;
 pub mod commit;

@@ -276,6 +276,48 @@ pub(crate) struct WorktreeSegs {
     pub(crate) family: i64,
 }
 
+/// A row as a read across worktrees compares it (`db::across`).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub(crate) struct AcrossRow {
+    pub(crate) id: i64,
+    pub(crate) segment_id: i64,
+    pub(crate) key_id: i64,
+    pub(crate) file_path: String,
+    pub(crate) path: String,
+    pub(crate) key: String,
+    pub(crate) deleted: bool,
+    /// Its JSON's `jsonb_hash_extended` on Postgres; the JSON on SQLite,
+    /// whose text may order keys differently.
+    pub(crate) content: String,
+}
+
+/// A row a read across worktrees keeps if git's rule does
+/// (`db::across::Covered::kept`).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub(crate) struct Candidate {
+    pub(crate) id: i64,
+    pub(crate) file_path: String,
+    pub(crate) path: String,
+    pub(crate) key: String,
+    pub(crate) key_id: i64,
+}
+
+/// A family's committed segments with their parents, and the merges in
+/// them as `(segment, merged_segment)`.
+pub(crate) struct SegmentGraph {
+    pub(crate) segments: Vec<(i64, Option<i64>)>,
+    pub(crate) merges: Vec<(i64, i64)>,
+}
+
+/// A worktree a read covers: its head and draft segments and its family.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub(crate) struct CoveredWorktree {
+    pub(crate) id: i64,
+    pub(crate) head: i64,
+    pub(crate) draft: i64,
+    pub(crate) family: i64,
+}
+
 /// A segment, and the commit whose state it ends at.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(crate) struct SegmentEnd {

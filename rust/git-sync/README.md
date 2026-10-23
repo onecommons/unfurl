@@ -16,7 +16,9 @@ Postgres via gitoxide and sqlx.
 - **Query:** find records by path and json filter, facets, and follow
   aliases and cross-references between them, in one worktree or across
   several: by origin and branch, or a list of worktree ids
-  (`WorktreeFilter`).
+  (`WorktreeFilter`). A read across leaves out a version unchanged since
+  its merge base with another worktree that has changed it since, as
+  git's three-dot diff would.
 - **CRUD:** create, update, upsert and delete records, singly or in
   batches, with git commits as optimistic-concurrency tokens.
 - **Write back:** saves edits to the files in place, keeping untouched

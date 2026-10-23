@@ -33,18 +33,21 @@ The model test checks the in-memory `Segments` against a reference with
 a few allowed over-reports, its reads across worktrees against git's
 rule (`check_across`), and each two worktrees' merge bases, the
 segments', against git's. The SQL implementation is checked against
-the in-memory one, step by step, for **exact** agreement. So the
-allowances stay a question about the design, and SQL needs no internals
-exposed: no `recreated` flag, no entries.
+the in-memory one, step by step, for **exact** agreement, but for one
+over-report in reads across where SQL falls short of the design
+(`renamed-copy`, §7.7). So the other allowances stay a question about
+the design, and SQL needs no internals exposed: no `recreated` flag, no
+entries.
 
 **What's compared,** after every step, and nothing else:
 - each worktree's view: key → (content, `key_id`);
 - its committed chain, the same way;
 - its conflicts: key → (theirs, resolved);
 - each layered stack's rows, from phase 3;
-- a read across the open worktrees: (key, content), against the
-  in-memory implementation's union of their views until SQL leaves out
-  copies by git's rule (§7.7), then its `read_across`;
+- a read across the open worktrees: (worktree, key, content), against
+  the in-memory implementation's `read_across`; the same read two
+  records a page, as a client reads it, against itself unpaged; and a
+  facet's total over it;
 - each two open worktrees' merge bases, through the segments' parents
   and merges, as commits;
 - the tree of every commit the implementation makes.
@@ -966,21 +969,41 @@ histories hold through them. Each worktree's entries apply in its own
 view only, so a draft's entry on another worktree's row no longer hides
 it there.
 
-**Status.** The in-memory implementation reads across this way, which
-the model test checks against git's rule at every step, and its merge
-bases against git's. SQL records the merges, ending segments and keeping
-edges as the in-memory implementation does, and the SQL harness checks
-their merge bases against its. SQL's reads across still use the rule this
-replaces, leaving out a row any covered worktree's entry supersedes, and
-the SQL harness's `check_across` compares that with the in-memory
-implementation's union read. Next:
-1. The resolver in `find_records` and `facet_records`: each worktree's
-   own view in SQL, and the copies left out in Rust, with `check_across`
-   comparing SQL with the in-memory implementation's `read_across`.
-2. Deleting what drafts keep on other worktrees' rows, which only the
-   old rule read: `other_entries`, `draft_entries_on`, `brought_back`'s
-   hand-on and `take_over`'s other-drafts part, in SQL and in memory,
-   after mutation runs show nothing reads them.
+**Status.** Both implementations read across this way: `find_records`,
+`find_records_follow` and `facet_records` in SQL, with the copies left
+out in Rust (C.7). The model test checks the in-memory implementation's
+reads across against git's rule at every step, and its merge bases
+against git's; the SQL harness checks SQL's against the in-memory
+implementation's. Its limits:
+- **SQL finds a moved version by its `key_id`,** where the design and
+  the in-memory implementation match content. Where the merge base holds
+  the version at its old place under another id, as a copy can after a
+  fast-forward or a fork (§3.5), SQL doesn't see the move, and a read
+  across shows a version git's rule leaves out: the SQL harness's
+  `renamed-copy` allowance.
+- **Postgres compares content by a 64-bit hash,** `jsonb_hash_extended`
+  (Postgres 11 and later), so a collision would read a changed version
+  as unchanged. SQLite compares canonical JSON text, parsing each row
+  it fetches.
+- **Past 300 places, a read fetches every row in the covered
+  segments,** which on the bench is every facet across. Reads 11 and 12
+  each take 76 ms more than before the resolver
+  (bench/segments/README.md).
+- **The server's conflicts report across worktrees** reads every row
+  across them, unpaged, and resolves them all before keeping its few
+  conflict rows. Not yet measured.
+- **A facet across worktrees counts no conflict rows,** with
+  `include_conflicts` or without: the rule fetches none to resolve. A
+  find across keeps them. Nothing asks for both today.
+
+Next: what drafts keep on other worktrees' rows (`other_entries`,
+`draft_entries_on`, `brought_back`'s hand-on and `take_over`'s
+other-drafts part) no longer matters to reads across, but a user
+branch's layered view (§4.12) still reads its draft's entries on main's
+rows, and a rebuild (§4.8, step 5) a fork draft's handed-on entries. So
+those helpers can stop only for drafts never layered, which needs a
+marker the database can see, with mutation runs against the model's
+layered reads, `check_across` and the rebuild's conflict check.
 
 The SQL harness has no user branches, so a draft entry on a row outside
 its own view, as §4.12's second branch point makes, is checked only once

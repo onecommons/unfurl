@@ -2155,7 +2155,7 @@ impl World {
 /// `SEGMENTS_ALLOWANCES` naming a file, `run` writes how often each
 /// happened there every 10000 cases, so runs of one seed can be compared.
 /// Per thread, so a scripted test counts only its own.
-const ALLOWANCES: [&str; 8] = [
+const ALLOWANCES: [&str; 9] = [
     "over-report",
     "seen-copy",
     "deletion-over-report",
@@ -2164,6 +2164,7 @@ const ALLOWANCES: [&str; 8] = [
     "settled-adopted",
     "fork-adopted",
     "rebuild-adopted",
+    "renamed-copy",
 ];
 thread_local! {
     static ALLOWED: [Cell<u64>; ALLOWANCES.len()] = const { [const { Cell::new(0) }; ALLOWANCES.len()] };

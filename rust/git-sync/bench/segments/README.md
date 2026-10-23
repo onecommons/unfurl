@@ -19,7 +19,7 @@ same database.
 | `queries.sql` | Appendix C's queries under `EXPLAIN (ANALYZE, BUFFERS, SETTINGS)`: design candidates, not the SQL the store emits. 8, 9 and 11 are layered reads, which production doesn't have until phase 3. |
 | `baseline.sql` | Today's layout, a full copy per worktree, built from the generated data for main and the forks. |
 | `baseline_queries.sql` | The single-view queries in today's form, against that copy. |
-| `../../src/db/bench.rs` | The store's own reads for queries 1–3, 5–7 and 10–12, on Postgres or the SQLite copy, each run six times warm, then once more (on Postgres, under `auto_explain`); then its writes, with the statements each took. |
+| `../../src/db/bench.rs` | The store's own reads for queries 1–3, 5–8 and 10–13, on Postgres or the SQLite copy, each run six times warm, then once more (on Postgres, under `auto_explain`); then its writes, with the statements each took. |
 | `to_sqlite.py` | Copies the generated database into a SQLite file built from `migrations/sqlite`, for the store's SQLite path. |
 | `run.sh` | `run.sh generate\|queries\|all\|sqlite [var=value …]`. `generate` applies `migrations/postgres` and `generate.sql`, then makes the SQLite copy; `sqlite` makes the copy again on its own. Run it with no mode for the details. |
 
@@ -480,3 +480,48 @@ total 4 to 11 ms, so they vary by a third between runs.
   write's records made, didn't pay: with it, Postgres's batched updates
   and deletes of 1,000 took 0.39 to 0.45 ms a write over three runs, and
   0.36 in the one without, and single writes were no faster.
+
+## Reads across worktrees by git's rule, 2026-10-22
+
+A read across worktrees now returns each worktree's own view, less a
+version unchanged since its merge base with another the read covers,
+which has changed it since (branch-segments.md §4.1). SQL reads the
+views, then the rows at the page's places and the entries on them, and
+Rust leaves out the copies (C.7). Read 8 is read 2's next page and read
+13 is read 10's. On GDK's Postgres 17 over its socket, at the defaults,
+in release builds, a call's warm median. "Before" is the merges' edges
+(0c4a4904), which left a row any covered worktree's entry superseded out
+of every view:
+
+| Read | statements before | after | ms before | after |
+|---|---|---|---|---|
+| 8. find, JSON filter, the next page | — | 1 | — | 2.8 |
+| 10. find across every `main` | 1 | 8 | 9.9 | 14.5 |
+| 11. 5 across every `main` | 5 | 15 | 359 | 435 |
+| 12. 6 across every `main` | 6 | 16 | 517 | 593 |
+| 13. 10's next page | — | 16 | 192¹ | 37 |
+
+¹ The old rule's statement for that page alone, run in psql: the
+fastest of six sessions.
+
+Reads 1–7 didn't move beyond noise. SQLite wasn't measured.
+
+- **A page reads twice its limit,** so the copies it leaves out seldom
+  cost another round, and one left short reads on from where it stopped.
+  The page's statement is most of read 10; the resolver's seven take
+  under 1 ms between them. Read 13 reads on once, so it runs two pages.
+- **With a cursor, the page reads the entries from a materialized CTE**
+  of each view's hidden rows. Matched per view in a subquery, as a page
+  without a cursor still is, the anti-join planned as a nested loop over
+  the views per row: read 13's page statement took 372 ms in psql.
+- **Content compares as `jsonb_hash_extended`** on Postgres. An `md5` of
+  the JSON text took 188 ms over the rows reads 11 and 12 fetch; the
+  hash takes 35.
+- **Facets resolve once per call.** Their candidates are the covered
+  segments' rows matching the filters; past 300 places the resolver
+  reads every row in the covered segments rather than by place, which
+  at the defaults is every facet across. Reads 11 and 12 each take
+  76 ms more than before, net of the anti-join they no longer run.
+- **The nightly's comparison will fail reads 10–12,** which run more
+  statements than at its baseline, until `refs/bench/git-sync` moves to
+  a commit with this change.

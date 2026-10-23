@@ -232,6 +232,11 @@ async fn reads(db: &Db, cursor: i64) {
         record::find(db, MAIN, &by_tag)
     })
     .await;
+    let by_tag_next = next_page(db, &by_tag).await;
+    bench(db, "8. find with a JSON filter, the next page", || {
+        record::find(db, MAIN, &by_tag_next)
+    })
+    .await;
 
     let by_type = RecordQuery {
         type_names: Some(vec!["T2".into()]),
@@ -302,6 +307,28 @@ async fn reads(db: &Db, cursor: i64) {
         record::facet(db, MAIN, &mains, &by_column)
     })
     .await;
+    let across_next = next_page(db, &across).await;
+    bench(
+        db,
+        "13. find across every branch named main, the next page",
+        || record::find(db, MAIN, &across_next),
+    )
+    .await;
+}
+
+/// `query`, from where its first page ends.
+async fn next_page(db: &Db, query: &RecordQuery) -> RecordQuery {
+    let first = record::find(db, MAIN, query).await.expect("a first page");
+    let last = first.last().expect("a full first page");
+    RecordQuery {
+        after: Some(crate::model::Cursor {
+            path: last.path.clone(),
+            key: last.key.clone(),
+            file_path: Some(last.file_path.clone()),
+            worktree_id: Some(last.worktree_id),
+        }),
+        ..query.clone()
+    }
 }
 
 fn key(i: usize) -> String {

@@ -2517,8 +2517,9 @@ For a producer whose `extends` lists only direct parents, the expansion and
 `pairs` become a `WITH RECURSIVE` walk over `types`. On flattened lists
 it finishes after one step.
 
-In a cross-worktree scope, the anti-joins also match `vx.worktree_id` to
-`v.worktree_id`, as in C.7.
+In a cross-worktree scope, `types` and `vis` are the rows C.7's rule
+keeps: the `/types` rows resolved once per call into a temporary table,
+which every count's `types` reads, and `:subtypes` from those too.
 
 ### C.6 `list_changes`
 
@@ -2601,22 +2602,43 @@ ORDER BY p.path COLLATE "C", p.key COLLATE "C", p.file_path COLLATE "C",
          p.worktree_id, p.id;
 ```
 
-That's each worktree's own view. Rust then leaves out the unchanged copies
-([§4.1](#41-reads)), from the rows at the page's places in the covered
-segments, the entries on them, each worktree's chain, and the merge bases'
-graph; a page that loses rows reads on. Facets fetch each row in the
-covered segments once instead, with the views that show it as a mask,
-resolve, and count what's left ([C.5](#c5-facets)).
+That's each worktree's own view, read at twice the page's limit. Rust
+then leaves out the unchanged copies ([§4.1](#41-reads)), from the rows
+in the covered segments at the page's places and at those where its
+records have other rows, the entries on them, each worktree's chain,
+and the merge bases' graph; a page left short reads on from where it
+stopped. Past 300 places, it reads every row in the covered segments
+instead. Content compares as `jsonb_hash_extended(r.json, 0)` on
+Postgres, and as canonical JSON text on SQLite.
 
 ```sql
 -- the merge bases' graph: the segments' parents and the merges' edges
-SELECT id, parent_id, head_commit FROM segment
+SELECT id, parent_id FROM segment
 WHERE family_id = :family AND kind <> 'draft';
 
 SELECT m.segment_id, m.merged_segment_id
 FROM segment_merge m JOIN segment s ON s.id = m.segment_id
 WHERE s.family_id = :family;
 ```
+
+A page with a cursor reads each view's entries from a CTE instead: with
+the cursor's row comparison beside it, the page's `NOT EXISTS` planned
+as a nested loop over the views per row: 372 ms for the bench's next
+page's statement, where the whole read with the CTE takes 37.
+
+```sql
+WITH hidden AS MATERIALIZED (
+    SELECT x.record_id, vx.worktree_id
+    FROM superseded x JOIN v vx ON vx.segment_id = x.segment_id
+)
+…
+      AND NOT EXISTS (SELECT 1 FROM hidden h
+                      WHERE h.record_id = r.id AND h.worktree_id = v.worktree_id)
+```
+
+Facets take as candidates the covered segments' rows that match the
+filters, with no anti-join, resolve them the same way, and count those
+some view shows and the rule keeps ([C.5](#c5-facets)).
 
 ### C.8 Create a record
 
