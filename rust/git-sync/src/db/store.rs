@@ -19,8 +19,9 @@ use std::future::Future;
 use crate::commit::CommitId;
 use crate::db;
 use crate::db::tables::{
-    AcrossRow, AcrossRows, At, CoveredChain, DraftedColumns, FileRow, NewRecordRow, RecordColumns,
-    RecordRow, SegmentEnd, SegmentGraph, Superseded, WithEntries, WorktreeSegs, ROW_COLUMNS,
+    AcrossRow, AcrossRows, At, Coverage, CoveredChain, CoveredRow, CoveredWorktree, DraftedColumns,
+    FileRow, NewRecordRow, RecordColumns, RecordRow, SegmentEnd, SegmentGraph, Superseded,
+    WithEntries, WorktreeSegs, ROW_COLUMNS,
 };
 use crate::error::{Error, Result};
 use crate::model::ConflictState;
@@ -377,21 +378,15 @@ pub(crate) trait Store: sqlx::Database + Sized {
 
     /// The worktrees a read covers: `id`, else every one of `origin` and
     /// `branch`, either `None` for any, and `ids`, a
-    /// [`crate::model::WorktreeFilter::ids_sql`] clause; by id, a row per
-    /// segment of each's committed chain.
+    /// [`crate::model::WorktreeFilter::ids_sql`] clause; with their
+    /// families' segment graph.
     fn covered(
         tx: &mut sqlx::Transaction<'_, Self>,
         id: Option<i64>,
         origin: Option<&str>,
         branch: Option<&str>,
         ids: &str,
-    ) -> impl Future<Output = Result<Vec<CoveredChain>>> + Send;
-
-    /// `families`' committed segments and the merges in them.
-    fn segment_graph(
-        tx: &mut sqlx::Transaction<'_, Self>,
-        families: &[i64],
-    ) -> impl Future<Output = Result<SegmentGraph>> + Send;
+    ) -> impl Future<Output = Result<Coverage>> + Send;
 
     /// The rows in `segments` at the places where `records` have a row in
     /// them, but conflict rows, and the entries on them as `(row, segment)`.
@@ -1530,61 +1525,62 @@ macro_rules! store_impl {
                 origin: Option<&str>,
                 branch: Option<&str>,
                 ids: &str,
-            ) -> Result<Vec<CoveredChain>> {
+            ) -> Result<Coverage> {
+                let covers = format!(
+                    "(CAST(?1 AS BIGINT) IS NULL OR w.id = ?1) \
+                     AND (CAST(?2 AS TEXT) IS NULL OR w.origin = ?2) \
+                     AND (CAST(?3 AS TEXT) IS NULL OR w.branch = ?3){ids} \
+                     AND w.head_segment_id IS NOT NULL AND w.draft_segment_id IS NOT NULL"
+                );
+                let families = format!("SELECT COALESCE(w.family_id, w.id) FROM worktree w WHERE {covers}");
+                // 0: a worktree, its head, draft and family, and a segment
+                // of its chain; 1: a segment and its parent; 2: a merge's
+                // segment and the one it merged
                 let sql = format!(
-                    "SELECT w.id, w.head_segment_id AS head, w.draft_segment_id AS draft, \
-                     COALESCE(w.family_id, w.id) AS family, ws.segment_id FROM worktree w \
-                     LEFT JOIN worktree_segment ws ON ws.worktree_id = w.id \
-                     WHERE (CAST(?1 AS BIGINT) IS NULL OR w.id = ?1) \
-                       AND (CAST(?2 AS TEXT) IS NULL OR w.origin = ?2) \
-                       AND (CAST(?3 AS TEXT) IS NULL OR w.branch = ?3){ids} \
-                       AND w.head_segment_id IS NOT NULL AND w.draft_segment_id IS NOT NULL \
-                     ORDER BY w.id"
+                    "SELECT CAST(0 AS BIGINT), w.id, w.head_segment_id, w.draft_segment_id, \
+                     COALESCE(w.family_id, w.id), ws.segment_id FROM worktree w \
+                     LEFT JOIN worktree_segment ws ON ws.worktree_id = w.id WHERE {covers} \
+                     UNION ALL SELECT CAST(1 AS BIGINT), s.id, s.parent_id, CAST(0 AS BIGINT), \
+                     CAST(0 AS BIGINT), CAST(NULL AS BIGINT) FROM segment s \
+                     WHERE s.kind <> 'draft' AND s.parent_id IS NOT NULL \
+                       AND s.family_id IN ({families}) \
+                     UNION ALL SELECT CAST(2 AS BIGINT), m.segment_id, m.merged_segment_id, \
+                     CAST(0 AS BIGINT), CAST(0 AS BIGINT), CAST(NULL AS BIGINT) \
+                     FROM segment_merge m JOIN segment s ON s.id = m.segment_id \
+                     WHERE s.family_id IN ({families}) \
+                     ORDER BY 1, 2"
                 );
                 // the ids list is inlined: a statement per call
-                Ok(sqlx::query_as(&db::spell(&*tx, sql))
+                let rows: Vec<CoveredRow> = sqlx::query_as(&db::spell(&*tx, sql))
                     .persistent(false)
                     .bind(id)
                     .bind(origin)
                     .bind(branch)
                     .fetch_all(&mut **tx)
-                    .await?)
-            }
-
-            async fn segment_graph(
-                tx: &mut sqlx::Transaction<'_, Self>,
-                families: &[i64],
-            ) -> Result<SegmentGraph> {
-                if families.is_empty() {
-                    return Ok(SegmentGraph {
+                    .await?;
+                let mut out = Coverage {
+                    chains: Vec::new(),
+                    graph: SegmentGraph {
                         segments: Vec::new(),
                         merges: Vec::new(),
-                    });
-                }
-                let families = db::id_list(families);
-                // a segment's parent, then a merge's segment and the one it merged
-                let edges: Vec<(i64, i64, Option<i64>)> = sqlx::query_as(&format!(
-                    "SELECT CAST(0 AS BIGINT), id, parent_id FROM segment \
-                     WHERE family_id IN ({families}) AND kind <> 'draft' \
-                     UNION ALL SELECT CAST(1 AS BIGINT), m.segment_id, m.merged_segment_id \
-                     FROM segment_merge m JOIN segment s ON s.id = m.segment_id \
-                     WHERE s.family_id IN ({families})"
-                ))
-                .persistent(false)
-                .fetch_all(&mut **tx)
-                .await?;
-                let mut graph = SegmentGraph {
-                    segments: Vec::new(),
-                    merges: Vec::new(),
+                    },
                 };
-                for (kind, a, b) in edges {
-                    match (kind, b) {
-                        (0, parent) => graph.segments.push((a, parent)),
-                        (_, Some(merged)) => graph.merges.push((a, merged)),
-                        (_, None) => {}
+                for (kind, a, b, draft, family, segment_id) in rows {
+                    match kind {
+                        0 => out.chains.push(CoveredChain {
+                            worktree: CoveredWorktree {
+                                id: a,
+                                head: b,
+                                draft,
+                                family,
+                            },
+                            segment_id,
+                        }),
+                        1 => out.graph.segments.push((a, b)),
+                        _ => out.graph.merges.push((a, b)),
                     }
                 }
-                Ok(graph)
+                Ok(out)
             }
 
             async fn across_rows(

@@ -545,7 +545,7 @@ copy, 37,498 rows.
 - **Read 10 on Postgres spends its time in the page's anti-join,** over
   each entry and view in the covered views: on the container, 73,864
   pairs, 12 ms, where the old rule matched on the row alone. The
-  resolver's three statements take under half a millisecond.
+  resolver's statements take under half a millisecond.
 - **Fetching JSON only for the rows kept wouldn't pay:** a page that
   returned none at all saved at most 1.8 ms of read 10 on the container,
   about what the statement fetching the kept rows' would cost.

@@ -2606,22 +2606,33 @@ ORDER BY p.path COLLATE "C", p.key COLLATE "C", p.file_path COLLATE "C",
 ```
 
 That's each worktree's own view, read at twice the page's limit. Rust
-then leaves out the unchanged copies ([§4.1](#41-reads)), from the
-covered worktrees with their chains, the merge bases' graph, and the
-rows in the covered segments at every place where the page's records
-have a row there, with the entries on them; a page left short reads on
-from where it stopped. Past 300 records, it reads every row in the
+then leaves out the unchanged copies ([§4.1](#41-reads)), from two
+statements: the covered worktrees with their chains and their families'
+graph, and the rows in the covered segments at every place where the
+page's records have a row there, with the entries on them. A page left
+short reads on from where it stopped. Past 300 records, it reads every row in the
 covered segments instead, and the entries in them. Content compares as
 `content_hash`, which each row is written with, so no JSON is read.
 
 ```sql
--- the merge bases' graph: the segments' parents and the merges' edges
-SELECT 0, id, parent_id FROM segment
-WHERE family_id = :family AND kind <> 'draft'
+-- the covered worktrees, a row per segment of each's chain, then their
+-- families' graph: the segments' parents and the merges' edges;
+-- :covers is the read's filter on worktree w
+SELECT 0, w.id, w.head_segment_id, w.draft_segment_id,
+       COALESCE(w.family_id, w.id), ws.segment_id
+FROM worktree w LEFT JOIN worktree_segment ws ON ws.worktree_id = w.id
+WHERE :covers
 UNION ALL
-SELECT 1, m.segment_id, m.merged_segment_id
+SELECT 1, s.id, s.parent_id, 0, 0, NULL FROM segment s
+WHERE s.kind <> 'draft' AND s.parent_id IS NOT NULL
+  AND s.family_id IN (SELECT COALESCE(w.family_id, w.id)
+                      FROM worktree w WHERE :covers)
+UNION ALL
+SELECT 2, m.segment_id, m.merged_segment_id, 0, 0, NULL
 FROM segment_merge m JOIN segment s ON s.id = m.segment_id
-WHERE s.family_id = :family;
+WHERE s.family_id IN (SELECT COALESCE(w.family_id, w.id)
+                      FROM worktree w WHERE :covers)
+ORDER BY 1, 2;
 
 -- the rows the rule compares, and the segments of the entries on them
 SELECT r.id, r.segment_id, r.key_id, r.file_path, r.path, r.key,

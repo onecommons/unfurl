@@ -304,15 +304,26 @@ pub(crate) struct WithEntries {
     pub(crate) entries: Option<String>,
 }
 
-/// A family's committed segments with their parents, and the merges in
-/// them as `(segment, merged_segment)`.
+/// Families' committed segments with a parent, as `(segment, parent)`,
+/// and the merges in them as `(segment, merged_segment)`.
 pub(crate) struct SegmentGraph {
-    pub(crate) segments: Vec<(i64, Option<i64>)>,
+    pub(crate) segments: Vec<(i64, i64)>,
     pub(crate) merges: Vec<(i64, i64)>,
 }
 
+/// What `Store::covered` reads: the covered worktrees, a row per segment
+/// of each's committed chain, by worktree, and their families' graph.
+pub(crate) struct Coverage {
+    pub(crate) chains: Vec<CoveredChain>,
+    pub(crate) graph: SegmentGraph,
+}
+
+/// A row of `Store::covered`'s statement: its kind, then two segments,
+/// or a worktree's id, head, draft, family and a segment of its chain.
+pub(crate) type CoveredRow = (i64, i64, i64, i64, i64, Option<i64>);
+
 /// A worktree a read covers: its head and draft segments and its family.
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone)]
 pub(crate) struct CoveredWorktree {
     pub(crate) id: i64,
     pub(crate) head: i64,
@@ -320,11 +331,9 @@ pub(crate) struct CoveredWorktree {
     pub(crate) family: i64,
 }
 
-/// A covered worktree with one segment of its committed chain: what
-/// `Store::covered` reads, a row per segment.
-#[derive(Debug, Clone, sqlx::FromRow)]
+/// A covered worktree with one segment of its committed chain.
+#[derive(Debug, Clone)]
 pub(crate) struct CoveredChain {
-    #[sqlx(flatten)]
     pub(crate) worktree: CoveredWorktree,
     pub(crate) segment_id: Option<i64>,
 }

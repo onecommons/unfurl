@@ -5,7 +5,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::db::store::{Records, Store};
-use crate::db::tables::{AcrossRow, AcrossRows, CoveredWorktree, SegmentGraph};
+use crate::db::tables::{AcrossRow, AcrossRows, Coverage, CoveredWorktree, SegmentGraph};
 use crate::error::Result;
 use crate::model::Record;
 
@@ -92,10 +92,7 @@ impl Graph {
             merged.entry(from).or_default().push(to);
         }
         Graph {
-            parent: segments
-                .into_iter()
-                .filter_map(|(s, p)| p.map(|p| (s, p)))
-                .collect(),
+            parent: segments.into_iter().collect(),
             merged,
             history: HashMap::new(),
         }
@@ -237,10 +234,14 @@ impl Covered {
         branch: Option<&str>,
         ids: &str,
     ) -> Result<Self> {
+        let Coverage {
+            chains: rows,
+            graph,
+        } = DB::covered(tx, id, origin, branch, ids).await?;
         let mut worktrees: Vec<CoveredWorktree> = Vec::new();
         let mut chains: Vec<(usize, i64)> = Vec::new();
         // a row per segment of each worktree's chain, by worktree
-        for row in DB::covered(tx, id, origin, branch, ids).await? {
+        for row in rows {
             if worktrees.last().is_none_or(|w| w.id != row.worktree.id) {
                 worktrees.push(row.worktree);
             }
@@ -254,9 +255,7 @@ impl Covered {
         for (i, s) in chains.into_iter().chain(drafts) {
             set(holds.entry(s).or_insert_with(|| vec![0; words]), i);
         }
-        let families: BTreeSet<i64> = worktrees.iter().map(|w| w.family).collect();
-        let families: Vec<i64> = families.into_iter().collect();
-        let mut graph = Graph::new(DB::segment_graph(tx, &families).await?);
+        let mut graph = Graph::new(graph);
         let bases = Bases::new(&mut graph, &worktrees);
         Ok(Covered {
             worktrees,
