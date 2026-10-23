@@ -88,15 +88,22 @@ async fn read<DB: Store, T>(
 
 /// A transaction reading one snapshot, read-only unless it makes
 /// temporary tables. Postgres reads each statement afresh otherwise;
-/// SQLite in WAL mode reads one anyway.
+/// SQLite in WAL mode reads one anyway. On Postgres its statements are
+/// planned with their values, cached or not, as [`find_pg`] needs.
 async fn snapshot<DB: Store>(
     pool: &sqlx::Pool<DB>,
     read_only: bool,
 ) -> Result<sqlx::Transaction<'static, DB>> {
+    // one round trip: a simple query takes both
     let begin = match (DB::POSTGRES, read_only) {
         (false, _) => return Ok(pool.begin().await?),
-        (true, true) => "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY",
-        (true, false) => "BEGIN ISOLATION LEVEL REPEATABLE READ",
+        (true, true) => {
+            "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY; \
+             SET LOCAL plan_cache_mode = force_custom_plan"
+        }
+        (true, false) => {
+            "BEGIN ISOLATION LEVEL REPEATABLE READ; SET LOCAL plan_cache_mode = force_custom_plan"
+        }
     };
     Ok(pool.begin_with(begin).await?)
 }
@@ -274,7 +281,7 @@ async fn find_page(db: &Db, worktree_id: i64, query: &RecordQuery) -> Result<Vec
     match db {
         Db::Sqlite(pool) => find_sqlite(pool, worktree_id, query).await,
         #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => find_pg(pool, worktree_id, query).await,
+        Db::Postgres(pool) => find_pg(pool, worktree_id, query, false).await,
     }
 }
 
@@ -343,7 +350,7 @@ impl AcrossReads for sqlx::Postgres {
         worktree_id: i64,
         query: &RecordQuery,
     ) -> Result<Vec<Record>> {
-        find_pg(&mut **tx, worktree_id, query).await
+        find_pg(&mut **tx, worktree_id, query, true).await
     }
 
     async fn many(
@@ -729,7 +736,7 @@ async fn subtypes(
                  SELECT name FROM sub ORDER BY name",
                 type_edges_cte_pg(rows)
             );
-            // planned with its values, as `find_pg` explains
+            // unnamed, so planned with its values, as `find_pg` explains
             let mut q = sqlx::query_scalar(&sql).persistent(false);
             if kept.is_none() {
                 q = q
@@ -747,7 +754,7 @@ async fn subtypes(
 /// `scope` keeps.
 async fn kept_types(db: &Db, scope: &WorktreeScope, file_path: Option<&str>) -> Result<Vec<i64>> {
     on_pool!(db, pool => {
-        let mut tx = pool.begin().await?;
+        let mut tx = snapshot(pool, true).await?;
         let covered = load_covered(&mut tx, scope).await?;
         across_types(&mut tx, &covered, file_path).await
     })
@@ -1179,6 +1186,7 @@ async fn find_pg(
     exec: impl sqlx::PgExecutor<'_>,
     worktree_id: i64,
     query: &RecordQuery,
+    cached: bool,
 ) -> Result<Vec<Record>> {
     let ids = WorktreeFilter::ids_sql(query.worktrees.as_ref());
     use sqlx::Arguments;
@@ -1270,11 +1278,17 @@ async fn find_pg(
     if let Some(n) = limit {
         args.add(*n).map_err(arg_err)?;
     }
-    // Cached, and planned with the values bound: `plan_cache_mode` is
-    // `force_custom_plan` (`Db::connect`). A generic plan can't see the type
-    // list's length or how many worktrees the scope matches, and probes the
-    // GIN index once per segment.
+    // Planned with the values bound: unnamed, or `cached` in a [`snapshot`].
+    // A generic plan can't see the type list's length or how many worktrees
+    // the scope matches, and probes the GIN index once per segment. sqlx runs
+    // a cached statement whose text matches, unnamed or not, so the cached
+    // one's text is its own.
+    let sql = match cached {
+        true => format!("/* snapshot */ {sql}"),
+        false => sql,
+    };
     let rows = sqlx::query_as_with::<_, FoundColumns, _>(&sql, args)
+        .persistent(cached)
         .fetch_all(exec)
         .await?;
     rows.into_iter().map(Record::try_from).collect()
@@ -1706,7 +1720,7 @@ async fn facet_pg(
     args.add(scope.origin.clone()).map_err(arg_err)?;
     args.add(scope.branch.clone()).map_err(arg_err)?;
     add_filter_args_pg(&mut args, query)?;
-    // planned with its values, as `find_pg` explains
+    // unnamed, so planned with its values, as `find_pg` explains
     if across {
         // enough to choose how the rule reads them
         let probe = format!("{sql} LIMIT {}", across::every_row_past() + 1);
@@ -1828,7 +1842,7 @@ async fn facet_aggregate_pg(
     if types_file_idx.is_some() {
         args.add(query.file_path.as_deref()).map_err(arg_err)?;
     }
-    // planned with its values, as `find_pg` explains
+    // unnamed, so planned with its values, as `find_pg` explains
     let rows = sqlx::query_with(&sql, args)
         .persistent(false)
         .fetch_all(&mut *conn)
@@ -2011,7 +2025,7 @@ async fn find_many_pg(
     sql.push_str(" ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\", v.worktree_id");
     let _ = idx;
 
-    // planned with its values, as `find_pg` explains
+    // unnamed, so planned with its values, as `find_pg` explains
     let mut q = sqlx::query_as::<_, FoundColumns>(&sql)
         .persistent(false)
         .bind(scope.id)

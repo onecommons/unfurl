@@ -350,15 +350,10 @@ impl Db {
                 //
                 // None of these change correctness — they bound the
                 // blast radius of pathological clients.
-                //
-                // plan_cache_mode=force_custom_plan plans every statement
-                // with its values bound, cached or not, so a statement can
-                // be cached to save the round trip preparing it takes.
                 let opts = PgConnectOptions::from_str(url)?.options([
                     ("statement_timeout", "30s"),
                     ("lock_timeout", "10s"),
                     ("idle_in_transaction_session_timeout", "60s"),
-                    ("plan_cache_mode", "force_custom_plan"),
                 ]);
 
                 // Postgres scales with concurrent connections better
