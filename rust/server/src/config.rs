@@ -406,18 +406,19 @@ pub enum Command {
 /// Arguments of [`Command::CreateDatabase`], besides `cloudmap_db_url`.
 #[derive(clap::Args, Clone)]
 pub struct CreateDatabase {
-    /// The password to give the role `UNFURL_CLOUDMAP_DB_URL` names;
-    /// required.
+    /// The password to give the role `UNFURL_CLOUDMAP_DB_URL` names.
+    /// Without one, a new role gets none and an existing one keeps its own.
     #[arg(long, env = "PGPASSWORD", hide_env_values = true)]
     pub app_password: Option<String>,
 
-    /// The role to connect as to create the role and database.
+    /// The role to connect as to create the role and database [default:
+    /// PGUSER, or the OS user].
     #[arg(long, env = "UNFURL_DB_ADMIN_USER")]
-    pub admin_user: String,
+    pub admin_user: Option<String>,
 
-    /// The admin role's password.
+    /// The admin role's password, if the server asks for one.
     #[arg(long, env = "UNFURL_DB_ADMIN_PASSWORD", hide_env_values = true)]
-    pub admin_password: String,
+    pub admin_password: Option<String>,
 
     /// The database to connect to as the admin role.
     #[arg(long, env = "UNFURL_DB_ADMIN_DATABASE", default_value = "postgres")]

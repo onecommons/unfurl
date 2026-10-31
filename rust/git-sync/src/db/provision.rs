@@ -17,8 +17,12 @@ use std::str::FromStr;
 pub enum RoleChange {
     /// The role didn't exist and was created.
     Created,
+    /// The role didn't exist and was created with no password.
+    CreatedWithoutPassword,
     /// The role existed and its password was set.
     PasswordSet,
+    /// The role existed, and with no password given, kept its own.
+    PasswordUnchanged,
 }
 
 /// What [`provision`] found or did to the database.
@@ -35,6 +39,8 @@ pub enum DatabaseState {
 /// The result of a successful [`provision`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Outcome {
+    /// The role connected as.
+    pub admin: String,
     /// The role the app URL names.
     pub role: String,
     /// The database the app URL names.
@@ -48,10 +54,11 @@ pub struct Outcome {
 /// The role [`provision`] connects as, and the database it connects to.
 #[derive(Debug, Clone, Copy)]
 pub struct Admin<'a> {
-    /// The admin role's name.
-    pub user: &'a str,
-    /// The admin role's password.
-    pub password: &'a str,
+    /// The admin role's name; libpq's default, `PGUSER` or the OS user, if
+    /// `None`.
+    pub user: Option<&'a str>,
+    /// The admin role's password, if the server asks for one.
+    pub password: Option<&'a str>,
     /// The database to connect to, usually `postgres`.
     pub database: &'a str,
 }
@@ -59,6 +66,7 @@ pub struct Admin<'a> {
 /// The role and database an app URL names, and the options to connect as
 /// the admin to the same server.
 struct Target {
+    admin_user: String,
     role: String,
     database: String,
     admin: PgConnectOptions,
@@ -90,18 +98,35 @@ fn target(app_url: &str, admin: &Admin<'_>) -> Result<Target> {
         .get_database()
         .ok_or_else(|| refuse("the database URL names no database"))?
         .to_string();
-    if role == admin.user {
-        return Err(refuse("the database URL's user must not be the admin role"));
+    let given_user = admin.user.filter(|user| !user.is_empty());
+    let admin_user = match given_user {
+        Some(user) => user.to_string(),
+        None => PgConnectOptions::new_without_pgpass()
+            .get_username()
+            .to_string(),
+    };
+    if role == admin_user {
+        return Err(refuse(match given_user {
+            Some(_) => "the database URL's user must not be the admin role",
+            None => {
+                "the database URL's user must not be the admin role, \
+                 by default PGUSER or the OS user"
+            }
+        }));
     }
     refuse_nul(&role, "the role name")?;
     refuse_nul(&database, "the database name")?;
-    refuse_nul(admin.password, "the admin password")?;
-    // all three: `from_str` fills the password in from PGPASSWORD
+    let admin_password = admin.password.unwrap_or_default();
+    refuse_nul(admin_password, "the admin password")?;
+    // all three, the password even when there is none: `from_str` fills it
+    // in from PGPASSWORD or the role's .pgpass entry, and sqlx sends a
+    // missing one as empty
     let admin = app
-        .username(admin.user)
-        .password(admin.password)
+        .username(&admin_user)
+        .password(admin_password)
         .database(admin.database);
     Ok(Target {
+        admin_user,
         role,
         database,
         admin,
@@ -109,21 +134,24 @@ fn target(app_url: &str, admin: &Admin<'_>) -> Result<Target> {
 }
 
 /// Postgres's text of the statement that creates `role`, or, if it
-/// `exists`, sets its password, with `password` as a SCRAM verifier.
+/// `exists`, gives it `LOGIN`, with `password`, if any, as a SCRAM verifier.
 async fn role_statement(
     conn: &mut PgConnection,
     role: &str,
-    password: &str,
+    password: Option<&str>,
     exists: bool,
 ) -> Result<String> {
-    let template = match exists {
-        true => "ALTER ROLE %I WITH LOGIN PASSWORD %L",
-        false => "CREATE ROLE %I LOGIN PASSWORD %L",
+    let template = match (exists, password.is_some()) {
+        (true, true) => "ALTER ROLE %I WITH LOGIN PASSWORD %L",
+        (false, true) => "CREATE ROLE %I LOGIN PASSWORD %L",
+        (true, false) => "ALTER ROLE %I WITH LOGIN",
+        (false, false) => "CREATE ROLE %I LOGIN",
     };
+    let verifier = password.map(super::scram::verifier).transpose()?;
     Ok(sqlx::query_scalar("SELECT format($1, $2, $3)")
         .bind(template)
         .bind(role)
-        .bind(super::scram::verifier(password)?)
+        .bind(verifier)
         .fetch_one(conn)
         .await?)
 }
@@ -145,7 +173,7 @@ async fn role_exists(conn: &mut PgConnection, role: &str) -> Result<bool> {
 }
 
 /// Creates `role`, returning false if it already exists.
-async fn create_role(conn: &mut PgConnection, role: &str, password: &str) -> Result<bool> {
+async fn create_role(conn: &mut PgConnection, role: &str, password: Option<&str>) -> Result<bool> {
     let statement = role_statement(conn, role, password, false).await?;
     match conn.execute(statement.as_str()).await.map_err(Error::from) {
         Ok(_) => Ok(true),
@@ -172,25 +200,35 @@ async fn refuse_privileged(conn: &mut PgConnection, role: &str) -> Result<()> {
     match privileges.is_empty() {
         true => Ok(()),
         false => Err(Error::Other(format!(
-            "the role {role} exists with {}; refusing to set its password",
+            "the role {role} exists with {}; refusing to use it",
             privileges.join(", ")
         ))),
     }
 }
 
-async fn set_password(conn: &mut PgConnection, role: &str, password: &str) -> Result<()> {
+async fn update_role(conn: &mut PgConnection, role: &str, password: Option<&str>) -> Result<()> {
     refuse_privileged(conn, role).await?;
     let statement = role_statement(conn, role, password, true).await?;
     conn.execute(statement.as_str()).await?;
     Ok(())
 }
 
-async fn ensure_role(conn: &mut PgConnection, role: &str, password: &str) -> Result<RoleChange> {
+async fn ensure_role(
+    conn: &mut PgConnection,
+    role: &str,
+    password: Option<&str>,
+) -> Result<RoleChange> {
     if !role_exists(conn, role).await? && create_role(conn, role, password).await? {
-        return Ok(RoleChange::Created);
+        return Ok(match password {
+            Some(_) => RoleChange::Created,
+            None => RoleChange::CreatedWithoutPassword,
+        });
     }
-    set_password(conn, role, password).await?;
-    Ok(RoleChange::PasswordSet)
+    update_role(conn, role, password).await?;
+    Ok(match password {
+        Some(_) => RoleChange::PasswordSet,
+        None => RoleChange::PasswordUnchanged,
+    })
 }
 
 async fn database_owner(conn: &mut PgConnection, database: &str) -> Result<Option<String>> {
@@ -243,9 +281,22 @@ async fn ensure_database(
 
 fn log(outcome: &Outcome) {
     let (role, database) = (outcome.role.as_str(), outcome.database.as_str());
+    tracing::info!(
+        admin = outcome.admin.as_str(),
+        "connected as the admin role"
+    );
     match outcome.role_change {
         RoleChange::Created => tracing::info!(role, "created the role"),
+        RoleChange::CreatedWithoutPassword => tracing::warn!(
+            role,
+            "created the role without a password; it can log in only where \
+             the server asks for none"
+        ),
         RoleChange::PasswordSet => tracing::info!(role, "the role exists; set its password"),
+        RoleChange::PasswordUnchanged => tracing::warn!(
+            role,
+            "the role exists; no password was given, so its password is unchanged"
+        ),
     }
     match &outcome.database_state {
         DatabaseState::Created => tracing::info!(database, role, "created the database"),
@@ -263,7 +314,8 @@ fn log(outcome: &Outcome) {
 /// Creates the role and database `app_url` names, connected as `admin` to
 /// the same server, and gives the role `app_password`.
 ///
-/// A role that exists has its password set; a database that exists is
+/// A role that exists has its password set, or kept without
+/// `app_password`; an empty one counts as none. A database that exists is
 /// left as it is, with a warning if another role owns it. Creates no
 /// tables: [`super::Db::connect`] as the role does.
 ///
@@ -274,14 +326,20 @@ fn log(outcome: &Outcome) {
 /// in it, all before connecting, and for an existing role with
 /// `SUPERUSER`, `CREATEROLE`, `REPLICATION`, `CREATEDB` or `BYPASSRLS`;
 /// [`Error::Db`] when Postgres fails.
-pub async fn provision(app_url: &str, app_password: &str, admin: &Admin<'_>) -> Result<Outcome> {
-    refuse_nul(app_password, "the app password")?;
+pub async fn provision(
+    app_url: &str,
+    app_password: Option<&str>,
+    admin: &Admin<'_>,
+) -> Result<Outcome> {
+    let app_password = app_password.filter(|password| !password.is_empty());
+    refuse_nul(app_password.unwrap_or_default(), "the app password")?;
     let target = target(app_url, admin)?;
     let mut conn = PgConnection::connect_with(&target.admin).await?;
     let role_change = ensure_role(&mut conn, &target.role, app_password).await?;
     let database_state = ensure_database(&mut conn, &target.database, &target.role).await?;
     conn.close().await?;
     let outcome = Outcome {
+        admin: target.admin_user,
         role: target.role,
         database: target.database,
         role_change,
@@ -301,7 +359,7 @@ mod tests {
         let mut conn = PgConnection::connect(&url).await.expect("connect");
         let password = "plain-text-password";
         for exists in [false, true] {
-            let sql = role_statement(&mut conn, "some role", password, exists)
+            let sql = role_statement(&mut conn, "some role", Some(password), exists)
                 .await
                 .unwrap();
             assert!(sql.contains("'SCRAM-SHA-256$4096:"), "{sql}");
@@ -337,8 +395,8 @@ mod tests {
         let mut conn = PgConnection::connect(&url).await.expect("connect");
         let role = format!("cdb_race_role_{}", std::process::id());
         let database = format!("cdb_race_db_{}", std::process::id());
-        assert!(create_role(&mut conn, &role, "pw").await.unwrap());
-        assert!(!create_role(&mut conn, &role, "pw").await.unwrap());
+        assert!(create_role(&mut conn, &role, Some("pw")).await.unwrap());
+        assert!(!create_role(&mut conn, &role, Some("pw")).await.unwrap());
         assert!(create_database(&mut conn, &database, &role).await.unwrap());
         assert!(!create_database(&mut conn, &database, &role).await.unwrap());
         drop(&mut conn, "DROP DATABASE %I WITH (FORCE)", &database).await;

@@ -50,6 +50,10 @@ impl Pg {
     }
 
     async fn run(&self, role: &str, database: &str, password: &str) -> Outcome {
+        self.run_with(role, database, Some(password)).await
+    }
+
+    async fn run_with(&self, role: &str, database: &str, password: Option<&str>) -> Outcome {
         self.try_run(role, database, password)
             .await
             .expect("provision")
@@ -59,14 +63,26 @@ impl Pg {
         &self,
         role: &str,
         database: &str,
-        password: &str,
+        password: Option<&str>,
     ) -> unfurl_git_sync::Result<Outcome> {
         let admin = Admin {
-            user: &self.admin_user,
-            password: &self.admin_password,
+            user: Some(&self.admin_user),
+            password: Some(&self.admin_password),
             database: "postgres",
         };
         provision(&self.url(role, database, None), password, &admin).await
+    }
+
+    /// The role's stored password, `None` if it has none.
+    async fn stored_password(&self, role: &str) -> Option<String> {
+        let mut conn = self.admin("postgres").await;
+        let password = sqlx::query_scalar("SELECT rolpassword FROM pg_authid WHERE rolname = $1")
+            .bind(role)
+            .fetch_one(&mut conn)
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
+        password
     }
 
     async fn admin(&self, database: &str) -> PgConnection {
@@ -239,7 +255,7 @@ async fn a_privileged_role_keeps_its_password() {
         let (role, database) = (unique("cdb_role"), unique("cdb_db"));
         pg.create_role_with(&role, &format!("LOGIN {attribute}"), Some("orig"))
             .await;
-        let err = pg.try_run(&role, &database, "new").await.unwrap_err();
+        let err = pg.try_run(&role, &database, Some("new")).await.unwrap_err();
         assert!(err.to_string().contains(attribute), "{err}");
         assert!(pg.can_log_in(&role, "postgres", "orig").await);
         assert!(!pg.can_log_in(&role, "postgres", "new").await);
@@ -252,11 +268,11 @@ async fn the_admin_can_connect_to_another_database() {
     let Some(pg) = pg() else { return };
     let (role, database) = (unique("cdb_role"), unique("cdb_db"));
     let admin = Admin {
-        user: &pg.admin_user,
-        password: &pg.admin_password,
+        user: Some(&pg.admin_user),
+        password: Some(&pg.admin_password),
         database: pg.base.path().trim_start_matches('/'),
     };
-    let outcome = provision(&pg.url(&role, &database, None), "pw", &admin)
+    let outcome = provision(&pg.url(&role, &database, None), Some("pw"), &admin)
         .await
         .expect("provision");
     assert_eq!(outcome.database_state, DatabaseState::Created);
@@ -290,11 +306,15 @@ async fn a_database_owned_by_another_role_is_left_alone() {
 
 async fn refusal(url: &str, app_password: &str) -> String {
     let admin = Admin {
-        user: "postgres",
-        password: "admin",
+        user: Some("postgres"),
+        password: Some("admin"),
         database: "postgres",
     };
-    match provision(url, app_password, &admin).await {
+    refusal_as(url, app_password, &admin).await
+}
+
+async fn refusal_as(url: &str, app_password: &str, admin: &Admin<'_>) -> String {
+    match provision(url, Some(app_password), admin).await {
         Err(unfurl_git_sync::Error::Other(msg)) => msg,
         other => panic!("not refused: {other:?}"),
     }
@@ -313,4 +333,65 @@ async fn bad_arguments_are_refused_before_connecting() {
     assert!(msg.contains("admin role"), "{msg}");
     let msg = refusal("postgres://app@127.0.0.1:1", "pw").await;
     assert!(msg.contains("no database"), "{msg}");
+}
+
+#[tokio::test]
+async fn the_default_admin_is_refused_as_the_role() {
+    let default = PgConnectOptions::new_without_pgpass()
+        .get_username()
+        .to_string();
+    let mut url = url::Url::parse("postgres://127.0.0.1:1/appdb").unwrap();
+    url.set_username(&default).unwrap();
+    for user in [None, Some("")] {
+        let admin = Admin {
+            user,
+            password: None,
+            database: "postgres",
+        };
+        let msg = refusal_as(url.as_str(), "pw", &admin).await;
+        assert!(msg.contains("admin role, by default PGUSER"), "{msg}");
+    }
+}
+
+#[tokio::test]
+async fn without_a_password_a_new_role_gets_none() {
+    let Some(pg) = pg() else { return };
+    for password in [None, Some("")] {
+        let (role, database) = (unique("cdb_role"), unique("cdb_db"));
+        let outcome = pg.run_with(&role, &database, password).await;
+        assert_eq!(outcome.role_change, RoleChange::CreatedWithoutPassword);
+        assert_eq!(outcome.admin, pg.admin_user);
+        assert_eq!(pg.stored_password(&role).await, None);
+        pg.drop_all(&role, &database).await;
+    }
+}
+
+#[tokio::test]
+async fn without_a_password_an_existing_role_keeps_its_own() {
+    let Some(pg) = pg() else { return };
+    let (role, database) = (unique("cdb_role"), unique("cdb_db"));
+    pg.run(&role, &database, "kept").await;
+    let stored = pg.stored_password(&role).await;
+    let outcome = pg.run_with(&role, &database, None).await;
+    assert_eq!(outcome.role_change, RoleChange::PasswordUnchanged);
+    assert_eq!(pg.stored_password(&role).await, stored);
+    assert!(pg.can_log_in(&role, &database, "kept").await);
+    pg.drop_all(&role, &database).await;
+}
+
+#[tokio::test]
+async fn without_a_password_a_role_is_still_given_login_and_checked() {
+    let Some(pg) = pg() else { return };
+    let (role, database) = (unique("cdb_role"), unique("cdb_db"));
+    pg.create_role_with(&role, "NOLOGIN", Some("pw")).await;
+    pg.run_with(&role, &database, None).await;
+    assert!(pg.can_log_in(&role, &database, "pw").await);
+    pg.drop_all(&role, &database).await;
+
+    let (role, database) = (unique("cdb_role"), unique("cdb_db"));
+    pg.create_role_with(&role, "LOGIN CREATEDB", Some("pw"))
+        .await;
+    let err = pg.try_run(&role, &database, None).await.unwrap_err();
+    assert!(err.to_string().contains("CREATEDB"), "{err}");
+    pg.drop_all(&role, &database).await;
 }

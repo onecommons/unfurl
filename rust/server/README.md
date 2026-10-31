@@ -224,11 +224,19 @@ bypass row-level security. Pass the passwords
 in the environment: flags show in `ps`. The work is
 `unfurl_git_sync::db::provision`'s.
 
+Both passwords are optional, for a server that authenticates local
+connections without one (`trust` or `peer`), like a development
+Postgres on a socket. Without an admin password the admin connects
+with none -- never PGPASSWORD, the app's. Without an app password a
+new role is created with none, and an existing role keeps its own;
+either is logged as a warning, since a deployment that meant to pass one
+then can't log in. Elsewhere, pass both.
+
 | Setting | CLI flag | Env var |
 |---|---|---|
 | The app's URL, without a password: its user is the role, its path the database | `--cloudmap-db-url` (before the subcommand) | `UNFURL_CLOUDMAP_DB_URL` |
 | The role's password, which the server also reads to connect | `--app-password` | `PGPASSWORD` |
-| Admin role | `--admin-user` | `UNFURL_DB_ADMIN_USER` |
+| Admin role (default `PGUSER`, or the OS user) | `--admin-user` | `UNFURL_DB_ADMIN_USER` |
 | Admin role's password | `--admin-password` | `UNFURL_DB_ADMIN_PASSWORD` |
 | Database to connect to as the admin, for services that restrict `postgres` | `--admin-database` | `UNFURL_DB_ADMIN_DATABASE` (default `postgres`) |
 

@@ -532,11 +532,7 @@ fn create_database(config: &Config, args: &CreateDatabase) -> i32 {
         tracing::error!("create-database needs UNFURL_CLOUDMAP_DB_URL");
         return 1;
     };
-    let Some(app_password) = args.app_password.as_deref() else {
-        tracing::error!("PGPASSWORD is required: the role's password (or --app-password)");
-        return 1;
-    };
-    match create_database_on(url, app_password, args) {
+    match create_database_on(url, args.app_password.as_deref(), args) {
         Ok(()) => 0,
         Err(e) => {
             tracing::error!("create-database failed: {e}");
@@ -546,14 +542,18 @@ fn create_database(config: &Config, args: &CreateDatabase) -> i32 {
 }
 
 #[cfg(feature = "postgres")]
-fn create_database_on(url: &str, app_password: &str, args: &CreateDatabase) -> Result<(), String> {
+fn create_database_on(
+    url: &str,
+    app_password: Option<&str>,
+    args: &CreateDatabase,
+) -> Result<(), String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| e.to_string())?;
     let admin = unfurl_git_sync::db::Admin {
-        user: &args.admin_user,
-        password: &args.admin_password,
+        user: args.admin_user.as_deref(),
+        password: args.admin_password.as_deref(),
         database: &args.admin_database,
     };
     let provision = unfurl_git_sync::db::provision(url, app_password, &admin);
@@ -566,7 +566,7 @@ fn create_database_on(url: &str, app_password: &str, args: &CreateDatabase) -> R
 #[cfg(not(feature = "postgres"))]
 fn create_database_on(
     _url: &str,
-    _app_password: &str,
+    _app_password: Option<&str>,
     _args: &CreateDatabase,
 ) -> Result<(), String> {
     Err("this unfurl-server was built without postgres support".into())
