@@ -1235,16 +1235,21 @@ def find_explicit_operation_hosts(template, interface):
 def get_ancestor_templates(
     stack: List[NodeSpec], templates: Dict[str, NodeSpec]
 ) -> Iterator[NodeSpec]:
-    """Yield transitive requirements from topmost to self"""
-    # maintain a stack to avoid circular dependencies
-    source = stack[-1]
+    """Yield transitive requirements from topmost to self, each once."""
+    return _get_ancestor_templates(stack[-1], set(stack))
+
+
+def _get_ancestor_templates(
+    source: NodeSpec, visited: Set[NodeSpec]
+) -> Iterator[NodeSpec]:
+    # mark before recursing so cycles and shared ancestors are walked once
     if not source.toscaEntityTemplate.is_replaced_by_outer():
         if source.abstract != "select":
             for req in source.requirements:
                 target = req.relationship and req.relationship.target
-                if target and target not in stack:
-                    for ancestor in get_ancestor_templates(stack + [target], templates):
-                        yield ancestor
+                if target and target not in visited:
+                    visited.add(target)
+                    yield from _get_ancestor_templates(target, visited)
         yield source
 
 

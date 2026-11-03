@@ -10,6 +10,9 @@ from unfurl.projectpaths import _get_base_dir
 from unfurl.job import Job
 from string import Template
 from unfurl.testing import init_project, run_job_cmd, run_cmd
+from unfurl.plan import get_ancestor_templates
+from unfurl.spec import NodeSpec, ToscaSpec
+from typing import Dict, List
 
 SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
@@ -593,3 +596,36 @@ def test_planning(runner):
     ]:
         runner.job_count += 1
         _deploy(runner, command, summary, files)
+
+
+def _requirements_spec(requires: Dict[str, List[str]]) -> Dict[str, NodeSpec]:
+    # no import resolver, so tosca-parser binds the explicit targets without the solver
+    tpl = {
+        "tosca_definitions_version": "tosca_simple_unfurl_1_0_0",
+        "topology_template": {
+            "node_templates": {
+                name: {
+                    "type": "tosca.nodes.Root",
+                    "requirements": [{"dependency": target} for target in targets],
+                }
+                for name, targets in requires.items()
+            }
+        },
+    }
+    return ToscaSpec(tpl).topology.node_templates
+
+
+def test_ancestor_templates_complete_graph():
+    # n0..n7, each requiring the other seven
+    names = [f"n{i}" for i in range(8)]
+    templates = _requirements_spec({n: [m for m in names if m != n] for n in names})
+    ancestors = [t.name for t in get_ancestor_templates([templates["n0"]], templates)]
+    assert sorted(ancestors) == names
+    assert ancestors[-1] == "n0"
+
+
+def test_ancestor_templates_order():
+    # a diamond: a -> b, a -> c, b -> d, c -> d
+    templates = _requirements_spec(dict(a=["b", "c"], b=["d"], c=["d"], d=[]))
+    ancestors = [t.name for t in get_ancestor_templates([templates["a"]], templates)]
+    assert ancestors == ["d", "b", "c", "a"]
