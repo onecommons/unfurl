@@ -1,6 +1,7 @@
 moto[server,ec2,sts,route53]==5.0.18
-coverage
-pytest
+# The last successful Python 3.14 run used pytest 9.1.1 and coverage 7.17.0.
+coverage<7.17.1
+pytest<9.2
 pytest-cov
 pytest-xdist[psutil]
 psutil
