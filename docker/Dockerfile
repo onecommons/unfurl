@@ -7,7 +7,7 @@ RUN apt-get -qq update && \
 ARG TOFU_VERSION=1.13.1
 # the last MPL release, for deployments that haven't migrated to OpenTofu
 ARG TERRAFORM_VERSION=1.5.7
-ARG HELM_VERSION=3.7.1
+ARG HELM_VERSION=3.22.1
 ARG GCLOUD_VERSION=499.0.0
 ARG KOMPOSE_VERSION=v1.38.0
 # `TARGETARCH` and `TARGETOS` are supplied automatically by Docker

@@ -358,7 +358,7 @@ setattr(
     artifact_AsdfTool(
         "helm",
         file="helm",
-        version="3.7.1",
+        version="3.22.1",
     ),
 )
 
