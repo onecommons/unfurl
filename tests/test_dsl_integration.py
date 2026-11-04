@@ -628,6 +628,33 @@ def test_find_connection():
     )
 
 
+# a named relationship template that targets a node: its relationship instances are
+# named after the template, not the requirement
+class RelationshipTemplateTopology(tosca.Namespace):
+    class Connection(tosca.relationships.ConnectsTo):
+        url: str
+
+    class Client(tosca.nodes.Root):
+        connection: "RelationshipTemplateTopology.Connection"
+
+        def _connection_url(self) -> Optional[str]:
+            return self.connection.url if self.connection else None
+
+        url: Optional[str] = tosca.Computed(factory=_connection_url)
+
+    storage = tosca.nodes.ObjectStorage(name="storage")
+    storage_connection = Connection("storage_connection", url="http://storage")[storage]
+    client = Client(connection=storage_connection)
+
+
+def test_requirement_with_relationship_template_and_target():
+    topology, runner = create_runner(RelationshipTemplateTopology)
+    job = runner.run(JobOptions(skip_save=True, dryrun=True))
+    assert job
+    client = runner.manifest.rootResource.find_instance("RelationshipTemplateTopology.client")
+    assert client and client.attributes["url"] == "http://storage"
+
+
 @tosca.jinja_template(convert_to="yaml")
 def email_template(self, T: tosca.TagWriter) -> str:
     return f"{self._name}@example.com"

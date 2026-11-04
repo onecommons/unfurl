@@ -1037,10 +1037,17 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 self._cache[name] = val
                 return val
             elif field.tosca_field_type == ToscaFieldType.requirement:
+                instance = cast(NodeInstance, self._instance)
+                # the instance of a named relationship template that targets a node is named after the template
+                templates = {
+                    id(req.relationship)
+                    for req in instance.template.requirements
+                    if req.name == field.tosca_name
+                }
                 rels = [
                     rel
-                    for rel in cast(NodeInstance, self._instance).requirements
-                    if rel.name == field.tosca_name
+                    for rel in instance.requirements
+                    if rel.name == field.tosca_name or id(rel.template) in templates
                 ]
                 return self._proxy_requirements(field, rels)
             elif field.tosca_field_type == ToscaFieldType.artifact:
