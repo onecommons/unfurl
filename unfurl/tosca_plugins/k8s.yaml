@@ -17,7 +17,7 @@ topology_template:
           type: artifact.AsdfTool
           file: kubectl
           properties:
-            version: 1.25.3
+            version: 1.36.6
 
 node_types:
   unfurl.nodes._K8sResourceHost:

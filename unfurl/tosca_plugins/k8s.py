@@ -266,7 +266,7 @@ setattr(
     artifact_AsdfTool(
         "kubectl",
         file="kubectl",
-        version="1.25.3",
+        version="1.36.6",
     ),
 )
 
