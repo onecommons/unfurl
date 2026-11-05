@@ -739,8 +739,7 @@ class PythonToYaml:
             if impl_val is not None:
                 if key == "dependencies":
                     implementation["dependencies"] = [
-                        d._name if isinstance(d, ArtifactEntity) else d
-                        for d in impl_val
+                        self._dependency2yaml(d) for d in impl_val
                     ]
                 else:
                     implementation[key] = impl_val
@@ -757,6 +756,20 @@ class PythonToYaml:
                 else:
                     op_def[key] = to_tosca_value(impl_val, dict_cls)
         return op_def
+
+    @staticmethod
+    def _dependency2yaml(
+        dependency: Union[str, Dict[str, Any], ArtifactEntity, FieldProjection],
+    ) -> Union[str, Dict[str, Any], FieldProjection]:
+        if isinstance(dependency, ArtifactEntity):
+            return dependency._name
+        # a reference to an artifact declared on a template, e.g. kube_artifacts.kubectl
+        if (
+            isinstance(dependency, FieldProjection)
+            and dependency.field.tosca_field_type == ToscaFieldType.artifact
+        ):
+            return dependency.field.tosca_name
+        return dependency
 
     def _execute_operation(
         self,

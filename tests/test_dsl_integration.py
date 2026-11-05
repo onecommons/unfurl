@@ -25,6 +25,7 @@ from unfurl.configurators import DoneDict, TemplateConfigurator, TemplateInputs
 from unfurl.tosca_plugins.k8s import (
     unfurl_nodes_K8sCluster,
     unfurl_relationships_ConnectsTo_K8sCluster,
+    kube_artifacts,
 )
 from unfurl.dsl import is_python_file_newer
 from tosca import MB, GB, mb, gb, Size, kib, KB
@@ -653,6 +654,25 @@ def test_requirement_with_relationship_template_and_target():
     assert job
     client = runner.manifest.rootResource.find_instance("RelationshipTemplateTopology.client")
     assert client and client.attributes["url"] == "http://storage"
+
+
+# an operation that depends on an artifact declared on a LocalRepository template
+# (deriving from a k8s type imports k8s.yaml, which declares the template)
+class ArtifactDependencyTopology(tosca.Namespace):
+    class Client(unfurl_nodes_K8sCluster):
+        @operation(dependencies=[kube_artifacts.kubectl])
+        def configure(self):
+            return unfurl.artifacts.ShellExecutable(command="kubectl version --client")
+
+    client = Client()
+
+
+def test_operation_dependency_on_template_artifact():
+    topology, runner = create_runner(ArtifactDependencyTopology)
+    job = runner.run(JobOptions(skip_save=True, planOnly=True))
+    assert job
+    installs = [jr.name for _, reqs in job.external_requests for jr in reqs]
+    assert installs == ["__artifact__kube-artifacts--kubectl"]
 
 
 @tosca.jinja_template(convert_to="yaml")

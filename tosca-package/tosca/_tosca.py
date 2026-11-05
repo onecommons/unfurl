@@ -1510,6 +1510,8 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         req_def: Dict[str, Any],
         always_include_type_constraints: bool,
     ) -> None:
+        # adding the requirement types directly to a template causes the solver to match based on the type
+        # so setting always_include_type_constraints to True forces that
         if self.node:
             req_def["node"] = self._resolve_toscaname(self.node)
         if self.capability:
