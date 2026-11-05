@@ -9,7 +9,8 @@ from importlib import invalidate_caches
 from importlib.machinery import FileFinder, ModuleSpec, PathFinder
 from importlib.util import spec_from_file_location, spec_from_loader, module_from_spec
 import traceback
-from typing import Any, Dict, Mapping, Optional, Sequence
+from contextlib import contextmanager
+from typing import Any, Dict, Generator, Iterator, List, Mapping, Optional, Sequence
 from types import ModuleType
 import importlib._bootstrap
 from _ast import AnnAssign, Assign, ClassDef, Module, With, Expr
@@ -250,6 +251,10 @@ class ToscaYamlLoader(Loader):
         return None
 
     def exec_module(self, module):
+        with _executing(self.full_name):
+            self._exec_module(module)
+
+    def _exec_module(self, module):
         # parse to TOSCA template and convert to python
         path = Path(self.filepath)
         if path.suffix in loader_details[1]:
@@ -735,10 +740,28 @@ installed = False
 import_resolver: Optional[ImportResolver] = None
 service_template_basedir = ""
 
+# modules being converted or executed, innermost last
+_executing_modules: List[str] = []
+
+
+@contextmanager
+def _executing(full_name: str) -> Generator[None, None, None]:
+    _executing_modules.append(full_name)
+    try:
+        yield
+    finally:
+        _executing_modules.pop()
+
 
 def _clear_private_modules():
     for name in list(sys.modules):
-        if name.startswith("service_template") or name.startswith("tosca_repositories"):
+        if name.startswith(("service_template", "tosca_repositories")):
+            # a nested conversion can't remove a module whose import hasn't finished
+            if any(
+                executing == name or executing.startswith(name + ".")
+                for executing in _executing_modules
+            ):
+                continue
             del sys.modules[name]
 
 
@@ -915,6 +938,7 @@ def restricted_exec(
         remove_temp_module = True
     previous_safe_mode = global_state.safe_mode
     previous_mode = global_state.mode
+    _executing_modules.append(full_name)
     try:
         global_state.safe_mode = safe_mode
         global_state.mode = "parse"
@@ -948,6 +972,7 @@ def restricted_exec(
             )
         raise
     finally:
+        _executing_modules.pop()
         global_state.safe_mode = previous_safe_mode
         global_state.mode = previous_mode
         if remove_temp_module:

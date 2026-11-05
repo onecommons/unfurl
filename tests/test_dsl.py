@@ -4,6 +4,7 @@
 TOSCA DSL tests.
 Run this file as a script to generate Python DSL files from YAML. Accepts an optional argument to only regenerate builtins or specific templates."""
 
+import importlib
 import os
 import textwrap
 import time
@@ -2313,6 +2314,23 @@ def test_convert_import_with_repo(test_input, exp_import, exp_path):
         assert output[0].strip() == exp_import
         # import path
         assert output[1] == exp_path
+
+
+def test_nested_conversion_keeps_modules_being_imported(tmp_path):
+    # a package whose submodule converts another module while the package is still importing
+    package = tmp_path / "tosca_repositories" / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("from .mod import *\n")
+    (package / "mod.py").write_text(
+        "from tosca.loader import _clear_private_modules\n"
+        "_clear_private_modules()\n"
+        "value = 1\n"
+    )
+    tosca.loader.install(None, str(tmp_path))
+    try:
+        assert importlib.import_module("tosca_repositories.pkg").value == 1
+    finally:
+        tosca.loader._clear_private_modules()
 
 
 def test_sandbox_denied():
