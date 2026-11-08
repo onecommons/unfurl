@@ -736,6 +736,58 @@ async fn a_grant_refused_cloning_a_broken_checkout_again_is_forgotten() {
     );
 }
 
+/// A write's credentials are kept as a grant, even to a public project
+/// cloned without any: a push of its commits that waits past a restart,
+/// or that a pull makes, has them then.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_writes_credentials_are_kept_as_a_grant() {
+    use axum::routing::post;
+    use clap::Parser;
+    use tower::util::ServiceExt;
+    let world = World::new().await;
+    let grants = std::sync::Arc::new(world.grants().await);
+    let cm = world.serve_fresh(Some(grants.clone())).await;
+    let origin = format!("{}/org/proj", world.server.base);
+    assert!(grants
+        .latest_credentials(&origin)
+        .await
+        .expect("grants")
+        .is_none());
+    let config = unfurl_server::config::Config::parse_from([
+        "unfurl-server",
+        "--cloud-server",
+        &world.server.base,
+    ]);
+    let state = unfurl_server::AppState {
+        config: std::sync::Arc::new(config),
+        client: reqwest::Client::new(),
+        redis: None,
+        cloudmap: Some(cm),
+        grants: Some(grants.clone()),
+    };
+    let app = axum::Router::new()
+        .route(
+            "/cloudmap",
+            post(unfurl_server::cloudmap::post_cloudmap_local),
+        )
+        .with_state(state);
+    let credentials = base64::engine::general_purpose::STANDARD.encode(format!("{USER}:{TOKEN}"));
+    let body = serde_json::json!({"commit": false});
+    let req = axum::http::Request::builder()
+        .method("POST")
+        .uri("/cloudmap?auth_project=org/proj")
+        .header("content-type", "application/json")
+        .header("x-git-credentials", credentials)
+        .header("x-unfurl-username", "bot")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+    let resp = app.oneshot(req).await.expect("handler");
+    assert_eq!(resp.status(), axum::http::StatusCode::OK);
+    let kept = grants.latest_credentials(&origin).await.expect("grants");
+    let kept = kept.expect("a grant");
+    assert_eq!((kept.user.as_str(), kept.secret.as_str()), (USER, TOKEN));
+}
+
 /// Commits a checkout is found holding that its remote lacks -- python's,
 /// or a push's that failed -- are pushed with a grant before a pull, never
 /// with the credentials of the request that found them: those are its

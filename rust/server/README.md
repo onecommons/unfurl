@@ -155,7 +155,9 @@ the response gives the new head to send next.
 **Pushing.** Outside dev mode, a cloudmap write that commits
 (`commit: true`) answers at once, with the local commit; the commit is
 pushed in the background, with the request's credentials, or else its
-project's most recent grant. A checkout is pushed at most once per
+project's most recent grant. A write's credentials are kept as a grant
+too, so the commits a later pull finds unpushed, after a restart say,
+have them. A checkout is pushed at most once per
 `--push-interval` seconds: a commit sooner after its last push waits,
 and goes with those made meanwhile. A push carries the checkout's branch
 and the `git-sync/` branches made in it, such as an export's, that the

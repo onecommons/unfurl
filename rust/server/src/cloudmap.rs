@@ -814,6 +814,14 @@ impl CloudMapState {
             .map_err(|_| format!("a pull or push of the checkout held it for {wait:?}"))
     }
 
+    /// Before a write to the checkout this serves, for a request with
+    /// `access`: its credentials kept to push with later.
+    pub async fn keep_grant(&self, access: &RequestAccess) {
+        if let Some(fresh) = &self.fresh {
+            fresh.keep_grant(&self.inner, access).await;
+        }
+    }
+
     /// After a commit of the checkout this serves, for a request with
     /// `access`: pushed in the background.
     pub async fn committed(&self, commit: &str, access: &RequestAccess) {
@@ -2405,6 +2413,8 @@ pub async fn post_cloudmap_local(
                 .into_response();
         }
     };
+
+    cm.keep_grant(&access).await;
 
     // Who to attribute the write to, from the header python's
     // `_get_author` documents. Read before `parts` is consumed by the

@@ -414,6 +414,29 @@ impl Freshener {
         }
     }
 
+    /// Keep the credentials of `access`, a write to `handle`'s checkout, as
+    /// a grant, as a queued write's are: a push of its commits that waits
+    /// past a restart, or that a pull makes, has them then.
+    pub async fn keep_grant(&self, handle: &SyncedRepo, access: &RequestAccess) {
+        let (Some(grants), Some(credentials)) = (&self.settings.grants, &access.credentials) else {
+            return;
+        };
+        let Some(tracked) = self.tracked(handle).await else {
+            return;
+        };
+        // the configured checkout, the operator's own, isn't pushed
+        if !tracked.cloned {
+            return;
+        }
+        let token = crate::grants::credentials(&credentials.user, &credentials.secret);
+        if let Err(e) = grants
+            .grant(&access.username, &tracked.origin, &token, "")
+            .await
+        {
+            tracing::warn!(project = tracked.project, error = %e, "can't keep a write's credentials as a grant");
+        }
+    }
+
     /// Whether every commit from `since` to `head` in `handle`'s checkout is
     /// one this process made, each on the one before.
     pub async fn made_here(&self, handle: &SyncedRepo, since: &str, head: &str) -> bool {
