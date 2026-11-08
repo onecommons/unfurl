@@ -609,7 +609,7 @@ jobs:
             os: ubuntu-24.04-arm
             cibw_build: 'cp39-musllinux_aarch64'
           - name: macos-universal2
-            os: macos-14
+            os: macos-15
             cibw_build: 'cp39-macosx_*'
             alt_arch_name: arm64
     timeout-minutes: 60
@@ -630,7 +630,7 @@ jobs:
         toolchain: nightly
 
     - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
-      if: matrix.os == 'macos-14'
+      if: startsWith(matrix.os, 'macos')
 
     - name: install python dependencies
       run: pip install -U setuptools wheel twine setuptools-scm
