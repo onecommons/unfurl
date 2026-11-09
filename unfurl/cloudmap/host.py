@@ -360,6 +360,7 @@ class RepositoryHost:
         except Exception:
             self.logger.error("Error retrieving content for %s", r.url, exc_info=True)
         else:
+            directory.compare_upstreams(r, repo)
             directory.maybe_analyze(r, repo, previous.contains if previous else {})
 
     def _push_to_host(
@@ -548,6 +549,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                     repository = previous
                 else:
                     directory.context.add_record(repository)
+                directory.compare_upstreams(repository, repo)
                 directory.maybe_analyze(
                     repository, repo, previous.contains if previous else {}
                 )

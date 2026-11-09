@@ -3307,6 +3307,30 @@
             },
             "description": "Map of tag names to their commit SHA hashes.",
             "type": "object"
+          },
+          "upstream_refs": {
+            "additionalProperties": {
+              "additionalProperties": false,
+              "properties": {
+                "branches": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/cloudmap_upstreamRef"
+                  },
+                  "description": "Map of branch names to how they compare with the upstream.",
+                  "type": "object"
+                },
+                "tags": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/cloudmap_upstreamRef"
+                  },
+                  "description": "Map of tag names to how they compare with the upstream.",
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "description": "Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's.",
+            "type": "object"
           }
         },
         "type": "object"
@@ -3538,6 +3562,51 @@
           "description": "URL or label",
           "pattern": "^[^\\s]+$"
         },
+        "type": "object"
+      },
+      "cloudmap_upstreamRef": {
+        "$$target": "#/definitions/upstreamRef",
+        "additionalProperties": false,
+        "description": "How a branch or tag compares with the corresponding ref in an upstream repository.",
+        "properties": {
+          "ahead": {
+            "description": "Number of commits on this ref that aren't on the upstream ref.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "behind": {
+            "description": "Number of commits on the upstream ref that aren't on this ref.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "commit": {
+            "description": "Commit SHA of the upstream ref when compared.",
+            "type": "string"
+          },
+          "merge_base": {
+            "description": "Commit SHA of the merge base of this ref and the upstream ref.",
+            "type": "string"
+          },
+          "ref": {
+            "description": "Name of the upstream ref, if it differs from this ref's name.",
+            "type": "string"
+          },
+          "status": {
+            "description": "identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref.",
+            "enum": [
+              "identical",
+              "ahead",
+              "behind",
+              "diverged",
+              "unrelated",
+              "missing"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
         "type": "object"
       }
     }

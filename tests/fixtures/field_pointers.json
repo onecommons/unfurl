@@ -31,6 +31,36 @@
     },
     "tags": {
       "v1.0": "abc123"
+    },
+    "upstream_refs": {
+      "git://example.com/upstream/project.git": {
+        "branches": {
+          "main": {
+            "status": "diverged",
+            "commit": "fed321",
+            "merge_base": "abc000",
+            "ahead": 2,
+            "behind": 5
+          }
+        },
+        "tags": {
+          "v1.0": {
+            "status": "identical",
+            "commit": "abc123",
+            "merge_base": "abc123",
+            "ahead": 0,
+            "behind": 0
+          }
+        }
+      },
+      "git://example.com/other/project.git": {
+        "branches": {
+          "gh-pages": {
+            "status": "unrelated",
+            "commit": "0a0b0c"
+          }
+        }
+      }
     }
   },
   "pointers": [
@@ -43,6 +73,8 @@
     "path",
     "private",
     "protocols",
-    "tags"
+    "tags",
+    "upstream_refs/git:~1~1example.com~1other~1project.git",
+    "upstream_refs/git:~1~1example.com~1upstream~1project.git"
   ]
 }

@@ -138,6 +138,8 @@ Cloudmap definitions
 
 .. jsonschema:: cloudmap-schema.json#/definitions/repository
 
+.. jsonschema:: cloudmap-schema.json#/definitions/upstreamRef
+
 .. jsonschema:: cloudmap-schema.json#/definitions/service
 
 .. jsonschema:: cloudmap-schema.json#/definitions/artifact

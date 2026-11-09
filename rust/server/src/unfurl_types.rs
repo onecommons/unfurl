@@ -620,6 +620,8 @@ pub struct CloudmapRepository {
     pub status: Option<CloudmapRepositoryStatus>,
     /// Map of tag names to their commit SHA hashes.
     pub tags: Option<std::collections::HashMap<String, String>>,
+    /// Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's.
+    pub upstream_refs: Option<std::collections::HashMap<String, serde_json::Value>>,
     /// Additional properties not defined in the schema.
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
@@ -848,6 +850,75 @@ pub struct CloudmapTypedUrLs {
     /// Additional properties not defined in the schema.
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, Box<CloudmapTypeRef>>,
+}
+/// How a branch or tag compares with the corresponding ref in an upstream repository.
+#[serde_with::skip_serializing_none]
+#[derive(
+    Debug, Clone, PartialEq, Serialize, Deserialize, validator::Validate, oas3_gen_support::Default,
+)]
+#[serde(deny_unknown_fields)]
+pub struct CloudmapUpstreamRef {
+    /// Number of commits on this ref that aren't on the upstream ref.
+    #[validate(range(min = 0i64))]
+    pub ahead: Option<i64>,
+    /// Number of commits on the upstream ref that aren't on this ref.
+    #[validate(range(min = 0i64))]
+    pub behind: Option<i64>,
+    /// Commit SHA of the upstream ref when compared.
+    pub commit: Option<String>,
+    /// Commit SHA of the merge base of this ref and the upstream ref.
+    pub merge_base: Option<String>,
+    /// Name of the upstream ref, if it differs from this ref's name.
+    #[serde(rename = "ref")]
+    pub r#ref: Option<String>,
+    /// identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref.
+    pub status: CloudmapUpstreamRefStatus,
+}
+/// identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, oas3_gen_support::Default)]
+pub enum CloudmapUpstreamRefStatus {
+    #[serde(rename = "identical")]
+    #[default]
+    Identical,
+    #[serde(rename = "ahead")]
+    Ahead,
+    #[serde(rename = "behind")]
+    Behind,
+    #[serde(rename = "diverged")]
+    Diverged,
+    #[serde(rename = "unrelated")]
+    Unrelated,
+    #[serde(rename = "missing")]
+    Missing,
+}
+impl core::fmt::Display for CloudmapUpstreamRefStatus {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Identical => write!(f, "identical"),
+            Self::Ahead => write!(f, "ahead"),
+            Self::Behind => write!(f, "behind"),
+            Self::Diverged => write!(f, "diverged"),
+            Self::Unrelated => write!(f, "unrelated"),
+            Self::Missing => write!(f, "missing"),
+        }
+    }
+}
+impl core::str::FromStr for CloudmapUpstreamRefStatus {
+    type Err = String;
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
+        match s {
+            "identical" => Ok(Self::Identical),
+            "ahead" => Ok(Self::Ahead),
+            "behind" => Ok(Self::Behind),
+            "diverged" => Ok(Self::Diverged),
+            "unrelated" => Ok(Self::Unrelated),
+            "missing" => Ok(Self::Missing),
+            _ => Err(format!(
+                "unknown variant '{}', expected one of: {}",
+                s, "identical, ahead, behind, diverged, unrelated, missing"
+            )),
+        }
+    }
 }
 /// The 409 body of ``POST /cloudmap``.
 ///

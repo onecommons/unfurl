@@ -1203,6 +1203,80 @@ class Namespace:
 
 RepositoryStatus = Literal["active", "archived", "moved", "deleted"]
 
+UpstreamRefStatus = Literal[
+    "identical", "ahead", "behind", "diverged", "unrelated", "missing"
+]
+
+
+class UpstreamRefDict(TypedDict, total=False):
+    status: Required[UpstreamRefStatus]
+    ref: str
+    commit: str
+    merge_base: str
+    ahead: int
+    behind: int
+
+
+class UpstreamRefsDict(TypedDict, total=False):
+    branches: Dict[str, UpstreamRefDict]
+    tags: Dict[str, UpstreamRefDict]
+
+
+@dataclass
+class UpstreamRef:
+    """How a branch or tag compares with the corresponding ref in an upstream repository."""
+
+    status: UpstreamRefStatus
+    ref: str = ""
+    "Name of the upstream ref, if it differs from this ref's name."
+    commit: str = ""
+    "Commit of the upstream ref when compared."
+    merge_base: str = ""
+    ahead: Optional[int] = None
+    "Number of commits on this ref that aren't on the upstream ref."
+    behind: Optional[int] = None
+    "Number of commits on the upstream ref that aren't on this ref."
+
+    def asdict(self) -> UpstreamRefDict:
+        result = UpstreamRefDict(status=self.status)
+        if self.ref:
+            result["ref"] = self.ref
+        if self.commit:
+            result["commit"] = self.commit
+        if self.merge_base:
+            result["merge_base"] = self.merge_base
+        if self.ahead is not None:
+            result["ahead"] = self.ahead
+        if self.behind is not None:
+            result["behind"] = self.behind
+        return result
+
+
+@dataclass
+class UpstreamRefs:
+    """How a repository's branches and tags compare with an upstream repository's."""
+
+    branches: Dict[str, UpstreamRef] = field(default_factory=dict)
+    tags: Dict[str, UpstreamRef] = field(default_factory=dict)
+
+    @staticmethod
+    def fromdict(refs: Union["UpstreamRefs", UpstreamRefsDict]) -> "UpstreamRefs":
+        if isinstance(refs, UpstreamRefs):
+            return refs
+        return UpstreamRefs(
+            branches={k: UpstreamRef(**v) for k, v in refs.get("branches", {}).items()},
+            tags={k: UpstreamRef(**v) for k, v in refs.get("tags", {}).items()},
+        )
+
+    def asdict(self) -> UpstreamRefsDict:
+        result = UpstreamRefsDict()
+        if self.branches:
+            result["branches"] = {k: v.asdict() for k, v in self.branches.items()}
+        if self.tags:
+            result["tags"] = {k: v.asdict() for k, v in self.tags.items()}
+        return result
+
+
 ProjectStatus = Literal[
     "concept",
     "WIP",
@@ -1282,6 +1356,8 @@ class Repository(CloudMapRecord):
     'The default branch of the repository (e.g. "main").'
     branches: Dict[str, str] = field(default_factory=dict)
     tags: Dict[str, str] = field(default_factory=dict)
+    upstream_refs: Dict[str, UpstreamRefs] = field(default_factory=dict)
+    "Map of upstream repository URLs to how this repository's refs compare with its."
     contains: TypedUrls = field(default_factory=dict)
     """Map of artifact URLs (for files or directories in the repository) that are useful for characterizing the repository and integrating it with the other resources in the cloud map, with optional type constraints."""
 
@@ -1307,6 +1383,10 @@ class Repository(CloudMapRecord):
                 # migrate deprecated key
                 md["thumbnail_url"] = md.pop("avatar_url")
             self.metadata = RepositoryMetadata(**(md or {}))
+        self.upstream_refs = {
+            validate_url(url, "Repository.upstream_refs"): UpstreamRefs.fromdict(refs)
+            for url, refs in self.upstream_refs.items()
+        }
         # contains keys are repo-relative file paths (url-parts), not labels
         self.contains = TypeRefs.urls_fromdict(self.contains, keys_are_urls=True)
         # The branch being analyzed, if not the default branch. Not saved: it
@@ -1337,6 +1417,12 @@ class Repository(CloudMapRecord):
                 v = filter_metadata(v)
             elif k == "contains":
                 v = TypeRefs.urls_asdict(v)
+            elif k == "upstream_refs":
+                v = {
+                    url: refs.asdict()
+                    for url, refs in self.upstream_refs.items()
+                    if refs.branches or refs.tags
+                }
             if v:
                 result[k] = v
         result.update(self.own_extensions())

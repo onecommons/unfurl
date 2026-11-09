@@ -2513,6 +2513,30 @@ impl ::std::convert::From<f64> for ReleaseScheduleItemVersion {
 #[doc = "        \"description\": \"Commit SHA hash for the tag.\","]
 #[doc = "        \"type\": \"string\""]
 #[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"upstream_refs\": {"]
+#[doc = "      \"description\": \"Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's.\","]
+#[doc = "      \"type\": \"object\","]
+#[doc = "      \"additionalProperties\": {"]
+#[doc = "        \"type\": \"object\","]
+#[doc = "        \"properties\": {"]
+#[doc = "          \"branches\": {"]
+#[doc = "            \"description\": \"Map of branch names to how they compare with the upstream.\","]
+#[doc = "            \"type\": \"object\","]
+#[doc = "            \"additionalProperties\": {"]
+#[doc = "              \"$ref\": \"#/definitions/upstreamRef\""]
+#[doc = "            }"]
+#[doc = "          },"]
+#[doc = "          \"tags\": {"]
+#[doc = "            \"description\": \"Map of tag names to how they compare with the upstream.\","]
+#[doc = "            \"type\": \"object\","]
+#[doc = "            \"additionalProperties\": {"]
+#[doc = "              \"$ref\": \"#/definitions/upstreamRef\""]
+#[doc = "            }"]
+#[doc = "          }"]
+#[doc = "        },"]
+#[doc = "        \"additionalProperties\": false"]
+#[doc = "      }"]
 #[doc = "    }"]
 #[doc = "  },"]
 #[doc = "  \"additionalProperties\": true,"]
@@ -2590,6 +2614,13 @@ pub struct Repository {
         skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
     )]
     pub tags: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
+    #[doc = "Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's."]
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub upstream_refs:
+        ::std::collections::HashMap<::std::string::String, RepositoryUpstreamRefsValue>,
 }
 impl ::std::default::Default for Repository {
     fn default() -> Self {
@@ -2613,6 +2644,7 @@ impl ::std::default::Default for Repository {
             service: Default::default(),
             status: Default::default(),
             tags: Default::default(),
+            upstream_refs: Default::default(),
         }
     }
 }
@@ -2988,6 +3020,57 @@ impl ::std::convert::TryFrom<::std::string::String> for RepositoryStatus {
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+#[doc = "`RepositoryUpstreamRefsValue`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"branches\": {"]
+#[doc = "      \"description\": \"Map of branch names to how they compare with the upstream.\","]
+#[doc = "      \"type\": \"object\","]
+#[doc = "      \"additionalProperties\": {"]
+#[doc = "        \"$ref\": \"#/definitions/upstreamRef\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"tags\": {"]
+#[doc = "      \"description\": \"Map of tag names to how they compare with the upstream.\","]
+#[doc = "      \"type\": \"object\","]
+#[doc = "      \"additionalProperties\": {"]
+#[doc = "        \"$ref\": \"#/definitions/upstreamRef\""]
+#[doc = "      }"]
+#[doc = "    }"]
+#[doc = "  },"]
+#[doc = "  \"additionalProperties\": false"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RepositoryUpstreamRefsValue {
+    #[doc = "Map of branch names to how they compare with the upstream."]
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub branches: ::std::collections::HashMap<::std::string::String, UpstreamRef>,
+    #[doc = "Map of tag names to how they compare with the upstream."]
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub tags: ::std::collections::HashMap<::std::string::String, UpstreamRef>,
+}
+impl ::std::default::Default for RepositoryUpstreamRefsValue {
+    fn default() -> Self {
+        Self {
+            branches: Default::default(),
+            tags: Default::default(),
+        }
     }
 }
 #[doc = "`Service`"]
@@ -4261,5 +4344,175 @@ impl<'de> ::serde::Deserialize<'de> for TypedUrLsValueVariant2Key {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+#[doc = "How a branch or tag compares with the corresponding ref in an upstream repository."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"description\": \"How a branch or tag compares with the corresponding ref in an upstream repository.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"status\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"ahead\": {"]
+#[doc = "      \"description\": \"Number of commits on this ref that aren't on the upstream ref.\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"minimum\": 0.0"]
+#[doc = "    },"]
+#[doc = "    \"behind\": {"]
+#[doc = "      \"description\": \"Number of commits on the upstream ref that aren't on this ref.\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"minimum\": 0.0"]
+#[doc = "    },"]
+#[doc = "    \"commit\": {"]
+#[doc = "      \"description\": \"Commit SHA of the upstream ref when compared.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"merge_base\": {"]
+#[doc = "      \"description\": \"Commit SHA of the merge base of this ref and the upstream ref.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"ref\": {"]
+#[doc = "      \"description\": \"Name of the upstream ref, if it differs from this ref's name.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"status\": {"]
+#[doc = "      \"description\": \"identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref.\","]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"enum\": ["]
+#[doc = "        \"identical\","]
+#[doc = "        \"ahead\","]
+#[doc = "        \"behind\","]
+#[doc = "        \"diverged\","]
+#[doc = "        \"unrelated\","]
+#[doc = "        \"missing\""]
+#[doc = "      ]"]
+#[doc = "    }"]
+#[doc = "  },"]
+#[doc = "  \"additionalProperties\": false,"]
+#[doc = "  \"$$target\": \"#/definitions/upstreamRef\""]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct UpstreamRef {
+    #[doc = "Number of commits on this ref that aren't on the upstream ref."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub ahead: ::std::option::Option<u64>,
+    #[doc = "Number of commits on the upstream ref that aren't on this ref."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub behind: ::std::option::Option<u64>,
+    #[doc = "Commit SHA of the upstream ref when compared."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub commit: ::std::option::Option<::std::string::String>,
+    #[doc = "Commit SHA of the merge base of this ref and the upstream ref."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub merge_base: ::std::option::Option<::std::string::String>,
+    #[doc = "Name of the upstream ref, if it differs from this ref's name."]
+    #[serde(
+        rename = "ref",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub ref_: ::std::option::Option<::std::string::String>,
+    #[doc = "identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref."]
+    pub status: UpstreamRefStatus,
+}
+#[doc = "identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"description\": \"identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref.\","]
+#[doc = "  \"type\": \"string\","]
+#[doc = "  \"enum\": ["]
+#[doc = "    \"identical\","]
+#[doc = "    \"ahead\","]
+#[doc = "    \"behind\","]
+#[doc = "    \"diverged\","]
+#[doc = "    \"unrelated\","]
+#[doc = "    \"missing\""]
+#[doc = "  ]"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum UpstreamRefStatus {
+    #[serde(rename = "identical")]
+    Identical,
+    #[serde(rename = "ahead")]
+    Ahead,
+    #[serde(rename = "behind")]
+    Behind,
+    #[serde(rename = "diverged")]
+    Diverged,
+    #[serde(rename = "unrelated")]
+    Unrelated,
+    #[serde(rename = "missing")]
+    Missing,
+}
+impl ::std::fmt::Display for UpstreamRefStatus {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Identical => f.write_str("identical"),
+            Self::Ahead => f.write_str("ahead"),
+            Self::Behind => f.write_str("behind"),
+            Self::Diverged => f.write_str("diverged"),
+            Self::Unrelated => f.write_str("unrelated"),
+            Self::Missing => f.write_str("missing"),
+        }
+    }
+}
+impl ::std::str::FromStr for UpstreamRefStatus {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "identical" => Ok(Self::Identical),
+            "ahead" => Ok(Self::Ahead),
+            "behind" => Ok(Self::Behind),
+            "diverged" => Ok(Self::Diverged),
+            "unrelated" => Ok(Self::Unrelated),
+            "missing" => Ok(Self::Missing),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for UpstreamRefStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for UpstreamRefStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for UpstreamRefStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }

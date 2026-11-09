@@ -117,6 +117,7 @@ from ..logs import getLogger
 from .db import CloudMapDB
 from .db import CloudMapStore
 from .provenance import ProvenanceTrackingContext
+from .upstream import compare_with_upstream, upstream_fetch_url
 from .github import GithubManager
 from .gitlab import GitlabManager
 from .host import LocalRepositoryHost, RepositoryHost, _LocalGitRepos
@@ -475,6 +476,27 @@ class Directory(_LocalGitRepos):
         # no analysis happened, preserve previous analysis
         repo_info.contains = previous_contains
         return None
+
+    def compare_upstreams(self, repo_info: Repository, repo: GitRepo) -> None:
+        """Update ``repo_info.upstream_refs`` for its ``fork_of`` and ``mirror_of``
+        repositories, keeping its other entries and the comparisons it can't redo."""
+        upstream_refs = dict(repo_info.upstream_refs)
+        for url in dict.fromkeys(
+            filter(None, (repo_info.fork_of, repo_info.mirror_of))
+        ):
+            fetch_url = upstream_fetch_url(url, self.context.get_repository(url))
+            try:
+                upstream_refs[url] = compare_with_upstream(
+                    repo.repo, repo_info, url, fetch_url, upstream_refs.get(url)
+                )
+            except git.GitCommandError:
+                self.logger.warning(
+                    "Could not compare %s with upstream %s",
+                    repo_info.url,
+                    sanitize_url(fetch_url),
+                    exc_info=True,
+                )
+        repo_info.upstream_refs = upstream_refs
 
     def analyze(
         self,

@@ -47,6 +47,7 @@ pub const FIELD_ORDER: &[(&str, &[&str])] = &[
             "default_branch",
             "branches",
             "tags",
+            "upstream_refs",
             "contains",
             "git",
             "notable",

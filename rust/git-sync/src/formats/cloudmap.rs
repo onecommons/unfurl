@@ -570,11 +570,22 @@ fn escape_pointer(token: &str) -> String {
 /// Fields that are one leaf however they're structured: a repository host's
 /// refs, which change wholesale and aren't edited one at a time.
 const WHOLE_FIELDS: [&str; 2] = ["branches", "tags"];
+/// Fields whose members are each one leaf: one comparison per upstream.
+const WHOLE_MEMBER_FIELDS: [&str; 1] = ["upstream_refs"];
+
+/// Whether the value at `pointer` is one leaf however it's structured.
+fn is_whole(pointer: &str) -> bool {
+    WHOLE_FIELDS.contains(&pointer)
+        || pointer.split_once('/').is_some_and(|(field, member)| {
+            WHOLE_MEMBER_FIELDS.contains(&field) && !member.contains('/')
+        })
+}
 
 /// The leaves of a record, by JSON pointer without the leading "/", as
 /// `metadata.discovery.applied` names them: every value that isn't a
 /// non-empty object -- so an array is one leaf, and so are the top-level
-/// `branches` and `tags` -- except `metadata.discovery`.
+/// `branches` and `tags` and each entry of `upstream_refs` -- except
+/// `metadata.discovery`.
 ///
 /// Must match `field_pointers` in `unfurl/cloudmap/provenance.py`.
 fn field_pointers(record: &serde_json::Value) -> BTreeMap<String, &serde_json::Value> {
@@ -584,7 +595,7 @@ fn field_pointers(record: &serde_json::Value) -> BTreeMap<String, &serde_json::V
         fields: &mut BTreeMap<String, &'a serde_json::Value>,
     ) {
         match value.as_object() {
-            Some(members) if !members.is_empty() && !WHOLE_FIELDS.contains(&pointer.as_str()) => {
+            Some(members) if !members.is_empty() && !is_whole(&pointer) => {
                 for (key, member) in members {
                     if pointer == "metadata" && key == "discovery" {
                         continue;
@@ -1230,6 +1241,7 @@ mod tests {
                 "default_branch",
                 "branches",
                 "tags",
+                "upstream_refs",
                 "contains",
                 "git",
                 "notable",

@@ -661,6 +661,51 @@
         }
       }
     },
+    "upstreamRef": {
+      "$$target": "#/definitions/upstreamRef",
+      "type": "object",
+      "description": "How a branch or tag compares with the corresponding ref in an upstream repository.",
+      "required": [
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref.",
+          "enum": [
+            "identical",
+            "ahead",
+            "behind",
+            "diverged",
+            "unrelated",
+            "missing"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "description": "Name of the upstream ref, if it differs from this ref's name."
+        },
+        "commit": {
+          "type": "string",
+          "description": "Commit SHA of the upstream ref when compared."
+        },
+        "merge_base": {
+          "type": "string",
+          "description": "Commit SHA of the merge base of this ref and the upstream ref."
+        },
+        "ahead": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of commits on this ref that aren't on the upstream ref."
+        },
+        "behind": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of commits on the upstream ref that aren't on this ref."
+        }
+      }
+    },
     "repository": {
       "$$target": "#/definitions/repository",
       "type": "object",
@@ -787,6 +832,30 @@
           "additionalProperties": {
             "type": "string",
             "description": "Commit SHA hash for the tag."
+          }
+        },
+        "upstream_refs": {
+          "type": "object",
+          "description": "Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "branches": {
+                "type": "object",
+                "description": "Map of branch names to how they compare with the upstream.",
+                "additionalProperties": {
+                  "$ref": "#/definitions/upstreamRef"
+                }
+              },
+              "tags": {
+                "type": "object",
+                "description": "Map of tag names to how they compare with the upstream.",
+                "additionalProperties": {
+                  "$ref": "#/definitions/upstreamRef"
+                }
+              }
+            }
           }
         },
         "contains": {

@@ -22,6 +22,7 @@ from unfurl.tosca_plugins.cloudmap_defs import (
     TypeRefs,
     TypeRefConstraint,
     Service,
+    UpstreamRef,
 )
 from unfurl.util import change_cwd, API_VERSION
 from unfurl.repo import sanitize_url
@@ -295,6 +296,7 @@ def test_dataclass_field_order_matches_schema():
         # metadata subclasses, defined inline where they're used
         (ArtifactMetadata, defs["artifact"]["properties"]["metadata"]),
         (RepositoryMetadata, defs["repository"]["properties"]["metadata"]),
+        (UpstreamRef, defs["upstreamRef"]),
     ]
     for dataclass, node in pairs:
         # `url` is the record's key, never written into the value.

@@ -114,20 +114,25 @@ def _unescape_pointer(token: str) -> str:
 # fields that are one leaf however they're structured: a repository host's
 # refs, which change wholesale and aren't edited one at a time
 _WHOLE_FIELDS = ("branches", "tags")
+# fields whose members are each one leaf: one comparison per upstream
+_WHOLE_MEMBER_FIELDS = ("upstream_refs",)
 
 
 def field_pointers(record: Dict[str, Any]) -> Dict[str, Any]:
     """The leaves of a serialized record, by JSON pointer without the leading
     "/", as ``metadata.discovery.applied`` names them: every value that isn't a
     non-empty object -- so a list is one leaf, and so are the top-level
-    ``branches`` and ``tags`` -- except ``metadata.discovery``.
+    ``branches`` and ``tags`` and each entry of ``upstream_refs`` -- except
+    ``metadata.discovery``.
 
     Must match ``field_pointers`` in ``rust/git-sync/src/formats/cloudmap.rs``.
     """
     fields: Dict[str, Any] = {}
 
     def walk(value: Any, tokens: List[str]) -> None:
-        whole = len(tokens) == 1 and tokens[0] in _WHOLE_FIELDS
+        whole = (len(tokens) == 1 and tokens[0] in _WHOLE_FIELDS) or (
+            len(tokens) == 2 and tokens[0] in _WHOLE_MEMBER_FIELDS
+        )
         if isinstance(value, dict) and value and not whole:
             for key, member in value.items():
                 if tokens == ["metadata"] and key == "discovery":

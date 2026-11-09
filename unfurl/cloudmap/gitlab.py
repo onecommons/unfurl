@@ -190,6 +190,8 @@ class GitlabManager(RepositoryHost):
         r = self.gitlab_project_to_repository(dest_proj)
         self._record_move(r, directory)
         previous = directory.context.get_repository(r)
+        if previous:
+            r.upstream_refs = previous.upstream_refs
         directory.context.add_record(r)
         if download:
             # add remote branches to local repository

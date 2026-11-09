@@ -303,6 +303,8 @@ else:
             repo_info = self.github_repository_to_repository(repo)
             self._record_move(repo_info, directory)
             previous = directory.context.get_repository(repo_info)
+            if previous:
+                repo_info.upstream_refs = previous.upstream_refs
             directory.context.add_record(repo_info)
             if download:
                 # add remote branches to local repository
