@@ -27,9 +27,13 @@ from unfurl.tosca_plugins.cloudmap_defs import (
 from unfurl.util import change_cwd, API_VERSION
 from unfurl.repo import sanitize_url
 from unfurl.testing import init_project, run_cmd, run_job_cmd
+from functools import partial
 from unittest.mock import Mock, patch
+from unfurl.cloudmap.host import ReportedMetadata, ReportedRepository
+from unfurl.cloudmap.provenance import ProvenanceTrackingContext
 from unfurl.cloudmap import (
     CloudMap,
+    Directory,
     GitlabManager,
     GithubManager,
     CloudMapDB,
@@ -967,6 +971,14 @@ class TestGithubManager:
 
         mock_repo.get_tags.return_value = [mock_tag_v1, mock_tag_v2]
 
+        # an import overwrites only the metadata reported, so every key must
+        # be, even when empty; GitHub has no thumbnails or CI variables
+        _, metadata = manager.github_repository_fields(mock_repo)
+        assert set(metadata) == ReportedMetadata.__optional_keys__ - {
+            "thumbnail_url",
+            "ci_variables",
+        }
+
         # Convert to cloudmap Repository
         result = manager.github_repository_to_repository(mock_repo)
 
@@ -1106,6 +1118,14 @@ class TestGithubManager:
         mock_tag_v2.commit.sha = "tag333bbb444"
 
         mock_repo.get_tags.return_value = [mock_tag_v1, mock_tag_v2]
+
+        # an import overwrites only the metadata reported, so every key must
+        # be, even when empty; GitHub has no thumbnails or CI variables
+        _, metadata = manager.github_repository_fields(mock_repo)
+        assert set(metadata) == ReportedMetadata.__optional_keys__ - {
+            "thumbnail_url",
+            "ci_variables",
+        }
 
         # Convert to cloudmap Repository
         result = manager.github_repository_to_repository(mock_repo)
@@ -3147,6 +3167,19 @@ def _host_repo(url: str, internal_id: str = "7", **kw) -> Repository:
     return Repository(url=url, path=url.split("/", 3)[-1], internal_id=internal_id, **kw)
 
 
+REPORTED_FIELDS = ReportedRepository.__required_keys__
+
+
+def _reported(record: Repository):
+    """What a host reporting ``record`` returns."""
+    fields = {name: getattr(record, name) for name in REPORTED_FIELDS}
+    metadata = {
+        name: getattr(record.metadata, name)
+        for name in ReportedMetadata.__optional_keys__
+    }
+    return fields, metadata
+
+
 class _SyncSession:
     """Imports repositories the way one host sync does: through the host's own
     import method, reusing one host and directory, with only the host API
@@ -3159,18 +3192,18 @@ class _SyncSession:
         self.directory = Mock()
         self.directory.context = db
 
-    def import_repo(self, repo_info: Repository) -> None:
+    def import_repo(self, repo_info: Repository, download: bool = False) -> None:
         if self.manager_cls is GitlabManager:
             with patch.object(
-                GitlabManager, "gitlab_project_to_repository", return_value=repo_info
+                GitlabManager, "gitlab_project_fields", return_value=_reported(repo_info)
             ):
-                self.manager._import_project(Mock(), self.directory, False)
+                self.manager._import_project(Mock(), self.directory, download)
         else:
             with patch.object(
-                GithubManager, "github_repository_to_repository", return_value=repo_info
+                GithubManager, "github_repository_fields", return_value=_reported(repo_info)
             ):
                 self.manager._import_repository(
-                    Mock(full_name="x"), self.directory, False
+                    Mock(full_name="x"), self.directory, download
                 )
 
 
@@ -3198,6 +3231,137 @@ def test_sync_records_moved_repository(manager_cls):
     assert new and (new.status, new.moved_to) == ("moved", old_url)
     old = db.get_repository(old_url)
     assert old and (old.status, old.moved_to) == (None, None)
+
+
+@pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
+def test_resync_keeps_fields_the_host_doesnt_supply(manager_cls):
+    url = "git://example.com/team/repo.git"
+    analyzed = url + "#main:ensemble.yaml"
+    db = CloudMapDB("", contents={}, validate=False)
+    stored = _host_repo(
+        url,
+        status="archived",
+        initial_revision="a" * 40,
+        mirror_of="git://example.com/original/repo.git",
+        metadata=RepositoryMetadata(
+            description="old",
+            title="Repo",
+            documentation_url="https://example.com/docs",
+            discovery=Discovery(
+                sources=[analyzed], applied={analyzed: ["metadata/title"]}
+            ),
+        ),
+    )
+    stored.contains = TypeRefs.urls_fromdict({"ensemble.yaml": None}, keys_are_urls=True)
+    db.add_record(stored)
+    sync = _SyncSession(manager_cls, db)
+    sync.directory.context = ProvenanceTrackingContext(db)
+
+    sync.import_repo(
+        _host_repo(url, metadata=RepositoryMetadata(description="new"))
+    )
+    repo = db.get_repository(url)
+    # what the host reports replaces what was stored, even when it's empty
+    assert repo and repo.metadata.description == "new"
+    assert repo.status is None
+    kept = {
+        "initial_revision": repo.initial_revision,
+        "mirror_of": repo.mirror_of,
+        "title": repo.metadata.title,
+        "documentation_url": repo.metadata.documentation_url,
+        "sources": repo.metadata.discovery and repo.metadata.discovery.sources,
+        "contains": list(repo.contains),
+    }
+    assert kept == {
+        "initial_revision": "a" * 40,
+        "mirror_of": "git://example.com/original/repo.git",
+        "title": "Repo",
+        "documentation_url": "https://example.com/docs",
+        "sources": [analyzed],
+        "contains": [("", "ensemble.yaml")],
+    }
+
+
+@pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
+def test_failed_analysis_on_resync_restores_contains(manager_cls):
+    url = "git://example.com/team/repo.git"
+    db = CloudMapDB("", contents={}, validate=False)
+    stored = _host_repo(url)
+    stored.contains = TypeRefs.urls_fromdict({"ensemble.yaml": None}, keys_are_urls=True)
+    db.add_record(stored)
+    sync = _SyncSession(manager_cls, db)
+    directory = sync.directory
+    directory.context = ProvenanceTrackingContext(db)
+    directory.do_analysis = True
+
+    def analyze(repo_info, repo, paths=None):
+        repo_info.contains[("", "half-done.yaml")] = None
+        raise RuntimeError("analyzer failed")
+
+    directory.analyze = analyze
+    directory.maybe_analyze = partial(Directory.maybe_analyze, directory)
+    checkout = Mock()
+    checkout.repo.references = []
+    with patch.object(
+        manager_cls, "fetch_repo", return_value=(checkout, False)
+    ), patch.object(manager_cls, "git_url_with_auth", return_value=url):
+        sync.import_repo(_host_repo(url), download=True)
+    repo = db.get_repository(url)
+    assert repo and list(repo.contains) == [("", "ensemble.yaml")]
+
+
+def test_gitlab_reports_all_metadata():
+    """An import overwrites only the metadata reported, so every key must be,
+    even when empty."""
+    manager = GitlabManager.__new__(GitlabManager)
+    manager.logger = Mock()
+    manager.canonical_url = ""
+    manager.token = ""
+    manager.save_internal = False
+    manager.visibility = "public"
+    project = Mock(
+        attributes={},
+        default_branch="main",
+        http_url_to_repo="https://gitlab.example.com/g/p.git",
+        web_url="https://gitlab.example.com/g/p",
+        path_with_namespace="g/p",
+        forked_from_project=None,
+        avatar_url="",
+        issues_enabled=False,
+    )
+    project.branches.list.return_value = []
+    project.branches.get.return_value.commit = {"id": "c"}
+    project.tags.list.return_value = []
+    _, metadata = manager.gitlab_project_fields(project)
+    # GitLab has no license
+    assert set(metadata) == ReportedMetadata.__optional_keys__ - {"spdx_licenses"}
+
+
+@pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
+def test_resync_keeps_the_record_keyed_by_its_git_url(manager_cls):
+    url = "git://example.com/team/repo.git"
+    db = CloudMapDB("", contents={}, validate=False)
+    db.add_record(_host_repo(url, initial_revision="a" * 40))
+    sync = _SyncSession(manager_cls, db)
+    sync.directory.context = ProvenanceTrackingContext(db)
+    fields, metadata = _reported(_host_repo(url))
+    # hosts report the url they serve the repository at
+    fields["url"] = "https://example.com/team/repo.git"
+    fields["project_url"] = "https://example.com/team/repo"
+    with patch.object(
+        manager_cls,
+        "gitlab_project_fields"
+        if manager_cls is GitlabManager
+        else "github_repository_fields",
+        return_value=(fields, metadata),
+    ):
+        if manager_cls is GitlabManager:
+            sync.manager._import_project(Mock(), sync.directory, False)
+        else:
+            sync.manager._import_repository(Mock(full_name="x"), sync.directory, False)
+    assert list(db.repositories) == [url]
+    repo = db.get_repository(url)
+    assert repo and repo.url == url and repo.initial_revision == "a" * 40
 
 
 def test_sync_without_internal_id_records_no_move():
@@ -3301,7 +3465,7 @@ class TestAnalyzeMetadata(_GitlabHostFixture):
     def _analyze(self, db: CloudMapDB, fresh: Repository, with_host: bool = True):
         cloud_map, manager = self._cloudmap(db, with_host)
         with patch.object(CloudMap, "get_host", return_value=manager), patch.object(
-            GitlabManager, "gitlab_project_to_repository", return_value=fresh
+            GitlabManager, "gitlab_project_fields", return_value=_reported(fresh)
         ):
             return cloud_map.analyze_url(self.SENT, "metadata")
 

@@ -21,6 +21,7 @@ from typing import (
     List,
     Optional,
     Tuple,
+    TypedDict,
     cast,
 )
 from urllib.parse import urljoin, urlparse
@@ -34,6 +35,8 @@ from ..repo import GitRepo, is_git_worktree, normalize_git_url, sanitize_url
 from ..tosca_plugins.cloudmap_defs import (
     Instantiation,
     Repository,
+    RepositoryMetadata,
+    RepositoryStatus,
     TypeRefStatus,
     get_repository_url,
 )
@@ -42,6 +45,36 @@ if TYPE_CHECKING:
     from . import Directory
 
 logger = getLogger("unfurl")
+
+
+class ReportedRepository(TypedDict):
+    """The fields of a repository record that its host reports."""
+
+    url: str
+    path: str
+    name: str
+    protocols: List[str]
+    internal_id: Optional[str]
+    project_url: str
+    fork_of: Optional[str]
+    private: Optional[bool]
+    status: Optional[RepositoryStatus]
+    moved_to: Optional[str]
+    default_branch: str
+    branches: Dict[str, str]
+    tags: Dict[str, str]
+
+
+class ReportedMetadata(TypedDict, total=False):
+    """The fields of a repository's metadata that its host reports."""
+
+    description: str
+    topics: List[str]
+    spdx_licenses: str
+    homepage_url: str
+    thumbnail_url: str
+    issues_url: str
+    ci_variables: Optional[dict]
 
 
 def find_git_repos(rootDir: str, gitDir=".git") -> Iterator[str]:
@@ -183,6 +216,23 @@ class RepositoryHost:
 
     MAX_GIT_REFS = 100
     DEFAULT_PIPELINE_LIMIT = 50
+    @staticmethod
+    def reported_record(
+        fields: ReportedRepository,
+        metadata: ReportedMetadata,
+        previous: Optional[Repository] = None,
+    ) -> Repository:
+        """``previous`` updated with what the host reports, or a new record of it."""
+        # constructed even to update ``previous``: that normalizes its urls
+        record = Repository(**fields, metadata=RepositoryMetadata(**metadata))
+        record.metadata.set_lastupdate()
+        if previous is None:
+            return record
+        for name in fields:
+            setattr(previous, name, getattr(record, name))
+        for name in metadata:
+            setattr(previous.metadata, name, getattr(record.metadata, name))
+        return previous
 
     def __init__(
         self,
@@ -361,7 +411,9 @@ class RepositoryHost:
             self.logger.error("Error retrieving content for %s", r.url, exc_info=True)
         else:
             directory.compare_upstreams(r, repo)
-            directory.maybe_analyze(r, repo, previous.contains if previous else {})
+            directory.maybe_analyze(
+                r, repo, dict(previous.contains) if previous else {}
+            )
 
     def _push_to_host(
         self,
@@ -551,7 +603,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                     directory.context.add_record(repository)
                 directory.compare_upstreams(repository, repo)
                 directory.maybe_analyze(
-                    repository, repo, previous.contains if previous else {}
+                    repository, repo, dict(previous.contains) if previous else {}
                 )
                 count += 1
         return count

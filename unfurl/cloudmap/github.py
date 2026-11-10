@@ -11,7 +11,7 @@ that syncs a cloud map with GitHub (or GitHub Enterprise) via ``PyGithub``.
 from __future__ import annotations
 
 from itertools import islice
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple, Union, cast
 from urllib.parse import urlparse
 
 from ..logs import getLogger
@@ -23,12 +23,16 @@ from ..tosca_plugins.cloudmap_defs import (
     PipelineArtifact,
     PipelineRunProperties,
     Repository,
-    RepositoryMetadata,
     TypeRefConstraint,
     TypeRefs,
     get_repository_url,
 )
-from .host import RepositoryHost, map_ci_status
+from .host import (
+    ReportedMetadata,
+    ReportedRepository,
+    RepositoryHost,
+    map_ci_status,
+)
 
 if TYPE_CHECKING:
     from . import Directory
@@ -186,56 +190,47 @@ else:
             self, repo: "GithubRepository"
         ) -> Repository:
             """Convert PyGithub Repository object to cloudmap Repository dataclass."""
-            # Extract git URL and scheme
-            git_url = self.canonize(repo.clone_url)
+            return self.reported_record(*self.github_repository_fields(repo))
 
-            # Build protocols list
+        def github_repository_fields(
+            self, repo: "GithubRepository"
+        ) -> Tuple[ReportedRepository, ReportedMetadata]:
+            """What GitHub reports about ``repo``: a repository record's fields
+            and its metadata's."""
             protocols = ["https"]
             if repo.ssh_url:
                 protocols.append("ssh")
-
-            # Extract metadata
-            kw: Dict[str, Any] = {}
-            if repo.homepage:
-                kw["homepage_url"] = repo.homepage
             # note: skipping thumbnail_url for GitHub, projects don't have thumbnails (only owners)
-            if repo.has_issues:
-                kw["issues_url"] = self.canonize(repo.html_url + "/issues")
-
-            metadata = RepositoryMetadata(
+            metadata = ReportedMetadata(
                 description=repo.description or "",
                 topics=repo.get_topics(),
                 spdx_licenses=repo.license.spdx_id if repo.license else "",
-                **kw,
+                homepage_url=repo.homepage or "",
+                issues_url=self.canonize(repo.html_url + "/issues")
+                if repo.has_issues
+                else "",
             )
-            metadata.set_lastupdate()
-
-            # Build Repository object
-            repository = Repository(
-                initial_revision="",  # XXX
-                url=git_url,
+            fields = ReportedRepository(
+                url=self.canonize(repo.clone_url),
+                path=f"{repo.owner.login}/{repo.name}",
                 name=repo.name,
                 protocols=protocols,
-                path=f"{repo.owner.login}/{repo.name}",
-                default_branch=repo.default_branch or "main",
+                internal_id=str(repo.id) if self.save_internal else None,
                 project_url=self.canonize(repo.html_url),
-                metadata=metadata,
                 fork_of=get_repository_url(self.canonize(repo.parent.clone_url))
                 if repo.fork and repo.parent
                 else None,
                 private=repo.private,
                 status="archived" if repo.archived else None,
+                moved_to=None,
+                default_branch=repo.default_branch or "main",
                 branches=self._branches(repo),
                 tags={
                     t.name: t.commit.sha
                     for t in islice(repo.get_tags(), self.MAX_GIT_REFS)
                 },
             )
-
-            if self.save_internal:
-                repository.internal_id = str(repo.id)
-
-            return repository
+            return fields, metadata
 
         def git_url_with_auth(self, repo: GithubRepository) -> str:
             """Generate authenticated git URL for PyGithub Repository."""
@@ -299,12 +294,10 @@ else:
             directory: Directory,
             download: bool,
         ) -> Repository:
-            # Convert and add to directory
-            repo_info = self.github_repository_to_repository(repo)
+            fields, metadata = self.github_repository_fields(repo)
+            previous = directory.context.get_repository(fields["url"])
+            repo_info = self.reported_record(fields, metadata, previous)
             self._record_move(repo_info, directory)
-            previous = directory.context.get_repository(repo_info)
-            if previous:
-                repo_info.upstream_refs = previous.upstream_refs
             directory.context.add_record(repo_info)
             if download:
                 # add remote branches to local repository

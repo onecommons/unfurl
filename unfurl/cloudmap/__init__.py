@@ -57,6 +57,7 @@ import os
 import os.path
 from typing import (
     TYPE_CHECKING,
+    Any,
     Callable,
     Iterator,
     Optional,
@@ -283,11 +284,12 @@ Analyze_Options = Literal["yes", "no", "save-only", "default", "metadata"]
 RepoLocator = Callable[[str, str, bool], str]
 
 
-def _refreshed_unchanged(previous: Repository, refreshed: Repository) -> bool:
-    """True if a metadata refresh left the record as it was, ignoring what only
-    analysis sets (``contains``) and the record's provenance."""
+def _refreshed_unchanged(before: Dict[str, Any], refreshed: Repository) -> bool:
+    """True if a metadata refresh left the record as it was (``before``, as a
+    dict), ignoring what only analysis sets (``contains``) and the record's
+    provenance."""
 
-    before, after = previous.asdict(), refreshed.asdict()
+    after = refreshed.asdict()
     for record in (before, after):
         record.pop("contains", None)
         metadata = record.get("metadata")
@@ -1510,6 +1512,7 @@ class CloudMap:
             else:
                 download = True
         previous: Optional[Repository] = None
+        before: Dict[str, Any] = {}
         if analyze == "metadata" and not self.local_env:
             self.logger.warning(
                 "Can't refresh %s: no repository host to read its metadata from",
@@ -1533,6 +1536,9 @@ class CloudMap:
                     previous = context.get_repository(
                         get_repository_url(host.canonize(repo_url))
                     ) or context.get_repository(canonical_url)
+                    if previous:
+                        # the import updates it in place
+                        before = previous.asdict()
                 try:
                     # what the host reports is the repository's own record, under
                     # the key the host gives it, whatever url was analyzed
@@ -1561,11 +1567,9 @@ class CloudMap:
                 return None
 
             if previous is not None and repo_info is not None:
-                if _refreshed_unchanged(previous, repo_info):
+                if _refreshed_unchanged(before, repo_info):
                     context.add_record(previous)
                     return None
-                # a host builds the record afresh: keep what analysis found
-                repo_info.contains = previous.contains
 
             if repo_info is None:
                 # Fallback: build a minimal Repository from URL components

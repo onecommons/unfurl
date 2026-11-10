@@ -30,14 +30,18 @@ from ..tosca_plugins.cloudmap_defs import (
     PipelineRunProperties,
     PipelineVariable,
     Repository,
-    RepositoryMetadata,
     RepositoryStatus,
     TypeRefConstraint,
     TypeRefs,
     get_repository_url,
 )
 from ..yamlloader import urlopen
-from .host import RepositoryHost, map_ci_status
+from .host import (
+    ReportedMetadata,
+    ReportedRepository,
+    RepositoryHost,
+    map_ci_status,
+)
 
 if TYPE_CHECKING:
     from . import Directory
@@ -187,11 +191,10 @@ class GitlabManager(RepositoryHost):
         directory: Directory,
         download: bool,
     ) -> Repository:
-        r = self.gitlab_project_to_repository(dest_proj)
+        fields, metadata = self.gitlab_project_fields(dest_proj)
+        previous = directory.context.get_repository(fields["url"])
+        r = self.reported_record(fields, metadata, previous)
         self._record_move(r, directory)
-        previous = directory.context.get_repository(r)
-        if previous:
-            r.upstream_refs = previous.upstream_refs
         directory.context.add_record(r)
         if download:
             # add remote branches to local repository
@@ -374,7 +377,7 @@ class GitlabManager(RepositoryHost):
                 avatar = urlopen(repo_info.metadata.thumbnail_url).read()
             except Exception:
                 self.logger.error(
-                    f"Error retrieving avatar at %s",
+                    "Error retrieving avatar at %s",
                     repo_info.metadata.thumbnail_url,
                     exc_info=True,
                 )
@@ -422,50 +425,55 @@ class GitlabManager(RepositoryHost):
         return changed
 
     def gitlab_project_to_repository(self, project: Project) -> Repository:
+        return self.reported_record(*self.gitlab_project_fields(project))
+
+    def gitlab_project_fields(
+        self, project: Project
+    ) -> Tuple[ReportedRepository, ReportedMetadata]:
+        """What GitLab reports about ``project``: a repository record's fields
+        and its metadata's."""
         self.logger.verbose("getting %s", project.http_url_to_repo)
-        kw = {}
         # XXX
         # if project.license:
         #    kw["license"] = project.license.key in spdx_ids # or nickname or name
-        if self.save_internal and project.avatar_url:
-            # these urls point to the instance's uploaded files and aren't portable
-            kw["thumbnail_url"] = project.avatar_url
-        if getattr(project, "issues_enabled", False):
-            kw["issues_url"] = self.canonize(project.web_url + "/-/issues")
         forked_from = getattr(project, "forked_from_project", None)
-
         # https://docs.gitlab.com/ee/api/projects.html#get-single-project
-        metadata = RepositoryMetadata(
+        metadata = ReportedMetadata(
             description=project.description,
             topics=project.topics,
             homepage_url=self.canonize(project.web_url),
-            **kw,
-        )
-        if self.visibility != "public" and self.save_internal:
-            metadata.ci_variables = {
+            # these urls point to the instance's uploaded files and aren't portable
+            thumbnail_url=project.avatar_url
+            if self.save_internal and project.avatar_url
+            else "",
+            issues_url=self.canonize(project.web_url + "/-/issues")
+            if getattr(project, "issues_enabled", False)
+            else "",
+            ci_variables={
                 envvar["key"]: _clean_ci_var(envvar)
                 for envvar in yield_ci_variables(project)
             }
-        metadata.set_lastupdate()
+            if self.visibility != "public" and self.save_internal
+            else None,
+        )
         git_url = project.http_url_to_repo
-        parts = urlparse(git_url)
-        protocols = [parts.scheme]
+        protocols = [urlparse(git_url).scheme]
         if project.ssh_url_to_repo:
             protocols.append("ssh")
-        repository = Repository(
-            initial_revision="",  # XXX
+        fields = ReportedRepository(
             url=self.canonize(git_url),
+            path=project.path_with_namespace,
             name=project.name,
             protocols=protocols,
-            path=project.path_with_namespace,
-            default_branch=project.default_branch,
+            internal_id=str(project.get_id()) if self.save_internal else None,
             project_url=self.canonize(project.web_url),
-            metadata=metadata,
             fork_of=get_repository_url(self.canonize(forked_from["http_url_to_repo"]))
             if forked_from
             else None,
             private=self._get_project_visibility(project) != "public",
             status=_project_status(project),
+            moved_to=None,
+            default_branch=project.default_branch,
             branches=self._branches(project),
             tags={
                 t.name: t.commit["id"]
@@ -474,9 +482,7 @@ class GitlabManager(RepositoryHost):
                 )
             },
         )
-        if self.save_internal:
-            repository.internal_id = str(project.get_id())
-        return repository
+        return fields, metadata
 
     def _branches(self, project: Project) -> Dict[str, str]:
         """The project's branches, capped at ``MAX_GIT_REFS``.
