@@ -4646,7 +4646,6 @@ dependencies = [
  "hashbrown 0.15.5",
  "log",
  "pyo3",
- "pyo3-log",
  "regex",
  "semver",
 ]
@@ -4880,6 +4879,15 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tracing",
+]
+
+[[package]]
+name = "unfurl-py"
+version = "0.1.0"
+dependencies = [
+ "pyo3",
+ "pyo3-log",
+ "tosca-solver",
 ]
 
 [[package]]

@@ -11,11 +11,11 @@ Each TOSCA requirement is encoded as a set of constraints including:
 
 ``solve()`` will return the nodes that match the requirements associated with a given set of nodes.
 
-By default this crate is exposed as a Python extension module and is used by [Unfurl](https://github.com/onecommons/unfurl), but it could be used by any TOSCA 1.3 processor.
+It is used by [Unfurl](https://github.com/onecommons/unfurl), whose ``unfurl-py`` crate exposes it to Python as part of the ``unfurl._rust`` extension module, but it could be used by any TOSCA 1.3 processor.
 
 ## Usage
 
-By default, this crate is built as a Python extension, to disable this feature, set ``default-features = false``. The ``solve`` function is its main entry point and can invoked from the Rust or Python. Your TOSCA topology will have to be encoded as a HashMap of Nodes -- see https://github.com/onecommons/unfurl/blob/main/unfurl/solver.py for an example.
+The ``python`` feature adds the pyo3 annotations that let ``unfurl-py`` expose the solver's types and functions to Python. The ``solve`` function is its main entry point and can be invoked from Rust or Python. Your TOSCA topology will have to be encoded as a HashMap of Nodes -- see https://github.com/onecommons/unfurl/blob/main/unfurl/solver.py for an example.
 
 ## Design notes
 

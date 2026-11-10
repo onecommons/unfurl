@@ -14,11 +14,9 @@ keywords = ["devops"] # https://crates.io/keywords/devops
 
 [lib]
 name = "tosca_solver"
-crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.25.1", features = ["hashbrown"] }
-pyo3-log = "0.12.4"
 ascent = "0.8.0"
 # add to match py03 version:
 hashbrown = "0.15"
@@ -28,5 +26,6 @@ regex = "1"
 # ascent-byods-rels = "0.7.0"
 
 [features]
-python = ["pyo3/extension-module"]
-default = ["python"]
+# The pyo3 annotations `unfurl-py` exposes the solver to Python with.
+python = []
+default = []

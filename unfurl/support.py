@@ -89,7 +89,7 @@ from .util import (
 from .merge import intersect_dict, merge_dicts
 
 try:
-    from .tosca_solver import regex_match_exact, make_pattern_constraint
+    from ._rust import regex_match_exact, make_pattern_constraint
 except ImportError:
     regex_match_exact = None
     make_pattern_constraint = None

@@ -1,0 +1,23 @@
+[package]
+name = "unfurl-py"
+version = "0.1.0"
+edition = "2021"
+# Set by `tosca-solver`.
+rust-version = "1.82"
+authors = ["Adam Souzis <adam@souzis.com>"]
+license = "MIT"
+description = "Unfurl's Python extension module, unfurl._rust."
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.25.1", features = ["hashbrown"] }
+pyo3-log = "0.12.4"
+tosca-solver = { path = "../solver", features = ["python"], optional = true }
+
+[features]
+python = ["pyo3/extension-module"]
+solver = ["dep:tosca-solver"]
+default = ["python", "solver"]

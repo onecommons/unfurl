@@ -45,8 +45,8 @@ include-package-data = true
 include = ["unfurl*"]
 
 [[tool.setuptools-rust.ext-modules]]
-target = "unfurl.tosca_solver"
-path = "rust/solver/Cargo.toml"
+target = "unfurl._rust"
+path = "rust/py/Cargo.toml"
 
 [[tool.setuptools-rust.bins]]
 target = "unfurl-server"

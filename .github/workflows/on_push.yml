@@ -259,10 +259,12 @@ jobs:
           cargo llvm-cov show-env | sed "s/='\(.*\)'$/=\1/" >> "$GITHUB_ENV"
       - name: Run cargo test
         run: |
-          cargo test --manifest-path rust/Cargo.toml --workspace --exclude tosca-solver
+          # unfurl-py's default `python` feature is pyo3/extension-module, which
+          # doesn't link outside a python extension build
+          cargo test --manifest-path rust/Cargo.toml --workspace --exclude unfurl-py
           # the run above takes Postgres from UNFURL_TEST_PG_URL; this one SQLite
           UNFURL_TEST_PG_URL= cargo test --manifest-path rust/Cargo.toml -p unfurl-server --test test_cloudmap
-          cargo test --manifest-path rust/Cargo.toml -p tosca-solver --no-default-features
+          cargo check --manifest-path rust/Cargo.toml -p unfurl-py --no-default-features --features solver --tests
           # the workspace run has git-sync's postgres feature via unfurl-server's;
           # it runs the SQL harness on SQLite, this on Postgres
           SEGMENTS_SQL_PG=1 cargo test --manifest-path rust/Cargo.toml -p unfurl-git-sync --features postgres --test segments_sql

@@ -113,7 +113,7 @@ try:
 except ImportError:
     solve_topology = None  # type: ignore
     logger.warning(
-        "Failed to import tosca_solver extension, topology inference is disabled."
+        "Failed to import the unfurl._rust extension, topology inference is disabled."
     )
     logger.debug("solver import error:", exc_info=True)
 

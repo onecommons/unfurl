@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 import sys
 
 # import types from rust extension
-from .tosca_solver import (  # type: ignore
+from ._rust import (  # type: ignore
     solve,
     CriteriaTerm,
     Field,

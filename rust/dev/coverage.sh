@@ -75,14 +75,13 @@ elif [ "$REPORT_ONLY" -eq 1 ]; then
     echo "==> cargo llvm-cov report (merging existing .profraw files)"
     cargo llvm-cov report --lcov --output-path "$RAW_LCOV"
 else
-    # Two runs merged into one report: the solver has to drop its default
-    # `python` feature (pyo3/extension-module doesn't link outside a python
-    # extension build), while every other crate is measured with its defaults
-    # on -- which is how unfurl-server gets its postgres code covered.
-    echo "==> cargo llvm-cov --workspace (solver separately, --no-default-features)"
+    # unfurl-py is left out: its default `python` feature is
+    # pyo3/extension-module, which doesn't link outside a python extension
+    # build. Every other crate is measured with its defaults on -- which is
+    # how unfurl-server gets its postgres code covered.
+    echo "==> cargo llvm-cov --workspace (but unfurl-py)"
     cargo llvm-cov clean --workspace
-    cargo llvm-cov --no-report --workspace --exclude tosca-solver
-    cargo llvm-cov --no-report -p tosca-solver --no-default-features
+    cargo llvm-cov --no-report --workspace --exclude unfurl-py
     cargo llvm-cov report --lcov --output-path "$RAW_LCOV"
 fi
 

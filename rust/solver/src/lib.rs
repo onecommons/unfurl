@@ -686,24 +686,6 @@ pub fn make_pattern_constraint(pattern: &str) -> PyResult<Constraint> {
     })
 }
 
-/// A Python module implemented in Rust.
-#[cfg(feature = "python")]
-#[pymodule]
-fn tosca_solver(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    pyo3_log::init();
-    m.add_function(wrap_pyfunction!(solve, m)?)?;
-    m.add_function(wrap_pyfunction!(regex_match_exact, m)?)?;
-    m.add_function(wrap_pyfunction!(make_pattern_constraint, m)?)?;
-    m.add_class::<CriteriaTerm>()?;
-    m.add_class::<SimpleValue>()?;
-    m.add_class::<ToscaValue>()?;
-    m.add_class::<Constraint>()?;
-    m.add_class::<Field>()?;
-    m.add_class::<FieldValue>()?;
-    m.add_class::<QueryType>()?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

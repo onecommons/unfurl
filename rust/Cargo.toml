@@ -5,4 +5,5 @@ members = [
     "server",
     "git-sync",
     "merge",
+    "py",
 ]
