@@ -78,6 +78,7 @@ pub mod model;
 mod rebase;
 pub mod rollup;
 mod scan;
+mod scope;
 mod segments;
 pub mod sync;
 

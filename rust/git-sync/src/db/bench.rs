@@ -400,6 +400,7 @@ async fn writes<DB: Store>(pool: &sqlx::Pool<DB>) {
         worktree_id: FORK,
         family_id: MAIN,
         formats: &formats,
+        scope: None,
     };
     let batch = |ops: Vec<BatchOp>| async move {
         let n = ops.len();

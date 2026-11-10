@@ -108,6 +108,9 @@ struct SyncedRepoInner {
     /// they change. In memory only: the formats are fixed at open, and a
     /// new process parses each once.
     unrecognized: std::sync::Mutex<Unrecognized>,
+    /// The files this handle takes in and writes, from the pathspecs it
+    /// was opened with; `None` is every tracked file.
+    scope: Option<Arc<crate::scope::Scope>>,
     /// The HEAD the last scan walked history at. While HEAD stays there, a
     /// clean file's last commit is the one on record.
     walked_head: std::sync::Mutex<Option<CommitId>>,
@@ -119,6 +122,19 @@ struct SyncedRepoInner {
 /// A document can be wrong in every record it has, and one log line each
 /// would bury everything else the scan reported.
 const MAX_LOGGED_FINDINGS: usize = 10;
+
+/// Refuse `scope` for worktree `w` when it already holds a file outside
+/// it, whose records a scoped rebuild would drop.
+async fn check_scope(db: &Db, w: i64, scope: &crate::scope::Scope) -> Result<()> {
+    let outside = db::file::list(db, w)
+        .await?
+        .into_iter()
+        .find(|f| !f.deleted && !scope.contains(&f.path));
+    match outside {
+        Some(f) => Err(Error::OutOfScope { file_path: f.path }),
+        None => Ok(()),
+    }
+}
 
 /// Emits one event per validation finding, plus a summary line.
 ///
@@ -226,6 +242,103 @@ impl Unrecognized {
     fn contains(&self, path: &str, blob: gix::ObjectId) -> bool {
         self.disk.get(path) == Some(&blob) || self.head.get(path) == Some(&blob)
     }
+}
+
+/// What a scan's first pass found across the tracked files.
+struct Walked<'a> {
+    candidates: Vec<Candidate<'a>>,
+    /// Candidates whose last commit is looked up in history.
+    walk_paths: Vec<String>,
+    /// Every path in the index.
+    indexed: std::collections::HashSet<&'a str>,
+    /// In the index, gone from the working tree.
+    vanished: std::collections::HashSet<String>,
+}
+
+/// What a scan's second pass made of the candidates.
+struct Parsed<'a> {
+    /// Each file to take in, with the version its last commit resolves.
+    docs: Vec<(Candidate<'a>, ParsedDoc<'a>, Option<i64>)>,
+    /// Files already taken in whose last commit is now another.
+    attributions: Vec<(String, Option<CommitId>)>,
+}
+
+/// What a file gone from the working tree is taken in with.
+struct OrphanSide<'a> {
+    known_files: &'a std::collections::HashMap<String, crate::model::File>,
+    /// The empty document its records are taken in as deleted from.
+    empty: &'a serde_json::Value,
+    no_validation: &'a crate::Validation,
+}
+
+/// Files the database knows and the working tree no longer has, either
+/// because the index dropped them or because the file itself is gone,
+/// less the renames among them: a rename is an orphan and a brand-new path
+/// holding the exact bytes the orphan's records were parsed from.
+/// Exact-content only: a move that also edited the file, or an ambiguity
+/// in either direction, falls back to delete-and-add -- noisier, but never
+/// a guess.
+fn orphans_and_renames(
+    known_files: &std::collections::HashMap<String, crate::model::File>,
+    walked: &mut Walked<'_>,
+    stats: &mut SyncOutcome,
+) -> (Vec<String>, Vec<(String, String)>) {
+    let mut orphans: Vec<String> = known_files
+        .iter()
+        .filter(|(path, f)| {
+            !f.deleted
+                && (!walked.indexed.contains(path.as_str()) || walked.vanished.contains(*path))
+        })
+        .map(|(path, _)| path.clone())
+        .collect();
+    orphans.sort();
+    if orphans.is_empty() {
+        return (orphans, Vec::new());
+    }
+    let arrivals: Vec<(&str, &str)> = walked
+        .candidates
+        .iter()
+        .filter(|c| !known_files.contains_key(&c.tf.rel_path))
+        .map(|c| (c.tf.rel_path.as_str(), c.disk_blob.as_str()))
+        .collect();
+    let renames = crate::scan::match_renames(&orphans, known_files, &arrivals);
+    for (from, to) in &renames {
+        orphans.retain(|p| p != from);
+        // The records the destination holds are the ones being moved: no
+        // reparse.
+        if let Some(c) = walked.candidates.iter_mut().find(|c| &c.tf.rel_path == to) {
+            c.parsed_doc = None;
+        }
+        stats.files_renamed.push((from.clone(), to.clone()));
+    }
+    (orphans, renames)
+}
+
+/// The files of `docs` as the scan takes them in.
+fn disk_files_of<'a>(
+    docs: &'a [(Candidate<'a>, ParsedDoc<'a>, Option<i64>)],
+    last_commits: &std::collections::HashMap<String, CommitId>,
+    options: &ScanOptions,
+) -> Vec<DiskFile<'a>> {
+    docs.iter()
+        .map(|(c, doc, resolves_version)| {
+            let record_commit_id = c.last_commit(last_commits);
+            DiskFile {
+                file: ScannedFile {
+                    rel_path: &c.tf.rel_path,
+                    record_commit_id,
+                    file_commit_id: if c.clean { record_commit_id } else { None },
+                    source_oid: &c.disk_blob,
+                    value: &doc.value,
+                    format: doc.format,
+                    force: options.force,
+                    resolves_version: *resolves_version,
+                    validation: &doc.validation,
+                },
+                gone: false,
+            }
+        })
+        .collect()
 }
 
 /// What a scan's first pass reads each tracked file against.
@@ -339,23 +452,49 @@ impl SyncedRepo {
         db: DbConfig,
         formats: FormatRegistry,
     ) -> Result<Self> {
-        Self::open_with(working_dir, db, formats, git::Trust::Full).await
+        Self::open_with(working_dir, db, formats, git::Trust::Full, &[]).await
     }
 
-    /// [`Self::open`], trusting the repository's own config to `trust`:
-    /// with [`git::Trust::Reduced`], it's ignored but for its remotes' urls
+    /// Like [`Self::open`], but open with the given trust level,
+    /// with [`git::Trust::Reduced`], all git config settings are ignored except for remote urls
     /// and its user's name and email (see [`git::Opener`]).
+    ///
+    /// Non-empty `pathspecs` limit the handle to the files they match:
+    /// git pathspecs relative to `working_dir`, such as `cloudmap.yaml`,
+    /// `cloudmaps/`, `*.yaml` or `:!vendor/`, parsed with git's defaults
+    /// whatever the environment says. Scans read and hash only those files,
+    /// as if the repository held only them. If empty, every file is scanned.
+    ///
+    /// A database used through such a handle should always be opened with
+    /// the same pathspecs: a rebuild from HEAD sees only what they match,
+    /// and would drop records of any other file. The check for that runs
+    /// once the worktree is found or forked, so a refused open leaves a new
+    /// worktree in place. Handles on other worktrees of the family that this
+    /// one reaches, an upstream's for a rebase, see the same files.
+    /// [`Self::rebase_onto`] and [`Self::merge_upstream`] still need the
+    /// whole working tree clean: they rewrite commits, whatever it matches.
     ///
     /// # Errors
     ///
-    /// As [`Self::open`].
+    /// As [`Self::open`]; [`Error::InvalidPathspec`] for a pathspec that
+    /// doesn't parse, uses attribute magic, or reaches outside the working
+    /// tree; [`Error::OutOfScope`] when the worktree already holds a file
+    /// the pathspecs don't match.
     pub async fn open_with(
         working_dir: impl AsRef<Path>,
         db: DbConfig,
         formats: FormatRegistry,
         trust: git::Trust,
+        pathspecs: &[&str],
     ) -> Result<Self> {
-        Self::open_on(working_dir, Db::connect(&db).await?, formats, trust).await
+        Self::open_on(
+            working_dir,
+            Db::connect(&db).await?,
+            formats,
+            trust,
+            pathspecs,
+        )
+        .await
     }
 
     /// [`Self::open_with`], on `db`, an open database whose pool other
@@ -363,14 +502,16 @@ impl SyncedRepo {
     ///
     /// # Errors
     ///
-    /// As [`Self::open`].
+    /// As [`Self::open_with`].
     pub async fn open_on(
         working_dir: impl AsRef<Path>,
         db: Db,
         formats: FormatRegistry,
         trust: git::Trust,
+        pathspecs: &[&str],
     ) -> Result<Self> {
         let repo_path = working_dir.as_ref().to_path_buf();
+        let scope = crate::scope::Scope::new(pathspecs, &repo_path)?.map(Arc::new);
         let opener = git::Opener::new(&repo_path, trust)?;
 
         // Inspect the repo once at open time to get origin/branch, and to
@@ -392,6 +533,9 @@ impl SyncedRepo {
         if let Some(branch) = default_branch {
             record_default_branch(&db, worktree_id, &meta.origin, &branch).await?;
         }
+        if let Some(scope) = &scope {
+            check_scope(&db, worktree_id, scope).await?;
+        }
 
         Ok(Self {
             inner: Arc::new(SyncedRepoInner {
@@ -402,9 +546,15 @@ impl SyncedRepo {
                 worktree_id,
                 family_id,
                 unrecognized: Default::default(),
+                scope,
                 walked_head: Default::default(),
             }),
         })
+    }
+
+    /// Whether this handle takes in and writes `path`.
+    pub(crate) fn in_scope(&self, path: &str) -> bool {
+        self.inner.scope.as_ref().is_none_or(|s| s.contains(path))
     }
 
     /// The checkout's directory, as it was opened.
@@ -448,6 +598,7 @@ impl SyncedRepo {
             worktree_id: self.worktree_id(),
             family_id: self.family_id(),
             formats: self.formats(),
+            scope: self.inner.scope.as_deref(),
         }
     }
 
@@ -465,6 +616,7 @@ impl SyncedRepo {
                 worktree_id,
                 family_id: self.inner.family_id,
                 unrecognized: Default::default(),
+                scope: self.inner.scope.clone(),
                 walked_head: Default::default(),
             }),
         }
@@ -840,11 +992,16 @@ impl SyncedRepo {
         let repo = self.repo()?;
         let head = meta.head_oid;
         let recovered = self.follow_head(&meta.branch, head, options).await?;
-        let tracked = git::tracked_files(&repo)?;
+        let tracked: Vec<git::TrackedFile> = git::tracked_files(&repo)?
+            .into_iter()
+            .filter(|tf| self.in_scope(&tf.rel_path))
+            .collect();
+        // so a file outside the scope never reads as deleted
         let known_files: std::collections::HashMap<String, crate::model::File> =
             db::file::list(self.db(), self.worktree_id())
                 .await?
                 .into_iter()
+                .filter(|f| self.in_scope(&f.path))
                 .map(|f| (f.path.clone(), f))
                 .collect();
         let mut stats = SyncOutcome {
@@ -862,14 +1019,9 @@ impl SyncedRepo {
         let head_changed: BTreeSet<String> =
             head_files.iter().map(|f| f.rel_path.clone()).collect();
 
-        let mut candidates: Vec<Candidate<'_>> = Vec::new();
-        let mut walk_paths: Vec<String> = Vec::new();
-        let mut indexed: std::collections::HashSet<&str> =
-            std::collections::HashSet::with_capacity(tracked.len());
-        let mut vanished: std::collections::HashSet<String> = std::collections::HashSet::new();
-        // `pass` borrows the repository, which isn't `Sync`, so it's
-        // scoped to end before the next await
-        {
+        let mut walked = {
+            // `pass` borrows the repository, which isn't `Sync`, so it's
+            // scoped to end before the next await
             let pass = FirstPass {
                 repo: &repo,
                 options,
@@ -878,163 +1030,29 @@ impl SyncedRepo {
                 head_changed: &head_changed,
                 known_files: &known_files,
             };
-
-            for tf in &tracked {
-                stats.files_seen += 1;
-                indexed.insert(tf.rel_path.as_str());
-                match self.classify(&pass, tf, &mut stats) {
-                    Classified::Skip => {}
-                    Classified::Vanished => {
-                        vanished.insert(tf.rel_path.clone());
-                    }
-                    Classified::Candidate(c) => {
-                        if c.needs_history {
-                            walk_paths.push(tf.rel_path.clone());
-                        }
-                        candidates.push(c);
-                    }
-                }
-            }
-        }
-
-        {
-            let mut unrecognized = self.unrecognized();
-            unrecognized
-                .disk
-                .retain(|path, _| indexed.contains(path.as_str()));
-            unrecognized
-                .head
-                .retain(|path, _| head_blobs.contains_key(path));
-        }
-        // Files the database knows and the working tree no longer has,
-        // either because the index dropped them or because the file
-        // itself is gone. Their records are taken in as deleted.
-        let mut orphans: Vec<String> = known_files
-            .iter()
-            .filter(|(path, f)| {
-                !f.deleted && (!indexed.contains(path.as_str()) || vanished.contains(*path))
-            })
-            .map(|(path, _)| path.clone())
-            .collect();
-        orphans.sort();
-
-        // A rename is an orphan and a brand-new path holding the exact
-        // bytes the orphan's records were parsed from. Exact-content
-        // only: a move that also edited the file, or an ambiguity in
-        // either direction, falls back to delete-and-add -- noisier, but
-        // never a guess.
-        let mut renames: Vec<(String, String)> = Vec::new();
-        if !orphans.is_empty() {
-            let arrivals: Vec<(&str, &str)> = candidates
-                .iter()
-                .filter(|c| !known_files.contains_key(&c.tf.rel_path))
-                .map(|c| (c.tf.rel_path.as_str(), c.disk_blob.as_str()))
-                .collect();
-            renames = crate::scan::match_renames(&orphans, &known_files, &arrivals);
-            for (from, to) in &renames {
-                orphans.retain(|p| p != from);
-                // The records the destination holds are the ones being
-                // moved: no reparse.
-                if let Some(c) = candidates.iter_mut().find(|c| &c.tf.rel_path == to) {
-                    c.parsed_doc = None;
-                }
-                stats.files_renamed.push((from.clone(), to.clone()));
-            }
-        }
-        let empty = serde_json::Value::Object(serde_json::Map::new());
-        let no_validation = crate::Validation::default();
+            self.classify_tracked(&pass, &tracked, &mut stats)
+        };
+        self.forget_unrecognized(&walked.indexed, &head_blobs);
+        let (orphans, renames) = orphans_and_renames(&known_files, &mut walked, &mut stats);
 
         // Second pass: resolve the commit that last touched every
         // candidate path via a single backwards walk from HEAD.
-        let last_commits = git::last_commits_for_paths(&repo, meta.head_oid, &walk_paths)?;
-        let mut resolves: std::collections::HashMap<CommitId, Option<i64>> =
-            std::collections::HashMap::new();
-        let mut docs: Vec<(Candidate<'_>, ParsedDoc<'_>, Option<i64>)> = Vec::new();
-        for mut c in candidates {
-            let mut parsed_doc = c.parsed_doc.take();
-            let record_commit_id = c.last_commit(&last_commits);
-            let file_commit_id: Option<CommitId> = if c.clean { record_commit_id } else { None };
-            let resolves_version = record_commit_id.and_then(|commit| {
-                *resolves.entry(commit).or_insert_with(|| {
-                    git::commit_message(&repo, commit)
-                        .as_deref()
-                        .and_then(resolves_version_from_message)
-                })
-            });
-            if parsed_doc.is_none() && resolves_version.is_some() {
-                // "Keep the file as it is and drop the database's edit"
-                // is a resolution that changes no bytes, so the
-                // unchanged-file skip would swallow it.
-                if let (Ok(bytes), Some(syntax)) = (
-                    std::fs::read(&c.tf.abs_path),
-                    Syntax::for_extension(&extract_ext(&c.tf.rel_path)),
-                ) {
-                    if let Ok(doc) =
-                        self.parse_and_detect(&c.tf.rel_path, syntax, &bytes, &mut stats)
-                    {
-                        parsed_doc = doc;
-                    }
-                }
-            }
-            let Some(doc) = parsed_doc else {
-                // The database already holds these bytes, so only the
-                // file's commit attribution can be out of date.
-                if file_commit_id == c.db_commit {
-                    stats.files_unchanged += 1;
-                } else {
-                    self.set_file_commit(&c.tf.rel_path, file_commit_id).await?;
-                    stats.files_updated += 1;
-                }
-                continue;
-            };
-            stats.files_updated += 1;
-            docs.push((c, doc, resolves_version));
+        let last_commits = git::last_commits_for_paths(&repo, meta.head_oid, &walked.walk_paths)?;
+        let parsed = self.parse_candidates(&repo, walked.candidates, &last_commits, &mut stats);
+        for (path, commit) in &parsed.attributions {
+            self.set_file_commit(path, *commit).await?;
         }
 
-        let mut disk_files: Vec<DiskFile<'_>> = Vec::new();
-        for (c, doc, resolves_version) in &docs {
-            let record_commit_id = c.last_commit(&last_commits);
-            disk_files.push(DiskFile {
-                file: ScannedFile {
-                    rel_path: &c.tf.rel_path,
-                    record_commit_id,
-                    file_commit_id: if c.clean { record_commit_id } else { None },
-                    source_oid: &c.disk_blob,
-                    value: &doc.value,
-                    format: doc.format,
-                    force: options.force,
-                    resolves_version: *resolves_version,
-                    validation: &doc.validation,
-                },
-                gone: false,
-            });
-        }
-        for path in &orphans {
-            let row = &known_files[path];
-            let Some(format) = self.formats().by_name(&row.format) else {
-                // A file whose format the registry no longer knows keeps
-                // its records and gets only the removal mark.
-                db::file::set_deleted(self.db(), self.worktree_id(), path, true).await?;
-                continue;
-            };
-            tracing::info!(file = path.as_str(), "file is gone from the working tree");
-            stats.files_deleted += 1;
-            stats.files_updated += 1;
-            disk_files.push(DiskFile {
-                file: ScannedFile {
-                    rel_path: path,
-                    record_commit_id: row.commit_id,
-                    file_commit_id: row.commit_id,
-                    source_oid: row.source_oid.as_deref().unwrap_or_default(),
-                    value: &empty,
-                    format,
-                    force: false,
-                    resolves_version: None,
-                    validation: &no_validation,
-                },
-                gone: true,
-            });
-        }
+        let empty = serde_json::Value::Object(serde_json::Map::new());
+        let no_validation = crate::Validation::default();
+        let mut disk_files = disk_files_of(&parsed.docs, &last_commits, options);
+        let gone = OrphanSide {
+            known_files: &known_files,
+            empty: &empty,
+            no_validation: &no_validation,
+        };
+        self.orphan_disk_files(&gone, &orphans, &mut disk_files, &mut stats)
+            .await?;
 
         let mut history = self.scan_history(head.is_some()).await?;
         let head = head.map(|commit| crate::scan::Head {
@@ -1051,6 +1069,157 @@ impl SyncedRepo {
             &mut stats,
         ).await)?;
         Ok(stats)
+    }
+
+    /// The first pass over `tracked`: what each file is, and which are
+    /// candidates to take in.
+    fn classify_tracked<'a>(
+        &'a self,
+        pass: &FirstPass<'_>,
+        tracked: &'a [git::TrackedFile],
+        stats: &mut SyncOutcome,
+    ) -> Walked<'a> {
+        let mut walked = Walked {
+            candidates: Vec::new(),
+            walk_paths: Vec::new(),
+            indexed: std::collections::HashSet::with_capacity(tracked.len()),
+            vanished: std::collections::HashSet::new(),
+        };
+        for tf in tracked {
+            stats.files_seen += 1;
+            walked.indexed.insert(tf.rel_path.as_str());
+            match self.classify(pass, tf, stats) {
+                Classified::Skip => {}
+                Classified::Vanished => {
+                    walked.vanished.insert(tf.rel_path.clone());
+                }
+                Classified::Candidate(c) => {
+                    if c.needs_history {
+                        walked.walk_paths.push(tf.rel_path.clone());
+                    }
+                    walked.candidates.push(c);
+                }
+            }
+        }
+        walked
+    }
+
+    /// Drop what the unrecognized set remembers of paths no longer in the
+    /// index or at HEAD.
+    fn forget_unrecognized(
+        &self,
+        indexed: &std::collections::HashSet<&str>,
+        head_blobs: &std::collections::HashMap<String, gix::ObjectId>,
+    ) {
+        let mut unrecognized = self.unrecognized();
+        unrecognized
+            .disk
+            .retain(|path, _| indexed.contains(path.as_str()));
+        unrecognized
+            .head
+            .retain(|path, _| head_blobs.contains_key(path));
+    }
+
+    /// The second pass: the document to take in for each candidate, and
+    /// the commit attribution of each whose bytes the database already
+    /// holds but whose last commit moved.
+    fn parse_candidates<'a>(
+        &'a self,
+        repo: &gix::Repository,
+        candidates: Vec<Candidate<'a>>,
+        last_commits: &std::collections::HashMap<String, CommitId>,
+        stats: &mut SyncOutcome,
+    ) -> Parsed<'a> {
+        let mut resolves: std::collections::HashMap<CommitId, Option<i64>> =
+            std::collections::HashMap::new();
+        let mut parsed = Parsed {
+            docs: Vec::new(),
+            attributions: Vec::new(),
+        };
+        for mut c in candidates {
+            let record_commit_id = c.last_commit(last_commits);
+            let file_commit_id: Option<CommitId> = if c.clean { record_commit_id } else { None };
+            let resolves_version = record_commit_id.and_then(|commit| {
+                *resolves.entry(commit).or_insert_with(|| {
+                    git::commit_message(repo, commit)
+                        .as_deref()
+                        .and_then(resolves_version_from_message)
+                })
+            });
+            let parsed_doc = match c.parsed_doc.take() {
+                None if resolves_version.is_some() => self.reparse(c.tf, stats),
+                doc => doc,
+            };
+            let Some(doc) = parsed_doc else {
+                // The database already holds these bytes, so only the
+                // file's commit attribution can be out of date.
+                if file_commit_id == c.db_commit {
+                    stats.files_unchanged += 1;
+                } else {
+                    parsed
+                        .attributions
+                        .push((c.tf.rel_path.clone(), file_commit_id));
+                    stats.files_updated += 1;
+                }
+                continue;
+            };
+            stats.files_updated += 1;
+            parsed.docs.push((c, doc, resolves_version));
+        }
+        parsed
+    }
+
+    /// `tf` parsed from disk although its bytes are the ones last taken
+    /// in: "keep the file as it is and drop the database's edit" is a
+    /// resolution that changes no bytes, so the unchanged-file skip would
+    /// swallow it.
+    fn reparse<'a>(
+        &'a self,
+        tf: &git::TrackedFile,
+        stats: &mut SyncOutcome,
+    ) -> Option<ParsedDoc<'a>> {
+        let bytes = std::fs::read(&tf.abs_path).ok()?;
+        let syntax = Syntax::for_extension(&extract_ext(&tf.rel_path))?;
+        self.parse_and_detect(&tf.rel_path, syntax, &bytes, stats)
+            .ok()
+            .flatten()
+    }
+
+    /// Each of `orphans` as a file gone from the working tree, onto
+    /// `disk_files`. One whose format the registry no longer knows keeps
+    /// its records and gets only the removal mark.
+    async fn orphan_disk_files<'a>(
+        &'a self,
+        side: &OrphanSide<'a>,
+        orphans: &'a [String],
+        disk_files: &mut Vec<DiskFile<'a>>,
+        stats: &mut SyncOutcome,
+    ) -> Result<()> {
+        for path in orphans {
+            let row = &side.known_files[path];
+            let Some(format) = self.formats().by_name(&row.format) else {
+                db::file::set_deleted(self.db(), self.worktree_id(), path, true).await?;
+                continue;
+            };
+            tracing::info!(file = path.as_str(), "file is gone from the working tree");
+            stats.files_deleted += 1;
+            stats.files_updated += 1;
+            disk_files.push(DiskFile {
+                file: ScannedFile {
+                    rel_path: path,
+                    record_commit_id: row.commit_id,
+                    file_commit_id: row.commit_id,
+                    source_oid: row.source_oid.as_deref().unwrap_or_default(),
+                    value: side.empty,
+                    format,
+                    force: false,
+                    resolves_version: None,
+                    validation: side.no_validation,
+                },
+                gone: true,
+            });
+        }
+        Ok(())
     }
 
     /// The history a scan reads rollup ids from, when it brings files in
@@ -1091,6 +1260,9 @@ impl SyncedRepo {
             )
             .collect();
         for path in head_paths {
+            if !self.in_scope(path) {
+                continue;
+            }
             let Some(syntax) = Syntax::for_extension(&extract_ext(path)) else {
                 continue;
             };

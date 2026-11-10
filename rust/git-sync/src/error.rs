@@ -23,7 +23,9 @@ use crate::CommitRef;
 ///    optimistic-concurrency token supplied to a CRUD call doesn't
 ///    match the row's recorded commit.
 /// 3. **Misuse**: [`UnknownFormat`](Self::UnknownFormat),
-///    [`InvalidPointer`](Self::InvalidPointer), [`Other`](Self::Other).
+///    [`InvalidPointer`](Self::InvalidPointer), [`OutOfScope`](Self::OutOfScope),
+///    [`InvalidPathspec`](Self::InvalidPathspec),
+///    [`Other`](Self::Other).
 ///
 /// `Conflict` always rolls back its enclosing transaction before being
 /// returned, so the database is left untouched.
@@ -216,6 +218,23 @@ pub enum Error {
         /// after the nearest commit HEAD has that this database made.
         /// `None` when HEAD has none.
         since: Option<i64>,
+    },
+    /// A handle opened with pathspecs (see [`crate::SyncedRepo::open_with`])
+    /// was asked to take in or write `file_path`, which they don't match: a
+    /// record write to it, or, at open, a worktree already holding it.
+    #[error("{file_path} is outside the pathspecs this handle was opened with")]
+    OutOfScope {
+        /// Working-tree-relative path of the file.
+        file_path: String,
+    },
+    /// A pathspec given to [`crate::SyncedRepo::open_with`] doesn't parse,
+    /// uses attribute magic, or reaches outside the working tree.
+    #[error("invalid pathspec {pathspec:?}: {message}")]
+    InvalidPathspec {
+        /// The pathspec as given.
+        pathspec: String,
+        /// What's wrong with it.
+        message: String,
     },
     /// Catch-all for failure cases that don't fit the variants above.
     #[error("{0}")]

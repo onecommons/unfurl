@@ -53,6 +53,7 @@ async fn a_branch(sync: &SyncedRepo, tmp: &TempDir) -> (SyncedRepo, TempDir) {
         sync.db().clone(),
         FormatRegistry::with_builtins(),
         unfurl_git_sync::git::Trust::Full,
+        &[],
     )
     .await
     .expect("open");

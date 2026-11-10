@@ -336,7 +336,7 @@ impl CloudMapState {
         Box<dyn std::error::Error + Send + Sync>,
     > {
         let registry = FormatRegistry::with_builtins();
-        let synced = SyncedRepo::open_on(repo_path, db.clone(), registry, trust).await?;
+        let synced = SyncedRepo::open_on(repo_path, db.clone(), registry, trust, &[]).await?;
         // Returned rather than dropped: the caller decides what a schema
         // violation means for startup, and nothing else ever sees this
         // scan's report.

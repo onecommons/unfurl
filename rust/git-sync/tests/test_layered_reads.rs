@@ -67,6 +67,7 @@ async fn a_branch(sync: &SyncedRepo, tmp: &TempDir) -> (SyncedRepo, TempDir) {
         sync.db().clone(),
         FormatRegistry::with_builtins(),
         unfurl_git_sync::git::Trust::Full,
+        &[],
     )
     .await
     .expect("open");
@@ -757,6 +758,7 @@ async fn a_branch_at_head(sync: &SyncedRepo, tmp: &TempDir) -> (SyncedRepo, Temp
         sync.db().clone(),
         FormatRegistry::with_builtins(),
         unfurl_git_sync::git::Trust::Full,
+        &[],
     )
     .await
     .expect("open");
@@ -927,6 +929,7 @@ async fn separate_repositories_are_each_their_own_view(sync: &SyncedRepo, _tmp: 
         sync.db().clone(),
         FormatRegistry::with_builtins(),
         unfurl_git_sync::git::Trust::Full,
+        &[],
     )
     .await
     .expect("open");

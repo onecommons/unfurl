@@ -25,6 +25,20 @@ pub(crate) struct Writer<'a> {
     pub(crate) worktree_id: i64,
     pub(crate) family_id: i64,
     pub(crate) formats: &'a FormatRegistry,
+    /// The only files it may write, when the handle was opened scoped.
+    pub(crate) scope: Option<&'a crate::scope::Scope>,
+}
+
+impl Writer<'_> {
+    /// Refuse a write to `file_path` when it's outside the scope.
+    fn check_scope(&self, file_path: &str) -> Result<()> {
+        match self.scope {
+            Some(scope) if !scope.contains(file_path) => Err(Error::OutOfScope {
+                file_path: file_path.to_string(),
+            }),
+            _ => Ok(()),
+        }
+    }
 }
 
 /// Where a CRUD write lands, before the file path is resolved.
@@ -153,6 +167,9 @@ async fn write_in_tx<DB: Store>(
     request: Request<'_>,
     version: i64,
 ) -> Result<WriteOutcome> {
+    if let Some(file_path) = request.at.file_path {
+        writer.check_scope(file_path)?;
+    }
     let (place, live) = check(tx, writer.worktree_id, &request).await?;
     let live_record = live.as_ref().map(|r| r.key_id);
     let mut around = None;
@@ -254,6 +271,9 @@ async fn apply<DB: Store>(
     version: i64,
 ) -> Result<WriteOutcome> {
     let (w, target) = (writer.worktree_id, checked.place.as_at());
+    // a path the request didn't name, resolved from the record or the
+    // default file
+    writer.check_scope(target.file_path)?;
     let format_owner = match request.kind {
         Kind::Upsert => ensure_file_registered(writer, tx, target.file_path, target.path).await?,
         _ => DB::file_format(tx, w, target.file_path).await?,
@@ -622,6 +642,7 @@ pub(crate) async fn delete_file_in_pool<DB: Store>(
     file_path: &str,
     expected_commit: Option<CommitRef>,
 ) -> Result<Vec<WriteOutcome>> {
+    writer.check_scope(file_path)?;
     let w = writer.worktree_id;
     let mut tx = pool.begin().await?;
     let (commit_id, _) = DB::file_state(&mut tx, w, file_path)
