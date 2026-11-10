@@ -939,16 +939,9 @@ impl AtKey {
         at: At<'_>,
     ) -> Result<Self> {
         let segs = DB::segs(tx, w).await?;
-        let drafted = DB::rows_in(tx, segs.draft, Some(at.file_path), false)
-            .await?
-            .into_iter()
-            .find(|r| r.at() == at)
-            .map(|r| r.key_id);
+        let drafted = DB::row_at(tx, segs.draft, at).await?.map(|r| r.key_id);
         let chain = DB::visible(tx, w, Scope::Chain, Filter::At(at)).await?;
-        let head_row = DB::rows_in(tx, segs.head, Some(at.file_path), false)
-            .await?
-            .into_iter()
-            .find(|r| r.at() == at);
+        let head_row = DB::row_at(tx, segs.head, at).await?;
         let below = match &head_row {
             Some(_) => Vec::new(),
             None => chain

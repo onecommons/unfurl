@@ -521,10 +521,7 @@ async fn reconcile_key<DB: Store>(
     let existing = segments::conflict_row(tx, d, at).await?;
     // the edit the file's value replaces: its record continues
     let mut withdrawn = None;
-    let mut x = DB::rows_in(tx, d, Some(at.file_path), false)
-        .await?
-        .into_iter()
-        .find(|r| r.at() == at);
+    let mut x = DB::row_at(tx, d, at).await?;
     if let Some(p) = x.as_ref().filter(|x| x.is_edit()) {
         match pending_edit(tx, scan, at, p, theirs, existing.as_ref(), stats).await? {
             None => return Ok(()),

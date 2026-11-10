@@ -228,6 +228,14 @@ pub(crate) trait Store: sqlx::Database + Sized {
         conflicts: bool,
     ) -> impl Future<Output = Result<Vec<RecordRow>>> + Send;
 
+    /// Segment `seg`'s own row at `at`, not a conflict row: one indexed
+    /// lookup where `rows_in` reads the whole file.
+    fn row_at(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        seg: i64,
+        at: At<'_>,
+    ) -> impl Future<Output = Result<Option<RecordRow>>> + Send;
+
     /// Insert a row; returns its id and `key_id`.
     fn insert(
         tx: &mut sqlx::Transaction<'_, Self>,
@@ -876,6 +884,28 @@ macro_rules! store_impl {
                     .collect::<Result<Vec<_>>>()?;
                 sort_rows(&mut rows);
                 Ok(rows)
+            }
+
+            async fn row_at(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                seg: i64,
+                at: At<'_>,
+            ) -> Result<Option<RecordRow>> {
+                let text = format!(
+                    "SELECT {ROW_COLUMNS} FROM record r WHERE r.segment_id = ?1 \
+                       AND r.file_path = ?2 AND r.path = ?3 AND r.key = ?4 \
+                       AND r.conflict IS NULL"
+                );
+                let sql = db::spell(&*tx, text);
+                sqlx::query_as::<_, RecordColumns>(&sql)
+                    .bind(seg)
+                    .bind(at.file_path)
+                    .bind(at.path)
+                    .bind(at.key)
+                    .fetch_optional(&mut **tx)
+                    .await?
+                    .map(RecordRow::try_from)
+                    .transpose()
             }
 
             async fn insert(
