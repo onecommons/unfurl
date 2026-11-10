@@ -1141,6 +1141,10 @@ class TestGithubManager:
         assert result.metadata.topics == ["python", "testing"]
         assert result.metadata.homepage_url == "https://example.com"
         assert result.metadata.spdx_licenses == "MIT"
+        # a license file GitHub couldn't identify
+        mock_license.spdx_id = "NOASSERTION"
+        _, metadata = manager.github_repository_fields(mock_repo)
+        assert metadata["spdx_licenses"] == ""
 
         # Verify internal_id is saved when save_internal=True
         assert result.internal_id == "12345"
@@ -3320,7 +3324,7 @@ def test_gitlab_reports_all_metadata():
     manager.save_internal = False
     manager.visibility = "public"
     project = Mock(
-        attributes={},
+        attributes={"license": {"key": "apache-2.0", "name": "Apache License 2.0"}},
         default_branch="main",
         http_url_to_repo="https://gitlab.example.com/g/p.git",
         web_url="https://gitlab.example.com/g/p",
@@ -3333,8 +3337,35 @@ def test_gitlab_reports_all_metadata():
     project.branches.get.return_value.commit = {"id": "c"}
     project.tags.list.return_value = []
     _, metadata = manager.gitlab_project_fields(project)
-    # GitLab has no license
-    assert set(metadata) == ReportedMetadata.__optional_keys__ - {"spdx_licenses"}
+    assert set(metadata) == ReportedMetadata.__optional_keys__
+    # GitLab's key for a license is its SPDX id, lower-cased
+    assert metadata["spdx_licenses"] == "Apache-2.0"
+    project.attributes = {"license": {"key": "gpl-3.0"}}
+    _, metadata = manager.gitlab_project_fields(project)
+    assert metadata["spdx_licenses"] == "GPL-3.0"
+
+    project.attributes = {"license": {"key": "other", "name": "Other"}}
+    _, metadata = manager.gitlab_project_fields(project)
+    assert metadata["spdx_licenses"] == ""
+    project.attributes = {"license": None}
+    _, metadata = manager.gitlab_project_fields(project)
+    assert metadata["spdx_licenses"] == ""
+
+
+def test_gitlab_fetches_a_projects_license():
+    manager = GitlabManager.__new__(GitlabManager)
+    manager.gitlab = Mock()
+    manager.extract_project_path = Mock(return_value="g/p")
+    manager._import_project = Mock()
+    manager.import_project_url("https://gitlab.example.com/g/p.git", Mock(), False)
+    manager.gitlab.projects.get.assert_called_once_with("g/p", license=True)
+
+    manager.gitlab.projects.get.reset_mock()
+    manager.repo_filter = ""
+    manager.visibility = "public"
+    manager.token = ""
+    manager._import_projects_from_host([Mock(id=5)], Mock())
+    manager.gitlab.projects.get.assert_called_once_with(5, license=True)
 
 
 @pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])

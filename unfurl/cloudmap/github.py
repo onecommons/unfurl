@@ -204,7 +204,10 @@ else:
             metadata = ReportedMetadata(
                 description=repo.description or "",
                 topics=repo.get_topics(),
-                spdx_licenses=repo.license.spdx_id if repo.license else "",
+                # NOASSERTION: a license GitHub couldn't identify
+                spdx_licenses=repo.license.spdx_id
+                if repo.license and repo.license.spdx_id != "NOASSERTION"
+                else "",
                 homepage_url=repo.homepage or "",
                 issues_url=self.canonize(repo.html_url + "/issues")
                 if repo.has_issues

@@ -48,6 +48,39 @@ if TYPE_CHECKING:
 
 logger = getLogger("unfurl")
 
+# SPDX ids that aren't all upper case, by GitLab's key for them: the id
+# lower-cased
+_MIXED_CASE_SPDX_IDS = {
+    spdx_id.lower(): spdx_id
+    for spdx_id in (
+        "Apache-2.0",
+        "Artistic-2.0",
+        "BlueOak-1.0.0",
+        "BSD-2-Clause",
+        "BSD-2-Clause-Patent",
+        "BSD-3-Clause",
+        "BSD-3-Clause-Clear",
+        "BSD-4-Clause",
+        "LPPL-1.3c",
+        "MulanPSL-2.0",
+        "ODbL-1.0",
+        "PostgreSQL",
+        "Unlicense",
+        "Vim",
+        "Zlib",
+    )
+}
+
+
+def _spdx_license(project: Project) -> str:
+    """The SPDX id of the license GitLab detected in ``project`` (fetched with
+    ``license=True``), or "" if it found none it could name."""
+    detected = project.attributes.get("license") or {}
+    key = detected.get("key", "")
+    if not key or key == "other":
+        return ""
+    return _MIXED_CASE_SPDX_IDS.get(key, key.upper())
+
 
 def _project_status(project: Project) -> Optional[RepositoryStatus]:
     # marked_for_deletion_at (marked_for_deletion_on before GitLab 16) is only
@@ -151,7 +184,7 @@ class GitlabManager(RepositoryHost):
         directory: Directory,
         download: bool,
     ) -> Repository:
-        project = self.gitlab.projects.get(self.extract_project_path(url))
+        project = self.gitlab.projects.get(self.extract_project_path(url), license=True)
         return self._import_project(project, directory, download)
 
     def _import_projects_from_host(
@@ -167,7 +200,7 @@ class GitlabManager(RepositoryHost):
                         "skipping %s, doesn't match %s", git_url, self.repo_filter
                     )
                     continue
-            dest_proj: Project = self.gitlab.projects.get(p.id)
+            dest_proj: Project = self.gitlab.projects.get(p.id, license=True)
             if (
                 self.visibility == "public"
                 and self._get_project_visibility(dest_proj) != "public"
@@ -433,14 +466,12 @@ class GitlabManager(RepositoryHost):
         """What GitLab reports about ``project``: a repository record's fields
         and its metadata's."""
         self.logger.verbose("getting %s", project.http_url_to_repo)
-        # XXX
-        # if project.license:
-        #    kw["license"] = project.license.key in spdx_ids # or nickname or name
         forked_from = getattr(project, "forked_from_project", None)
         # https://docs.gitlab.com/ee/api/projects.html#get-single-project
         metadata = ReportedMetadata(
             description=project.description,
             topics=project.topics,
+            spdx_licenses=_spdx_license(project),
             homepage_url=self.canonize(project.web_url),
             # these urls point to the instance's uploaded files and aren't portable
             thumbnail_url=project.avatar_url

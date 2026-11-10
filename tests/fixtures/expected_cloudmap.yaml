@@ -81,6 +81,7 @@ repositories:
       - documentation
       - library
       homepage_url: https://unfurl.cloud/onecommons/std
+      spdx_licenses: MIT
       discovery:
         sources:
         - git://unfurl.cloud/feb20a/dashboard.git
@@ -93,6 +94,7 @@ repositories:
           - default_branch
           - metadata/homepage_url
           - metadata/issues_url
+          - metadata/spdx_licenses
           - metadata/topics
           - name
           - path
@@ -133,6 +135,7 @@ repositories:
     project_url: https://unfurl.cloud/onecommons/unfurl-types
     metadata:
       homepage_url: https://unfurl.cloud/onecommons/unfurl-types
+      spdx_licenses: MIT
       discovery:
         sources:
         - git://unfurl.cloud/feb20a/dashboard.git
@@ -146,6 +149,7 @@ repositories:
           - default_branch
           - metadata/homepage_url
           - metadata/issues_url
+          - metadata/spdx_licenses
           - name
           - path
           - project_url
