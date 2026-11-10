@@ -3395,6 +3395,33 @@ def test_resync_keeps_the_record_keyed_by_its_git_url(manager_cls):
     assert repo and repo.url == url and repo.initial_revision == "a" * 40
 
 
+@pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
+def test_forks_are_compared_after_the_import(manager_cls):
+    upstream_url = "git://example.com/team/upstream.git"
+    fork_url = "git://example.com/team/fork.git"
+    db = CloudMapDB("", contents={}, validate=False)
+    sync = _SyncSession(manager_cls, db)
+    directory = sync.directory
+    directory.context = ProvenanceTrackingContext(db)
+    directory._forks = set()
+    for method in ("note_fork", "compare_forks", "compare_upstreams"):
+        setattr(directory, method, partial(getattr(Directory, method), directory))
+    directory.find_repo = Mock(return_value=None)
+
+    # the fork comes first, before its upstream is in the cloudmap
+    sync.import_repo(
+        _host_repo(fork_url, internal_id="1", fork_of=upstream_url, branches={"main": "a"})
+    )
+    sync.import_repo(_host_repo(upstream_url, internal_id="2", branches={"main": "b"}))
+    directory.compare_forks()
+    fork = db.get_repository(fork_url)
+    assert fork and fork.upstream_refs[upstream_url].branches == {
+        "main": UpstreamRef("differs", commit="b", local_commit="a")
+    }
+    upstream = db.get_repository(upstream_url)
+    assert upstream and not upstream.upstream_refs
+
+
 def test_sync_without_internal_id_records_no_move():
     old_url = "git://example.com/team/old.git"
     db = CloudMapDB("", contents={}, validate=False)

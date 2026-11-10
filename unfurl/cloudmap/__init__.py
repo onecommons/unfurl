@@ -118,7 +118,7 @@ from ..logs import getLogger
 from .db import CloudMapDB
 from .db import CloudMapStore
 from .provenance import ProvenanceTrackingContext
-from .upstream import compare_with_upstream, upstream_fetch_url
+from .upstream import compare_with_upstream
 from .github import GithubManager
 from .gitlab import GitlabManager
 from .host import LocalRepositoryHost, RepositoryHost, _LocalGitRepos
@@ -332,6 +332,8 @@ class Directory(_LocalGitRepos):
         self.context.do_analysis = not skip_analysis
         self.tmp_dir: Optional[tempfile.TemporaryDirectory] = None
         self.cloudmap = cloudmap
+        # urls of forks and mirrors imported since `compare_forks` last ran
+        self._forks: Set[str] = set()
         _LocalGitRepos.__init__(self, local_repo_root, cloudmap.logger)
 
         # Start with default Notable classes and add custom analyzers from cloudmap.
@@ -479,26 +481,48 @@ class Directory(_LocalGitRepos):
         repo_info.contains = previous_contains
         return None
 
-    def compare_upstreams(self, repo_info: Repository, repo: GitRepo) -> None:
-        """Update ``repo_info.upstream_refs`` for its ``fork_of`` and ``mirror_of``
-        repositories, keeping its other entries and the comparisons it can't redo."""
-        upstream_refs = dict(repo_info.upstream_refs)
-        for url in dict.fromkeys(
-            filter(None, (repo_info.fork_of, repo_info.mirror_of))
-        ):
-            fetch_url = upstream_fetch_url(url, self.context.get_repository(url))
+    def note_fork(self, repo_info: Repository) -> None:
+        """Have :py:meth:`compare_forks` compare ``repo_info`` with its upstreams,
+        if it has any: after the import, which may import or update them too."""
+        if repo_info.fork_of or repo_info.mirror_of:
+            self._forks.add(repo_info.url)
+
+    def compare_forks(self) -> None:
+        """Update ``upstream_refs`` of the repositories given to
+        :py:meth:`note_fork` since this last ran."""
+        forks, self._forks = self._forks, set()
+        for url in sorted(forks):
+            repo_info = self.context.get_repository(url)
+            if repo_info is not None:
+                self.compare_upstreams(repo_info)
+
+    def compare_upstreams(self, repo_info: Repository) -> None:
+        """Set ``repo_info.upstream_refs`` for each of its ``fork_of`` and
+        ``mirror_of`` repositories that's in the cloudmap, using local clones of
+        them where there are."""
+        upstreams = {u for u in (repo_info.fork_of, repo_info.mirror_of) if u}
+        clone = self.find_repo(repo_info.url, "")
+        for url in sorted(upstreams):
+            upstream = self.context.get_repository(url)
+            if upstream is None:
+                continue
             try:
-                upstream_refs[url] = compare_with_upstream(
-                    repo.repo, repo_info, url, fetch_url, upstream_refs.get(url)
+                repo_info.upstream_refs[url] = compare_with_upstream(
+                    repo_info,
+                    upstream,
+                    clone,
+                    self.find_repo(upstream.url, ""),
+                    RepositoryHost.MAX_GIT_REFS,
+                    repo_info.upstream_refs.get(url),
                 )
             except git.GitCommandError:
                 self.logger.warning(
                     "Could not compare %s with upstream %s",
                     repo_info.url,
-                    sanitize_url(fetch_url),
+                    url,
                     exc_info=True,
                 )
-        repo_info.upstream_refs = upstream_refs
+        self.context.add_record(repo_info)
 
     def analyze(
         self,
@@ -1650,6 +1674,7 @@ class CloudMap:
 
     def from_host(self, host: RepositoryHost) -> bool:
         count = host.from_host(self.directory)
+        self.directory.compare_forks()
         if not count and host.repo_filter:
             self.logger.info(
                 f"No repositories matched filter '{host.repo_filter}' on host {host.name}"

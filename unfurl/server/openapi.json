@@ -3583,6 +3583,10 @@
             "description": "Commit SHA of the upstream ref when compared.",
             "type": "string"
           },
+          "local_commit": {
+            "description": "Commit SHA of this repository's ref when compared.",
+            "type": "string"
+          },
           "merge_base": {
             "description": "Commit SHA of the merge base of this ref and the upstream ref.",
             "type": "string"
@@ -3592,14 +3596,16 @@
             "type": "string"
           },
           "status": {
-            "description": "identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref.",
+            "description": "identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref. differs: the refs are at different commits, compared without a clone holding both. unknown: the upstream's record lists too many refs to say it has no corresponding ref.",
             "enum": [
               "identical",
               "ahead",
               "behind",
               "diverged",
               "unrelated",
-              "missing"
+              "missing",
+              "differs",
+              "unknown"
             ],
             "type": "string"
           }

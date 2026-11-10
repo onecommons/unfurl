@@ -2326,6 +2326,7 @@ def cloudmap(
                 added.append(r)
             else:
                 failed.append(url)
+        cloud_map.directory.compare_forks()
         if added:
             names = ", ".join(f"{r.__class__.__name__}({r.key})" for r in added)
             verb = "Updated" if replace else "Added"

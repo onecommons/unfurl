@@ -410,7 +410,6 @@ class RepositoryHost:
         except Exception:
             self.logger.error("Error retrieving content for %s", r.url, exc_info=True)
         else:
-            directory.compare_upstreams(r, repo)
             directory.maybe_analyze(
                 r, repo, dict(previous.contains) if previous else {}
             )
@@ -601,7 +600,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                     repository = previous
                 else:
                     directory.context.add_record(repository)
-                directory.compare_upstreams(repository, repo)
+                directory.note_fork(repository)
                 directory.maybe_analyze(
                     repository, repo, dict(previous.contains) if previous else {}
                 )

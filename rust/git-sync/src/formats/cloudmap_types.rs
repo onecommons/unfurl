@@ -4372,6 +4372,10 @@ impl<'de> ::serde::Deserialize<'de> for TypedUrLsValueVariant2Key {
 #[doc = "      \"description\": \"Commit SHA of the upstream ref when compared.\","]
 #[doc = "      \"type\": \"string\""]
 #[doc = "    },"]
+#[doc = "    \"local_commit\": {"]
+#[doc = "      \"description\": \"Commit SHA of this repository's ref when compared.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
 #[doc = "    \"merge_base\": {"]
 #[doc = "      \"description\": \"Commit SHA of the merge base of this ref and the upstream ref.\","]
 #[doc = "      \"type\": \"string\""]
@@ -4381,7 +4385,7 @@ impl<'de> ::serde::Deserialize<'de> for TypedUrLsValueVariant2Key {
 #[doc = "      \"type\": \"string\""]
 #[doc = "    },"]
 #[doc = "    \"status\": {"]
-#[doc = "      \"description\": \"identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref.\","]
+#[doc = "      \"description\": \"identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref. differs: the refs are at different commits, compared without a clone holding both. unknown: the upstream's record lists too many refs to say it has no corresponding ref.\","]
 #[doc = "      \"type\": \"string\","]
 #[doc = "      \"enum\": ["]
 #[doc = "        \"identical\","]
@@ -4389,7 +4393,9 @@ impl<'de> ::serde::Deserialize<'de> for TypedUrLsValueVariant2Key {
 #[doc = "        \"behind\","]
 #[doc = "        \"diverged\","]
 #[doc = "        \"unrelated\","]
-#[doc = "        \"missing\""]
+#[doc = "        \"missing\","]
+#[doc = "        \"differs\","]
+#[doc = "        \"unknown\""]
 #[doc = "      ]"]
 #[doc = "    }"]
 #[doc = "  },"]
@@ -4410,6 +4416,9 @@ pub struct UpstreamRef {
     #[doc = "Commit SHA of the upstream ref when compared."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub commit: ::std::option::Option<::std::string::String>,
+    #[doc = "Commit SHA of this repository's ref when compared."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub local_commit: ::std::option::Option<::std::string::String>,
     #[doc = "Commit SHA of the merge base of this ref and the upstream ref."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub merge_base: ::std::option::Option<::std::string::String>,
@@ -4420,16 +4429,16 @@ pub struct UpstreamRef {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub ref_: ::std::option::Option<::std::string::String>,
-    #[doc = "identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref."]
+    #[doc = "identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref. differs: the refs are at different commits, compared without a clone holding both. unknown: the upstream's record lists too many refs to say it has no corresponding ref."]
     pub status: UpstreamRefStatus,
 }
-#[doc = "identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref."]
+#[doc = "identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref. differs: the refs are at different commits, compared without a clone holding both. unknown: the upstream's record lists too many refs to say it has no corresponding ref."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
 #[doc = r""]
 #[doc = r" ```json"]
 #[doc = "{"]
-#[doc = "  \"description\": \"identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref.\","]
+#[doc = "  \"description\": \"identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref. differs: the refs are at different commits, compared without a clone holding both. unknown: the upstream's record lists too many refs to say it has no corresponding ref.\","]
 #[doc = "  \"type\": \"string\","]
 #[doc = "  \"enum\": ["]
 #[doc = "    \"identical\","]
@@ -4437,7 +4446,9 @@ pub struct UpstreamRef {
 #[doc = "    \"behind\","]
 #[doc = "    \"diverged\","]
 #[doc = "    \"unrelated\","]
-#[doc = "    \"missing\""]
+#[doc = "    \"missing\","]
+#[doc = "    \"differs\","]
+#[doc = "    \"unknown\""]
 #[doc = "  ]"]
 #[doc = "}"]
 #[doc = r" ```"]
@@ -4467,6 +4478,10 @@ pub enum UpstreamRefStatus {
     Unrelated,
     #[serde(rename = "missing")]
     Missing,
+    #[serde(rename = "differs")]
+    Differs,
+    #[serde(rename = "unknown")]
+    Unknown,
 }
 impl ::std::fmt::Display for UpstreamRefStatus {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -4477,6 +4492,8 @@ impl ::std::fmt::Display for UpstreamRefStatus {
             Self::Diverged => f.write_str("diverged"),
             Self::Unrelated => f.write_str("unrelated"),
             Self::Missing => f.write_str("missing"),
+            Self::Differs => f.write_str("differs"),
+            Self::Unknown => f.write_str("unknown"),
         }
     }
 }
@@ -4490,6 +4507,8 @@ impl ::std::str::FromStr for UpstreamRefStatus {
             "diverged" => Ok(Self::Diverged),
             "unrelated" => Ok(Self::Unrelated),
             "missing" => Ok(Self::Missing),
+            "differs" => Ok(Self::Differs),
+            "unknown" => Ok(Self::Unknown),
             _ => Err("invalid value".into()),
         }
     }

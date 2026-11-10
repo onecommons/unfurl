@@ -1606,6 +1606,7 @@ def update_cloudmap(
         db=store,
     )
     added, skipped, commit_msg = update(cloud_map)
+    cloud_map.directory.compare_forks()
 
     if proxy is not None:
         new_commit = None

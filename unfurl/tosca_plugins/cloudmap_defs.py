@@ -1204,7 +1204,14 @@ class Namespace:
 RepositoryStatus = Literal["active", "archived", "moved", "deleted"]
 
 UpstreamRefStatus = Literal[
-    "identical", "ahead", "behind", "diverged", "unrelated", "missing"
+    "identical",
+    "ahead",
+    "behind",
+    "diverged",
+    "unrelated",
+    "missing",
+    "differs",
+    "unknown",
 ]
 
 
@@ -1212,6 +1219,7 @@ class UpstreamRefDict(TypedDict, total=False):
     status: Required[UpstreamRefStatus]
     ref: str
     commit: str
+    local_commit: str
     merge_base: str
     ahead: int
     behind: int
@@ -1231,6 +1239,8 @@ class UpstreamRef:
     "Name of the upstream ref, if it differs from this ref's name."
     commit: str = ""
     "Commit of the upstream ref when compared."
+    local_commit: str = ""
+    "Commit of this repository's ref when compared."
     merge_base: str = ""
     ahead: Optional[int] = None
     "Number of commits on this ref that aren't on the upstream ref."
@@ -1243,6 +1253,8 @@ class UpstreamRef:
             result["ref"] = self.ref
         if self.commit:
             result["commit"] = self.commit
+        if self.local_commit:
+            result["local_commit"] = self.local_commit
         if self.merge_base:
             result["merge_base"] = self.merge_base
         if self.ahead is not None:

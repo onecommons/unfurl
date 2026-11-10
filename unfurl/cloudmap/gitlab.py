@@ -229,6 +229,7 @@ class GitlabManager(RepositoryHost):
         r = self.reported_record(fields, metadata, previous)
         self._record_move(r, directory)
         directory.context.add_record(r)
+        directory.note_fork(r)
         if download:
             # add remote branches to local repository
             # XXX pull mirror = True and merge all branches not just main?

@@ -302,6 +302,7 @@ else:
             repo_info = self.reported_record(fields, metadata, previous)
             self._record_move(repo_info, directory)
             directory.context.add_record(repo_info)
+            directory.note_fork(repo_info)
             if download:
                 # add remote branches to local repository
                 # XXX pull mirror = True and merge all branches not just main?

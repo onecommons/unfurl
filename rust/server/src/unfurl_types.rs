@@ -866,15 +866,17 @@ pub struct CloudmapUpstreamRef {
     pub behind: Option<i64>,
     /// Commit SHA of the upstream ref when compared.
     pub commit: Option<String>,
+    /// Commit SHA of this repository's ref when compared.
+    pub local_commit: Option<String>,
     /// Commit SHA of the merge base of this ref and the upstream ref.
     pub merge_base: Option<String>,
     /// Name of the upstream ref, if it differs from this ref's name.
     #[serde(rename = "ref")]
     pub r#ref: Option<String>,
-    /// identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref.
+    /// identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref. differs: the refs are at different commits, compared without a clone holding both. unknown: the upstream's record lists too many refs to say it has no corresponding ref.
     pub status: CloudmapUpstreamRefStatus,
 }
-/// identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref.
+/// identical, ahead, behind or diverged: as ahead and behind say. unrelated: the refs share no merge base. missing: the upstream has no corresponding ref. differs: the refs are at different commits, compared without a clone holding both. unknown: the upstream's record lists too many refs to say it has no corresponding ref.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, oas3_gen_support::Default)]
 pub enum CloudmapUpstreamRefStatus {
     #[serde(rename = "identical")]
@@ -890,6 +892,10 @@ pub enum CloudmapUpstreamRefStatus {
     Unrelated,
     #[serde(rename = "missing")]
     Missing,
+    #[serde(rename = "differs")]
+    Differs,
+    #[serde(rename = "unknown")]
+    Unknown,
 }
 impl core::fmt::Display for CloudmapUpstreamRefStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -900,6 +906,8 @@ impl core::fmt::Display for CloudmapUpstreamRefStatus {
             Self::Diverged => write!(f, "diverged"),
             Self::Unrelated => write!(f, "unrelated"),
             Self::Missing => write!(f, "missing"),
+            Self::Differs => write!(f, "differs"),
+            Self::Unknown => write!(f, "unknown"),
         }
     }
 }
@@ -913,9 +921,11 @@ impl core::str::FromStr for CloudmapUpstreamRefStatus {
             "diverged" => Ok(Self::Diverged),
             "unrelated" => Ok(Self::Unrelated),
             "missing" => Ok(Self::Missing),
+            "differs" => Ok(Self::Differs),
+            "unknown" => Ok(Self::Unknown),
             _ => Err(format!(
                 "unknown variant '{}', expected one of: {}",
-                s, "identical, ahead, behind, diverged, unrelated, missing"
+                s, "identical, ahead, behind, diverged, unrelated, missing, differs, unknown"
             )),
         }
     }
