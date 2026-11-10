@@ -59,7 +59,10 @@ impl TestDb {
                 .expect("create schema");
             let sep = if base.contains('?') { '&' } else { '?' };
             return TestDb {
-                url: format!("{base}{sep}options=-c%20search_path%3D{schema}"),
+                // named for its schema, so teardown can find its sessions
+                url: format!(
+                    "{base}{sep}options=-c%20search_path%3D{schema}&application_name={schema}"
+                ),
                 pg: Some((base, schema)),
                 _file: None,
             };
@@ -106,15 +109,34 @@ impl Drop for TestDb {
                 .expect("runtime")
                 .block_on(async {
                     let pool = sqlx::PgPool::connect(&base).await.expect("connect");
+                    end_sessions_in_a_transaction(&pool, &schema).await;
                     sqlx::query(&format!("DROP SCHEMA \"{schema}\" CASCADE"))
                         .execute(&pool)
                         .await
                         .expect("drop schema");
-                });
+                })
         })
         .join()
         .expect("drop schema");
     }
+}
+
+/// End the test's sessions still idle in a transaction, whose locks would
+/// keep its schema from dropping. A dropped sqlx transaction's rollback is
+/// sent as its connection goes back to the pool, in a task on the test's
+/// runtime; this runs in the test's `Drop`, which blocks that runtime's one
+/// thread, so the task can't run until Postgres ends the session at
+/// `idle_in_transaction_session_timeout`, a minute later.
+#[cfg(feature = "postgres")]
+async fn end_sessions_in_a_transaction(pool: &sqlx::PgPool, application_name: &str) {
+    sqlx::query(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+         WHERE application_name = $1 AND state = 'idle in transaction'",
+    )
+    .bind(application_name)
+    .execute(pool)
+    .await
+    .expect("end sessions");
 }
 
 /// A test's checkout, with the database it's indexed in.

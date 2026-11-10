@@ -89,22 +89,62 @@ mod pg {
                 "?"
             };
             DbConfig::Postgres {
+                // named for its schema, so teardown can find its sessions
                 url: format!(
-                    "{}{}options=-c%20search_path%3D{}",
-                    self.base_url, connector, self.schema
+                    "{}{}options=-c%20search_path%3D{}&application_name={}",
+                    self.base_url, connector, self.schema, self.schema
                 ),
                 max_connections: None,
             }
         }
 
+        /// Drop the schema, failing the test if one of its sessions is still
+        /// in a transaction: a connection held past the test's end, in a
+        /// transaction nothing ended, whose locks would keep the schema from
+        /// dropping until `idle_in_transaction_session_timeout`.
         pub async fn teardown(self) {
             let pool = sqlx::PgPool::connect(&self.base_url)
                 .await
                 .expect("connect");
+            let left_open = idle_in_transaction(&pool, &self.schema).await;
             pool.execute(&*format!("DROP SCHEMA \"{}\" CASCADE", self.schema))
                 .await
                 .expect("drop schema");
+            assert!(
+                left_open.is_empty(),
+                "the test left a transaction open after: {left_open:?}"
+            );
         }
+    }
+
+    /// The last statements of `application_name`'s sessions still idle in a
+    /// transaction, which are then ended so the schema can drop. A dropped
+    /// sqlx transaction's rollback is sent as its connection goes back to the
+    /// pool, and a writer can be between statements as the test ends, so each
+    /// gets a moment to finish first.
+    async fn idle_in_transaction(pool: &sqlx::PgPool, application_name: &str) -> Vec<String> {
+        const SQL: &str = "SELECT pid, query FROM pg_stat_activity \
+             WHERE application_name = $1 AND state = 'idle in transaction'";
+        let mut open: Vec<(i32, String)> = Vec::new();
+        for _ in 0..20 {
+            open = sqlx::query_as(SQL)
+                .bind(application_name)
+                .fetch_all(pool)
+                .await
+                .expect("pg_stat_activity");
+            if open.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        for (pid, _) in &open {
+            sqlx::query("SELECT pg_terminate_backend($1)")
+                .bind(pid)
+                .execute(pool)
+                .await
+                .expect("terminate");
+        }
+        open.into_iter().map(|(_, query)| query).collect()
     }
 
     pub async fn pg_fixture() -> Option<(SyncedRepo, TempDir, PgScope)> {
