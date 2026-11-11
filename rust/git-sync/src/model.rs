@@ -822,9 +822,19 @@ pub struct OpenOptions {
     /// says. Scans read and hash only those files, as if the repository held
     /// only them. If empty, every file is scanned.
     pub pathspecs: Vec<String>,
+    /// The remote whose url identifies the repository, if it has one,
+    /// before `origin` and then the other remotes by name. A database
+    /// keyed under another of its remotes is carried over on open.
+    pub remote: Option<String>,
 }
 
 impl OpenOptions {
+    /// With [`Self::remote`] set to `name`.
+    pub fn remote(mut self, name: impl Into<String>) -> Self {
+        self.remote = Some(name.into());
+        self
+    }
+
     /// With [`Self::pathspecs`] set to `pathspecs`.
     pub fn pathspecs<S: Into<String>>(mut self, pathspecs: impl IntoIterator<Item = S>) -> Self {
         self.pathspecs = pathspecs.into_iter().map(Into::into).collect();

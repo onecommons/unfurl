@@ -391,6 +391,27 @@ impl Candidate<'_> {
     }
 }
 
+/// Carry over the worktree an earlier open keyed under another of this
+/// repository's `remotes` (their origins), when there's no worktree for
+/// `meta`'s origin and branch yet: a remote that now wins the choice (an
+/// `origin` added, or a preferred remote asked for) would otherwise start a
+/// new worktree, stranding the old one's records and pending edits.
+async fn adopt_renamed_origin(db: &Db, remotes: &[String], meta: &git::WorktreeMeta) -> Result<()> {
+    if db::worktree::find(db, &meta.origin, &meta.branch)
+        .await?
+        .is_some()
+    {
+        return Ok(());
+    }
+    for other in remotes {
+        if *other != meta.origin && db::worktree::find(db, other, &meta.branch).await?.is_some() {
+            db::worktree::rekey_origin(db, other, &meta.origin).await?;
+            break;
+        }
+    }
+    Ok(())
+}
+
 /// Record `branch` as the default branch of `origin`, worktree
 /// `worktree_id`'s repository, where it isn't already.
 async fn record_default_branch(
@@ -521,7 +542,10 @@ impl SyncedRepo {
         // place a new worktree in its family, which consumes it: we re-open
         // per call to keep `Send` guarantees out of long-lived state.
         let repo = opener.open(&repo_path)?;
-        let meta = git::worktree_meta(&repo)?;
+        let meta = git::worktree_meta_preferring(&repo, options.remote.as_deref())?;
+        // gathered before awaiting: `repo` isn't `Sync`
+        let remotes = git::remote_origins(&repo, options.remote.as_deref());
+        adopt_renamed_origin(&db, &remotes, &meta).await?;
         let default_branch = git::remote_default_branch(&repo, "origin")?;
         let worktree_id = crate::fork::open(
             &db,

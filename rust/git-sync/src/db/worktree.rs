@@ -264,3 +264,47 @@ impl Db {
         Ok(())
     }
 }
+
+/// Rename the repository `from` to `to` wherever the database keys it by
+/// origin: its worktrees, its `repository` row and its credential grants.
+/// Nothing changes, and it returns `false`, when a worktree already has the
+/// origin `to`.
+pub(crate) async fn rekey_origin(db: &Db, from: &str, to: &str) -> Result<bool> {
+    on_pool!(db, pool => {
+        let mut tx = pool.begin().await?;
+        let taken: Option<(i64,)> =
+            sqlx::query_as(sql!(pool, "SELECT id FROM worktree WHERE origin = ?1 LIMIT 1"))
+                .bind(to)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if taken.is_some() {
+            return Ok(false);
+        }
+        sqlx::query(sql!(pool, "UPDATE worktree SET origin = ?2 WHERE origin = ?1"))
+            .bind(from)
+            .bind(to)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(sql!(
+            pool,
+            "UPDATE repository SET origin = ?2 WHERE origin = ?1 \
+             AND NOT EXISTS (SELECT 1 FROM repository WHERE origin = ?2)"
+        ))
+        .bind(from)
+        .bind(to)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(sql!(
+            pool,
+            "UPDATE credential_grant SET origin = ?2 WHERE origin = ?1 \
+             AND NOT EXISTS (SELECT 1 FROM credential_grant g \
+                 WHERE g.origin = ?2 AND g.token_digest = credential_grant.token_digest)"
+        ))
+        .bind(from)
+        .bind(to)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    })
+}

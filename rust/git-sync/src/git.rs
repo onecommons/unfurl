@@ -247,26 +247,54 @@ fn lexical_abspath(path: &str) -> String {
 /// [`WorktreeMeta::branch`] of a detached HEAD.
 pub const DETACHED: &str = "HEAD";
 
-/// Resolve `(origin, branch, head_oid)` for a freshly-opened repo. Falls
-/// back to the working-dir path when no remote is configured.
-///
-/// The origin is run through [`normalize_git_url_hard`], so the same
-/// repository cloned over https by one user and ssh by another resolves
-/// to one identity instead of two. `remote_names` returns a sorted set,
-/// so a repository with several remotes yields whichever name sorts
-/// first — a caller needing a specific one has to say so rather than
-/// let it be guessed here.
+/// Resolve `(origin, branch, head_oid)` for a freshly-opened repo, its
+/// origin from the remote [`remote_origins`] lists first.
 pub fn worktree_meta(repo: &gix::Repository) -> Result<WorktreeMeta> {
-    let origin = repo
+    worktree_meta_preferring(repo, None)
+}
+
+/// The fetch url of each of `repo`'s remotes, run through
+/// [`normalize_git_url_hard`] — so the same repository cloned over https
+/// by one user and ssh by another resolves to one identity — in the order
+/// a worktree's origin is chosen from them: the remote named `preferred`,
+/// then `origin`, then the rest by name. A remote without a fetch url is
+/// left out.
+pub fn remote_origins(repo: &gix::Repository, preferred: Option<&str>) -> Vec<String> {
+    let mut names: Vec<String> = repo
         .remote_names()
         .iter()
-        .find_map(|name| {
-            let remote = repo.find_remote(name.as_ref() as &gix::bstr::BStr).ok()?;
+        .map(|name| name.to_string())
+        .collect();
+    let rank = |name: &str| match name {
+        _ if Some(name) == preferred => 0,
+        "origin" => 1,
+        _ => 2,
+    };
+    names.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.cmp(b)));
+    names
+        .iter()
+        .filter_map(|name| {
+            let remote = repo.find_remote(name.as_str()).ok()?;
             let url = remote.url(gix::remote::Direction::Fetch)?;
-            Some(url.to_bstring().to_string())
+            Some(normalize_git_url_hard(&url.to_bstring().to_string()))
         })
-        .or_else(|| repo.workdir().map(|p| p.to_string_lossy().to_string()))
-        .map(|raw| normalize_git_url_hard(&raw))
+        .collect()
+}
+
+/// [`worktree_meta`], with the remote named `preferred`, if `repo` has it,
+/// as the origin (see [`remote_origins`]). Falls back to the working-dir
+/// path when no remote is configured.
+pub fn worktree_meta_preferring(
+    repo: &gix::Repository,
+    preferred: Option<&str>,
+) -> Result<WorktreeMeta> {
+    let origin = remote_origins(repo, preferred)
+        .into_iter()
+        .next()
+        .or_else(|| {
+            repo.workdir()
+                .map(|p| normalize_git_url_hard(&p.to_string_lossy()))
+        })
         .unwrap_or_default();
 
     let branch = match repo.head().map_err(git_err)?.referent_name() {
