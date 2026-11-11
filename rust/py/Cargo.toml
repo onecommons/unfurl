@@ -15,9 +15,16 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { version = "0.25.1", features = ["hashbrown"] }
 pyo3-log = "0.12.4"
+serde_json = { version = "1.0.154", optional = true }
+tokio = { version = "1.53.3", features = ["rt-multi-thread"], optional = true }
 tosca-solver = { path = "../solver", features = ["python"], optional = true }
+tracing = { version = "0.1.44", features = ["log"], optional = true }
+unfurl-git-sync = { version = "0.1.0", path = "../git-sync", optional = true }
 
 [features]
 python = ["pyo3/extension-module"]
 solver = ["dep:tosca-solver"]
-default = ["python", "solver"]
+# CloudMapDB on git-sync: see `unfurl/cloudmap/gitsync_db.py`. `tracing`'s
+# `log` feature carries git-sync's logging to Python through pyo3-log.
+cloudmap-sync = ["dep:unfurl-git-sync", "dep:serde_json", "dep:tokio", "dep:tracing"]
+default = ["python", "solver", "cloudmap-sync"]

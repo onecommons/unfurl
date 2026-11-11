@@ -5,6 +5,9 @@
 
 use pyo3::prelude::*;
 
+#[cfg(feature = "cloudmap-sync")]
+mod cloudmap;
+
 /// Adds one feature's functions and classes to the module.
 type AddPart = fn(&Bound<'_, PyModule>) -> PyResult<()>;
 
@@ -12,6 +15,8 @@ type AddPart = fn(&Bound<'_, PyModule>) -> PyResult<()>;
 const PARTS: &[AddPart] = &[
     #[cfg(feature = "solver")]
     add_solver,
+    #[cfg(feature = "cloudmap-sync")]
+    cloudmap::add,
 ];
 
 #[pymodule]

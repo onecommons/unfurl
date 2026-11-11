@@ -1,8 +1,9 @@
 # Types for `unfurl._rust`, the extension module built from `rust/py`, kept by
-# hand from `rust/solver`.
+# hand: the solver's from `rust/solver`, the git-sync binding's from
+# `rust/py/src/cloudmap.rs`.
 
 import builtins
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TypedDict
 
 from .solver import Node
 
@@ -160,3 +161,35 @@ def solve(
 ) -> Dict[Tuple[str, str], List[Tuple[str, str]]]: ...
 def make_pattern_constraint(pattern: str) -> Constraint: ...
 def regex_match_exact(pattern: Constraint, text: str) -> bool: ...
+
+class Outcome(TypedDict):
+    files_seen: int
+    files_parsed: int
+    records_upserted: int
+    records_deleted: int
+    written: List[str]
+    conflicts: List[Tuple[str, str, str]]
+    failed: List[Tuple[str, str]]
+    unparsed: List[Tuple[str, str]]
+    invalid: List[str]
+
+class GitSyncDB:
+    @staticmethod
+    def open(repo_path: str, db_url: str, file_path: str) -> GitSyncDB: ...
+    def scan(self, rebuild_missing: bool = False) -> Outcome: ...
+    def find(
+        self,
+        section: str,
+        key: Optional[str] = None,
+        type_names: Optional[List[str]] = None,
+        subtypes: bool = True,
+        alias: bool = True,
+    ) -> List[Tuple[str, str, str]]: ...
+    def upsert(self, section: str, key: str, record: str) -> None: ...
+    def delete(self, section: str, key: str) -> None: ...
+    def save(self) -> Outcome: ...
+    def commit(self, message: str) -> Optional[str]: ...
+
+class GitSyncError(Exception): ...
+class GitSyncConflict(GitSyncError): ...
+class CommitMissing(GitSyncError): ...
