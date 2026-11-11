@@ -77,10 +77,7 @@ async fn literate_markdown_is_indexed(sync: &SyncedRepo, tmp: &TempDir) {
     );
 
     let all = sync
-        .find_records(&RecordQuery {
-            path: Some("/components".into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/components"))
         .await
         .expect("find");
     let mut keys: Vec<&str> = all.iter().map(|r| r.key.as_str()).collect();

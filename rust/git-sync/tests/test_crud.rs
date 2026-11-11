@@ -605,10 +605,9 @@ async fn find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
         .expect("update");
 
     let pipelines = sync
-        .find_records(&RecordQuery {
-            type_names: Some(vec!["cloudmap.artifacts.ci.GitLabPipeline".into()]),
-            ..Default::default()
-        })
+        .find_records(
+            &RecordQuery::default().type_names(vec!["cloudmap.artifacts.ci.GitLabPipeline"]),
+        )
         .await
         .expect("type filter");
     assert_eq!(
@@ -623,14 +622,10 @@ async fn find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // Multiple names OR together and compose with the `path` filter.
     let multi = sync
-        .find_records(&RecordQuery {
-            path: Some("/services".into()),
-            type_names: Some(vec![
-                "Odoo@unfurl.cloud/onecommons/blueprints/odoo".into(),
-                "no.such.Type".into(),
-            ]),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/services").type_names(vec![
+            "Odoo@unfurl.cloud/onecommons/blueprints/odoo",
+            "no.such.Type",
+        ]))
         .await
         .expect("multi type filter");
     assert_eq!(multi.len(), 1);
@@ -638,20 +633,14 @@ async fn find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // Unknown name matches nothing.
     let none = sync
-        .find_records(&RecordQuery {
-            type_names: Some(vec!["no.such.Type".into()]),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().type_names(vec!["no.such.Type"]))
         .await
         .expect("unknown type");
     assert!(none.is_empty());
 
     // An empty name list is treated as "no filter", not "match none".
     let all = sync
-        .find_records(&RecordQuery {
-            type_names: Some(Vec::new()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().type_names(Vec::<String>::new()))
         .await
         .expect("empty type list");
     let unfiltered = sync
@@ -704,12 +693,12 @@ async fn find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
         .expect("create typed record");
     }
     let keys = |type_name: &'static str, subtypes: bool| async move {
-        sync.find_records(&RecordQuery {
-            path: Some("/subtypetest".into()),
-            type_names: Some(vec![type_name.into()]),
-            subtypes,
-            ..Default::default()
-        })
+        sync.find_records(
+            &RecordQuery::default()
+                .path("/subtypetest")
+                .type_names([type_name])
+                .subtypes(subtypes),
+        )
         .await
         .expect("find")
         .into_iter()
@@ -745,11 +734,7 @@ async fn find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // Sanity: the parent record exists.
     let direct = sync
-        .find_records(&RecordQuery {
-            path: Some(parent_path.into()),
-            key: Some(parent_key.into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path(parent_path).key(parent_key))
         .await
         .expect("find_records direct");
     assert_eq!(direct.len(), 1, "parent OCI record should be found");
@@ -761,11 +746,7 @@ async fn find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // a search for the alias key returns nothing.
     let alias_key = "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest";
     let no_alias = sync
-        .find_records(&RecordQuery {
-            path: Some(parent_path.into()),
-            key: Some(alias_key.into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path(parent_path).key(alias_key))
         .await
         .expect("find_records without alias");
     assert!(
@@ -775,12 +756,12 @@ async fn find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // With `alias=true`, the same lookup resolves to the parent record.
     let via_alias = sync
-        .find_records(&RecordQuery {
-            path: Some(parent_path.into()),
-            key: Some(alias_key.into()),
-            alias: true,
-            ..Default::default()
-        })
+        .find_records(
+            &RecordQuery::default()
+                .path(parent_path)
+                .key(alias_key)
+                .alias(true),
+        )
         .await
         .expect("find_records via alias");
     assert_eq!(via_alias.len(), 1, "alias lookup should hit the parent");
@@ -793,18 +774,11 @@ async fn find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // alias=true is a no-op when key is None — should give the same
     // result as alias=false.
     let any_artifact = sync
-        .find_records(&RecordQuery {
-            path: Some(parent_path.into()),
-            alias: true,
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path(parent_path).alias(true))
         .await
         .expect("find_records no key, alias=true");
     let any_artifact_no_alias = sync
-        .find_records(&RecordQuery {
-            path: Some(parent_path.into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path(parent_path))
         .await
         .expect("find_records no key, alias=false");
     assert_eq!(
@@ -883,11 +857,7 @@ async fn find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     // follow=0 → the followed Vec is empty, regardless of edges.
     let (init, follow0) = sync
         .find_records_follow(
-            &RecordQuery {
-                path: Some(start_path.into()),
-                key: Some(start_key.into()),
-                ..Default::default()
-            },
+            &RecordQuery::default().path(start_path).key(start_key),
             0,
             Vec::new(),
         )
@@ -901,11 +871,7 @@ async fn find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     // follow=10 → walk up to 10 reachable records (more than enough).
     let (init, walked) = sync
         .find_records_follow(
-            &RecordQuery {
-                path: Some(start_path.into()),
-                key: Some(start_key.into()),
-                ..Default::default()
-            },
+            &RecordQuery::default().path(start_path).key(start_key),
             10,
             Vec::new(),
         )
@@ -970,11 +936,7 @@ async fn find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     // repository).
     let (_, walked_small) = sync
         .find_records_follow(
-            &RecordQuery {
-                path: Some(start_path.into()),
-                key: Some(start_key.into()),
-                ..Default::default()
-            },
+            &RecordQuery::default().path(start_path).key(start_key),
             1,
             Vec::new(),
         )
@@ -1697,10 +1659,7 @@ async fn find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
         .expect("update");
 
     let all = sync
-        .find_records(&RecordQuery {
-            path: Some("/artifacts".into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/artifacts"))
         .await
         .expect("unpaged");
     assert!(all.len() > 3, "fixture should have several artifacts");
@@ -1711,11 +1670,10 @@ async fn find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
     let mut after: Option<unfurl_git_sync::Cursor> = None;
     for _ in 0..100 {
         let page = sync
-            .find_records(&RecordQuery {
-                path: Some("/artifacts".into()),
-                after: after.clone(),
-                limit: Some(3),
-                ..Default::default()
+            .find_records(&{
+                let mut query = RecordQuery::default().path("/artifacts").limit(3);
+                query.after = after.clone();
+                query
             })
             .await
             .expect("page");
@@ -1735,11 +1693,7 @@ async fn find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // `limit` alone caps the result and preserves the ordering.
     let capped = sync
-        .find_records(&RecordQuery {
-            path: Some("/artifacts".into()),
-            limit: Some(2),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/artifacts").limit(2))
         .await
         .expect("limit");
     assert_eq!(capped.len(), 2);
@@ -1755,10 +1709,10 @@ async fn find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
         format!("{}\u{1}gone", expected[0]),
     ));
     let resumed = sync
-        .find_records(&RecordQuery {
-            path: Some("/artifacts".into()),
-            after: ghost,
-            ..Default::default()
+        .find_records(&{
+            let mut query = RecordQuery::default().path("/artifacts");
+            query.after = ghost;
+            query
         })
         .await
         .expect("ghost cursor");
@@ -1790,10 +1744,7 @@ async fn find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempDir) 
     }
 
     let rows = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/repositories"))
         .await
         .expect("find");
     let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
@@ -1810,10 +1761,10 @@ async fn find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempDir) 
     // And a cursor lands between them accordingly.
     let after = Some(unfurl_git_sync::Cursor::new("/repositories", "z-repo"));
     let rest = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            after,
-            ..Default::default()
+        .find_records(&{
+            let mut query = RecordQuery::default().path("/repositories");
+            query.after = after;
+            query
         })
         .await
         .expect("after z");
@@ -1858,10 +1809,7 @@ async fn find_records_reports_tombstones(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // The default view hides it, exactly as before.
     let live = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/repositories"))
         .await
         .expect("live");
     assert!(
@@ -1871,11 +1819,11 @@ async fn find_records_reports_tombstones(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // Catching up from the watermark surfaces it, flagged.
     let caught_up = sync
-        .find_records(&RecordQuery {
-            since_version: Some(before),
-            include_deleted: true,
-            ..Default::default()
-        })
+        .find_records(
+            &RecordQuery::default()
+                .since_version(before)
+                .include_deleted(true),
+        )
         .await
         .expect("catch up");
     let tomb = caught_up
@@ -1955,10 +1903,7 @@ async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
         .expect("upsert type record");
     }
 
-    let query = RecordQuery {
-        path: Some("/facettest".into()),
-        ..Default::default()
-    };
+    let query = RecordQuery::default().path("/facettest");
     let path = |tokens: &[&str], rollup: bool| {
         FacetPath::new(tokens.iter().map(|t| t.to_string()).collect(), rollup)
             .expect("valid facet path")
@@ -2040,11 +1985,7 @@ async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
     );
     // ... which is exactly what the type filter with subtypes matches.
     let base = sync
-        .find_records(&RecordQuery {
-            type_names: Some(vec!["Base".into()]),
-            subtypes: true,
-            ..query.clone()
-        })
+        .find_records(&query.clone().type_names(["Base"]).subtypes(true))
         .await
         .expect("find");
     assert_eq!(base.len(), 3);
@@ -2103,15 +2044,13 @@ async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // 7. The shared filters compose: a json_query narrows total, groups
     //    and columns alike.
-    let narrowed = RecordQuery {
-        path: Some("/facettest".into()),
-        json_queries: vec![JsonQuery::new(
+    let narrowed = RecordQuery::default()
+        .path("/facettest")
+        .json_queries(vec![JsonQuery::new(
             vec!["metadata".into(), "topics".into()],
             serde_json::json!("db"),
         )
-        .expect("query")],
-        ..Default::default()
-    };
+        .expect("query")]);
     let spec = FacetSpec {
         group: path(&["metadata", "topics"], false),
         columns: vec![],
@@ -2227,12 +2166,9 @@ async fn find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         let q = JsonQuery::new(tokens.into_iter().map(str::to_string).collect(), value)
             .expect("valid query");
         async move {
-            sync.find_records(&RecordQuery {
-                json_queries: vec![q],
-                ..Default::default()
-            })
-            .await
-            .expect("json query")
+            sync.find_records(&RecordQuery::default().json_queries(vec![q]))
+                .await
+                .expect("json query")
         }
     };
 
@@ -2341,12 +2277,9 @@ async fn find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         )
         .expect("valid prefix query");
         async move {
-            sync.find_records(&RecordQuery {
-                json_queries: vec![q],
-                ..Default::default()
-            })
-            .await
-            .expect("prefix query")
+            sync.find_records(&RecordQuery::default().json_queries(vec![q]))
+                .await
+                .expect("prefix query")
         }
     };
     let hits = prefix(
@@ -2393,12 +2326,9 @@ async fn find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         let q = JsonQuery::exists(tokens.into_iter().map(str::to_string).collect())
             .expect("valid existence query");
         async move {
-            sync.find_records(&RecordQuery {
-                json_queries: vec![q],
-                ..Default::default()
-            })
-            .await
-            .expect("existence query")
+            sync.find_records(&RecordQuery::default().json_queries(vec![q]))
+                .await
+                .expect("existence query")
         }
     };
     assert_eq!(
@@ -2466,12 +2396,9 @@ async fn find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
             })
             .collect();
         async move {
-            sync.find_records(&RecordQuery {
-                json_queries: qs,
-                ..Default::default()
-            })
-            .await
-            .expect("anded queries")
+            sync.find_records(&RecordQuery::default().json_queries(qs))
+                .await
+                .expect("anded queries")
         }
     };
     let hits = find_all(vec![
@@ -2620,10 +2547,7 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
     }
 
     let rows = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/repositories"))
         .await
         .expect("find");
     let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
@@ -2641,10 +2565,10 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
     // in the same place here.
     let after = Some(unfurl_git_sync::Cursor::new("/repositories", "z-repo"));
     let rest = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            after,
-            ..Default::default()
+        .find_records(&{
+            let mut query = RecordQuery::default().path("/repositories");
+            query.after = after;
+            query
         })
         .await
         .expect("after z");
@@ -2833,16 +2757,10 @@ async fn reads_other_worktrees_in_the_same_database() {
     .await
     .expect("write");
 
-    let only_in_b = RecordQuery {
-        key: Some("only-in-b".into()),
-        ..Default::default()
-    };
+    let only_in_b = RecordQuery::default().key("only-in-b");
     assert!(a.find_records(&only_in_b).await.expect("find").is_empty());
     let found = a
-        .find_records(&RecordQuery {
-            worktrees: Some(in_b.clone()),
-            ..only_in_b
-        })
+        .find_records(&only_in_b.worktrees(in_b.clone()))
         .await
         .expect("find");
     assert_eq!(found.len(), 1);
@@ -2879,11 +2797,12 @@ async fn reads_other_worktrees_in_the_same_database() {
     )
     .await
     .expect("write");
-    let top = |worktrees: Option<WorktreeFilter>| RecordQuery {
-        worktrees,
-        type_names: Some(vec!["test.Top".into()]),
-        subtypes: true,
-        ..Default::default()
+    let top = |worktrees: Option<WorktreeFilter>| {
+        let mut query = RecordQuery::default()
+            .type_names(vec!["test.Top"])
+            .subtypes(true);
+        query.worktrees = worktrees;
+        query
     };
     let in_b_found = a
         .find_records(&top(Some(in_b.clone())))
@@ -2894,16 +2813,11 @@ async fn reads_other_worktrees_in_the_same_database() {
     assert!(a.find_records(&top(None)).await.expect("find").is_empty());
 
     // both checkouts hold the fixture, so every worktree has this record
-    let odoo = RecordQuery {
-        path: Some("/repositories".into()),
-        key: Some("git://unfurl.cloud/onecommons/blueprints/odoo.git".into()),
-        ..Default::default()
-    };
+    let odoo = RecordQuery::default()
+        .path("/repositories")
+        .key("git://unfurl.cloud/onecommons/blueprints/odoo.git");
     let everywhere = a
-        .find_records(&RecordQuery {
-            worktrees: Some(WorktreeFilter::default()),
-            ..odoo.clone()
-        })
+        .find_records(&odoo.clone().worktrees(WorktreeFilter::default()))
         .await
         .expect("find");
     let mut worktree_ids: Vec<i64> = everywhere.iter().map(|r| r.worktree_id).collect();
@@ -2912,14 +2826,7 @@ async fn reads_other_worktrees_in_the_same_database() {
 
     // the follow walk stays in the worktrees read
     let (initial, followed) = a
-        .find_records_follow(
-            &RecordQuery {
-                worktrees: Some(in_b),
-                ..odoo
-            },
-            10,
-            Vec::new(),
-        )
+        .find_records_follow(&odoo.worktrees(in_b), 10, Vec::new())
         .await
         .expect("follow");
     assert_eq!(initial.len(), 1);
@@ -2959,11 +2866,10 @@ async fn paging_spans_duplicate_keys_across_files(sync: &SyncedRepo, _tmp: &Temp
     let mut after: Option<unfurl_git_sync::Cursor> = None;
     for _ in 0..50 {
         let page = sync
-            .find_records(&RecordQuery {
-                path: Some("/repositories".into()),
-                after: after.clone(),
-                limit: Some(1),
-                ..Default::default()
+            .find_records(&{
+                let mut query = RecordQuery::default().path("/repositories").limit(1);
+                query.after = after.clone();
+                query
             })
             .await
             .expect("page");
@@ -3022,12 +2928,13 @@ async fn whole_groups_keeps_a_coarse_cursor_lossless(sync: &SyncedRepo, _tmp: &T
     let mut overshot = false;
     for _ in 0..50 {
         let page = sync
-            .find_records(&RecordQuery {
-                path: Some("/repositories".into()),
-                after: after.clone(),
-                limit: Some(1),
-                whole_groups: true,
-                ..Default::default()
+            .find_records(&{
+                let mut query = RecordQuery::default()
+                    .path("/repositories")
+                    .limit(1)
+                    .whole_groups(true);
+                query.after = after.clone();
+                query
             })
             .await
             .expect("page");
@@ -3062,11 +2969,7 @@ async fn whole_groups_keeps_a_coarse_cursor_lossless(sync: &SyncedRepo, _tmp: &T
     // Without it, the same walk silently loses one -- the behaviour this
     // flag exists to avoid.
     let lossy = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            limit: Some(1),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/repositories").limit(1))
         .await
         .expect("page");
     assert_eq!(lossy.len(), 1, "limit is a hard cap without whole_groups");
@@ -3654,10 +3557,7 @@ async fn facets_count_a_key_in_two_files_once(sync: &SyncedRepo, _tmp: &TempDir)
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
-    let query = RecordQuery {
-        path: Some("/repositories".into()),
-        ..Default::default()
-    };
+    let query = RecordQuery::default().path("/repositories");
     let path = |token: &str| FacetPath::new(vec![token.to_string()], false).expect("path");
     let spec = FacetSpec {
         group: path("tier"),

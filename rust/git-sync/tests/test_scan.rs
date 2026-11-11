@@ -154,10 +154,7 @@ async fn a_malformed_section_does_not_delete_its_records(sync: &SyncedRepo, tmp:
         .await
         .expect("first scan");
     let before = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/repositories"))
         .await
         .expect("find");
     assert!(
@@ -199,10 +196,7 @@ async fn a_malformed_section_does_not_delete_its_records(sync: &SyncedRepo, tmp:
         "a rejected section must not have its records cleared"
     );
     let after = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/repositories"))
         .await
         .expect("find");
     assert_eq!(
@@ -237,10 +231,7 @@ async fn an_unknown_api_version_skips_the_file_without_clearing_it(
         .await
         .expect("first scan");
     let before = sync
-        .find_records(&RecordQuery {
-            file_path: Some("cloudmap.yaml".into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().file_path("cloudmap.yaml"))
         .await
         .expect("find");
     assert!(
@@ -301,10 +292,7 @@ async fn an_unknown_api_version_skips_the_file_without_clearing_it(
         "the section the broken document dropped must survive being skipped"
     );
     let after = sync
-        .find_records(&RecordQuery {
-            file_path: Some("cloudmap.yaml".into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().file_path("cloudmap.yaml"))
         .await
         .expect("find");
     assert_eq!(

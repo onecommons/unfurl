@@ -162,21 +162,18 @@ pub enum QueryOp {
 ///
 /// Every field is optional and `AND`ed with the rest, so
 /// [`Default::default()`] searches everything and a caller names only what
-/// it wants to narrow:
+/// it wants to narrow, with the builder method named after each field:
 ///
 /// ```
 /// use unfurl_git_sync::RecordQuery;
-/// let q = RecordQuery {
-///     path: Some("/artifacts".into()),
-///     limit: Some(50),
-///     ..Default::default()
-/// };
+/// let q = RecordQuery::default().path("/artifacts").limit(50);
 /// ```
 ///
 /// Grouping them keeps [`crate::SyncedRepo::find_records`] and the SQL
 /// builders behind it to a readable argument list, and means adding a
 /// filter doesn't ripple through every call site.
 #[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
 pub struct RecordQuery {
     /// The worktrees to read: `None` is the handle's own, otherwise every
     /// worktree the filter matches.
@@ -346,6 +343,90 @@ impl Cursor {
 }
 
 impl RecordQuery {
+    /// With [`Self::worktrees`] set to `worktrees`.
+    pub fn worktrees(mut self, worktrees: WorktreeFilter) -> Self {
+        self.worktrees = Some(worktrees);
+        self
+    }
+
+    /// With [`Self::file_path`] set to `file_path`.
+    pub fn file_path(mut self, file_path: impl Into<String>) -> Self {
+        self.file_path = Some(file_path.into());
+        self
+    }
+
+    /// With [`Self::path`] set to `path`.
+    pub fn path(mut self, path: impl Into<String>) -> Self {
+        self.path = Some(path.into());
+        self
+    }
+
+    /// With [`Self::key`] set to `key`.
+    pub fn key(mut self, key: impl Into<String>) -> Self {
+        self.key = Some(key.into());
+        self
+    }
+
+    /// With [`Self::since_version`] set to `since_version`.
+    pub fn since_version(mut self, since_version: i64) -> Self {
+        self.since_version = Some(since_version);
+        self
+    }
+
+    /// With [`Self::after`] set to `after`.
+    pub fn after(mut self, after: Cursor) -> Self {
+        self.after = Some(after);
+        self
+    }
+
+    /// With [`Self::limit`] set to `limit`.
+    pub fn limit(mut self, limit: i64) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    /// With [`Self::type_names`] set to `names`.
+    pub fn type_names<S: Into<String>>(mut self, names: impl IntoIterator<Item = S>) -> Self {
+        self.type_names = Some(names.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// With [`Self::json_queries`] set to `queries`.
+    pub fn json_queries(mut self, queries: impl IntoIterator<Item = JsonQuery>) -> Self {
+        self.json_queries = queries.into_iter().collect();
+        self
+    }
+
+    /// With [`Self::alias`] set to `alias`.
+    pub fn alias(mut self, alias: bool) -> Self {
+        self.alias = alias;
+        self
+    }
+
+    /// With [`Self::subtypes`] set to `subtypes`.
+    pub fn subtypes(mut self, subtypes: bool) -> Self {
+        self.subtypes = subtypes;
+        self
+    }
+
+    /// With [`Self::whole_groups`] set to `whole_groups`.
+    pub fn whole_groups(mut self, whole_groups: bool) -> Self {
+        self.whole_groups = whole_groups;
+        self
+    }
+
+    /// With [`Self::include_deleted`] set to `include_deleted`.
+    pub fn include_deleted(mut self, include_deleted: bool) -> Self {
+        self.include_deleted = include_deleted;
+        self
+    }
+
+    /// With [`Self::include_conflicts`] set to `include_conflicts`.
+    pub fn include_conflicts(mut self, include_conflicts: bool) -> Self {
+        self.include_conflicts = include_conflicts;
+        self
+    }
+
     /// Whether the alias OR-clause applies: it is a no-op without a key.
     pub(crate) fn alias_active(&self) -> bool {
         self.alias && self.key.is_some()

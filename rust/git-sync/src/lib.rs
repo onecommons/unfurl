@@ -48,10 +48,7 @@
 //!
 //! sync.update_from_working_dir(ScanOptions::default()).await?;
 //! let repos = sync
-//!     .find_records(&RecordQuery {
-//!         path: Some("/repositories".into()),
-//!         ..Default::default()
-//!     })
+//!     .find_records(&RecordQuery::default().path("/repositories"))
 //!     .await?;
 //! # let _ = repos;
 //! # Ok(())

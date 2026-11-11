@@ -1271,15 +1271,14 @@ impl Selection {
     /// The base [`RecordQuery`] for this selection; callers add their
     /// own key / paging / versioning fields.
     fn into_query(self) -> RecordQuery {
-        RecordQuery {
-            worktrees: self.worktrees,
-            file_path: self.file_path,
-            path: self.path.map(str::to_string),
-            type_names: self.type_name.map(|t| vec![t]),
-            subtypes: true,
-            json_queries: self.json_filters,
-            ..Default::default()
-        }
+        let mut query = RecordQuery::default()
+            .subtypes(true)
+            .json_queries(self.json_filters);
+        query.worktrees = self.worktrees;
+        query.file_path = self.file_path;
+        query.path = self.path.map(str::to_string);
+        query.type_names = self.type_name.map(|t| vec![t]);
+        query
     }
 }
 
@@ -1309,15 +1308,17 @@ async fn conflict_groups(
     only: Option<&std::collections::HashSet<(String, String)>>,
 ) -> Result<Vec<Value>, LocalError> {
     let contested = synced
-        .find_records(&RecordQuery {
-            include_conflicts: true,
+        .find_records(&{
             // A conflict row is a tombstone when the file dropped the
             // record, which is half of what there is to report.
-            include_deleted: true,
-            after: None,
-            limit: None,
-            whole_groups: false,
-            ..query.clone()
+            let mut all = query
+                .clone()
+                .include_conflicts(true)
+                .include_deleted(true)
+                .whole_groups(false);
+            all.after = None;
+            all.limit = None;
+            all
         })
         .await
         .map_err(|e| read_error("find_records", e))?;
@@ -1756,15 +1757,16 @@ async fn paged_response(
         // every page.
         if let Some(last) = rows.last() {
             let probe = synced
-                .find_records(&RecordQuery {
-                    after: Some(unfurl_git_sync::Cursor::new(
-                        last.path.clone(),
-                        last.key.clone(),
-                    )),
-                    limit: Some(1),
-                    whole_groups: false,
-                    ..query.clone()
-                })
+                .find_records(
+                    &query
+                        .clone()
+                        .after(unfurl_git_sync::Cursor::new(
+                            last.path.clone(),
+                            last.key.clone(),
+                        ))
+                        .limit(1)
+                        .whole_groups(false),
+                )
                 .await
                 .map_err(|e| read_error("find_records", e))?;
             more = !probe.is_empty();
@@ -2976,11 +2978,10 @@ async fn resolve_conditional_write(
         return Ok(Some(Value::Object(map)));
     }
     let existing = synced
-        .find_records(&RecordQuery {
-            file_path: file_path.map(str::to_string),
-            path: Some(path.to_string()),
-            key: Some(key.to_string()),
-            ..Default::default()
+        .find_records(&{
+            let mut query = RecordQuery::default().path(path).key(key);
+            query.file_path = file_path.map(str::to_string);
+            query
         })
         .await
         .map_err(|e| WriteError::Internal(format!("find_records: {e}")))?

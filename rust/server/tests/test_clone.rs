@@ -2544,15 +2544,13 @@ async fn record_on(
     branch: &str,
     key: &str,
 ) -> Option<unfurl_git_sync::Record> {
-    let query = unfurl_git_sync::RecordQuery {
-        worktrees: Some(unfurl_git_sync::WorktreeFilter {
+    let query = unfurl_git_sync::RecordQuery::default()
+        .worktrees(unfurl_git_sync::WorktreeFilter {
             origin: None,
             branch: Some(branch.into()),
             ids: None,
-        }),
-        key: Some(key.into()),
-        ..Default::default()
-    };
+        })
+        .key(key);
     cm.synced()
         .find_records(&query)
         .await

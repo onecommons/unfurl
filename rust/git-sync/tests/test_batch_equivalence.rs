@@ -168,10 +168,7 @@ type Row = (
 /// with conflicts, ids renamed alike across both.
 async fn state(sync: &SyncedRepo) -> Vec<Vec<Row>> {
     let view = sync
-        .find_records(&RecordQuery {
-            since_version: Some(0),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().since_version(0))
         .await
         .expect("find");
     let changes = sync.list_changes(None, true).await.expect("changes");

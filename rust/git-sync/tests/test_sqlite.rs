@@ -59,11 +59,11 @@ async fn cloudmap_end_to_end_sqlite() {
         .expect("commit produced");
 
     let after = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            key: Some("git://example.com/x.git".into()),
-            ..Default::default()
-        })
+        .find_records(
+            &RecordQuery::default()
+                .path("/repositories")
+                .key("git://example.com/x.git"),
+        )
         .await
         .expect("find_records after commit");
     assert_eq!(after.len(), 1);

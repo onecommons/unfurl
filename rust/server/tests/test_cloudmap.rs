@@ -3590,10 +3590,7 @@ async fn paging_over_a_duplicated_key_reaches_the_tail() {
             .expect("write");
     }
     let expected: Vec<String> = synced
-        .find_records(&unfurl_git_sync::RecordQuery {
-            path: Some("/repositories".into()),
-            ..Default::default()
-        })
+        .find_records(&unfurl_git_sync::RecordQuery::default().path("/repositories"))
         .await
         .expect("all")
         .into_iter()

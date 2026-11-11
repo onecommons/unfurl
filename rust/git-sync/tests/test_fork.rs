@@ -143,10 +143,7 @@ async fn a_reset_head_rebuilds_and_resets_cursors() {
     let got = names(&sync).await;
     assert!(got.contains_key("one"), "the kept commit's record stays");
     assert!(!got.contains_key("two"), "the dropped commit's record goes");
-    let stale = RecordQuery {
-        since_version: Some(cursor),
-        ..Default::default()
-    };
+    let stale = RecordQuery::default().since_version(cursor);
     let err = sync.find_records(&stale).await.expect_err("stale find");
     assert!(matches!(err, Error::Reset { .. }), "{err:?}");
     let err = sync
@@ -157,10 +154,7 @@ async fn a_reset_head_rebuilds_and_resets_cursors() {
 
     let resume = sync.watermark(None).await.expect("watermark");
     names(&sync).await;
-    let fresh = RecordQuery {
-        since_version: Some(resume),
-        ..Default::default()
-    };
+    let fresh = RecordQuery::default().since_version(resume);
     assert!(
         sync.find_records(&fresh)
             .await
@@ -241,10 +235,7 @@ async fn a_missing_commit_that_loses_records_is_refused(
     assert_eq!(*commit, gone.to_string());
     assert!(names(sync).await.contains_key("two"), "nothing changed");
     // the record lost is among those written since
-    let written = RecordQuery {
-        since_version: Some(*since),
-        ..Default::default()
-    };
+    let written = RecordQuery::default().since_version(*since);
     let keys: Vec<String> = sync
         .find_records(&written)
         .await
@@ -1064,19 +1055,12 @@ async fn a_cursor_across_families_is_refused() {
         matches!(err, Error::CursorAcrossFamilies { families: 2 }),
         "{err:?}"
     );
-    let since = RecordQuery {
-        since_version: Some(0),
-        worktrees: Some(branch),
-        ..Default::default()
-    };
+    let since = RecordQuery::default().since_version(0).worktrees(branch);
     let err = one.find_records(&since).await.expect_err("two families");
     assert!(matches!(err, Error::CursorAcrossFamilies { .. }), "{err:?}");
 
     let own = one.watermark(None).await.expect("one family");
-    let mine = RecordQuery {
-        since_version: Some(own),
-        ..Default::default()
-    };
+    let mine = RecordQuery::default().since_version(own);
     assert!(one
         .find_records(&mine)
         .await

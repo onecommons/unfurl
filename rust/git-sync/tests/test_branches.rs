@@ -33,10 +33,7 @@ fn of(branch: &str) -> WorktreeFilter {
 
 /// The records `sync`'s database has on `branch`, as `(key, id)`, sorted.
 async fn records_on(sync: &SyncedRepo, branch: &str) -> Vec<(String, i64)> {
-    let query = RecordQuery {
-        worktrees: Some(of(branch)),
-        ..Default::default()
-    };
+    let query = RecordQuery::default().worktrees(of(branch));
     let mut seen: Vec<_> = sync
         .find_records(&query)
         .await

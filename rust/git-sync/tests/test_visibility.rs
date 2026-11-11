@@ -303,12 +303,10 @@ async fn a_read_scoped_to_worktrees_by_id_reads_only_those() {
             ..Default::default()
         };
         let found = |ids: Vec<i64>, key: &str| {
-            let query = RecordQuery {
-                key: Some(key.into()),
-                worktrees: Some(scoped(ids)),
-                subtypes: true,
-                ..Default::default()
-            };
+            let query = RecordQuery::default()
+                .key(key)
+                .worktrees(scoped(ids))
+                .subtypes(true);
             let reader = handles[0].clone();
             async move { !reader.find_records(&query).await.expect("find").is_empty() }
         };

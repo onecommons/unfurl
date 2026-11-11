@@ -679,13 +679,10 @@ impl SqlWorld {
             return;
         }
         let ids: Vec<i64> = open.iter().map(|&w| self.worktree_id(w)).collect();
-        let query = RecordQuery {
-            worktrees: Some(unfurl_git_sync::WorktreeFilter {
+        let query = RecordQuery::default().worktrees(unfurl_git_sync::WorktreeFilter {
                 ids: Some(ids),
                 ..Default::default()
-            }),
-            ..Default::default()
-        };
+            });
         let repo = &self.repos[&open[0]];
         let wt_of: BTreeMap<i64, Wt> = open.iter().map(|&w| (self.worktree_id(w), w)).collect();
         let live = |records: Vec<Record>| -> BTreeSet<(Wt, Key, Ver)> {
@@ -750,12 +747,8 @@ impl SqlWorld {
             let mut paged = Vec::new();
             let mut after: Option<Cursor> = None;
             loop {
-                let page = RecordQuery {
-                    limit: Some(2),
-                    whole_groups: true,
-                    after: after.clone(),
-                    ..query.clone()
-                };
+                let mut page = query.clone().limit(2).whole_groups(true);
+                page.after = after.clone();
                 let rows = self.rt.block_on(repo.find_records(&page)).unwrap();
                 let short = rows.len() < 2;
                 after = rows.last().map(|last| Cursor {
@@ -779,10 +772,7 @@ impl SqlWorld {
                 "step {step}: a facet across {open:?}, {how}"
             );
             // and its filters take the rows the rule keeps
-            let one_file = RecordQuery {
-                file_path: Some(file_name(0)),
-                ..query.clone()
-            };
+            let one_file = query.clone().file_path(file_name(0));
             let in_file = self.rt.block_on(repo.facet_records(&one_file, &spec)).unwrap();
             let keys: BTreeSet<Key> = sql
                 .iter()

@@ -97,15 +97,13 @@ async fn read_across(
     ids: Vec<i64>,
     key: &str,
 ) -> Vec<(i64, String, i64, Option<String>, bool)> {
-    let query = RecordQuery {
-        worktrees: Some(WorktreeFilter {
+    let query = RecordQuery::default()
+        .worktrees(WorktreeFilter {
             ids: Some(ids),
             ..Default::default()
-        }),
-        path: Some("/repositories".into()),
-        key: Some(key.into()),
-        ..Default::default()
-    };
+        })
+        .path("/repositories")
+        .key(key);
     let mut rows: Vec<_> = sync
         .find_records(&query)
         .await

@@ -58,11 +58,9 @@ async fn open_scoped(path: &Path, db: &str) -> unfurl_git_sync::Result<SyncedRep
 }
 
 async fn keys_in(sync: &SyncedRepo, file_path: &str) -> Vec<String> {
-    let query = RecordQuery {
-        file_path: Some(file_path.into()),
-        path: Some("/repositories".into()),
-        ..Default::default()
-    };
+    let query = RecordQuery::default()
+        .file_path(file_path)
+        .path("/repositories");
     let records = sync.find_records(&query).await.expect("find");
     records.into_iter().map(|r| r.key).collect()
 }

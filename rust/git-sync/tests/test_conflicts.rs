@@ -993,17 +993,10 @@ async fn a_conflict_materializes_both_sides(sync: &SyncedRepo, tmp: &TempDir) {
     assert_eq!(dashboard_on_disk(tmp)["name"], "theirs");
 
     // A default query sees one row for the key; both, when asked.
-    let one_key = RecordQuery {
-        path: Some("/repositories".into()),
-        key: Some(DASHBOARD.into()),
-        ..Default::default()
-    };
+    let one_key = RecordQuery::default().path("/repositories").key(DASHBOARD);
     assert_eq!(sync.find_records(&one_key).await.expect("find").len(), 1);
     let both = sync
-        .find_records(&RecordQuery {
-            include_conflicts: true,
-            ..one_key
-        })
+        .find_records(&one_key.include_conflicts(true))
         .await
         .expect("find");
     assert_eq!(both.len(), 2, "{both:?}");

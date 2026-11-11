@@ -106,15 +106,13 @@ async fn delete(sync: &SyncedRepo) {
 /// The dashboard's live rows in a read across both: `(worktree, name)`,
 /// sorted.
 async fn read_across(a: &SyncedRepo, b: &SyncedRepo) -> Vec<(i64, String)> {
-    let query = RecordQuery {
-        worktrees: Some(WorktreeFilter {
+    let query = RecordQuery::default()
+        .worktrees(WorktreeFilter {
             ids: Some(vec![a.worktree_id(), b.worktree_id()]),
             ..Default::default()
-        }),
-        path: Some("/repositories".into()),
-        key: Some(DASHBOARD.into()),
-        ..Default::default()
-    };
+        })
+        .path("/repositories")
+        .key(DASHBOARD);
     let mut rows: Vec<(i64, String)> = a
         .find_records(&query)
         .await
@@ -244,15 +242,13 @@ async fn moved(branch: &SyncedRepo, dir: &std::path::Path) {
 
 /// The dashboard's rows in a read of `ids`: `(worktree, file, deleted)`.
 async fn read_of(sync: &SyncedRepo, ids: Vec<i64>) -> Vec<(i64, String, bool)> {
-    let query = RecordQuery {
-        worktrees: Some(WorktreeFilter {
+    let query = RecordQuery::default()
+        .worktrees(WorktreeFilter {
             ids: Some(ids),
             ..Default::default()
-        }),
-        path: Some("/repositories".into()),
-        key: Some(DASHBOARD.into()),
-        ..Default::default()
-    };
+        })
+        .path("/repositories")
+        .key(DASHBOARD);
     let mut rows: Vec<_> = sync
         .find_records(&query)
         .await
@@ -288,15 +284,13 @@ async fn a_facet_counts_the_branchs_change_alone(sync: &SyncedRepo, tmp: &TempDi
     use unfurl_git_sync::{canonical_facet_key, FacetPath, FacetSpec};
     let (branch, _dir) = a_branch(sync, tmp).await;
     name(&branch, "feature").await;
-    let query = RecordQuery {
-        worktrees: Some(WorktreeFilter {
+    let query = RecordQuery::default()
+        .worktrees(WorktreeFilter {
             ids: Some(vec![sync.worktree_id(), branch.worktree_id()]),
             ..Default::default()
-        }),
-        path: Some("/repositories".into()),
-        key: Some(DASHBOARD.into()),
-        ..Default::default()
-    };
+        })
+        .path("/repositories")
+        .key(DASHBOARD);
     let spec = FacetSpec {
         group: FacetPath::new(vec!["name".into()], false).expect("path"),
         columns: vec![],
@@ -348,20 +342,22 @@ async fn a_type_the_branch_changed_is_its_change_alone(sync: &SyncedRepo, tmp: &
         ids: Some(vec![sync.worktree_id(), branch.worktree_id()]),
         ..Default::default()
     });
-    let under_top = RecordQuery {
-        worktrees: worktrees.clone(),
-        type_names: Some(vec!["test.Top".into()]),
-        subtypes: true,
-        ..Default::default()
+    let under_top = {
+        let mut query = RecordQuery::default()
+            .type_names(vec!["test.Top"])
+            .subtypes(true);
+        query.worktrees = worktrees.clone();
+        query
     };
     let found = sync.find_records(&under_top).await.expect("find");
     assert!(found.is_empty(), "{found:?}");
 
-    let query = RecordQuery {
-        worktrees,
-        path: Some("/artifacts".into()),
-        key: Some("test-artifact".into()),
-        ..Default::default()
+    let query = {
+        let mut query = RecordQuery::default()
+            .path("/artifacts")
+            .key("test-artifact");
+        query.worktrees = worktrees;
+        query
     };
     let spec = FacetSpec {
         group: FacetPath::new(vec!["type".into()], true).expect("path"),
@@ -412,10 +408,10 @@ async fn a_type_the_branch_changed_rolls_up_alone_past_300(sync: &SyncedRepo, tm
     )
     .await;
 
-    let query = RecordQuery {
-        worktrees: both(sync, &branch),
-        path: Some("/artifacts".into()),
-        ..Default::default()
+    let query = {
+        let mut query = RecordQuery::default().path("/artifacts");
+        query.worktrees = both(sync, &branch);
+        query
     };
     let spec = FacetSpec {
         group: FacetPath::new(vec!["type".into()], true).expect("path"),
@@ -450,11 +446,12 @@ async fn a_followed_record_the_branch_changed_is_its_change_alone(
     tmp: &TempDir,
 ) {
     let (branch, _dir) = a_branch(sync, tmp).await;
-    let odoo = RecordQuery {
-        worktrees: both(sync, &branch),
-        path: Some("/repositories".into()),
-        key: Some("git://unfurl.cloud/onecommons/blueprints/odoo.git".into()),
-        ..Default::default()
+    let odoo = {
+        let mut query = RecordQuery::default()
+            .path("/repositories")
+            .key("git://unfurl.cloud/onecommons/blueprints/odoo.git");
+        query.worktrees = both(sync, &branch);
+        query
     };
     let (_, followed) = sync
         .find_records_follow(&odoo, 10, Vec::new())
@@ -488,17 +485,11 @@ async fn a_read_of_one_worktree_is_its_own_view(sync: &SyncedRepo, tmp: &TempDir
     use unfurl_git_sync::{FacetPath, FacetSpec};
     let (_branch, _dir) = a_branch(sync, tmp).await;
     name(sync, "main").await;
-    let own = RecordQuery {
-        path: Some("/repositories".into()),
+    let own = RecordQuery::default().path("/repositories");
+    let named = own.clone().worktrees(WorktreeFilter {
+        ids: Some(vec![sync.worktree_id()]),
         ..Default::default()
-    };
-    let named = RecordQuery {
-        worktrees: Some(WorktreeFilter {
-            ids: Some(vec![sync.worktree_id()]),
-            ..Default::default()
-        }),
-        ..own.clone()
-    };
+    });
     let rows = async |query: &RecordQuery| -> Vec<(String, String, serde_json::Value)> {
         let found = sync.find_records(query).await.expect("find");
         found
@@ -527,15 +518,16 @@ async fn a_filter_on_the_stale_copy_finds_nothing(sync: &SyncedRepo, tmp: &TempD
     use unfurl_git_sync::{FacetPath, FacetSpec, JsonQuery, QueryOp};
     let (branch, _dir) = a_branch(sync, tmp).await;
     name(&branch, "feature").await;
-    let query = RecordQuery {
-        worktrees: both(sync, &branch),
-        path: Some("/repositories".into()),
-        json_queries: vec![JsonQuery {
-            tokens: vec!["name".into()],
-            value: "dashboard".into(),
-            op: QueryOp::Equals,
-        }],
-        ..Default::default()
+    let query = {
+        let mut query = RecordQuery::default()
+            .path("/repositories")
+            .json_queries(vec![JsonQuery {
+                tokens: vec!["name".into()],
+                value: "dashboard".into(),
+                op: QueryOp::Equals,
+            }]);
+        query.worktrees = both(sync, &branch);
+        query
     };
     let found = sync.find_records(&query).await.expect("find");
     assert!(found.is_empty(), "{found:?}");
@@ -562,15 +554,16 @@ async fn a_moved_copy_main_edited_is_left_out(sync: &SyncedRepo, tmp: &TempDir) 
         read_of(sync, vec![main, b]).await,
         [(main, "cloudmap.yaml".to_string(), false)]
     );
-    let query = RecordQuery {
-        worktrees: both(sync, &branch),
-        path: Some("/repositories".into()),
-        json_queries: vec![JsonQuery {
-            tokens: vec!["name".into()],
-            value: "dashboard".into(),
-            op: QueryOp::Equals,
-        }],
-        ..Default::default()
+    let query = {
+        let mut query = RecordQuery::default()
+            .path("/repositories")
+            .json_queries(vec![JsonQuery {
+                tokens: vec!["name".into()],
+                value: "dashboard".into(),
+                op: QueryOp::Equals,
+            }]);
+        query.worktrees = both(sync, &branch);
+        query
     };
     let found = sync.find_records(&query).await.expect("find");
     assert!(found.is_empty(), "{found:?}");
@@ -623,12 +616,13 @@ crud_test!(a_save_reordering_keys_is_no_change);
 async fn a_deletion_on_main_alone_is_its_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
     let (branch, _dir) = a_branch(sync, tmp).await;
     delete(sync).await;
-    let query = RecordQuery {
-        worktrees: both(sync, &branch),
-        path: Some("/repositories".into()),
-        key: Some(DASHBOARD.into()),
-        include_deleted: true,
-        ..Default::default()
+    let query = {
+        let mut query = RecordQuery::default()
+            .path("/repositories")
+            .key(DASHBOARD)
+            .include_deleted(true);
+        query.worktrees = both(sync, &branch);
+        query
     };
     let found = sync.find_records(&query).await.expect("find");
     let rows: Vec<(i64, bool)> = found.iter().map(|r| (r.worktree_id, r.deleted)).collect();
@@ -641,12 +635,13 @@ crud_test!(a_deletion_on_main_alone_is_its_tombstone);
 async fn a_conflict_on_main_comes_back_with_its_edit(sync: &SyncedRepo, tmp: &TempDir) {
     let (branch, _dir) = a_branch(sync, tmp).await;
     common::stand_up_conflict(sync, tmp).await;
-    let query = RecordQuery {
-        worktrees: both(sync, &branch),
-        path: Some("/repositories".into()),
-        key: Some(DASHBOARD.into()),
-        include_conflicts: true,
-        ..Default::default()
+    let query = {
+        let mut query = RecordQuery::default()
+            .path("/repositories")
+            .key(DASHBOARD)
+            .include_conflicts(true);
+        query.worktrees = both(sync, &branch);
+        query
     };
     let found = sync.find_records(&query).await.expect("find");
     let mut rows: Vec<(i64, String, bool)> = found
@@ -694,10 +689,10 @@ async fn a_read_of_many_places_is_resolved_whole(sync: &SyncedRepo, tmp: &TempDi
         write(sync, i + 10, "main").await;
     }
     let (main, b) = (sync.worktree_id(), branch.worktree_id());
-    let query = RecordQuery {
-        worktrees: both(sync, &branch),
-        path: Some("/repositories".into()),
-        ..Default::default()
+    let query = {
+        let mut query = RecordQuery::default().path("/repositories");
+        query.worktrees = both(sync, &branch);
+        query
     };
     let found = sync.find_records(&query).await.expect("find");
     let rows: std::collections::BTreeSet<(i64, String, String)> = found
@@ -791,11 +786,7 @@ async fn a_no_op_commit_leaves_main_on_the_shared_row(sync: &SyncedRepo, tmp: &T
         .await
         .expect("commit");
     let shown = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            key: Some(DASHBOARD.into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/repositories").key(DASHBOARD))
         .await
         .expect("find");
     sync.upsert_record(
@@ -830,11 +821,7 @@ async fn a_no_op_commit_keeps_a_saves_token(sync: &SyncedRepo, _tmp: &TempDir) {
         .await
         .expect("scan");
     let shown = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            key: Some(DASHBOARD.into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/repositories").key(DASHBOARD))
         .await
         .expect("find");
     let saved = sync
@@ -872,11 +859,7 @@ async fn mains_unchanged_save_under_a_branchs_edit_is_hidden(sync: &SyncedRepo, 
     let (branch, _dir) = a_branch(sync, tmp).await;
     name(&branch, "feature").await;
     let shown = sync
-        .find_records(&RecordQuery {
-            path: Some("/repositories".into()),
-            key: Some(DASHBOARD.into()),
-            ..Default::default()
-        })
+        .find_records(&RecordQuery::default().path("/repositories").key(DASHBOARD))
         .await
         .expect("find");
     sync.upsert_record(
@@ -938,17 +921,11 @@ async fn separate_repositories_are_each_their_own_view(sync: &SyncedRepo, _tmp: 
             .await
             .expect("scan");
     }
-    let own = RecordQuery {
-        path: Some("/repositories".into()),
+    let own = RecordQuery::default().path("/repositories");
+    let both = own.clone().worktrees(WorktreeFilter {
+        ids: Some(vec![sync.worktree_id(), other.worktree_id()]),
         ..Default::default()
-    };
-    let both = RecordQuery {
-        worktrees: Some(WorktreeFilter {
-            ids: Some(vec![sync.worktree_id(), other.worktree_id()]),
-            ..Default::default()
-        }),
-        ..own.clone()
-    };
+    });
     let keys = |records: Vec<unfurl_git_sync::Record>| -> Vec<(i64, String)> {
         let mut out: Vec<(i64, String)> = records
             .into_iter()
@@ -1000,10 +977,7 @@ async fn separate_repositories_are_each_their_own_view(sync: &SyncedRepo, _tmp: 
                 .expect("write");
         }
     }
-    let typed = |q: &RecordQuery| RecordQuery {
-        path: Some("/artifacts".into()),
-        ..q.clone()
-    };
+    let typed = |q: &RecordQuery| q.clone().path("/artifacts");
     let spec = FacetSpec {
         group: FacetPath::new(vec!["type".into()], true).expect("path"),
         columns: vec![],
