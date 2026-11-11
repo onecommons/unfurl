@@ -16,6 +16,7 @@ import ast
 import time
 from typing import (
     TYPE_CHECKING,
+    Callable,
     Iterable,
     Iterator,
     List,
@@ -41,6 +42,7 @@ except ImportError:
     from functools import lru_cache as cache
 
 if TYPE_CHECKING:
+    from ._rust import Constraint
     from .manifest import Manifest
     from .yamlmanifest import YamlManifest
     from .runtime import (
@@ -88,11 +90,16 @@ from .util import (
 )
 from .merge import intersect_dict, merge_dicts
 
+# None without the extension
+regex_match_exact: Optional[Callable[["Constraint", str], bool]] = None
+make_pattern_constraint: Optional[Callable[[str], "Constraint"]] = None
 try:
-    from ._rust import regex_match_exact, make_pattern_constraint
-except ImportError:
-    regex_match_exact = None
-    make_pattern_constraint = None
+    from . import _rust
+
+    regex_match_exact = _rust.regex_match_exact
+    make_pattern_constraint = _rust.make_pattern_constraint
+except (ImportError, AttributeError):  # no extension, or one built without the solver
+    pass
 from .projectpaths import FilePath, get_path
 
 import ansible.template
@@ -1485,6 +1492,7 @@ if (
                 InvalidSchemaError(message='The "pattern" constraint expects a string.')
             )
             return pattern
+        assert make_pattern_constraint  # checked above
         try:
             return make_pattern_constraint(pattern)
         except ValueError as e:
@@ -1502,6 +1510,7 @@ if (
         if isinstance(pattern, re.Pattern):
             return bool(pattern.fullmatch(value))
         else:
+            assert regex_match_exact  # checked above
             return regex_match_exact(pattern, value)
 
     pattern_constraint_class = register_custom_constraint(
