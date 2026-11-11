@@ -1,11 +1,11 @@
 # Copyright (c) 2024 Adam Souzis
 # SPDX-License-Identifier: MIT
 from time import perf_counter
-from typing import Any, Dict, List, Optional, Tuple, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 import sys
 
 # import types from rust extension
-from ._rust import (  # type: ignore
+from ._rust import (
     solve,
     CriteriaTerm,
     Field,
@@ -99,7 +99,7 @@ def tosca_to_rust(prop: Property, deduced: bool = False) -> ToscaValue:
     tosca_type = schema.type
     if tosca_type == "string" and not isinstance(value, str):
         tosca_type = "any"
-    ctor = getattr(SimpleValue, tosca_type, None)
+    ctor: Optional[Callable[..., SimpleValue]] = getattr(SimpleValue, tosca_type, None)
     try:
         if ctor:
             typename = None
@@ -149,7 +149,7 @@ def tosca_to_rust(prop: Property, deduced: bool = False) -> ToscaValue:
             upper = (
                 sys.maxsize if value[1] == "UNBOUNDED" else value[1]
             )  # note: sys.maxsize == size_t
-            return ToscaValue(ctor((value[0], upper)), typename)
+            return ToscaValue(SimpleValue.range((value[0], upper)), typename)
         elif tosca_type == "list":
             if not schema.entry_schema:
                 schema.schema["entry_schema"] = dict(type="any")
@@ -162,14 +162,14 @@ def tosca_to_rust(prop: Property, deduced: bool = False) -> ToscaValue:
                 if include_value(v)
             ]
             return ToscaValue(
-                ctor(filtered),
+                SimpleValue.list(filtered),
                 typename,
             )
         elif ctor is SimpleValue.map:
             if not schema.entry_schema:
                 schema.schema["entry_schema"] = dict(type="any")
             return ToscaValue(
-                ctor(
+                SimpleValue.map(
                     {
                         k: tosca_to_rust(
                             Property(prop.name, v, entry_schema(v), prop.custom_def),
@@ -566,7 +566,7 @@ class TopologyGraph:
         match_type: bool,
     ) -> Tuple[Optional[Field], bool]:
         """Get requirement terms for solver matching"""
-        terms = []
+        terms: List[CriteriaTerm] = []
         restrictions = []
         capability = req_dict.get("capability")
         if capability:
