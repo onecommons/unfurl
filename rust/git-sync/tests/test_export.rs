@@ -279,9 +279,7 @@ async fn batches_follow_their_records(sync: &SyncedRepo, tmp: &TempDir) {
     let committed = sync
         .commit_repository(
             "commit the rest",
-            CommitOptions {
-                conflicts_to_branch: Some(BRANCH.into()),
-            },
+            CommitOptions::default().conflicts_to_branch(BRANCH),
         )
         .await
         .expect("commit");

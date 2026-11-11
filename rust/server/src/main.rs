@@ -378,11 +378,12 @@ fn scan_options(
         warn_about_skipped_scan(config, db_url);
         return None;
     }
-    Some(unfurl_git_sync::ScanOptions {
-        force: config.cloudmap_force,
-        rebuild_missing: config.cloudmap_force,
-        recover_missing: recover,
-    })
+    Some(
+        unfurl_git_sync::ScanOptions::default()
+            .force(config.cloudmap_force)
+            .rebuild_missing(config.cloudmap_force)
+            .recover_missing(recover),
+    )
 }
 
 /// What to do about `e`, failing to open the checkout at `repo`, with

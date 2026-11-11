@@ -146,10 +146,7 @@ async fn export_merge_conflicts(p: &Push<'_>, merge: &str, held: &[HeldRecord]) 
         return false;
     }
     let branch = conflicts_branch(merge);
-    let scan = ScanOptions {
-        recover_missing: true,
-        ..Default::default()
-    };
+    let scan = ScanOptions::default().recover_missing(true);
     if let Err(e) = p.sync.update_from_working_dir(scan).await {
         tracing::warn!(
             checkout = %p.path.display(),

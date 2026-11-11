@@ -319,10 +319,7 @@ impl Cloner {
             false => startup.settle(&mut wanted).await?,
         };
         let path = checkout.path.to_string_lossy();
-        let scan = Some(unfurl_git_sync::ScanOptions {
-            recover_missing: true,
-            ..Default::default()
-        });
+        let scan = Some(unfurl_git_sync::ScanOptions::default().recover_missing(true));
         let opened = CloudMapState::open_locked(
             &path,
             &self.db,

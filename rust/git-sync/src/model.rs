@@ -70,6 +70,7 @@ pub struct Worktree {
 /// What [`crate::SyncedRepo::fork_branch`] made: the worktree, and whether
 /// this call created it rather than finding it made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Forked {
     pub worktree_id: i64,
     pub created: bool,
@@ -99,6 +100,7 @@ impl Worktree {
 /// [`crate::SyncedRepo::update_from_working_dir`]; `commit_id` is the
 /// last-known commit that touched this path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct File {
     /// Foreign key into [`Worktree`].
     pub worktree_id: i64,
@@ -596,6 +598,7 @@ pub fn canonical_facet_key(value: &serde_json::Value) -> String {
 /// One row of a facet column: a (group value, member values)
 /// combination and its distinct-record count.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct FacetColumnRow {
     /// The (possibly rolled-up) group value this combination fell under.
     pub group: serde_json::Value,
@@ -608,6 +611,7 @@ pub struct FacetColumnRow {
 /// The raw rows of a facet aggregation, values as extracted -- no
 /// canonicalization or key rendering; that is the caller's business.
 #[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
 pub struct FacetRows {
     /// Records matching the query's filters, whether or not they
     /// produced a group value.
@@ -727,9 +731,30 @@ pub enum Resolution {
     Delete,
 }
 
+/// Options for opening a handle — see [`crate::SyncedRepo::open_with`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct OpenOptions {
+    /// Git pathspecs limiting the handle to the files they match, relative
+    /// to the working tree, such as `cloudmap.yaml`, `cloudmaps/`, `*.yaml`
+    /// or `:!vendor/`, parsed with git's defaults whatever the environment
+    /// says. Scans read and hash only those files, as if the repository held
+    /// only them. If empty, every file is scanned.
+    pub pathspecs: Vec<String>,
+}
+
+impl OpenOptions {
+    /// With [`Self::pathspecs`] set to `pathspecs`.
+    pub fn pathspecs<S: Into<String>>(mut self, pathspecs: impl IntoIterator<Item = S>) -> Self {
+        self.pathspecs = pathspecs.into_iter().map(Into::into).collect();
+        self
+    }
+}
+
 /// Options for a working-tree scan — see
 /// [`crate::SyncedRepo::update_from_working_dir_with`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ScanOptions {
     /// Let the file win over every in-flight edit: pending rows are
     /// overwritten from disk and conflict rows are dropped.
@@ -757,6 +782,26 @@ pub struct ScanOptions {
     pub recover_missing: bool,
 }
 
+impl ScanOptions {
+    /// With [`Self::force`] set to `force`.
+    pub fn force(mut self, force: bool) -> Self {
+        self.force = force;
+        self
+    }
+
+    /// With [`Self::rebuild_missing`] set to `rebuild`.
+    pub fn rebuild_missing(mut self, rebuild: bool) -> Self {
+        self.rebuild_missing = rebuild;
+        self
+    }
+
+    /// With [`Self::recover_missing`] set to `recover`.
+    pub fn recover_missing(mut self, recover: bool) -> Self {
+        self.recover_missing = recover;
+        self
+    }
+}
+
 /// Attribution for a batch write: who asked for it and why.
 ///
 /// Passed to [`crate::SyncedRepo::apply_batch`] to opt that batch into
@@ -774,6 +819,7 @@ pub struct TxnMeta {
 
 /// Options for [`crate::SyncedRepo::commit_repository`].
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct CommitOptions {
     /// Export the conflicts the commit's scan finds to this branch
     /// ([`crate::SyncedRepo::export_conflicts`]) instead of leaving them
@@ -781,8 +827,17 @@ pub struct CommitOptions {
     pub conflicts_to_branch: Option<String>,
 }
 
+impl CommitOptions {
+    /// With [`Self::conflicts_to_branch`] set to `branch`.
+    pub fn conflicts_to_branch(mut self, branch: impl Into<String>) -> Self {
+        self.conflicts_to_branch = Some(branch.into());
+        self
+    }
+}
+
 /// What one [`crate::SyncedRepo::commit_repository`] call committed.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Committed {
     /// The new commit on this worktree's branch, or `None` when there was
     /// nothing new to commit.
@@ -817,6 +872,7 @@ pub enum MergedUpstream {
 
 /// A record both sides of a merge changed: the file, section and key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct HeldRecord {
     pub file_path: String,
     pub path: String,
@@ -848,6 +904,7 @@ pub enum Rebased {
 /// conflicted edits went to, its worktree in the database, its commit, and
 /// the records moved there.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Exported {
     /// The branch name, without `refs/heads/`.
     pub branch: String,
@@ -867,6 +924,7 @@ pub struct Exported {
 /// and reported in the commit-message body by
 /// [`crate::SyncedRepo::commit_repository`].
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[non_exhaustive]
 pub struct Txn {
     /// Auto-assigned primary key.
     pub id: i64,
@@ -921,6 +979,7 @@ pub struct TxnRecord {
 /// separate encoded copy. See
 /// [`crate::SyncedRepo::commit_repository`] for the grammar.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct CommitRollup {
     /// [`Worktree::origin`] of the worktree that made these writes,
     /// from the `Git-Sync-Origin` trailer. `None` when that trailer is
@@ -979,6 +1038,7 @@ pub struct CommitRollup {
 /// that are local to the database that wrote it (`id`, `worktree_id`)
 /// or already implied by the commit carrying it (`commit_id`).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct RollupTxn {
     /// Lowest version the batch drew.
     pub first_version: i64,
@@ -1027,6 +1087,7 @@ impl RollupTxn {
 /// Returned by [`crate::SyncedRepo::get_working_dir`]. `head_commit` is
 /// `None` for an empty / unborn repository.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WorkingDir {
     /// Absolute filesystem path to the working directory.
     pub repo_path: std::path::PathBuf,
@@ -1047,6 +1108,7 @@ pub struct WorkingDir {
 /// write — pass it back as a [`crate::CommitRef::Pending`] token on the
 /// next request to scope the optimistic-concurrency check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WriteOutcome {
     /// Primary key of the affected `record` row. For `delete_record`,
     /// this is the id of the row that was tombstoned.
@@ -1066,6 +1128,7 @@ pub struct WriteOutcome {
 /// `records_upserted` and `records_deleted` are totals across the
 /// whole pass.
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct SyncOutcome {
     /// The branch [`ScanOptions::recover_missing`] took the records a
     /// rebuild would have lost to.
@@ -1172,6 +1235,7 @@ impl SyncOutcome {
 /// [`crate::SyncedRepo::resolve_conflict`] settles it, a write skips the
 /// record rather than overwriting either side.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct RecordConflict {
     /// Working-tree-relative path of the file.
     pub file_path: String,
@@ -1212,6 +1276,7 @@ pub enum RecordConflictKind {
 
 /// Result of one [`crate::SyncedRepo::write_file`] call.
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct WriteFileOutcome {
     /// Path changed on disk, or `None` when there was nothing to write,
     /// the rendered bytes matched what was already there, or a file
@@ -1232,6 +1297,7 @@ pub struct WriteFileOutcome {
 
 /// One file a scan could not parse, or a save could not write.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct FileFailure {
     /// Working-tree-relative path of the file.
     pub file_path: String,
@@ -1242,6 +1308,7 @@ pub struct FileFailure {
 /// One file that does not conform to the schema of the format that
 /// claimed it, as reported by [`crate::DataFormat::validate_document`].
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct ValidationFailure {
     /// Working-tree-relative path of the file.
     pub file_path: String,
@@ -1313,6 +1380,7 @@ impl BatchOp {
 
 /// A single [`BatchOp`] that landed successfully.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Applied {
     /// Index of the op in the original batch.
     pub index: usize,
@@ -1335,6 +1403,7 @@ pub struct Applied {
 /// non-atomic mode, ``failed`` and ``applied`` may both be non-empty:
 /// the failed records were skipped, the others committed.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Failed {
     /// Index of the op in the original batch.
     pub index: usize,
@@ -1348,6 +1417,7 @@ pub struct Failed {
 
 /// Result of [`crate::SyncedRepo::apply_batch`].
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct BatchOutcome {
     /// Records successfully applied (committed to the database).
     pub applied: Vec<Applied>,

@@ -100,10 +100,10 @@ pub use formats::cloudmap::CloudMapFormat;
 pub use model::{
     canonical_facet_key, canonical_json_text, Applied, BatchOp, BatchOutcome, CommitOptions,
     CommitRollup, Committed, ConflictState, Cursor, Exported, FacetColumnRow, FacetPath, FacetRows,
-    FacetSpec, Failed, File, FileFailure, Forked, HeldRecord, JsonQuery, MergedUpstream, QueryOp,
-    Rebased, Record, RecordConflict, RecordConflictKind, RecordQuery, Resolution, RollupTxn,
-    ScanOptions, SyncOutcome, Txn, TxnMeta, TxnRecord, ValidationFailure, WorkingDir, Worktree,
-    WorktreeFilter, WriteFileOutcome, WriteOutcome,
+    FacetSpec, Failed, File, FileFailure, Forked, HeldRecord, JsonQuery, MergedUpstream,
+    OpenOptions, QueryOp, Rebased, Record, RecordConflict, RecordConflictKind, RecordQuery,
+    Resolution, RollupTxn, ScanOptions, SyncOutcome, Txn, TxnMeta, TxnRecord, ValidationFailure,
+    WorkingDir, Worktree, WorktreeFilter, WriteFileOutcome, WriteOutcome,
 };
 #[doc(inline)]
 pub use rollup::parse_commit_rollup;

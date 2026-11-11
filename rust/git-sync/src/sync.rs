@@ -41,8 +41,9 @@ use crate::error::{Error, Result};
 use crate::format::{FormatRegistry, GENERIC_LITERATE_FORMAT};
 use crate::git;
 use crate::model::{
-    BatchOp, BatchOutcome, CommitOptions, CommitRollup, Committed, Record, RecordQuery, Resolution,
-    RollupTxn, ScanOptions, SyncOutcome, Txn, TxnMeta, WriteFileOutcome, WriteOutcome,
+    BatchOp, BatchOutcome, CommitOptions, CommitRollup, Committed, OpenOptions, Record,
+    RecordQuery, Resolution, RollupTxn, ScanOptions, SyncOutcome, Txn, TxnMeta, WriteFileOutcome,
+    WriteOutcome,
 };
 use crate::rollup::{build_commit_message, resolves_version_from_message};
 use crate::scan::{DiskFile, HeadFile, ParsedDoc, ScannedFile};
@@ -452,21 +453,22 @@ impl SyncedRepo {
         db: DbConfig,
         formats: FormatRegistry,
     ) -> Result<Self> {
-        Self::open_with(working_dir, db, formats, git::Trust::Full, &[]).await
+        Self::open_with(
+            working_dir,
+            db,
+            formats,
+            git::Trust::Full,
+            OpenOptions::default(),
+        )
+        .await
     }
 
     /// Like [`Self::open`], but open with the given trust level,
     /// with [`git::Trust::Reduced`], all git config settings are ignored except for remote urls
-    /// and its user's name and email (see [`git::Opener`]).
+    /// and its user's name and email (see [`git::Opener`]), and `options`.
     ///
-    /// Non-empty `pathspecs` limit the handle to the files they match:
-    /// git pathspecs relative to `working_dir`, such as `cloudmap.yaml`,
-    /// `cloudmaps/`, `*.yaml` or `:!vendor/`, parsed with git's defaults
-    /// whatever the environment says. Scans read and hash only those files,
-    /// as if the repository held only them. If empty, every file is scanned.
-    ///
-    /// A database used through such a handle should always be opened with
-    /// the same pathspecs: a rebuild from HEAD sees only what they match,
+    /// A database used through a handle opened with
+    /// [`OpenOptions::pathspecs`] should always be opened with the same ones: a rebuild from HEAD sees only what they match,
     /// and would drop records of any other file. The check for that runs
     /// once the worktree is found or forked, so a refused open leaves a new
     /// worktree in place. Handles on other worktrees of the family that this
@@ -485,14 +487,14 @@ impl SyncedRepo {
         db: DbConfig,
         formats: FormatRegistry,
         trust: git::Trust,
-        pathspecs: &[&str],
+        options: OpenOptions,
     ) -> Result<Self> {
         Self::open_on(
             working_dir,
             Db::connect(&db).await?,
             formats,
             trust,
-            pathspecs,
+            options,
         )
         .await
     }
@@ -508,10 +510,11 @@ impl SyncedRepo {
         db: Db,
         formats: FormatRegistry,
         trust: git::Trust,
-        pathspecs: &[&str],
+        options: OpenOptions,
     ) -> Result<Self> {
         let repo_path = working_dir.as_ref().to_path_buf();
-        let scope = crate::scope::Scope::new(pathspecs, &repo_path)?.map(Arc::new);
+        let pathspecs: Vec<&str> = options.pathspecs.iter().map(String::as_str).collect();
+        let scope = crate::scope::Scope::new(&pathspecs, &repo_path)?.map(Arc::new);
         let opener = git::Opener::new(&repo_path, trust)?;
 
         // Inspect the repo once at open time to get origin/branch, and to

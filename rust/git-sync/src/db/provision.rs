@@ -38,6 +38,7 @@ pub enum DatabaseState {
 
 /// The result of a successful [`provision`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Outcome {
     /// The role connected as.
     pub admin: String,

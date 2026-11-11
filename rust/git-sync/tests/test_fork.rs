@@ -255,10 +255,7 @@ async fn a_missing_commit_that_loses_records_is_refused(
     assert!(keys.contains(&"two".to_string()), "{keys:?}");
     assert!(!keys.contains(&"one".to_string()), "{keys:?}");
 
-    let rebuild = ScanOptions {
-        rebuild_missing: true,
-        ..Default::default()
-    };
+    let rebuild = ScanOptions::default().rebuild_missing(true);
     sync.update_from_working_dir(rebuild)
         .await
         .expect("rebuilt");
@@ -293,10 +290,7 @@ async fn a_missing_commit_that_loses_nothing_rebuilds(sync: &SyncedRepo, tmp: &t
     reset_and_prune(tmp.path(), up, gone);
 
     // nothing to recover, either
-    let recover = ScanOptions {
-        recover_missing: true,
-        ..Default::default()
-    };
+    let recover = ScanOptions::default().recover_missing(true);
     let outcome = sync
         .update_from_working_dir(recover)
         .await
@@ -324,10 +318,7 @@ async fn a_missing_commit_recovers_to_a_branch(sync: &SyncedRepo, tmp: &tempfile
     let up = upstream_from(tmp.path(), base);
     reset_and_prune(tmp.path(), up, gone);
 
-    let recover = ScanOptions {
-        recover_missing: true,
-        ..Default::default()
-    };
+    let recover = ScanOptions::default().recover_missing(true);
     let outcome = sync
         .update_from_working_dir(recover)
         .await
@@ -396,10 +387,7 @@ async fn a_recovered_record_upstream_changed_conflicts(sync: &SyncedRepo, tmp: &
     let up = upstream_from(tmp.path(), base);
     reset_and_prune(tmp.path(), up, gone);
 
-    let recover = ScanOptions {
-        recover_missing: true,
-        ..Default::default()
-    };
+    let recover = ScanOptions::default().recover_missing(true);
     let got = sync
         .update_from_working_dir(recover)
         .await
@@ -442,10 +430,7 @@ async fn missing_after(
 }
 
 fn recovering() -> ScanOptions {
-    ScanOptions {
-        recover_missing: true,
-        ..Default::default()
-    }
+    ScanOptions::default().recover_missing(true)
 }
 
 /// A recovery that failed before naming its branch in the database left
@@ -516,10 +501,7 @@ crud_test!(a_recovery_with_no_base_is_refused);
 /// branch.
 async fn recovering_wins_over_rebuilding(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
     missing_after(sync, tmp, "two").await;
-    let both = ScanOptions {
-        rebuild_missing: true,
-        ..recovering()
-    };
+    let both = recovering().rebuild_missing(true);
     let outcome = sync.update_from_working_dir(both).await.expect("recovered");
     assert!(outcome.recovered.is_some());
 }
@@ -595,10 +577,7 @@ async fn pending_edits_survive_a_refusal(sync: &SyncedRepo, tmp: &tempfile::Temp
 crud_test!(pending_edits_survive_a_refusal);
 
 async fn pending_edits_survive_a_forced_rebuild(sync: &SyncedRepo, tmp: &tempfile::TempDir) {
-    let force = ScanOptions {
-        rebuild_missing: true,
-        ..Default::default()
-    };
+    let force = ScanOptions::default().rebuild_missing(true);
     pending_over_a_missing_commit(sync, tmp, force)
         .await
         .expect("rebuilt");

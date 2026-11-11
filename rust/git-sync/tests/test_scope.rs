@@ -6,7 +6,9 @@
 use std::path::Path;
 
 use tempfile::TempDir;
-use unfurl_git_sync::{git, DbConfig, Error, FormatRegistry, RecordQuery, ScanOptions, SyncedRepo};
+use unfurl_git_sync::{
+    git, DbConfig, Error, FormatRegistry, OpenOptions, RecordQuery, ScanOptions, SyncedRepo,
+};
 
 const SCOPED: &str = "cloudmap.yaml";
 const OTHER: &str = "other/cloudmap.yaml";
@@ -46,7 +48,7 @@ async fn open_matching(
         DbConfig::Sqlite { url: db.into() },
         FormatRegistry::with_builtins(),
         git::Trust::Full,
-        pathspecs,
+        OpenOptions::default().pathspecs(pathspecs.iter().copied()),
     )
     .await
 }

@@ -284,6 +284,7 @@ pub fn worktree_meta(repo: &gix::Repository) -> Result<WorktreeMeta> {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct WorktreeMeta {
     pub origin: String,
     pub branch: String,
@@ -317,6 +318,7 @@ pub fn tracked_files(repo: &gix::Repository) -> Result<Vec<TrackedFile>> {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TrackedFile {
     pub rel_path: String,
     pub abs_path: PathBuf,

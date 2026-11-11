@@ -886,10 +886,7 @@ impl Freshener {
     /// Take in what a pull brought, and finish the exports it left.
     async fn rescan(&self, handle: &SyncedRepo) {
         let path = handle.repo_path();
-        let scan = ScanOptions {
-            recover_missing: true,
-            ..Default::default()
-        };
+        let scan = ScanOptions::default().recover_missing(true);
         match handle.update_from_working_dir(scan).await {
             Ok(outcome) if !(self.accept)(&outcome) => tracing::warn!(
                 checkout = %path.display(),
