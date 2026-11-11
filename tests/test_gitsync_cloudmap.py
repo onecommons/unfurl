@@ -156,3 +156,79 @@ def test_versions_save_inside_their_parent(tmp_path: Path) -> None:
         "digest": "sha256:2"
     }
     assert list(document["artifacts"]) == ["pkg:npm/example"]
+
+
+from unfurl.cloudmap.gitsync_db import open_cloudmap_db  # noqa: E402
+from unfurl.logs import getLogger  # noqa: E402
+from unfurl.util import UnfurlError  # noqa: E402
+
+LOGGER = getLogger("unfurl")
+
+
+def _tracked(tmp_path: Path, name: str = FILE, text: str = VERSIONED) -> GitRepo:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / name).write_text(text)
+    repo = git.Repo.init(root, initial_branch="main")
+    repo.index.add([name])
+    repo.index.commit("initial")
+    return GitRepo(repo)
+
+
+def test_a_tracked_cloudmap_uses_git_sync(tmp_path: Path) -> None:
+    repo = _tracked(tmp_path)
+    project = tmp_path / "project"
+    db = open_cloudmap_db(str(tmp_path / "repo" / FILE), repo, str(project), LOGGER)
+    assert isinstance(db, GitSyncCloudMapDB)
+    # with SQLite's -wal and -shm beside it
+    [made] = [p for p in (project / "local").iterdir() if p.suffix == ".sqlite"]
+    assert made.name.startswith(".cloudmap-")
+    # without a project: local/ beside the cloudmap
+    db = open_cloudmap_db(str(tmp_path / "repo" / FILE), None, None, LOGGER)
+    assert isinstance(db, GitSyncCloudMapDB)
+    assert (tmp_path / "repo" / "local" / ".cloudmap.sqlite").exists()
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["environment", "no extension", "no repository", "untracked", "notable", "fails"],
+)
+def test_falls_back_to_cloudmap_db(tmp_path: Path, monkeypatch, case: str) -> None:
+    import unfurl._rust
+
+    repo: Any = _tracked(tmp_path)
+    path = tmp_path / "repo" / FILE
+    if case == "environment":
+        monkeypatch.setenv("UNFURL_CLOUDMAP_BACKEND", "python")
+    elif case == "no extension":
+        monkeypatch.delattr(unfurl._rust, "GitSyncDB")
+    elif case == "no repository":
+        path = tmp_path / "plain" / FILE
+        path.parent.mkdir()
+        path.write_text(VERSIONED)
+        repo = None
+    elif case == "untracked":
+        path = tmp_path / "repo" / "other.yaml"
+        path.write_text(VERSIONED)
+    elif case == "notable":
+        path.write_text(
+            VERSIONED + "repositories:\n  git://e.com/r.git:\n    path: r\n    notable: {}\n"
+        )
+    elif case == "fails":
+        import unfurl.cloudmap.gitsync_db as module
+
+        def broken(*args: Any) -> None:
+            raise UnfurlError("broken")
+
+        monkeypatch.setattr(module, "GitSyncCloudMapDB", broken)
+    db = open_cloudmap_db(str(path), repo, None, LOGGER)
+    assert type(db) is CloudMapDB, case
+
+
+def test_a_cloudmap_only_git_sync_reads_has_no_fallback(tmp_path: Path, monkeypatch) -> None:
+    import unfurl._rust
+
+    repo = _tracked(tmp_path, "cloudmap.md", "# a literate cloudmap\n")
+    monkeypatch.delattr(unfurl._rust, "GitSyncDB")
+    with pytest.raises(UnfurlError, match="cloudmap-sync"):
+        open_cloudmap_db(str(tmp_path / "repo" / "cloudmap.md"), repo, None, LOGGER)

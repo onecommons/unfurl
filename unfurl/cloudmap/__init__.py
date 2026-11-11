@@ -728,7 +728,16 @@ class CloudMap:
         # built here rather than by the caller: the store keeps a reference to
         # the cloudmap that owns it, which doesn't exist until now
         if db is None:
-            db = CloudMapDB(filepath)
+            from .gitsync_db import open_cloudmap_db
+
+            db = open_cloudmap_db(
+                filepath,
+                repo,
+                local_env.project.projectRoot
+                if local_env and local_env.project
+                else None,
+                logger,
+            )
         db.set_cloudmap(self)
         self.directory = Directory(
             self, db, localrepo_root, skip_analysis, repo_locator
