@@ -1819,12 +1819,9 @@ class CloudMap:
 
     def _commit_cloudmap(self, db: CloudMapDB, msg: str) -> bool:
         """Commit the cloudmap file, if the working tree has changes to commit."""
-        path = db.config.path
-        if not path or not self.repo:
+        if not db.file or not self.repo:
             return False
-        self.repo.repo.index.add([path])
-        if self.repo.is_dirty(False, path):
-            self.repo.commit_files([path], msg)
+        if db.commit(self.repo, msg):
             self.logger.verbose(f"committed: {msg}")
             return True
         self.logger.verbose(f'nothing to commit for "{msg}"')
@@ -1839,11 +1836,11 @@ class CloudMap:
             # committing them is what `--commit` asks for.
             return db.save(msg, commit=self.commit) is not None
         changed = db.save()
-        if not db.config.path:
+        if not db.file:
             return changed
         if not self.repo or not self.commit:
             # written, but left in the working tree -- `flush` commits it later
-            self.logger.info("saved cloudmap to %s: %s", db.config.path, msg)
+            self.logger.info("saved cloudmap to %s: %s", db.file, msg)
             return changed
         return self._commit_cloudmap(db, msg)
 

@@ -216,7 +216,7 @@ def _current_cloudmap_local_path(project_id: str) -> Optional[str]:
     store = cloud_map.directory.store
     assert isinstance(store, CloudMapDB)
     return os.path.relpath(
-        assert_not_none(store.config.path), cloud_map.repo.working_dir
+        assert_not_none(store.file), cloud_map.repo.working_dir
     )
 
 

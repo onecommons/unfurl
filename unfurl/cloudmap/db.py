@@ -65,6 +65,7 @@ from .oci import create_oci_artifact
 if TYPE_CHECKING:
     from . import CloudMap
     from ..localenv import LocalEnv
+    from ..repo import GitRepo
 
 logger = getLogger("unfurl")
 
@@ -432,6 +433,10 @@ class CloudMapDB(CloudMapStore):
         self.path: str = self.config.path or path
         db = self.config.config
         assert isinstance(db, dict)
+        self._load_document(cast(Dict[str, Any], db))
+
+    def _load_document(self, db: Dict[str, Any]) -> None:
+        """Build the records of each section from the cloudmap document ``db``."""
         self.metadata = cast(Dict[str, Any], db.get("metadata") or {})
 
         # Load types first (may be augmented during notable migration)
@@ -476,7 +481,7 @@ class CloudMapDB(CloudMapStore):
             instantiations, Instantiation
         )
 
-        self.db = cast(Dict[str, Any], db)
+        self.db = db
 
     def _load_resource(
         self,
@@ -494,6 +499,21 @@ class CloudMapDB(CloudMapStore):
                 versions[obj.url] = obj  # obj.url has been merged with its parent url
         resource_dict.update(versions)
         return resource_dict
+
+    @property
+    def file(self) -> Optional[str]:
+        """The file the records are loaded from and saved to, if any."""
+        return self.config.path
+
+    def commit(self, repo: "GitRepo", msg: str) -> bool:
+        """Commit the saved file to ``repo`` with ``msg``, if it has changes;
+        whether it made a commit."""
+        assert self.file
+        repo.repo.index.add([self.file])
+        if repo.is_dirty(False, self.file):
+            repo.commit_files([self.file], msg)
+            return True
+        return False
 
     def reload(self):
         assert self.config.path
