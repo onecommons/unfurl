@@ -2515,20 +2515,20 @@ impl ::std::convert::From<f64> for ReleaseScheduleItemVersion {
 #[doc = "      }"]
 #[doc = "    },"]
 #[doc = "    \"upstream_refs\": {"]
-#[doc = "      \"description\": \"Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's.\","]
+#[doc = "      \"description\": \"Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's. Refs at the same commit as the upstream's are left out, so an empty entry means every ref matched; an upstream with no entry wasn't compared.\","]
 #[doc = "      \"type\": \"object\","]
 #[doc = "      \"additionalProperties\": {"]
 #[doc = "        \"type\": \"object\","]
 #[doc = "        \"properties\": {"]
 #[doc = "          \"branches\": {"]
-#[doc = "            \"description\": \"Map of branch names to how they compare with the upstream.\","]
+#[doc = "            \"description\": \"Map of branch names to how they compare with the upstream, leaving out those at the same commit.\","]
 #[doc = "            \"type\": \"object\","]
 #[doc = "            \"additionalProperties\": {"]
 #[doc = "              \"$ref\": \"#/definitions/upstreamRef\""]
 #[doc = "            }"]
 #[doc = "          },"]
 #[doc = "          \"tags\": {"]
-#[doc = "            \"description\": \"Map of tag names to how they compare with the upstream.\","]
+#[doc = "            \"description\": \"Map of tag names to how they compare with the upstream, leaving out those at the same commit.\","]
 #[doc = "            \"type\": \"object\","]
 #[doc = "            \"additionalProperties\": {"]
 #[doc = "              \"$ref\": \"#/definitions/upstreamRef\""]
@@ -2614,7 +2614,7 @@ pub struct Repository {
         skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
     )]
     pub tags: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
-    #[doc = "Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's."]
+    #[doc = "Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's. Refs at the same commit as the upstream's are left out, so an empty entry means every ref matched; an upstream with no entry wasn't compared."]
     #[serde(
         default,
         skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
@@ -3031,14 +3031,14 @@ impl ::std::convert::TryFrom<::std::string::String> for RepositoryStatus {
 #[doc = "  \"type\": \"object\","]
 #[doc = "  \"properties\": {"]
 #[doc = "    \"branches\": {"]
-#[doc = "      \"description\": \"Map of branch names to how they compare with the upstream.\","]
+#[doc = "      \"description\": \"Map of branch names to how they compare with the upstream, leaving out those at the same commit.\","]
 #[doc = "      \"type\": \"object\","]
 #[doc = "      \"additionalProperties\": {"]
 #[doc = "        \"$ref\": \"#/definitions/upstreamRef\""]
 #[doc = "      }"]
 #[doc = "    },"]
 #[doc = "    \"tags\": {"]
-#[doc = "      \"description\": \"Map of tag names to how they compare with the upstream.\","]
+#[doc = "      \"description\": \"Map of tag names to how they compare with the upstream, leaving out those at the same commit.\","]
 #[doc = "      \"type\": \"object\","]
 #[doc = "      \"additionalProperties\": {"]
 #[doc = "        \"$ref\": \"#/definitions/upstreamRef\""]
@@ -3052,13 +3052,13 @@ impl ::std::convert::TryFrom<::std::string::String> for RepositoryStatus {
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct RepositoryUpstreamRefsValue {
-    #[doc = "Map of branch names to how they compare with the upstream."]
+    #[doc = "Map of branch names to how they compare with the upstream, leaving out those at the same commit."]
     #[serde(
         default,
         skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
     )]
     pub branches: ::std::collections::HashMap<::std::string::String, UpstreamRef>,
-    #[doc = "Map of tag names to how they compare with the upstream."]
+    #[doc = "Map of tag names to how they compare with the upstream, leaving out those at the same commit."]
     #[serde(
         default,
         skip_serializing_if = ":: std :: collections :: HashMap::is_empty"

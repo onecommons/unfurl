@@ -620,7 +620,7 @@ pub struct CloudmapRepository {
     pub status: Option<CloudmapRepositoryStatus>,
     /// Map of tag names to their commit SHA hashes.
     pub tags: Option<std::collections::HashMap<String, String>>,
-    /// Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's.
+    /// Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's. Refs at the same commit as the upstream's are left out, so an empty entry means every ref matched; an upstream with no entry wasn't compared.
     pub upstream_refs: Option<std::collections::HashMap<String, serde_json::Value>>,
     /// Additional properties not defined in the schema.
     #[serde(flatten)]

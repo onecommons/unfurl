@@ -60,6 +60,7 @@ from typing import (
     Any,
     Callable,
     Iterator,
+    NamedTuple,
     Optional,
     List,
     Dict,
@@ -69,7 +70,7 @@ from typing import (
     Type,
     cast,
 )
-from typing_extensions import Required, Literal, Protocol
+from typing_extensions import Required, Literal, Protocol, TypedDict
 
 if TYPE_CHECKING:
     from .proxy import CloudMapProxy
@@ -118,7 +119,7 @@ from ..logs import getLogger
 from .db import CloudMapDB
 from .db import CloudMapStore
 from .provenance import ProvenanceTrackingContext
-from .upstream import compare_with_upstream
+from .upstream import compare_with_upstream, save_local_clones
 from .github import GithubManager
 from .gitlab import GitlabManager
 from .host import LocalRepositoryHost, RepositoryHost, _LocalGitRepos
@@ -334,6 +335,8 @@ class Directory(_LocalGitRepos):
         self.cloudmap = cloudmap
         # urls of forks and mirrors imported since `compare_forks` last ran
         self._forks: Set[str] = set()
+        # see `CloudMapRepositoryConfig.local_cloudmap`
+        self.local_cloudmap = ""
         _LocalGitRepos.__init__(self, local_repo_root, cloudmap.logger)
 
         # Start with default Notable classes and add custom analyzers from cloudmap.
@@ -495,6 +498,28 @@ class Directory(_LocalGitRepos):
             repo_info = self.context.get_repository(url)
             if repo_info is not None:
                 self.compare_upstreams(repo_info)
+        if self.local_cloudmap:
+            try:
+                self.save_local_repositories(self.local_cloudmap)
+            except Exception:
+                # a record of local clones, not worth losing the import over
+                self.logger.warning(
+                    "Could not save local clones to %s",
+                    self.local_cloudmap,
+                    exc_info=True,
+                )
+
+    def save_local_repositories(self, path: str) -> None:
+        """Record in the cloudmap file at ``path`` each local clone out of step
+        with its remotes (see :func:`.upstream.save_local_clones`)."""
+        save_local_clones(
+            os.path.expanduser(path),
+            self.repos.values(),
+            self.repos_root,
+            self.store.get_repository,
+            RepositoryHost.MAX_GIT_REFS,
+            self.logger,
+        )
 
     def compare_upstreams(self, repo_info: Repository) -> None:
         """Set ``repo_info.upstream_refs`` for each of its ``fork_of`` and
@@ -600,6 +625,32 @@ class Directory(_LocalGitRepos):
             else:
                 notables.append(n)
         return notables
+
+
+class CloudMapRepositoryConfig(TypedDict, total=False):
+    """A cloudmap's repository configuration: a TOSCA repository definition,
+    from ``cloudmaps.repositories`` or the environment's ``repositories``."""
+
+    url: str
+    revision: str
+    clone_root: str
+    "Where to clone the repositories the cloudmap syncs."
+    local_cloudmap: str
+    """A cloudmap file to keep a record in of each local clone with uncommitted
+    changes or refs that differ from its remotes'."""
+
+
+class CloudMapConfig(NamedTuple):
+    """Where a cloudmap is, as :py:meth:`CloudMap.get_config` finds it."""
+
+    url: str
+    "The normalized url of the cloudmap's git repository; empty for a local file."
+    path: str
+    "The cloudmap file's path within the repository, or the local file's path."
+    revision: str
+    "The branch to use."
+    repository: CloudMapRepositoryConfig
+    "The cloudmap's repository configuration, or {} if it has none."
 
 
 class CloudMap:
@@ -985,7 +1036,7 @@ class CloudMap:
         else:
             local_repo_root = clone_root
 
-        return CloudMap(
+        cloud_map = CloudMap(
             cast(Optional[GitRepo], repo),
             host_branch,
             revision,
@@ -996,6 +1047,8 @@ class CloudMap:
             logger,
             local_env,
         )
+        cloud_map.directory.local_cloudmap = repository.get("local_cloudmap", "")
+        return cloud_map
 
     @staticmethod
     def _load_custom_analyzers(
@@ -1055,11 +1108,13 @@ class CloudMap:
         return custom_analyzers
 
     @classmethod
-    def get_config(cls, local_env: "LocalEnv", name: str) -> Tuple[str, str, str, dict]:
+    def get_config(cls, local_env: "LocalEnv", name: str) -> CloudMapConfig:
         """name is a cloudmap url or a named cloudmap repository."""
         environment = local_env.get_context().get("cloudmaps", {})
         # for now name is just the name of repository
-        repository = environment.get("repositories", {}).get(name)
+        repository: Optional[CloudMapRepositoryConfig] = environment.get(
+            "repositories", {}
+        ).get(name)
         if not repository or "url" not in repository:
             repositories, _ = local_env.get_repositories_and_package_specs()
             env_repository = repositories.get(name)
@@ -1079,10 +1134,12 @@ class CloudMap:
         if not urlparse(cloudmap_url).scheme:
             # url is a local path return as path
             # so we create a new cloudmap file
-            return "", cloudmap_url, repository.get("revision", "main"), repository
+            return CloudMapConfig(
+                "", cloudmap_url, repository.get("revision", "main"), repository
+            )
         else:
             url, path, revision = split_git_url(cloudmap_url)
-            return (
+            return CloudMapConfig(
                 normalize_git_url(url),
                 path,
                 revision or repository.get("revision", "main"),

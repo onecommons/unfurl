@@ -154,7 +154,7 @@ def current_cloudmap() -> Optional["CloudMap"]:
     if cloud_map is not None:
         return cloud_map
     local_env = current_app.config.get("UNFURL_LOCAL_ENV")
-    if local_env is None or not CloudMap.get_config(local_env, "cloudmap")[3]:
+    if local_env is None or not CloudMap.get_config(local_env, "cloudmap").repository:
         return None
     clone_root = _analysis_clone_root(local_env)
     os.makedirs(clone_root, exist_ok=True)
@@ -1420,7 +1420,8 @@ def _analysis_clone_root(local_env: Optional[LocalEnv]) -> str:
     from ..cloudmap import CloudMap
 
     if local_env:
-        clone_root = CloudMap.get_config(local_env, "cloudmap")[3].get("clone_root")
+        config = CloudMap.get_config(local_env, "cloudmap")
+        clone_root = config.repository.get("clone_root")
         if clone_root:
             return str(clone_root)
     return str(current_app.config.get("UNFURL_CLONE_ROOT", "."))

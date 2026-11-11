@@ -79,6 +79,22 @@ unfurl cloudmap --sync production --namespace onecommons/blueprints
 
 In addition to updating those instances, the repository will have branches for each repository host recording their last known state and the main branch will have the latest from both staging and production. This way the main branch serves as the "source of truth".
 
+### Track local clones
+
+To see which of your local clones have work to push or pull, set `local_cloudmap` in the cloud map's configuration (see Configuration below) to a cloud map file. Each time Unfurl imports repositories (`--import`, `--sync`, `--add` or `--replace`), it records in that file each local clone with uncommitted changes, or with branches or tags out of step with its remotes, ahead or behind. To update the file on its own, run:
+
+`unfurl cloudmap --local-cloudmap [PATH]`
+
+With a `PATH` the file is written there instead of the configured `local_cloudmap`; given with `--import`, `--sync`, `--add` or `--replace` it's used as `local_cloudmap` for that run. The clones are the repositories in `clone_root` and those the project references, and the file's own clones are checked again each time, wherever they are. A clone that's committed and in step with its remotes is removed from the file, as is one whose directory is gone. Nothing is fetched.
+
+Each clone gets a repository record (see the {ref}`schema <CloudMap Schema>`):
+
+- Its key is `git://` followed by the clone's absolute path, and its `protocols` are `[file]`.
+- The checked-out branch's commit has `-dirty` appended when the worktree has uncommitted changes.
+- Its `upstream_refs` has an entry for each repository its remotes name, keyed by that repository's URL; remotes naming the same repository are compared as one. Every remote repository that has been fetched or is in the main cloud map gets an entry, so an empty one is a repository every branch, and every tag if it's in the cloud map, matches.
+- A branch is compared with the branch it tracks, otherwise with the same-named branch, as last fetched or as the remote repository's record in the main cloud map names it, whichever is later. Commits the clone doesn't have are looked for in other local clones of the same repository.
+- Its tags are compared with those of the remote repository's record in the main cloud map, as of its last import, if it has one.
+
 ## Configuration
 
 You can configure the cloud map location and repository hosts used for synchronize in the environments section of `unfurl.yaml`.  This configuration sample illustrates the available options:
@@ -92,6 +108,9 @@ environments:
         cloudmap:
           url: file:../my_cloudmap  # cloudmap git repository
           clone_root: ../repos  # optional, --clone-root option overrides this
+          # optional: a cloudmap file recording local clones out of step with
+          # their remotes (see "Track local clones" above)
+          local_cloudmap: ../local-cloudmap.yaml
       hosts:  # repository hosts to synchronize with
         staging:
             type: unfurl.cloud

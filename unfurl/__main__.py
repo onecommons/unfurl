@@ -2228,6 +2228,15 @@ def serve(
     type=click.Choice(["text", "json"]),
     help="Output format for --graph (default: text).",
 )
+@click.option(
+    "--local-cloudmap",
+    default=None,
+    metavar="PATH",
+    is_flag=False,
+    flag_value="",
+    help="Record local clones with uncommitted changes or branches that differ "
+    "from their remotes' in the cloudmap file at PATH.",
+)
 def cloudmap(
     ctx,
     cloudmap: str,
@@ -2246,6 +2255,7 @@ def cloudmap(
     analyze: Literal["yes", "no", "save-only", "default", "metadata"] = "default",
     graph: Optional[str] = None,
     graph_format: str = "text",
+    local_cloudmap: Optional[str] = None,
     **options,
 ):
     """Manage a cloud map.
@@ -2278,10 +2288,23 @@ def cloudmap(
     # `--commit` on its own commits records an earlier run left staged on a
     # cloudmap server (see CloudMap.flush)
     flushing = commit and not add and not replace and not host_name
+    importing = add or replace or sync or options.get("import")
+    if local_cloudmap is not None and not importing:
+        # nothing to compare forks after: save the local clones now
+        cloud_map = CloudMap.from_name(local_env, cloudmap, clone_root, "", True, False)
+        path = local_cloudmap or cloud_map.directory.local_cloudmap
+        if not path:
+            raise click.UsageError(
+                "--local-cloudmap needs a PATH: no local_cloudmap is configured"
+            )
+        cloud_map.directory.save_local_repositories(path)
+        click.echo(f"saved local clones to {path}")
+        if not flushing and not host_name:  # --export carries on
+            return
     if not add and not replace and not host_name and not flushing:
         click.echo(
             "nothing to do (use one of --export, --import, --add, --replace, --graph,"
-            " --commit, or --sync)"
+            " --local-cloudmap, --commit, or --sync)"
         )
         return
     # get the host first so we know branch to use in the cloud map repository
@@ -2307,6 +2330,9 @@ def cloudmap(
         # repository host can't, since that merges and commits a local clone
         use_server=bool(add or replace or flushing),
     )
+    if local_cloudmap:
+        # saved where the import compares forks
+        cloud_map.directory.local_cloudmap = local_cloudmap
     if flushing:
         if cloud_map.flush("Commit pending cloudmap records"):
             click.echo("committed pending records")

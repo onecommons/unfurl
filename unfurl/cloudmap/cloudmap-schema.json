@@ -842,21 +842,21 @@
         },
         "upstream_refs": {
           "type": "object",
-          "description": "Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's.",
+          "description": "Map of upstream repository URLs (usually fork_of or mirror_of) to how this repository's branches and tags compare with that repository's. Refs at the same commit as the upstream's are left out, so an empty entry means every ref matched; an upstream with no entry wasn't compared.",
           "additionalProperties": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
               "branches": {
                 "type": "object",
-                "description": "Map of branch names to how they compare with the upstream.",
+                "description": "Map of branch names to how they compare with the upstream, leaving out those at the same commit.",
                 "additionalProperties": {
                   "$ref": "#/definitions/upstreamRef"
                 }
               },
               "tags": {
                 "type": "object",
-                "description": "Map of tag names to how they compare with the upstream.",
+                "description": "Map of tag names to how they compare with the upstream, leaving out those at the same commit.",
                 "additionalProperties": {
                   "$ref": "#/definitions/upstreamRef"
                 }

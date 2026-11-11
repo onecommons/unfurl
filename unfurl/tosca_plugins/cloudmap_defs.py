@@ -1342,7 +1342,7 @@ class RepositoryMetadata(CommonMetadata):
 class Repository(CloudMapRecord):
     url: str
     """URL of the repository using the git:// URL scheme"""
-    path: str
+    path: str = ""
     """Project path relative to base location of git repositories on the host"""
     initial_revision: str = ""
     "Initial commit of the default branch."
@@ -1430,11 +1430,8 @@ class Repository(CloudMapRecord):
             elif k == "contains":
                 v = TypeRefs.urls_asdict(v)
             elif k == "upstream_refs":
-                v = {
-                    url: refs.asdict()
-                    for url, refs in self.upstream_refs.items()
-                    if refs.branches or refs.tags
-                }
+                # an empty entry is an upstream every ref matched
+                v = {url: refs.asdict() for url, refs in self.upstream_refs.items()}
             if v:
                 result[k] = v
         result.update(self.own_extensions())
