@@ -13,7 +13,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use unfurl_git_sync::{
     git, CommitOptions, DbConfig, Error, FormatRegistry, OpenOptions, RecordQuery, ScanOptions,
-    SyncOutcome, SyncedRepo,
+    SyncOutcome, SyncedDir,
 };
 
 create_exception!(
@@ -106,17 +106,17 @@ fn outcome_dict<'py>(py: Python<'py>, outcome: &SyncOutcome) -> PyResult<Bound<'
 /// git-sync database.
 #[pyclass(frozen)]
 pub struct GitSyncDB {
-    sync: Arc<SyncedRepo>,
+    sync: Arc<SyncedDir>,
     file_path: String,
 }
 
 #[pymethods]
 impl GitSyncDB {
-    /// Open the cloudmap at `file_path`, relative to the working tree at
-    /// `repo_path`, with the SQLite database `db_url` names (an sqlx URL,
-    /// its path percent-encoded, such as `sqlite:///abs/path.sqlite?mode=rwc`
-    /// to create it if it doesn't exist). The handle reads and writes only
-    /// that file.
+    /// Open the cloudmap at `file_path`, relative to `repo_path`, a git
+    /// working tree's root or a directory in no repository, with the SQLite
+    /// database `db_url` names (an sqlx URL, its path percent-encoded, such
+    /// as `sqlite:///abs/path.sqlite?mode=rwc` to create it if it doesn't
+    /// exist). The handle reads and writes only that file, committed or not.
     #[staticmethod]
     fn open(
         py: Python<'_>,
@@ -130,9 +130,12 @@ impl GitSyncDB {
             )));
         }
         let db = DbConfig::Sqlite { url: db_url };
-        let options = OpenOptions::default().pathspecs([file_path.as_str()]);
+        let pathspec = format!(":(literal){file_path}");
+        let options = OpenOptions::default()
+            .pathspecs([pathspec.as_str()])
+            .untracked(true);
         let sync = run(py, async move {
-            SyncedRepo::open_with(
+            SyncedDir::open(
                 repo_path,
                 db,
                 FormatRegistry::with_builtins(),
@@ -224,11 +227,14 @@ impl GitSyncDB {
     }
 
     /// Commit the saved changes with `message`; the new commit, or `None`
-    /// when HEAD already holds them (they're attributed to it).
+    /// when HEAD already holds them (they're attributed to it) or there is
+    /// no repository.
     fn commit(&self, py: Python<'_>, message: String) -> PyResult<Option<String>> {
-        let sync = self.sync.clone();
+        let Some(repo) = self.sync.repository() else {
+            return Ok(None);
+        };
         let committed = run(py, async move {
-            sync.commit_repository(&message, CommitOptions::default())
+            repo.commit_repository(&message, CommitOptions::default())
                 .await
         })?;
         Ok(committed.commit.map(|c| c.to_string()))

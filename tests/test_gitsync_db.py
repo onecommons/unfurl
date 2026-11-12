@@ -112,3 +112,64 @@ def test_a_database_path_with_url_characters(repo: git.Repo, tmp_path: Path) -> 
     # the database is where the path says, not at a truncated one
     assert (odd / ".cloudmap.sqlite").exists()
     assert sorted(p.name for p in tmp_path.iterdir()) == sorted([odd.name, "repo"])
+
+
+def _edit_save_rescan(db: GitSyncDB, path: Path) -> None:
+    """A hand edit is taken in without a conflict; an edit saves, and a
+    rescan finds nothing new."""
+    assert db.scan()["records_upserted"] == 1
+    path.write_text(path.read_text().replace("path: kept", "path: hand-edited"))
+    scanned = db.scan()
+    assert scanned["conflicts"] == [], scanned
+    assert [json.loads(j) for _, _, j in db.find("/repositories")] == [{"path": "hand-edited"}]
+    db.upsert("/repositories", ADDED, json.dumps({"path": "added"}))
+    saved = db.save()
+    assert saved["conflicts"] == [] and saved["failed"] == [], saved
+    assert ADDED in path.read_text()
+    assert db.save()["written"] == []
+    rescanned = db.scan()
+    assert rescanned["conflicts"] == [] and rescanned["records_upserted"] == 0, rescanned
+
+
+@pytest.mark.parametrize("case", ["staged", "untracked"])
+def test_an_uncommitted_cloudmap(tmp_path: Path, case: str) -> None:
+    repo = git.Repo.init(tmp_path / "repo", initial_branch="main")
+    path = Path(repo.working_dir) / CLOUDMAP
+    path.write_text(
+        f"apiVersion: unfurl/v1.0.0\nkind: CloudMap\nrepositories:\n  {KEPT}:\n    path: kept\n"
+    )
+    if case == "staged":
+        repo.index.add([CLOUDMAP])
+    db = _open(repo, tmp_path)
+    _edit_save_rescan(db, path)
+    commit = db.commit("add the cloudmap")
+    assert commit == repo.head.commit.hexsha
+    assert CLOUDMAP in [b.path for b in repo.head.commit.tree.blobs]
+
+
+def test_a_cloudmap_in_no_repository(tmp_path: Path) -> None:
+    root = tmp_path / "plain"
+    (root / "sub").mkdir(parents=True)
+    path = root / "sub" / CLOUDMAP
+    path.write_text(
+        f"apiVersion: unfurl/v1.0.0\nkind: CloudMap\nrepositories:\n  {KEPT}:\n    path: kept\n"
+    )
+    db = GitSyncDB.open(str(root), _url(tmp_path / ".cloudmap.sqlite"), f"sub/{CLOUDMAP}")
+    _edit_save_rescan(db, path)
+    assert db.commit("nothing to commit to") is None
+    assert not (root / ".git").exists()
+
+
+def test_the_file_name_is_literal(tmp_path: Path) -> None:
+    """A name with glob characters names only that file, and is taken in
+    though ``.gitignore`` excludes it."""
+    root = tmp_path / "plain"
+    root.mkdir()
+    text = "apiVersion: unfurl/v1.0.0\nkind: CloudMap\nrepositories:\n  {}:\n    path: p\n"
+    (root / "cloud[1].yaml").write_text(text.format(KEPT))
+    (root / "cloud1.yaml").write_text(text.format(ADDED))
+    (root / ".gitignore").write_text("cloud*.yaml\n")
+    db = GitSyncDB.open(str(root), _url(tmp_path / ".cloudmap.sqlite"), "cloud[1].yaml")
+    outcome = db.scan()
+    assert outcome["unparsed"] == [] and outcome["failed"] == [], outcome
+    assert [k for _, k, _ in db.find("/repositories")] == [KEPT]
