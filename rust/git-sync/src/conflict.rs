@@ -476,6 +476,19 @@ async fn conflict_sides<DB: Store>(
     Ok(Sides { d, theirs, ours })
 }
 
+/// The commit a value taken in from `file_path` holds: HEAD where it and
+/// the index have the file, else the marker for none.
+async fn file_commit<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    sync: &SyncedDir,
+    file_path: &str,
+) -> Result<CommitId> {
+    Ok(match DB::head_commit(tx, sync.worktree_id()).await? {
+        Some(head) if sync.holds(head, file_path)? => head,
+        _ => CommitId::UNCOMMITTED,
+    })
+}
+
 /// Body of [`SyncedRepo::resolve_conflict`], generic over the pool.
 ///
 /// Both rows move together or not at all: rewriting the record without
@@ -563,19 +576,21 @@ pub(crate) async fn resolve_conflict_in_tx<DB: Store>(
                     None if elsewhere => None,
                     None => Some(ours.key_id),
                 };
-                // taken in from the file, so not a pending edit: it keeps
-                // a commit that holds the file
+                // taken in from the file, so not a pending edit
                 let commit = match committed.as_ref().and_then(|r| r.commit_id) {
-                    Some(c) => Some(c),
-                    None => Some(
-                        DB::head_commit(tx, w)
-                            .await?
-                            .unwrap_or(CommitId::UNCOMMITTED),
-                    ),
+                    Some(c) => c,
+                    None => file_commit(tx, sync, file_path).await?,
                 };
-                let written =
-                    segments::write(tx, w, at, value, Origin::File(commit), record, version)
-                        .await?;
+                let written = segments::write(
+                    tx,
+                    w,
+                    at,
+                    value,
+                    Origin::File(Some(commit)),
+                    record,
+                    version,
+                )
+                .await?;
                 written.key_id
             } else {
                 committed.map_or(ours.key_id, |r| r.key_id)

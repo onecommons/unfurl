@@ -199,7 +199,8 @@ struct Walked<'a> {
     candidates: Vec<Candidate<'a>>,
     /// Candidates whose last commit is looked up in history.
     walk_paths: Vec<String>,
-    /// Every path in the index.
+    /// Every path in the index or on disk the scan found, symlinks
+    /// included.
     indexed: std::collections::HashSet<&'a str>,
     /// In the index, gone from the working tree.
     vanished: std::collections::HashSet<String>,
@@ -328,14 +329,14 @@ struct Candidate<'a> {
 
 impl Candidate<'_> {
     /// The last commit to touch the file: from the walk, or for a file not
-    /// walked, the one on record.
+    /// walked, the one on record; none for a file the index doesn't have.
     fn last_commit(
         &self,
         last_commits: &std::collections::HashMap<String, CommitId>,
     ) -> Option<CommitId> {
         match last_commits.get(&self.tf.rel_path) {
             Some(&commit) => Some(commit),
-            None if !self.needs_history => self.db_commit,
+            None if !self.needs_history && self.tf.indexed => self.db_commit,
             None => None,
         }
     }
@@ -564,6 +565,15 @@ impl SyncedDir {
             .as_ref()
             .map(|o| o.open(&self.inner.repo_path))
             .transpose()
+    }
+
+    /// Whether `commit` and the index both have `file_path`, so a scan
+    /// reads the file as one a commit holds.
+    pub(crate) fn holds(&self, commit: CommitId, file_path: &str) -> Result<bool> {
+        match self.repo_if_any()? {
+            Some(repo) => git::holds(&repo, commit, file_path),
+            None => Ok(false),
+        }
     }
 
     /// What identifies the worktree and its `HEAD` now.
@@ -893,7 +903,14 @@ impl SyncedDir {
         let repo = self.repo_if_any()?;
         let head = meta.head_oid;
         let recovered = self.follow_head(&meta.branch, head, options).await?;
-        let tracked = self.files_to_scan(repo.as_ref())?;
+        let ScanFiles {
+            files: tracked,
+            mut refused,
+            mut kept,
+            aliases,
+        } = self.files_to_scan(repo.as_ref())?;
+        self.carry_alias_edits(&aliases, &mut kept, &mut refused)
+            .await?;
         // so a file outside the scope never reads as deleted
         let known_files: std::collections::HashMap<String, crate::model::File> =
             db::file::list(self.db(), self.worktree_id())
@@ -904,6 +921,7 @@ impl SyncedDir {
                 .collect();
         let mut stats = SyncOutcome {
             recovered,
+            unparsed: refused,
             ..Default::default()
         };
 
@@ -935,6 +953,8 @@ impl SyncedDir {
             };
             self.classify_tracked(&pass, &tracked, &mut stats)
         };
+        // not read, so not gone
+        walked.indexed.extend(kept.iter().map(String::as_str));
         self.forget_unrecognized(&walked.indexed, &head_blobs);
         let (orphans, renames) = orphans_and_renames(&known_files, &mut walked, &mut stats);
 
@@ -978,24 +998,79 @@ impl SyncedDir {
         Ok(stats)
     }
 
+    /// The pending edits of each link of `aliases`, made again on the file
+    /// it names and withdrawn from the link's path, which then reads as
+    /// gone. A link with an edit to a record that file has an edit to as
+    /// well is refused instead: onto `kept` and `refused`.
+    async fn carry_alias_edits(
+        &self,
+        aliases: &[(String, String)],
+        kept: &mut Vec<String>,
+        refused: &mut Vec<crate::model::FileFailure>,
+    ) -> Result<()> {
+        let w = self.worktree_id();
+        for (link, target) in aliases {
+            let pending = db::record::render_inputs(self.db(), w, link).await?.pending;
+            if pending.is_empty() {
+                continue;
+            }
+            let theirs = db::record::render_inputs(self.db(), w, target)
+                .await?
+                .pending;
+            if pending
+                .iter()
+                .any(|p| theirs.iter().any(|t| t.path == p.path && t.key == p.key))
+            {
+                let message = format!(
+                    "{link}: a symlink to {target}, with edits to records {target} has edits to"
+                );
+                tracing::warn!(file = link.as_str(), "symlink refused: {message}");
+                kept.push(link.clone());
+                refused.push(crate::model::FileFailure {
+                    file_path: link.clone(),
+                    error: Error::Other(message),
+                });
+                continue;
+            }
+            for edit in &pending {
+                let carried = match edit.deleted {
+                    true => {
+                        self.delete_record(Some(target), &edit.path, &edit.key, None, false)
+                            .await
+                    }
+                    false => {
+                        self.upsert_record(
+                            Some(target),
+                            &edit.path,
+                            &edit.key,
+                            edit.json.clone(),
+                            None,
+                            false,
+                        )
+                        .await
+                    }
+                };
+                match carried {
+                    Ok(_) | Err(Error::NotFound { .. }) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            on_pool!(self.db(), pool => crate::scan::withdraw_edits(self, pool, link).await)?;
+        }
+        Ok(())
+    }
+
     /// The index's files in scope, then, with [`OpenOptions::untracked`]
     /// or without a repository, the files on disk the pathspecs match
-    /// that the index doesn't have.
-    fn files_to_scan(&self, repo: Option<&gix::Repository>) -> Result<Vec<git::TrackedFile>> {
+    /// that the index doesn't have; less their symlinks (see
+    /// [`resolve_links`]).
+    fn files_to_scan(&self, repo: Option<&gix::Repository>) -> Result<ScanFiles> {
         let mut files: Vec<git::TrackedFile> = match repo {
             Some(repo) => git::tracked_files(repo)?
                 .into_iter()
                 .filter(|tf| self.in_scope(&tf.rel_path))
                 .collect(),
             None => Vec::new(),
-        };
-        let Some(scope) = self
-            .inner
-            .scope
-            .as_ref()
-            .filter(|s| s.untracked || repo.is_none())
-        else {
-            return Ok(files);
         };
         let work_dir = match repo {
             Some(repo) => repo
@@ -1004,14 +1079,17 @@ impl SyncedDir {
                 .to_path_buf(),
             None => self.inner.repo_path.clone(),
         };
-        let indexed: std::collections::HashSet<String> =
-            files.iter().map(|tf| tf.rel_path.clone()).collect();
-        for rel in scope.files_on_disk(&work_dir)? {
-            if !indexed.contains(&rel) {
-                files.push(git::TrackedFile::untracked(&work_dir, rel));
+        let scope = self.inner.scope.as_deref();
+        if let Some(scope) = scope.filter(|s| s.untracked || repo.is_none()) {
+            let indexed: std::collections::HashSet<String> =
+                files.iter().map(|tf| tf.rel_path.clone()).collect();
+            for rel in scope.files_on_disk(&work_dir)? {
+                if !indexed.contains(&rel) {
+                    files.push(git::TrackedFile::untracked(&work_dir, rel));
+                }
             }
         }
-        Ok(files)
+        resolve_links(files, &work_dir, scope)
     }
 
     /// The first pass over `tracked`: what each file is, and which are
@@ -2081,14 +2159,16 @@ impl SyncedDir {
         // purged leaves nothing pending and would otherwise never reach
         // the disk.
         let deleted = file_row.as_ref().is_some_and(|f| f.deleted);
+        let retract = deleted;
         if deleted && !live && conflict_rows.is_empty() {
+            // a link isn't removed: the file it names is read at its own path
+            let on_disk = !crate::scope::through_link(&self.inner.repo_path, file_path);
             return Ok(Render::Remove(Removal {
-                abs_path,
+                abs_path: on_disk.then_some(abs_path),
                 write_seq,
-                settle: self.settled_by_write(&pending),
+                settle: self.settled_by_write(file_path, &pending)?,
             }));
         }
-        let retract = deleted;
 
         if pending.is_empty() {
             return Ok(Render::record(Bookkeeping {
@@ -2100,6 +2180,7 @@ impl SyncedDir {
                 outcome: WriteFileOutcome::default(),
             }));
         }
+        refuse_link(&self.inner.repo_path, file_path)?;
 
         let format = pending
             .iter()
@@ -2138,7 +2219,7 @@ impl SyncedDir {
             Some(text) => syntax.into_value(file_path, text.as_bytes())?,
             None => new_root(format),
         };
-        let mut settle = self.settled_by_write(&pending);
+        let mut settle = self.settled_by_write(file_path, &pending)?;
         let Applying {
             touched,
             conflicts,
@@ -2191,20 +2272,28 @@ impl SyncedDir {
         }))
     }
 
-    /// Without a repository, the edits of `pending`, which a write that
-    /// puts them on disk settles; none with one, where a commit does.
-    fn settled_by_write(&self, pending: &[Record]) -> Vec<Settle> {
-        if self.inner.opener.is_some() {
-            return Vec::new();
+    /// The edits of `pending`, which a write that puts them on disk
+    /// settles, for `file_path` with no repository, or not in the index of
+    /// a handle that takes in untracked files; none otherwise, where a
+    /// commit does, and a scan that doesn't see the file must not take it
+    /// as gone.
+    fn settled_by_write(&self, file_path: &str, pending: &[Record]) -> Result<Vec<Settle>> {
+        let untracked = self.inner.scope.as_deref().is_some_and(|s| s.untracked);
+        let settles = match self.repo_if_any()? {
+            Some(repo) => untracked && !git::indexed(&repo, file_path)?,
+            None => true,
+        };
+        if !settles {
+            return Ok(Vec::new());
         }
-        pending
+        Ok(pending
             .iter()
             .map(|r| Settle {
                 path: r.path.clone(),
                 key: r.key.clone(),
                 version: r.version,
             })
-            .collect()
+            .collect())
     }
 
     /// `pending`, edits of `file_path`, applied to `source`, its bytes at
@@ -2369,13 +2458,13 @@ impl SyncedDir {
         let mut removed = false;
         // `remove_file` on an absent file is the already-done case, not a
         // failure.
-        let unlink = || match std::fs::remove_file(&abs_path) {
-            Ok(()) => {
+        let unlink = || match abs_path.as_ref().map(std::fs::remove_file) {
+            Some(Ok(())) => {
                 removed = true;
                 Ok(())
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(Error::Io(e)),
+            Some(Err(e)) if e.kind() != std::io::ErrorKind::NotFound => Err(Error::Io(e)),
+            _ => Ok(()),
         };
         let write = RenderWrite {
             file_path,
@@ -2390,7 +2479,7 @@ impl SyncedDir {
         let won =
             on_pool!(self.db(), pool => commit_render_in_pool(self, pool, &write, unlink).await)?;
         Ok(won.then(|| WriteFileOutcome {
-            written: removed.then(|| abs_path.clone()),
+            written: abs_path.filter(|_| removed),
             deleted: true,
             conflicts: Vec::new(),
         }))
@@ -2503,6 +2592,92 @@ impl SyncedDir {
                 )
                 .await)
     }
+}
+
+/// The files a scan reads, and the symlinks it doesn't.
+pub(crate) struct ScanFiles {
+    pub(crate) files: Vec<git::TrackedFile>,
+    /// Each refused symlink, as a file that couldn't be read.
+    pub(crate) refused: Vec<crate::model::FileFailure>,
+    /// The paths of the refused symlinks.
+    pub(crate) kept: Vec<String>,
+    /// Each path through a symlink read as its file, and that file's path.
+    pub(crate) aliases: Vec<(String, String)>,
+}
+
+/// An error for a path the file or a directory on the way to which, from
+/// `root`, is a symlink.
+fn refuse_link(root: &Path, file_path: &str) -> Result<()> {
+    match crate::scope::through_link(root, file_path) {
+        true => Err(Error::Other(format!(
+            "{file_path} is a symlink or in a symlinked directory: write the file it names instead"
+        ))),
+        false => Ok(()),
+    }
+}
+
+/// `files` less the paths through a symlink, in the file or a directory on
+/// the way to it. One naming a regular file under `root` that `files`
+/// holds too is that file, read once; every other is refused: an error
+/// for one a pathspec of `scope` names, else reported.
+fn resolve_links(
+    files: Vec<git::TrackedFile>,
+    root: &Path,
+    scope: Option<&crate::scope::Scope>,
+) -> Result<ScanFiles> {
+    let root_real = std::fs::canonicalize(root)?;
+    let (links, files): (Vec<_>, Vec<_>) = files
+        .into_iter()
+        .partition(|tf| crate::scope::through_link(root, &tf.rel_path));
+    let taken: std::collections::HashSet<&str> =
+        files.iter().map(|tf| tf.rel_path.as_str()).collect();
+    let mut refused = Vec::new();
+    let mut aliases = Vec::new();
+    for link in &links {
+        let why = match link_target(&root_real, &link.abs_path) {
+            Ok(rel) if taken.contains(rel.as_str()) => {
+                aliases.push((link.rel_path.clone(), rel));
+                continue;
+            }
+            Ok(rel) => format!("names {rel}, which the pathspecs don't take in: name it in them"),
+            Err(why) => why.to_string(),
+        };
+        let message = format!("{}: a symlink that {why}", link.rel_path);
+        if scope.is_some_and(|s| s.names(&link.rel_path)) {
+            return Err(Error::Other(message));
+        }
+        tracing::warn!(
+            file = link.rel_path.as_str(),
+            reason = why.as_str(),
+            "symlink refused"
+        );
+        refused.push(crate::model::FileFailure {
+            file_path: link.rel_path.clone(),
+            error: Error::Other(message),
+        });
+    }
+    let kept = refused.iter().map(|f| f.file_path.clone()).collect();
+    Ok(ScanFiles {
+        files,
+        refused,
+        kept,
+        aliases,
+    })
+}
+
+/// The path, relative to `root_real` (canonical), of the regular file the
+/// symlink at `abs` names through any chain of links, or why there's none.
+fn link_target(root_real: &Path, abs: &Path) -> std::result::Result<String, &'static str> {
+    let target = std::fs::canonicalize(abs).map_err(|_| "is broken or a loop")?;
+    if !target.is_file() {
+        return Err("doesn't name a regular file");
+    }
+    target
+        .strip_prefix(root_real)
+        .ok()
+        .and_then(|rel| rel.to_str())
+        .map(str::to_string)
+        .ok_or("names a file outside the root")
 }
 
 /// Parse `bytes` as `syntax` and classify the document with `formats`:
@@ -2631,7 +2806,8 @@ struct Bookkeeping {
 
 /// A removal waiting to be made, and the `write_seq` it was decided at.
 struct Removal {
-    abs_path: PathBuf,
+    /// `None` for a path through a symlink, which is left on disk.
+    abs_path: Option<PathBuf>,
     write_seq: Option<i64>,
     settle: Vec<Settle>,
 }

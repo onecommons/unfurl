@@ -211,3 +211,178 @@ async fn an_untracked_file_on_an_unborn_branch_is_taken_in() {
     scan(&sync).await;
     assert_eq!(path_in(&sync, NEW).await, Some(json!("new")));
 }
+
+/// A committed file taken out of the index and edited is untracked: the
+/// records it changes hold no commit, and a hand edit after is taken in.
+#[tokio::test]
+async fn a_file_taken_out_of_the_index_holds_no_commit() {
+    let (tmp, db) = repo();
+    let sync = open_untracked(tmp.path(), &db).await;
+    scan(&sync).await;
+    let old = "maps/old.yaml";
+    let r = sync
+        .get_record(old, REPOS, A)
+        .await
+        .expect("get")
+        .expect("record");
+    assert!(r.commit_id.is_some());
+
+    let out = std::process::Command::new("git")
+        .args(["rm", "-q", "--cached", old])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git");
+    assert!(out.status.success(), "{out:?}");
+    std::fs::write(tmp.path().join(old), cloudmap("edited")).expect("write");
+    scan(&sync).await;
+    let r = sync
+        .get_record(old, REPOS, A)
+        .await
+        .expect("get")
+        .expect("record");
+    assert_eq!(r.json["path"], json!("edited"));
+    assert_eq!(r.commit_id, None);
+
+    std::fs::write(tmp.path().join(old), cloudmap("by-hand")).expect("write");
+    scan(&sync).await;
+    assert_eq!(path_in(&sync, old).await, Some(json!("by-hand")));
+}
+
+fn git_in(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@e"])
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git");
+    assert!(out.status.success(), "{out:?}");
+    String::from_utf8(out.stdout).expect("utf-8")
+}
+
+/// Save an edit to `file`'s record, hand-edit the same record in the file,
+/// and rescan: the conflicts the rescan reports.
+async fn save_then_hand_edit(
+    sync: &SyncedRepo,
+    root: &Path,
+    file: &str,
+) -> Vec<unfurl_git_sync::RecordConflict> {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    sync.upsert_record(Some(file), REPOS, A, json!({"path": "saved"}), None, false)
+        .await
+        .expect("upsert");
+    let saved = sync.save_changes().await.expect("save");
+    assert!(
+        saved.failed.is_empty() && saved.conflicts.is_empty(),
+        "{saved:?}"
+    );
+    std::fs::write(root.join(file), cloudmap("by-hand")).expect("write");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan")
+        .conflicts
+}
+
+/// A save settles what it writes to a file the index doesn't have: a hand
+/// edit of the same record after it is taken in.
+#[tokio::test]
+async fn a_save_settles_an_untracked_file() {
+    let (tmp, db) = repo();
+    let sync = open_untracked(tmp.path(), &db).await;
+    let conflicts = save_then_hand_edit(&sync, tmp.path(), NEW).await;
+    assert!(conflicts.is_empty(), "{conflicts:?}");
+    assert_eq!(path_in(&sync, NEW).await, Some(json!("by-hand")));
+}
+
+/// The same for an ignored file a literal pathspec names.
+#[tokio::test]
+async fn a_save_settles_an_ignored_file() {
+    let (tmp, db) = repo();
+    std::fs::write(tmp.path().join(".gitignore"), "new.yaml\n").expect("write");
+    std::fs::rename(tmp.path().join(NEW), tmp.path().join("new.yaml")).expect("mv");
+    let sync = open(
+        tmp.path(),
+        &db,
+        OpenOptions::default()
+            .pathspecs([":(literal)new.yaml"])
+            .untracked(true),
+    )
+    .await
+    .expect("open");
+    let conflicts = save_then_hand_edit(&sync, tmp.path(), "new.yaml").await;
+    assert!(conflicts.is_empty(), "{conflicts:?}");
+    assert_eq!(path_in(&sync, "new.yaml").await, Some(json!("by-hand")));
+}
+
+/// A staged file's saved edit stays pending until a commit: a hand edit of
+/// the same record conflicts with it.
+#[tokio::test]
+async fn a_save_leaves_a_staged_files_edit_pending() {
+    let (tmp, db) = repo();
+    git_in(tmp.path(), &["add", NEW]);
+    let sync = open_untracked(tmp.path(), &db).await;
+    let conflicts = save_then_hand_edit(&sync, tmp.path(), NEW).await;
+    assert_eq!(conflicts.len(), 1, "{conflicts:?}");
+}
+
+/// After a settled save, a commit still carries the file and its records
+/// take the commit; after `git add`, a hand edit is still taken in.
+#[tokio::test]
+async fn a_settled_untracked_file_commits() {
+    let (tmp, db) = repo();
+    let sync = open_untracked(tmp.path(), &db).await;
+    let conflicts = save_then_hand_edit(&sync, tmp.path(), NEW).await;
+    assert!(conflicts.is_empty(), "{conflicts:?}");
+
+    git_in(tmp.path(), &["add", NEW]);
+    std::fs::write(tmp.path().join(NEW), cloudmap("staged-hand")).expect("write");
+    let scanned = scan(&sync).await;
+    assert!(scanned.conflicts.is_empty(), "{scanned:?}");
+    assert_eq!(path_in(&sync, NEW).await, Some(json!("staged-hand")));
+
+    let committed = sync
+        .commit_repository("add new", Default::default())
+        .await
+        .expect("commit");
+    let commit = committed.commit.expect("a commit");
+    assert_eq!(
+        git_in(tmp.path(), &["rev-parse", "HEAD"]).trim(),
+        commit.to_string()
+    );
+    assert!(git_in(tmp.path(), &["ls-tree", "-r", "HEAD"]).contains(NEW));
+    let r = sync
+        .get_record(NEW, REPOS, A)
+        .await
+        .expect("get")
+        .expect("record");
+    assert_eq!(r.commit_id, Some(commit));
+    assert_eq!(git_in(tmp.path(), &["status", "--porcelain", NEW]), "");
+}
+
+/// A handle that doesn't take in untracked files leaves a new file's saved
+/// edits pending: a rescan, which doesn't see the file, keeps them.
+#[tokio::test]
+async fn a_save_without_untracked_stays_pending() {
+    let (tmp, db) = repo();
+    let sync = open(tmp.path(), &db, OpenOptions::default().pathspecs(["maps/"]))
+        .await
+        .expect("open");
+    scan(&sync).await;
+    let created = "maps/created.yaml";
+    sync.upsert_record(
+        Some(created),
+        REPOS,
+        A,
+        json!({"path": "created"}),
+        None,
+        false,
+    )
+    .await
+    .expect("upsert");
+    let saved = sync.save_changes().await.expect("save");
+    assert!(saved.failed.is_empty(), "{saved:?}");
+    assert!(tmp.path().join(created).exists());
+    scan(&sync).await;
+    assert_eq!(path_in(&sync, created).await, Some(json!("created")));
+}

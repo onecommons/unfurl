@@ -796,6 +796,24 @@ async fn rename_file<DB: Store>(
     Ok(())
 }
 
+/// Withdraw `file_path`'s pending edits, as resolving a conflict to the
+/// file's value does.
+pub(crate) async fn withdraw_edits<DB: Store>(
+    sync: &SyncedDir,
+    pool: &sqlx::Pool<DB>,
+    file_path: &str,
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    let d = DB::segs(&mut tx, sync.worktree_id()).await?.draft;
+    for x in DB::rows_in(&mut tx, d, Some(file_path), false).await? {
+        if x.is_edit() {
+            crate::segments::remove_draft_row(&mut tx, d, x.at()).await?;
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 /// The commit a scan brings the head up to.
 pub(crate) struct Head<'a, 's> {
     pub(crate) commit: CommitId,

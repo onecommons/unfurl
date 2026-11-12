@@ -232,8 +232,8 @@ async fn a_file_that_becomes_ignored_is_an_orphan() {
     }
 }
 
-/// A symlink to a file is taken in, as the file it names; a symlinked
-/// directory isn't entered.
+/// A symlink to a file the pathspecs don't take in isn't read; a
+/// symlinked directory isn't entered.
 #[tokio::test]
 async fn symlinks() {
     for mode in MODES {
@@ -247,10 +247,21 @@ async fn symlinks() {
             .expect("symlink");
         std::os::unix::fs::symlink("../elsewhere/dir", tmp.path().join("maps/linked"))
             .expect("symlink");
-        assert_eq!(
-            taken_in(tmp.path(), &["maps/"]).await,
-            set(&["maps/link.yaml"]),
-            "{mode:?}"
+        assert_eq!(taken_in(tmp.path(), &["maps/"]).await, set(&[]), "{mode:?}");
+    }
+}
+
+/// A `:(literal)` pathspec naming a file with glob characters takes in that
+/// file only, `.gitignore` or not.
+#[tokio::test]
+async fn a_literal_magic_pathspec_names_one_file() {
+    for mode in MODES {
+        let tmp = setup(
+            mode,
+            &["maps/cloud[1].yaml", "maps/cloud1.yaml"],
+            &[(".gitignore", "cloud*.yaml\n")],
         );
+        let got = taken_in(tmp.path(), &[":(literal)maps/cloud[1].yaml"]).await;
+        assert_eq!(got, set(&["maps/cloud[1].yaml"]), "{mode:?}");
     }
 }

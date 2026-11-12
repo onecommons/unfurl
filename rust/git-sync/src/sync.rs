@@ -420,7 +420,7 @@ impl SyncedRepo {
         // Snapshot the dirty file list *before* save_changes (which sets
         // no commit_id changes) so we know what to stage even when bytes
         // didn't actually change on disk.
-        let dirty: Vec<String> =
+        let mut dirty: Vec<String> =
             db::record::list_dirty_files(self.db(), self.worktree_id()).await?;
         if dirty.is_empty() {
             return Ok(None);
@@ -438,6 +438,18 @@ impl SyncedRepo {
             let first = saved.failed.into_iter().next().expect("non-empty");
             return Err(first.error);
         }
+        // File rows the database owes a removal for. A path through a link
+        // is never read: one the scan dropped is removed from the
+        // database only, and any other's rows wait as they are.
+        let tombstoned: std::collections::HashSet<String> =
+            db::file::list(self.db(), self.worktree_id())
+                .await?
+                .into_iter()
+                .filter(|f| f.deleted)
+                .map(|f| f.path)
+                .collect();
+        let linked = |rel: &str| crate::scope::through_link(self.repo_path(), rel);
+        dirty.retain(|rel| !linked(rel) || tombstoned.contains(rel));
 
         let files: BTreeSet<String> = dirty.iter().cloned().collect();
         let (rollup, named) = self.rollup_for(&files, watermark).await?;
@@ -454,24 +466,18 @@ impl SyncedRepo {
         let head = scanned_head;
         let to_stage: Vec<String> = dirty
             .iter()
-            .filter(|rel| self.differs_from_head(&repo, head, rel))
+            .filter(|rel| !linked(rel) && self.differs_from_head(&repo, head, rel))
             .cloned()
             .collect();
-        // File rows the database owes a removal for and no longer has a
-        // file behind. Drawn from `dirty` rather than `to_stage`: a
-        // deletion git has already recorded stages nothing, and its row
-        // would otherwise stay tombstoned with no commit ever coming to
-        // purge it.
-        let tombstoned: std::collections::HashSet<String> =
-            db::file::list(self.db(), self.worktree_id())
-                .await?
-                .into_iter()
-                .filter(|f| f.deleted)
-                .map(|f| f.path)
-                .collect();
+        // The tombstoned rows with no file behind. Drawn from `dirty`
+        // rather than `to_stage`: a deletion git has already recorded
+        // stages nothing, and its row would otherwise stay tombstoned with
+        // no commit ever coming to purge it.
         let removed: Vec<String> = dirty
             .iter()
-            .filter(|rel| tombstoned.contains(*rel) && !self.repo_path().join(rel).exists())
+            .filter(|rel| {
+                tombstoned.contains(*rel) && (linked(rel) || !self.repo_path().join(rel).exists())
+            })
             .cloned()
             .collect();
 

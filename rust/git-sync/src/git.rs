@@ -470,6 +470,21 @@ pub fn commit_paths_onto(
     let parents: Vec<gix::ObjectId> = parent.map(|p| p.oid()).into_iter().collect();
     let head_tree_oid = parent.map(|c| tree_of(repo, c)).transpose()?;
     let new_tree_oid = build_tree_with_updates(repo, head_tree_oid, &updates)?;
+    let new_tree = repo.find_tree(new_tree_oid).map_err(git_err)?;
+    let committed = paths
+        .iter()
+        .zip(updates.iter().map(|(_, blob)| *blob))
+        .map(|(path, blob)| {
+            let entry = blob
+                .map(|blob| Ok::<_, Error>((blob, index_mode(&new_tree, path)?)))
+                .transpose()?;
+            Ok((path, entry))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let index = repo
+        .index_or_load_from_head_or_empty()
+        .map_err(git_err)?
+        .into_owned();
 
     // gix updates HEAD only if it still names `parent`
     let id = match repo.commit("HEAD", message, new_tree_oid, parents) {
@@ -484,11 +499,7 @@ pub fn commit_paths_onto(
     // this it still holds the pre-commit blobs: `git status` would report the
     // just-committed files as both staged-modified and worktree-modified, and
     // a later `git commit -a` by another tool could revert them.
-    let committed: Vec<(&String, Option<gix::ObjectId>)> = paths
-        .iter()
-        .zip(updates.iter().map(|(_, blob)| *blob))
-        .collect();
-    index_committed(repo, &work_dir, &committed)?;
+    index_committed(index, &work_dir, &committed)?;
 
     Ok(id.detach().into())
 }
@@ -509,32 +520,43 @@ fn index_updatable(repo: &gix::Repository) -> Result<()> {
     }
 }
 
-/// Set the index entries of `committed`, paths under `work_dir` with the
-/// blob a commit just gave each (`None`: it removed the path), as
-/// `git commit <path>` does; every other entry stays as it was.
+/// The index mode of the blob at `path` in `tree`: executable where the
+/// tree has it so.
+fn index_mode(tree: &gix::Tree<'_>, path: &str) -> Result<gix::index::entry::Mode> {
+    use gix::index::entry::Mode;
+    let entry = tree.lookup_entry_by_path(path).map_err(git_err)?;
+    Ok(match entry.map(|e| e.mode().kind()) {
+        Some(gix::objs::tree::EntryKind::BlobExecutable) => Mode::FILE_EXECUTABLE,
+        _ => Mode::FILE,
+    })
+}
+
+/// Set `index`'s entries of `committed`, paths under `work_dir` with the
+/// blob and mode a commit just gave each (`None`: it removed the path), as
+/// `git commit <path>` does, and write it; every other entry stays as it
+/// was. A file that can't be stat'ed gets an empty stat, which git
+/// refreshes from the working tree.
 fn index_committed(
-    repo: &gix::Repository,
+    mut index: gix::index::File,
     work_dir: &Path,
-    committed: &[(&String, Option<gix::ObjectId>)],
+    committed: &[(&String, Option<(gix::ObjectId, gix::index::entry::Mode)>)],
 ) -> Result<()> {
-    let mut index = repo
-        .index_or_load_from_head_or_empty()
-        .map_err(git_err)?
-        .into_owned();
     // the cached trees would still name the commit's parent; git rebuilds
     // them, and gix doesn't write the other, optional, extensions
     index.remove_tree();
     let paths: HashSet<&str> = committed.iter().map(|(p, _)| p.as_str()).collect();
     index.remove_entries(|_, path, _| path.to_str().is_ok_and(|p| paths.contains(p)));
-    for (path, blob) in committed {
-        let Some(blob) = blob else { continue };
-        let metadata = gix::index::fs::Metadata::from_path_no_follow(&work_dir.join(path))?;
-        let stat = gix::index::entry::Stat::from_fs(&metadata).map_err(git_err)?;
+    for (path, entry) in committed {
+        let Some((blob, mode)) = entry else { continue };
+        let stat = gix::index::fs::Metadata::from_path_no_follow(&work_dir.join(path))
+            .ok()
+            .and_then(|metadata| gix::index::entry::Stat::from_fs(&metadata).ok())
+            .unwrap_or_default();
         index.dangerously_push_entry(
             stat,
             *blob,
             gix::index::entry::Flags::empty(),
-            gix::index::entry::Mode::FILE,
+            *mode,
             path.as_str().into(),
         );
     }
@@ -721,6 +743,21 @@ pub fn export_base(repo: &gix::Repository, head: CommitId, bases: &[CommitId]) -
             None => return Ok(at.into()),
         }
     }
+}
+
+/// Whether the index has `path`.
+pub(crate) fn indexed(repo: &gix::Repository, path: &str) -> Result<bool> {
+    let index = repo.index_or_empty().map_err(git_err)?;
+    Ok(index.entry_by_path(path.into()).is_some())
+}
+
+/// Whether `commit` and the index both have `path`.
+pub(crate) fn holds(repo: &gix::Repository, commit: CommitId, path: &str) -> Result<bool> {
+    if !indexed(repo, path)? {
+        return Ok(false);
+    }
+    let tree = repo.find_tree(tree_of(repo, commit)?).map_err(git_err)?;
+    Ok(tree.lookup_entry_by_path(path).map_err(git_err)?.is_some())
 }
 
 /// `commit`'s tree.
@@ -1693,5 +1730,66 @@ mod override_tests {
                 "remote.origin.url=https://unfurl.cloud/org/proj.git"
             )]
         );
+    }
+}
+
+#[cfg(test)]
+mod index_tests {
+    use super::*;
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@e"])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8(out.stdout).expect("utf-8")
+    }
+
+    /// A committed file gone from the working tree by the time the index is
+    /// updated gets the commit's entry with an empty stat: git reports it
+    /// deleted from the working tree only, and clean once it's back.
+    #[test]
+    fn a_vanished_file_gets_the_commits_entry() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let d = tmp.path();
+        git(d, &["init", "-q", "-b", "main"]);
+        std::fs::write(d.join("a.txt"), "one\n").expect("write");
+        git(d, &["add", "a.txt"]);
+        git(d, &["commit", "-qm", "one"]);
+        let one = git(d, &["rev-parse", ":a.txt"]).trim().to_string();
+        std::fs::write(d.join("a.txt"), "two\n").expect("write");
+        git(d, &["commit", "-qam", "two"]);
+        let two = git(d, &["rev-parse", "HEAD:a.txt"]).trim().to_string();
+        git(
+            d,
+            &[
+                "update-index",
+                "--cacheinfo",
+                &format!("100644,{one},a.txt"),
+            ],
+        );
+        std::fs::remove_file(d.join("a.txt")).expect("rm");
+
+        let repo = gix::open(d).expect("open");
+        let path = "a.txt".to_string();
+        let blob = gix::ObjectId::from_hex(two.as_bytes()).expect("oid");
+        let index = repo
+            .index_or_load_from_head_or_empty()
+            .expect("index")
+            .into_owned();
+        index_committed(
+            index,
+            d,
+            &[(&path, Some((blob, gix::index::entry::Mode::FILE)))],
+        )
+        .expect("index");
+
+        assert_eq!(git(d, &["rev-parse", ":a.txt"]).trim(), two);
+        assert_eq!(git(d, &["status", "--porcelain"]), " D a.txt\n");
+        std::fs::write(d.join("a.txt"), "two\n").expect("write");
+        assert_eq!(git(d, &["status", "--porcelain"]), "");
     }
 }

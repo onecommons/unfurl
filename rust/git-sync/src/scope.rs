@@ -63,6 +63,11 @@ impl Scope {
         self.search.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Whether a pathspec names `path` without a wildcard.
+    pub(crate) fn names(&self, path: &str) -> bool {
+        self.literal.iter().any(|l| l == path)
+    }
+
     /// Whether the pathspecs match the working-tree-relative file `path`.
     pub(crate) fn contains(&self, path: &str) -> bool {
         self.search()
@@ -86,7 +91,7 @@ impl Scope {
             self.visit(root, &dir, ignore, &mut dirs, &mut found)?;
         }
         for rel in &self.literal {
-            if is_file(&root.join(rel)) && self.contains(rel) {
+            if listed(&root.join(rel)) && self.contains(rel) {
                 found.insert(rel.clone());
             }
         }
@@ -126,7 +131,7 @@ impl Scope {
             }
             if is_dir && self.may_hold(root, &rel) {
                 dirs.push((rel, ignore.clone()));
-            } else if !is_dir && is_file(&entry.path()) && self.contains(&rel) {
+            } else if !is_dir && listed(&entry.path()) && self.contains(&rel) {
                 found.insert(rel);
             }
         }
@@ -151,9 +156,30 @@ fn literal_path(pattern: &gix::pathspec::Pattern) -> Option<String> {
     (!path.is_empty() && !glob && !excluded).then(|| path.to_string())
 }
 
-/// A regular file, or a symlink to one.
-fn is_file(path: &Path) -> bool {
-    std::fs::metadata(path).is_ok_and(|m| m.is_file())
+/// A regular file, through any symlinks, or a symlink that resolves to
+/// nothing: the scan resolves or refuses the links. A link to a directory
+/// isn't one.
+fn listed(path: &Path) -> bool {
+    match std::fs::metadata(path) {
+        Ok(m) => m.is_file(),
+        Err(_) => std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()),
+    }
+}
+
+/// Whether the file or a directory on the way to it from `root` is a
+/// symlink: `rel`'s components are checked up to the first that doesn't
+/// exist.
+pub(crate) fn through_link(root: &Path, rel: &str) -> bool {
+    let mut path = root.to_path_buf();
+    for part in Path::new(rel).components() {
+        path.push(part);
+        match std::fs::symlink_metadata(&path) {
+            Ok(m) if m.file_type().is_symlink() => return true,
+            Ok(_) => {}
+            Err(_) => return false,
+        }
+    }
+    false
 }
 
 /// `ignore` with the patterns of `dir`'s `.gitignore`, if it has one;

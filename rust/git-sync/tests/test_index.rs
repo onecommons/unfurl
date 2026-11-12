@@ -346,3 +346,33 @@ async fn a_sparse_index_is_refused() {
     );
     assert_eq!(git_out(dir, &["rev-parse", "HEAD"]), head);
 }
+
+/// A commit made here keeps an executable file executable, in the tree and
+/// the index alike.
+#[tokio::test]
+async fn an_executable_file_stays_executable() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let dir = tmp.path();
+    committed_by_git(dir);
+    std::fs::set_permissions(dir.join(SUB_FILE), std::fs::Permissions::from_mode(0o755))
+        .expect("chmod");
+    git(dir, &["add", SUB_FILE]);
+    git(
+        dir,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@e",
+            "commit",
+            "-qm",
+            "executable",
+        ],
+    );
+    commit_an_edit_in_a_subdirectory(dir).await;
+
+    assert!(git_out(dir, &["ls-tree", "HEAD", SUB_FILE]).starts_with("100755 "));
+    assert!(git_out(dir, &["ls-files", "-s", SUB_FILE]).starts_with("100755 "));
+    assert_eq!(git_out(dir, &["diff", "--cached", "--name-only"]), "");
+}

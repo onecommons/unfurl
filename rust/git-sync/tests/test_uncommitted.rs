@@ -211,11 +211,10 @@ async fn a_deleted_file_on_an_unborn_branch_comes_back() {
     a_deleted_file_comes_back(Setup::Unborn).await;
 }
 
-/// Resolving a conflict to the file's value on an unborn branch takes
-/// that value in as the file's, not as an edit.
-#[tokio::test]
-async fn theirs_on_an_unborn_branch_is_the_files() {
-    let (sync, tmp) = staged(Setup::Unborn).await;
+/// Resolving a conflict to the file's value takes that value in as the
+/// file's, not as an edit, held by no commit.
+async fn theirs_is_the_files(setup: Setup) {
+    let (sync, tmp) = staged(setup).await;
     sync.update_record(Some(FILE), REPOS, A, json!({"path": "ours"}), None, false)
         .await
         .expect("update");
@@ -245,6 +244,16 @@ async fn theirs_on_an_unborn_branch_is_the_files() {
         .expect("scan");
     assert!(scanned.conflicts.is_empty(), "{:?}", scanned.conflicts);
     assert_eq!(path_of(&sync).await, Some(json!("by-hand")));
+}
+
+#[tokio::test]
+async fn theirs_on_an_unborn_branch_is_the_files() {
+    theirs_is_the_files(Setup::Unborn).await;
+}
+
+#[tokio::test]
+async fn theirs_on_a_staged_file_is_the_files() {
+    theirs_is_the_files(Setup::Staged).await;
 }
 
 const B: &str = "git://e.com/b.git";
