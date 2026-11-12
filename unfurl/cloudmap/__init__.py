@@ -512,6 +512,10 @@ class Directory(_LocalGitRepos):
     def save_local_repositories(self, path: str) -> None:
         """Record in the cloudmap file at ``path`` each local clone out of step
         with its remotes (see :func:`.upstream.save_local_clones`)."""
+        project_root: Optional[str] = None
+        local_env = self.cloudmap.local_env
+        if local_env and local_env.project:
+            project_root = local_env.project.projectRoot
         save_local_clones(
             os.path.expanduser(path),
             self.repos.values(),
@@ -519,6 +523,7 @@ class Directory(_LocalGitRepos):
             self.store.get_repository,
             RepositoryHost.MAX_GIT_REFS,
             self.logger,
+            project_root=project_root,
         )
 
     def compare_upstreams(self, repo_info: Repository) -> None:
@@ -732,7 +737,6 @@ class CloudMap:
 
             db = open_cloudmap_db(
                 filepath,
-                repo,
                 local_env.project.projectRoot
                 if local_env and local_env.project
                 else None,

@@ -460,6 +460,8 @@ def save_local_clones(
     remote_record: RecordLookup,
     max_refs: int,
     logger: "UnfurlLogger",
+    *,
+    project_root: Optional[str] = None,
 ) -> None:
     """Record in the cloudmap file at ``path`` each local clone with
     uncommitted changes or refs out of step with its remotes', removing the
@@ -469,8 +471,11 @@ def save_local_clones(
 
     ``repos_root`` is what the loaded clones' paths are relative to;
     ``remote_record`` finds a remote repository's record in the main cloudmap,
-    which lists at most ``max_refs`` of each ref."""
-    db = CloudMapDB(path)
+    which lists at most ``max_refs`` of each ref. ``project_root`` is the
+    Unfurl project's, which may hold the file and its git-sync database."""
+    from .gitsync_db import open_cloudmap_db
+
+    db = open_cloudmap_db(path, project_root, logger)
     changed = False
     # each clone to check, with the path its record has if it's one the
     # file records that this directory didn't load

@@ -1,7 +1,7 @@
 import dataclasses
 import shutil
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List, Optional
 
 from unittest.mock import Mock, patch
 
@@ -11,6 +11,7 @@ import git
 import pytest
 
 from unfurl.cloudmap.db import CloudMapDB
+from unfurl.logs import UnfurlLogger
 from unfurl.__main__ import cli
 from unfurl.cloudmap import Directory
 from unfurl.cloudmap.upstream import (
@@ -388,6 +389,7 @@ def _directory(repos: Dict[str, object]) -> Mock:
     """A stand-in Directory with ``repos``."""
     directory = Mock(repos=repos, repos_root="")
     directory.store.get_repository.return_value = None  # remotes aren't recorded
+    directory.cloudmap.local_env = None  # in no project
     return directory
 
 
@@ -793,3 +795,43 @@ def test_the_cli_saves_local_clones_before_an_export(work_clone, tmp_path):
     assert result.exit_code == 0, result.output
     assert get_repository_url(clone.working_dir) in CloudMapDB(str(given)).repositories
     to_host.assert_called_once()
+
+
+def test_the_local_cloudmap_loads_through_git_sync(work_clone, tmp_path, monkeypatch):
+    """Created by the first save, changed by the second, loaded through
+    git-sync each time."""
+    import unfurl._rust
+
+    if not hasattr(unfurl._rust, "GitSyncDB"):
+        pytest.skip("built without the cloudmap-sync feature")
+    import unfurl.cloudmap.gitsync_db as module
+
+    opened: List[CloudMapDB] = []
+    real = module.open_cloudmap_db
+
+    def spy(
+        filepath: str,
+        project_root: Optional[str],
+        logger: UnfurlLogger,
+        *,
+        db_dir: Optional[str] = None,
+    ) -> CloudMapDB:
+        db = real(filepath, project_root, logger, db_dir=db_dir)
+        opened.append(db)
+        return db
+
+    monkeypatch.setattr(module, "open_cloudmap_db", spy)
+    upstream, clone, base, ahead = work_clone
+    path = tmp_path / "not-yet" / "local-cloudmap.yaml"
+    directory = _directory({clone.working_dir: GitRepo(clone)})
+    key = get_repository_url(clone.working_dir)
+
+    Path(clone.working_dir, "base").write_text("changed")
+    Directory.save_local_repositories(directory, str(path))
+    assert isinstance(opened[-1], module.GitSyncCloudMapDB)
+    assert CloudMapDB(str(path)).repositories[key].branches["main"] == base + "-dirty"
+
+    clone.git.commit("-am", "changed")
+    Directory.save_local_repositories(directory, str(path))
+    assert isinstance(opened[-1], module.GitSyncCloudMapDB)
+    assert CloudMapDB(str(path)).repositories[key].branches["main"] == clone.head.commit.hexsha

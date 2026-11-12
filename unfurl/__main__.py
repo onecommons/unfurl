@@ -59,7 +59,13 @@ from .projectpaths import Folders
 from .localenv import LocalEnv, Project
 from .logs import Levels
 from .support import Status
-from .util import UnfurlBadDocumentError, filter_env, get_package_digest, is_relative_to
+from .util import (
+    UnfurlBadDocumentError,
+    UnfurlValidationError,
+    filter_env,
+    get_package_digest,
+    is_relative_to,
+)
 
 import rich_click as click
 
@@ -1945,6 +1951,8 @@ def validate(ctx, path, **options):
         elif e.doc and e.doc.get("kind") == "CloudMap":
             doc = e.doc
             doc_type = "CloudMap"
+        elif _is_literate_cloudmap(path):
+            doc_type = "CloudMap"
         else:
             raise
 
@@ -1972,9 +1980,42 @@ def validate(ctx, path, **options):
                 resolver=_stub_resolver(doc),
             )
     elif doc_type == "CloudMap":
-        from .cloudmap import CloudMapDB
+        _validate_cloudmap(path, localEnv)
 
-        CloudMapDB(path)
+
+def _is_literate_cloudmap(path: str) -> bool:
+    """Whether ``path`` is a markdown cloudmap: front matter, opening the
+    file, naming it one."""
+    if not path.endswith(".md") or not os.path.isfile(path):
+        return False
+    with open(path, encoding="utf-8-sig", errors="replace") as f:
+        lines = f.read(4096).splitlines()
+    if not lines or lines[0] != "---":
+        return False
+    for line in lines[1:]:
+        if line in ("---", "..."):
+            return False
+        if re.match(r"literate-yaml:\s*cloudmap@", line):
+            return True
+    return False
+
+
+def _validate_cloudmap(path: str, localEnv: Optional[LocalEnv]) -> None:
+    """Load the cloudmap at ``path`` as Unfurl would, with its git-sync
+    database in a temporary directory so nothing is left beside it."""
+    import tempfile
+
+    from .cloudmap import CloudMapDB
+    from .cloudmap.gitsync_db import GitSyncCloudMapDB, open_cloudmap_db
+    from .logs import getLogger
+
+    if not path.endswith(".md"):
+        CloudMapDB(path)  # validates the document against the schema
+    project_root = localEnv.project.projectRoot if localEnv and localEnv.project else None
+    with tempfile.TemporaryDirectory() as db_dir:
+        db = open_cloudmap_db(path, project_root, getLogger("unfurl"), db_dir=db_dir)
+        if isinstance(db, GitSyncCloudMapDB) and db.invalid:
+            raise UnfurlValidationError(f"git-sync rejected records in {path}")
 
 def _get_local_env(path, options, overrides):
     localEnv = LocalEnv(
