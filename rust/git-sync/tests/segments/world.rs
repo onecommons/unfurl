@@ -466,6 +466,7 @@ impl World {
             .collect()
     }
 
+    // TODO: reads only across all open worktrees; a subset (a `WorktreeFilter`) isn't checked
     /// The implementation's read across the worktrees with a handle (C.7)
     /// against the model's, and each two's merge bases, the segments'
     /// against git's.

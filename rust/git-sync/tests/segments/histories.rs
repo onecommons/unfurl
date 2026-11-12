@@ -2943,3 +2943,23 @@ fn a_merged_segment_is_not_folded_by_a_deletion() {
         Op::Delete(4),
     ]);
 }
+
+/// Main edits a record, is rebuilt onto a new root, and merges a fork that
+/// moved the record to the other file unchanged since their merge base. A
+/// user branch alone holds that base's segment, outside a read across main
+/// and the fork, yet main modified the record where the base had it: the
+/// fork's moved copy is left out.
+#[test]
+fn a_read_across_leaves_out_a_move_whose_base_only_a_user_branch_holds() {
+    run(&[
+        Op::Write(0, 4, false),
+        Op::Write(0, 1, true),
+        Op::Commit(0),
+        Op::Fork(0, 1),
+        Op::NewUser,
+        Op::Merge(181, vec![(30, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Rebuild(104, 56, 4, false),
+        Op::Move(91, 4, false),
+        Op::Merge(6, vec![(73, 1)], MergeKind::Regular, 128, vec![]),
+    ]);
+}

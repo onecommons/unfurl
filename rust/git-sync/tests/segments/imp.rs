@@ -476,11 +476,10 @@ impl Segments {
                 // deletion is a conflict that keeps both
                 let moved = trees.iter().all(|t| {
                     self.live(t, r.key) != Some(r.ver)
-                        && rows.iter().any(|(_, b, _)| {
-                            b.key != r.key
-                                && b.ver == r.ver
-                                && self.live(t, b.key) == Some(r.ver)
-                                && shows(u, b.key).is_some_and(|y| y != r.ver)
+                        && (0..KEYS).any(|j| {
+                            j != r.key
+                                && self.live(t, j) == Some(r.ver)
+                                && shows(u, j).is_some_and(|y| y != r.ver)
                         })
                 });
                 here || moved
