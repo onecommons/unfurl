@@ -16,12 +16,12 @@ use crate::commit::CommitId;
 use crate::conflict::{classify_conflict, drop_conflict_row, refresh_conflict_row, TheirSide};
 use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{At, FileRow, NewRecordRow, Place, RecordRow};
+use crate::dir::SyncedDir;
 use crate::error::Result;
 use crate::format::SectionKind;
 use crate::ids::History;
 use crate::model::{ConflictState, Record, RecordConflict, SyncOutcome};
 use crate::segments::{self, FileWins, Origin, Value};
-use crate::sync::SyncedRepo;
 
 /// One file the scan parsed, as the record upsert needs it.
 ///
@@ -219,7 +219,7 @@ impl Named<'_, '_> {
 /// that changed, and those pending edits followed their records out of.
 async fn advance_head<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    sync: &SyncedRepo,
+    sync: &SyncedDir,
     commit: CommitId,
     files: &[HeadFile],
     mut named: Named<'_, '_>,
@@ -426,7 +426,7 @@ impl DiskRecords {
 
 /// What one file's keys are reconciled against.
 struct FileScan<'a> {
-    sync: &'a SyncedRepo,
+    sync: &'a SyncedDir,
     file: &'a ScannedFile<'a>,
     /// The worktree's draft segment.
     d: i64,
@@ -444,7 +444,7 @@ struct FileScan<'a> {
 /// file has the last word ([`FileWins`]).
 async fn reconcile_file<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    sync: &SyncedRepo,
+    sync: &SyncedDir,
     disk: &DiskFile<'_>,
     stats: &mut SyncOutcome,
 ) -> Result<()> {
@@ -716,7 +716,7 @@ async fn take_in<DB: Store>(
 /// `from`, which the next commit folds into the head.
 async fn rename_file<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    sync: &SyncedRepo,
+    sync: &SyncedDir,
     from: &str,
     to: &str,
 ) -> Result<()> {
@@ -809,7 +809,7 @@ pub(crate) struct Head<'a, 's> {
 /// side up to `head`, then uncommitted renames, then the draft side of
 /// every file that changed on disk or in HEAD, then the re-link (§4.3).
 pub(crate) async fn scan_in_pool<DB: Store>(
-    sync: &SyncedRepo,
+    sync: &SyncedDir,
     pool: &sqlx::Pool<DB>,
     head: Option<Head<'_, '_>>,
     renames: &[(String, String)],
@@ -890,7 +890,7 @@ pub(crate) struct Carried<'a> {
 /// head up to what the commit holds, which takes the file's value where
 /// a conflict held an edit back.
 pub(crate) async fn commit_in_pool<DB: Store>(
-    sync: &SyncedRepo,
+    sync: &SyncedDir,
     pool: &sqlx::Pool<DB>,
     carried: &Carried<'_>,
 ) -> Result<()> {

@@ -62,6 +62,7 @@ pub mod commit;
 mod conflict;
 mod crud;
 pub mod db;
+mod dir;
 mod document;
 pub mod error;
 pub mod export;
@@ -86,6 +87,8 @@ pub use db::across::{reading_every_row, walking_rows};
 #[doc(inline)]
 pub use db::{Db, DbConfig};
 #[doc(inline)]
+pub use dir::SyncedDir;
+#[doc(inline)]
 pub use error::{Error, Result};
 #[doc(inline)]
 pub use format::{
@@ -104,5 +107,4 @@ pub use model::{
 };
 #[doc(inline)]
 pub use rollup::parse_commit_rollup;
-#[doc(inline)]
 pub use sync::{CommitRef, SyncedRepo};

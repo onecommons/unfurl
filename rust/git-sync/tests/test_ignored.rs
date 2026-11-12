@@ -9,7 +9,7 @@ use std::path::Path;
 
 use tempfile::TempDir;
 use unfurl_git_sync::{
-    git, DbConfig, FormatRegistry, OpenOptions, RecordQuery, ScanOptions, SyncedRepo,
+    git, DbConfig, FormatRegistry, OpenOptions, RecordQuery, ScanOptions, SyncedDir,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -53,7 +53,7 @@ fn write(root: &Path, rel: &str, text: &str) {
     std::fs::write(path, text).expect("write");
 }
 
-async fn open(root: &Path, pathspecs: &[&str]) -> SyncedRepo {
+async fn open(root: &Path, pathspecs: &[&str]) -> SyncedDir {
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     // beside the files, outside every pathspec here
@@ -61,15 +61,14 @@ async fn open(root: &Path, pathspecs: &[&str]) -> SyncedRepo {
         "sqlite://{}?mode=rwc",
         root.join(format!("sync-{n}.db")).display()
     );
-    SyncedRepo::open_with(
+    SyncedDir::open(
         root,
         DbConfig::Sqlite { url },
         FormatRegistry::with_builtins(),
         git::Trust::Full,
         OpenOptions::default()
             .pathspecs(pathspecs.iter().copied())
-            .untracked(true)
-            .without_repository(true),
+            .untracked(true),
     )
     .await
     .expect("open")
@@ -81,7 +80,7 @@ async fn taken_in(root: &Path, pathspecs: &[&str]) -> BTreeSet<String> {
     files(&sync).await
 }
 
-async fn files(sync: &SyncedRepo) -> BTreeSet<String> {
+async fn files(sync: &SyncedDir) -> BTreeSet<String> {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("scan");

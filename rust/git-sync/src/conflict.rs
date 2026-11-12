@@ -21,13 +21,14 @@ use unfurl_merge::markdown::Applied;
 
 use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{At, RecordRow};
+use crate::dir::SyncedDir;
 use crate::document::{apply_delete, apply_insert};
 use crate::error::{Error, Result};
 use crate::model::{
     ConflictState, Record, RecordConflict, RecordConflictKind, Resolution, WriteOutcome,
 };
 use crate::segments::{self, Origin, Value};
-use crate::sync::{CommitRef, SyncedRepo};
+use crate::sync::CommitRef;
 
 /// The three-way conflict decision both sync directions share: does
 /// the file-side value at a pending row's key diverge from what the
@@ -127,7 +128,7 @@ pub(crate) struct TheirSide<'a> {
 /// it to decide anything.
 pub(crate) async fn refresh_conflict_row<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    sync: &SyncedRepo,
+    sync: &SyncedDir,
     at: At<'_>,
     theirs: TheirSide<'_>,
     existing: Option<&RecordRow>,
@@ -152,7 +153,7 @@ pub(crate) async fn refresh_conflict_row<DB: Store>(
 /// Drop the conflict row at this key, if `existing` says there is one.
 pub(crate) async fn drop_conflict_row<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    sync: &SyncedRepo,
+    sync: &SyncedDir,
     at: At<'_>,
     existing: Option<&RecordRow>,
 ) -> Result<()> {
@@ -389,7 +390,7 @@ pub(crate) fn apply_pending_records(
 /// Draft conflict rows of `file_path`, by (path, key).
 pub(crate) async fn conflict_rows<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    sync: &SyncedRepo,
+    sync: &SyncedDir,
     file_path: &str,
 ) -> Result<std::collections::BTreeMap<(String, String), RecordRow>> {
     let d = DB::segs(tx, sync.worktree_id()).await?.draft;
@@ -404,7 +405,7 @@ pub(crate) async fn conflict_rows<DB: Store>(
 /// for each row that actually moves (see [`refresh_conflict_row`]).
 pub(crate) async fn apply_conflict_ops_in_tx<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    sync: &SyncedRepo,
+    sync: &SyncedDir,
     file_path: &str,
     commit_id: Option<CommitId>,
     ops: &[ConflictOp],
@@ -481,7 +482,7 @@ async fn conflict_sides<DB: Store>(
 /// dropping the conflict row would leave the record looking settled
 /// while every read still treats it as contested.
 pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
-    sync: &SyncedRepo,
+    sync: &SyncedDir,
     pool: &sqlx::Pool<DB>,
     file_path: &str,
     path: &str,
@@ -503,7 +504,7 @@ pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
 /// [`resolve_conflict_in_pool`] in the caller's transaction.
 pub(crate) async fn resolve_conflict_in_tx<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    sync: &SyncedRepo,
+    sync: &SyncedDir,
     at: At<'_>,
     resolution: Resolution,
     expected_commit: Option<CommitRef>,

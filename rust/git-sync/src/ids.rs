@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::commit::CommitId;
 use crate::db::Db;
+use crate::dir::parse_and_detect;
 use crate::document::{extract_ext, Syntax};
 use crate::error::Result;
 use crate::format::FormatRegistry;
@@ -14,7 +15,6 @@ use crate::git;
 use crate::model::{CommitRollup, SyncOutcome};
 use crate::rollup::parse_commit_rollup;
 use crate::scan::HeadFile;
-use crate::sync::parse_and_detect;
 
 /// A file's records: `(path, key)` → value.
 pub(crate) type Records = BTreeMap<(String, String), serde_json::Value>;

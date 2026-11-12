@@ -9,11 +9,11 @@ use crate::conflict::resolve_conflict_in_tx;
 use crate::db::store::{Filter, Scope, Store};
 use crate::db::tables::{FileRow, NewRecordRow, RecordRow};
 use crate::db::{self, on_pool};
+use crate::dir::WRITE_ATTEMPTS;
 use crate::error::{Error, Result};
 use crate::model::{CommitRollup, ConflictState, Exported, HeldRecord, Record, Resolution};
 use crate::rollup::{build_commit_message, parse_commit_rollup};
 use crate::scan::Carried;
-use crate::sync::WRITE_ATTEMPTS;
 use crate::{git, segments, SyncedRepo};
 
 /// One try at an export.
@@ -85,7 +85,6 @@ impl SyncedRepo {
     ///
     /// The first export that can't be finished, with those before it done.
     pub async fn finish_exports(&self) -> Result<Vec<Exported>> {
-        self.need_repository()?;
         let this = db::worktree::get(self.db(), self.worktree_id()).await?;
         let mut done = Vec::new();
         for branch in db::worktree::exporting(self.db(), &this.origin, &this.branch).await? {
@@ -133,7 +132,6 @@ impl SyncedRepo {
         mut before_move: impl AsyncFnMut() -> Result<()>,
         mut after: impl FnMut(ExportStep) -> Result<()>,
     ) -> Result<Option<Exported>> {
-        self.need_repository()?;
         if let Some(exported) = self.resume_export(branch, &mut after).await? {
             return Ok(Some(exported));
         }

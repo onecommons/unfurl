@@ -831,21 +831,9 @@ pub struct OpenOptions {
     /// Scans also take in the files the pathspecs match that are on disk
     /// but not in the index. Only with [`Self::pathspecs`].
     pub untracked: bool,
-    /// A directory in no git working tree opens with no repository: its
-    /// files under it that [`Self::pathspecs`] match, which are required,
-    /// are taken in and written, and what needs history fails with
-    /// [`crate::Error::NoRepository`]. A directory in a working tree
-    /// opens as without it.
-    pub without_repository: bool,
 }
 
 impl OpenOptions {
-    /// With [`Self::without_repository`] set to `without`.
-    pub fn without_repository(mut self, without: bool) -> Self {
-        self.without_repository = without;
-        self
-    }
-
     /// With [`Self::untracked`] set to `untracked`.
     pub fn untracked(mut self, untracked: bool) -> Self {
         self.untracked = untracked;

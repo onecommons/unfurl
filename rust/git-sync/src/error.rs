@@ -25,7 +25,7 @@ use crate::CommitRef;
 /// 3. **Misuse**: [`UnknownFormat`](Self::UnknownFormat),
 ///    [`InvalidPointer`](Self::InvalidPointer), [`OutOfScope`](Self::OutOfScope),
 ///    [`InvalidPathspec`](Self::InvalidPathspec),
-///    [`NoRepository`](Self::NoRepository), [`Other`](Self::Other).
+///    [`Other`](Self::Other).
 ///
 /// `Conflict` always rolls back its enclosing transaction before being
 /// returned, so the database is left untouched.
@@ -236,11 +236,6 @@ pub enum Error {
         /// What's wrong with it.
         message: String,
     },
-    /// The handle was opened on a directory with no repository
-    /// ([`crate::OpenOptions::without_repository`]), and the operation
-    /// needs history.
-    #[error("not a git repository: this needs commits")]
-    NoRepository,
     /// Catch-all for failure cases that don't fit the variants above.
     #[error("{0}")]
     Other(String),
