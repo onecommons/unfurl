@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any, Dict
 import time
 import unittest
 import urllib.request
@@ -73,3 +74,12 @@ def print_config(dir, homedir=None):
             print(f.read())
     else:
         print(local, "does not exist")
+
+
+def cloudmap_document(path: str) -> Dict[str, Any]:
+    """The cloudmap document saved at ``path``, without empty sections:
+    CloudMapDB writes an empty `repositories`, git-sync doesn't add one."""
+    from ruamel.yaml import YAML
+
+    document = YAML(typ="safe").load(Path(path).read_text())
+    return {k: v for k, v in document.items() if v != {}}

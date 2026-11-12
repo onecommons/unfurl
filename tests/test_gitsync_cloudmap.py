@@ -10,9 +10,9 @@ from typing import Any, Dict, Optional
 
 import git
 import pytest
-from ruamel.yaml import YAML
 
 from unfurl.cloudmap.db import CloudMapDB
+from tests.utils import cloudmap_document
 from unfurl.repo import GitRepo
 from unfurl.tosca_plugins.cloudmap_defs import Repository
 
@@ -59,13 +59,6 @@ def _records(db: CloudMapDB) -> Dict[str, Dict[str, Any]]:
     }
 
 
-def _document(path: str) -> Dict[str, Any]:
-    """The saved document, without empty sections: CloudMapDB writes an empty
-    `repositories`, git-sync doesn't add one."""
-    document = YAML(typ="safe").load(Path(path).read_text())
-    return {k: v for k, v in document.items() if v != {}}
-
-
 def test_the_same_records_load(both) -> None:
     python, git_sync = both
     assert _records(git_sync) == _records(python)
@@ -80,12 +73,12 @@ def _change(db: CloudMapDB) -> None:
     db.delete_record(next(iter(db.repositories.values())))
 
 
-def test_the_same_changes_save_the_same_document(both) -> None:
+def test_the_same_changes_save_the_samecloudmap_document(both) -> None:
     python, git_sync = both
     _change(python)
     _change(git_sync)
     assert python.save() and git_sync.save()
-    assert _document(git_sync.file) == _document(python.file)
+    assert cloudmap_document(git_sync.file) == cloudmap_document(python.file)
     # nothing more to save
     assert not git_sync.save()
 
@@ -115,7 +108,7 @@ def test_metadata_round_trips(both, tmp_path: Path) -> None:
     for db in both:
         db.metadata["title"] = "A cloudmap"
         db.save()
-    assert _document(git_sync.file)["metadata"] == _document(python.file)["metadata"]
+    assert cloudmap_document(git_sync.file)["metadata"] == cloudmap_document(python.file)["metadata"]
     assert _open(tmp_path).metadata["title"] == "A cloudmap"
 
 
@@ -153,8 +146,8 @@ def test_versions_save_inside_their_parent(tmp_path: Path) -> None:
         version.digest = "sha256:2"
         db.add_record(version)
         db.save()
-    document = _document(git_sync.file)
-    assert document == _document(python.file)
+    document = cloudmap_document(git_sync.file)
+    assert document == cloudmap_document(python.file)
     assert document["artifacts"]["pkg:npm/example"]["versions"]["@1.0"] == {
         "digest": "sha256:2"
     }

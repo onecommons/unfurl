@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
-from typing import Callable, Dict, Iterator
+import io
+from pprint import pformat
+from typing import Callable, Dict, Iterator, List, Protocol, Tuple
 import traceback
 from click.testing import CliRunner
 import pytest
@@ -25,6 +27,10 @@ from unfurl.tosca_plugins.cloudmap_defs import (
     UpstreamRef,
 )
 from unfurl.util import change_cwd, API_VERSION
+from unfurl.cloudmap.gitsync_db import GitSyncCloudMapDB, open_cloudmap_db
+from unfurl.logs import getLogger
+from ruamel.yaml import YAML
+from tests.utils import cloudmap_document
 from unfurl.repo import sanitize_url
 from unfurl.testing import init_project, run_cmd, run_job_cmd
 from functools import partial
@@ -42,6 +48,15 @@ from unfurl.cloudmap import (
 OpenStore = Callable[[str], CloudMapDB]
 
 
+class MemoryStore(Protocol):
+    """Builds a store from an in-memory cloudmap document. ``unsaveable``,
+    a reason, leaves a git-sync store out of the round trip on teardown."""
+
+    def __call__(
+        self, contents: Dict[str, object], validate: bool = False, *, unsaveable: str = ""
+    ) -> CloudMapDB: ...
+
+
 def _has_git_sync() -> bool:
     try:
         from unfurl import _rust
@@ -51,29 +66,107 @@ def _has_git_sync() -> bool:
 
 
 @pytest.fixture(params=["python", "gitsync"])
-def open_store(
-    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
-) -> OpenStore:
-    """Opens the cloudmap at a path with the store the param names: git-sync
-    through ``open_cloudmap_db``, with a database for each file."""
-    if request.param == "python":
-        return CloudMapDB
-    if not _has_git_sync():
+def store_kind(request: pytest.FixtureRequest) -> str:
+    """The store a test runs on."""
+    if request.param == "gitsync" and not _has_git_sync():
         pytest.skip("built without the cloudmap-sync feature")
-    from unfurl.cloudmap.gitsync_db import GitSyncCloudMapDB, open_cloudmap_db
-    from unfurl.logs import getLogger
+    return request.param
 
+
+def _open_git_sync(path: str, db_dir: Path) -> GitSyncCloudMapDB:
+    db = open_cloudmap_db(path, None, getLogger("unfurl"), db_dir=str(db_dir))
+    # a failure with a new database falls back to CloudMapDB
+    assert isinstance(db, GitSyncCloudMapDB), path
+    return db
+
+
+@pytest.fixture
+def open_store(store_kind: str, tmp_path_factory: pytest.TempPathFactory) -> OpenStore:
+    """Opens the cloudmap at a path with the store ``store_kind`` names: git-sync
+    through ``open_cloudmap_db``, with a database for each file."""
+    if store_kind == "python":
+        return CloudMapDB
     db_dirs: Dict[str, Path] = {}
 
     def open_git_sync(path: str) -> CloudMapDB:
         if path not in db_dirs:
             db_dirs[path] = tmp_path_factory.mktemp("gitsync")
-        db = open_cloudmap_db(path, None, getLogger("unfurl"), db_dir=str(db_dirs[path]))
-        # a failure with a new database falls back to CloudMapDB
-        assert isinstance(db, GitSyncCloudMapDB), path
-        return db
+        return _open_git_sync(path, db_dirs[path])
 
     return open_git_sync
+
+
+def _first_difference(want: object, got: object, where: str = "") -> str:
+    """Where ``got`` first differs from ``want``, both parsed documents, with
+    the two values there; "" if they're equal."""
+    if isinstance(want, dict) and isinstance(got, dict):
+        for key in [*want, *(k for k in got if k not in want)]:
+            found = _first_difference(want.get(key), got.get(key), f"{where}[{key!r}]")
+            if found:
+                return found
+        return ""
+    if want == got:
+        return ""
+    return f"{where or 'document'}:\n  expected: {pformat(want)}\n  got:      {pformat(got)}"
+
+
+def _round_trip_failure(db: GitSyncCloudMapDB, path: str, db_dir: Path) -> str:
+    """How ``db``'s records, saved and reopened from the same database, or the
+    file git-sync saved, differ from them as CloudMapDB would write them."""
+    db.save()
+    want: Dict[str, object] = {**db._saved_records(), "metadata": db.metadata}
+    reopened = _open_git_sync(path, db_dir)
+    got: Dict[str, object] = {**reopened._saved_records(), "metadata": reopened.metadata}
+    found = _first_difference(want, got)
+    if found:
+        return f"the reopened store differs at {found}"
+    python = CloudMapDB(
+        "", contents={**CloudMapDB.make_empty_cloudmap(), **want}, validate=False
+    )
+    python.save()
+    written = io.StringIO()
+    python.config.dump(written)
+    as_python = {k: v for k, v in YAML(typ="safe").load(written.getvalue()).items() if v != {}}
+    found = _first_difference(as_python, cloudmap_document(path))
+    return found and f"the file differs from CloudMapDB's at {found}"
+
+
+@pytest.fixture
+def memory_store(
+    store_kind: str,
+    tmp_path_factory: pytest.TempPathFactory,
+    request: pytest.FixtureRequest,
+) -> Iterator[MemoryStore]:
+    """Builds a store from an in-memory document: CloudMapDB from the
+    document, as ``CloudMapDB("", contents=…)``, or git-sync from a file
+    CloudMapDB's writer makes of it (``{}`` as ``make_empty_cloudmap()``). On
+    teardown each git-sync store is saved, reopened and checked against
+    itself and against what CloudMapDB writes for its records."""
+    built: List[Tuple[GitSyncCloudMapDB, str, Path]] = []
+
+    def build(
+        contents: Dict[str, object], validate: bool = False, *, unsaveable: str = ""
+    ) -> CloudMapDB:
+        if store_kind == "python":
+            return CloudMapDB("", contents=contents, validate=validate)
+        directory = tmp_path_factory.mktemp("memory")
+        path = directory / "cloudmap.yaml"
+        python = CloudMapDB(
+            "", contents=contents or CloudMapDB.make_empty_cloudmap(), validate=validate
+        )
+        written = io.StringIO()
+        python.config.dump(written)
+        path.write_text(written.getvalue())
+        db = _open_git_sync(str(path), directory / "db")
+        if not unsaveable:
+            built.append((db, str(path), directory / "db"))
+        return db
+
+    yield build
+    for db, path, db_dir in built:
+        failure = _round_trip_failure(db, path, db_dir)
+        if failure:
+            pytest.fail(f"{request.node.nodeid}: {failure}", pytrace=False)
 
 
 # The cloudmap `test_create` expects after syncing with the test provider, and
@@ -1619,7 +1712,7 @@ def test_uri_template_artifact_urls():
     assert is_label("v1.0")
 
 
-def test_uri_template_record_keys():
+def test_uri_template_record_keys(memory_store: MemoryStore):
     """URI templates are usable as record keys, including as version keys."""
     doc = {
         "apiVersion": API_VERSION,
@@ -1635,7 +1728,7 @@ def test_uri_template_record_keys():
             "https://example.com/app": {"versions": {"{#version}": {}}},
         },
     }
-    db = CloudMapDB("cloudmap.yaml", contents=doc, validate=False)
+    db = memory_store(doc)
     assert set(db.artifacts) == {
         "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest",
         "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo{&tag}",
@@ -3246,10 +3339,10 @@ class _SyncSession:
 
 
 @pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
-def test_sync_records_moved_repository(manager_cls):
+def test_sync_records_moved_repository(manager_cls, memory_store: MemoryStore):
     old_url = "git://example.com/team/old.git"
     new_url = "git://example.com/team/new.git"
-    db = CloudMapDB("", contents={}, validate=False)
+    db = memory_store({})
     db.add_record(_host_repo(old_url))
     # same id on another host is a different repository
     db.add_record(_host_repo("git://other.com/team/old.git"))
@@ -3272,10 +3365,10 @@ def test_sync_records_moved_repository(manager_cls):
 
 
 @pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
-def test_resync_keeps_fields_the_host_doesnt_supply(manager_cls):
+def test_resync_keeps_fields_the_host_doesnt_supply(manager_cls, memory_store: MemoryStore):
     url = "git://example.com/team/repo.git"
     analyzed = url + "#main:ensemble.yaml"
-    db = CloudMapDB("", contents={}, validate=False)
+    db = memory_store({})
     stored = _host_repo(
         url,
         status="archived",
@@ -3321,9 +3414,9 @@ def test_resync_keeps_fields_the_host_doesnt_supply(manager_cls):
 
 
 @pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
-def test_failed_analysis_on_resync_restores_contains(manager_cls):
+def test_failed_analysis_on_resync_restores_contains(manager_cls, memory_store: MemoryStore):
     url = "git://example.com/team/repo.git"
-    db = CloudMapDB("", contents={}, validate=False)
+    db = memory_store({})
     stored = _host_repo(url)
     stored.contains = TypeRefs.urls_fromdict({"ensemble.yaml": None}, keys_are_urls=True)
     db.add_record(stored)
@@ -3403,9 +3496,9 @@ def test_gitlab_fetches_a_projects_license():
 
 
 @pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
-def test_resync_keeps_the_record_keyed_by_its_git_url(manager_cls):
+def test_resync_keeps_the_record_keyed_by_its_git_url(manager_cls, memory_store: MemoryStore):
     url = "git://example.com/team/repo.git"
-    db = CloudMapDB("", contents={}, validate=False)
+    db = memory_store({})
     db.add_record(_host_repo(url, initial_revision="a" * 40))
     sync = _SyncSession(manager_cls, db)
     sync.directory.context = ProvenanceTrackingContext(db)
@@ -3430,10 +3523,10 @@ def test_resync_keeps_the_record_keyed_by_its_git_url(manager_cls):
 
 
 @pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
-def test_forks_are_compared_after_the_import(manager_cls):
+def test_forks_are_compared_after_the_import(manager_cls, memory_store: MemoryStore):
     upstream_url = "git://example.com/team/upstream.git"
     fork_url = "git://example.com/team/fork.git"
-    db = CloudMapDB("", contents={}, validate=False)
+    db = memory_store({})
     sync = _SyncSession(manager_cls, db)
     directory = sync.directory
     directory.context = ProvenanceTrackingContext(db)
@@ -3456,9 +3549,9 @@ def test_forks_are_compared_after_the_import(manager_cls):
     assert upstream and not upstream.upstream_refs
 
 
-def test_sync_without_internal_id_records_no_move():
+def test_sync_without_internal_id_records_no_move(memory_store: MemoryStore):
     old_url = "git://example.com/team/old.git"
-    db = CloudMapDB("", contents={}, validate=False)
+    db = memory_store({})
     db.add_record(_host_repo(old_url))
     _SyncSession(GitlabManager, db).import_repo(
         _host_repo("git://example.com/team/new.git", internal_id="")
@@ -3467,21 +3560,21 @@ def test_sync_without_internal_id_records_no_move():
     assert old and old.status is None
 
 
-def test_resync_records_no_move():
+def test_resync_records_no_move(memory_store: MemoryStore):
     url = "git://example.com/team/repo.git"
-    db = CloudMapDB("", contents={}, validate=False)
+    db = memory_store({})
     db.add_record(_host_repo(url))
     _SyncSession(GitlabManager, db).import_repo(_host_repo(url))
     repo = db.get_repository(url)
     assert repo and (repo.status, repo.moved_to) == (None, None)
 
 
-def test_graph_walk_follows_moved_to():
+def test_graph_walk_follows_moved_to(memory_store: MemoryStore):
     from unfurl.reporting import CollectVisitor, walk_cloudmap_graph_from
 
     old_url = "git://example.com/team/old.git"
     new_url = "git://example.com/team/new.git"
-    db = CloudMapDB("", contents={}, validate=False)
+    db = memory_store({})
     db.add_record(_host_repo(old_url, status="moved", moved_to=new_url))
     db.add_record(_host_repo(new_url))
     visitor = CollectVisitor({old_url}, limit=10)
@@ -3516,6 +3609,10 @@ class _GitlabHostFixture:
     """A cloudmap whose GitLab host keys records under a canonical url that
     differs from the urls GitLab itself reports."""
 
+    @pytest.fixture(autouse=True)
+    def _memory_store(self, memory_store: MemoryStore) -> None:
+        self.memory_store = memory_store
+
     CANONICAL = "git://unfurl.cloud/group/project.git"
     # what a GitLab instance with canonical_url https://unfurl.cloud sends
     SENT = "http://gdk.test:3000/group/project.git"
@@ -3541,7 +3638,7 @@ class _GitlabHostFixture:
         )
 
     def _db_with_existing(self) -> CloudMapDB:
-        db = CloudMapDB("", contents={}, validate=False)
+        db = self.memory_store({})
         existing = self._record("old")
         existing.contains = TypeRefs.urls_fromdict(
             {"ensemble.yaml": None}, keys_are_urls=True
@@ -3577,7 +3674,7 @@ class TestAnalyzeMetadata(_GitlabHostFixture):
         assert db.get_repository(self.CANONICAL) is before
 
     def test_new_url_is_added(self):
-        db = CloudMapDB("", contents={}, validate=False)
+        db = self.memory_store({})
         record = self._analyze(db, self._record("new"))
         assert record is not None
         assert db.get_repository(self.CANONICAL)
@@ -3639,7 +3736,7 @@ class TestUpdateRepository(_GitlabHostFixture):
         )
 
     def test_missing_record_is_skipped(self):
-        db = CloudMapDB("", contents={}, validate=False)
+        db = self.memory_store({})
         assert self._update(db, self.SENT, status="deleted") is None
         assert db.get_repository(self.CANONICAL) is None
 
@@ -3690,6 +3787,10 @@ def test_analyze_endpoint_clone_root():
 class TestAnalyzeCheckout:
     """``CloudMap.analyze_checkout`` analyzes a checkout as it is."""
 
+    @pytest.fixture(autouse=True)
+    def _memory_store(self, memory_store: MemoryStore) -> None:
+        self.memory_store = memory_store
+
     URL = "git://unfurl.cloud/group/project.git"
 
     def _checkout(self, tmp_path):
@@ -3708,7 +3809,7 @@ class TestAnalyzeCheckout:
         return cloud_map.analyze_checkout(self.URL, GitRepo(repo), branch, paths)
 
     def _db(self):
-        db = CloudMapDB("", contents={}, validate=False)
+        db = self.memory_store({})
         db.add_record(Repository(url=self.URL, path="group/project", default_branch="main"))
         return db
 
@@ -3810,7 +3911,7 @@ def test_analyze_endpoint_repo_locator():
         )
 
 
-def test_directory_repo_locator(tmp_path):
+def test_directory_repo_locator(tmp_path, memory_store: MemoryStore):
     """With a locator, a directory finds and clones repositories where the
     locator says rather than searching its root."""
     url = "git://example.com/group/project.git"
@@ -3828,7 +3929,7 @@ def test_directory_repo_locator(tmp_path):
     stray = git.Repo.clone_from(str(tmp_path / "upstream"), tmp_path / "root" / "stray")
     stray.remotes.origin.set_url("https://example.com/group/project.git")
 
-    db = CloudMapDB("", contents={}, validate=False)
+    db = memory_store({})
     cloud_map = CloudMap(
         None, "", localrepo_root=str(tmp_path / "root"), db=db, repo_locator=locate
     )
@@ -3877,13 +3978,17 @@ class TestAppliedOwnership:
     (``metadata.discovery.applied``); any other write takes over the fields it
     changes."""
 
+    @pytest.fixture(autouse=True)
+    def _memory_store(self, memory_store: MemoryStore) -> None:
+        self.memory_store = memory_store
+
     REPO = "git://example.com/repo.git"
     KEY = "git://example.com/repo.git#:a.yaml"
 
     def _context(self):
         from unfurl.cloudmap.provenance import ProvenanceTrackingContext
 
-        return ProvenanceTrackingContext(CloudMapDB("", contents={}, validate=False))
+        return ProvenanceTrackingContext(self.memory_store({}))
 
     def _analyze(self, context, source, **metadata):
         with context._tracking_provenance(source):
@@ -3994,7 +4099,7 @@ class TestAppliedOwnership:
             (self.REPO, ["https://api.example.com/a"], "untracked"),
             (self.REPO, [], "untracked"),
         ):
-            db = CloudMapDB("", contents={}, validate=False)
+            db = self.memory_store({})
             db.add_record(
                 Artifact(
                     url=self.KEY,
@@ -4030,7 +4135,7 @@ class TestAppliedOwnership:
     def test_changes_made_in_place_are_seen(self):
         from unfurl.cloudmap.provenance import ProvenanceTrackingContext
 
-        db = CloudMapDB("", contents={}, validate=False)
+        db = self.memory_store({})
         other = "https://api.example.com/repo"
         db.add_record(
             Repository(
@@ -4070,7 +4175,7 @@ class TestAppliedOwnership:
     def test_updating_an_untracked_record_keeps_its_fields(self):
         # the untracked record was the source's, so the fields it leaves as
         # they were stay its own
-        db = CloudMapDB("", contents={}, validate=False)
+        db = self.memory_store({})
         db.add_record(
             Artifact(
                 url=self.KEY,
