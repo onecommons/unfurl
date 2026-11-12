@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from typing_extensions import Literal
 from urllib.parse import quote
 
+from ..logs import getLogger
 from ..repo import GitRepo, Repo
 from ..util import UnfurlError, is_relative_to
 from .db import CloudMapDB
@@ -22,6 +23,8 @@ if TYPE_CHECKING:
 
 Backend = Literal["git-sync", "python"]
 "What stores a cloudmap: git-sync, or :py:class:`CloudMapDB` alone."
+
+logger = getLogger("unfurl")
 
 SECTIONS = (
     "types",
@@ -49,7 +52,9 @@ class GitSyncCloudMapDB(CloudMapDB):
 
     Every record is loaded into the same section dicts :py:class:`CloudMapDB`
     keeps, so its methods work unchanged; :py:meth:`save` writes back the
-    records that changed since.
+    records that changed since. A record changed in the file after a change
+    saved here and not yet committed loads as the file has it, with a
+    warning.
     """
 
     def __init__(self, repo_root: str, file_path: str, db_path: str) -> None:
@@ -78,6 +83,15 @@ class GitSyncCloudMapDB(CloudMapDB):
             raise UnfurlError(
                 f"git-sync couldn't read {self._file}: "
                 f"{outcome['unparsed'] or outcome['failed']}"
+            )
+        for _, section, key in outcome["conflicts"]:
+            self._git_sync.resolve(section, key)
+            logger.warning(
+                "%s: %s %s was changed in the file after Unfurl saved it; the "
+                "file's version replaces Unfurl's saved, uncommitted change",
+                self._file,
+                section.lstrip("/"),
+                key,
             )
 
     def _load_records(self) -> None:

@@ -873,3 +873,147 @@ def test_validate_without_the_projects_environment(tmp_path: Path, monkeypatch) 
     assert result.exit_code == 0, (result.output, result.exception)
     assert len(built) == 2 and validated.local_envs == [None]
     assert validated.git_sync_stores == 1
+
+
+TWO_REPOSITORIES = (
+    "apiVersion: unfurl/v1.0.0\nkind: CloudMap\nrepositories:\n"
+    "  git://e.com/a.git:\n    path: committed\n"
+    "  git://e.com/other.git:\n    path: other\n"
+)
+A = "git://e.com/a.git"
+
+
+def _ours(caplog: pytest.LogCaptureFixture) -> List[str]:
+    """The warnings logged through Unfurl's logger, not git-sync's."""
+    return [r.getMessage() for r in caplog.records if r.name == "unfurl" and r.levelname == "WARNING"]
+
+
+def _tracked_store(tmp_path: Path, text: str = TWO_REPOSITORIES) -> Tuple[GitSyncCloudMapDB, Path]:
+    _tracked(tmp_path, FILE, text)
+    path = tmp_path / "repo" / FILE
+    db = open_cloudmap_db(str(path), None, LOGGER)
+    assert isinstance(db, GitSyncCloudMapDB)
+    return db, path
+
+
+def _lines_of(path: Path, key: str) -> List[str]:
+    """The lines of the record at ``key`` in the file at ``path``."""
+    lines = path.read_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == f"{key}:")
+    end = next(
+        (i for i in range(start + 1, len(lines)) if not lines[i].startswith("    ")), len(lines)
+    )
+    return lines[start:end]
+
+
+def test_a_hand_edit_of_a_saved_record_wins(tmp_path: Path, caplog) -> None:
+    """A record Unfurl saved and hasn't committed, then edited in the file,
+    loads as the file has it, with a warning, and saves don't fail on it."""
+    db, path = _tracked_store(tmp_path)
+    db.add_record(Repository(url=A, path="saved"))
+    assert db.save()
+    path.write_text(path.read_text().replace("path: saved", "path: by-hand"))
+
+    db.reload()
+    assert db.get_repository(A).path == "by-hand"
+    [warning] = _ours(caplog)
+    assert str(path) in warning and "repositories" in warning and A in warning, warning
+    assert "file's version replaces" in warning, warning
+    by_hand = _lines_of(path, A)
+
+    # an edit, not an addition, which would rewrite the section's keys
+    db.add_record(Repository(url="git://e.com/other.git", path="changed"))
+    assert db.save()
+    assert _lines_of(path, A) == by_hand
+    assert "path: changed" in path.read_text()
+    caplog.clear()
+    db.reload()
+    assert _ours(caplog) == [] and db._git_sync.scan()["conflicts"] == []
+    reopened = open_cloudmap_db(str(path), None, LOGGER)
+    assert reopened.get_repository(A).path == "by-hand"
+
+
+def test_a_hand_deleted_record_unfurl_saved_stays_deleted(tmp_path: Path, caplog) -> None:
+    db, path = _tracked_store(tmp_path)
+    db.add_record(Repository(url=A, path="saved"))
+    assert db.save()
+    path.write_text(path.read_text().replace(f"  {A}:\n    path: saved\n", ""))
+
+    db.reload()
+    assert db.get_repository(A) is None
+    [warning] = _ours(caplog)
+    assert A in warning, warning
+    db.add_record(Repository(url="git://e.com/b.git", path="b"))
+    assert db.save()
+    assert A not in path.read_text()
+    caplog.clear()
+    db.reload()
+    assert _ours(caplog) == [] and db.get_repository(A) is None
+
+
+def test_a_record_unfurl_deleted_and_hand_restored_is_kept(tmp_path: Path, caplog) -> None:
+    db, path = _tracked_store(tmp_path)
+    del db.repositories[A]
+    assert db.save()
+    assert A not in path.read_text()
+    path.write_text(path.read_text() + f"  {A}:\n    path: by-hand\n")
+
+    db.reload()
+    assert db.get_repository(A).path == "by-hand"
+    [warning] = _ours(caplog)
+    assert A in warning, warning
+    db.add_record(Repository(url="git://e.com/b.git", path="b"))
+    assert db.save()
+    assert "path: by-hand" in path.read_text()
+    caplog.clear()
+    db.reload()
+    assert _ours(caplog) == [] and db.get_repository(A).path == "by-hand"
+
+
+def test_hand_edited_metadata_wins(tmp_path: Path, caplog) -> None:
+    db, path = _tracked_store(tmp_path, TWO_REPOSITORIES + "metadata:\n  owner: committed\n")
+    db.metadata["owner"] = "saved"
+    assert db.save()
+    path.write_text(path.read_text().replace("owner: saved", "owner: by-hand"))
+
+    db.reload()
+    assert db.metadata["owner"] == "by-hand"
+    [warning] = _ours(caplog)
+    assert "metadata" in warning, warning
+    db.add_record(Repository(url="git://e.com/b.git", path="b"))
+    assert db.save()
+    assert "owner: by-hand" in path.read_text()
+    caplog.clear()
+    db.reload()
+    assert _ours(caplog) == [] and db.metadata["owner"] == "by-hand"
+
+
+def test_a_hand_edit_of_another_record_isnt_a_conflict(tmp_path: Path, caplog) -> None:
+    db, path = _tracked_store(tmp_path)
+    db.add_record(Repository(url=A, path="saved"))
+    assert db.save()
+    path.write_text(path.read_text().replace("path: other", "path: by-hand"))
+
+    db.reload()
+    assert db.get_repository(A).path == "saved"
+    assert db.get_repository("git://e.com/other.git").path == "by-hand"
+    assert _ours(caplog) == []
+    assert db.save() is False
+
+
+def test_a_hand_edit_of_a_saved_untracked_record_isnt_a_conflict(tmp_path: Path, caplog) -> None:
+    """A save settles what it writes to a file the index doesn't have, so a
+    hand edit after it is simply taken in."""
+    _tracked(tmp_path, "other.yaml", TWO_REPOSITORIES)
+    path = tmp_path / "repo" / FILE
+    path.write_text(TWO_REPOSITORIES)
+    db = open_cloudmap_db(str(path), None, LOGGER)
+    assert isinstance(db, GitSyncCloudMapDB)
+    db.add_record(Repository(url=A, path="saved"))
+    assert db.save()
+    path.write_text(path.read_text().replace("path: saved", "path: by-hand"))
+
+    db.reload()
+    assert db.get_repository(A).path == "by-hand"
+    assert _ours(caplog) == []
+    assert not any("diverges" in r.getMessage() for r in caplog.records)

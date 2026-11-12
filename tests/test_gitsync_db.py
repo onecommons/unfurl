@@ -173,3 +173,23 @@ def test_the_file_name_is_literal(tmp_path: Path) -> None:
     outcome = db.scan()
     assert outcome["unparsed"] == [] and outcome["failed"] == [], outcome
     assert [k for _, k, _ in db.find("/repositories")] == [KEPT]
+
+
+def test_resolve_takes_the_files_value(repo: git.Repo, tmp_path: Path) -> None:
+    """A conflict between a saved, uncommitted change and a hand edit settles
+    with the file's value."""
+    db = _open(repo, tmp_path)
+    db.scan()
+    db.upsert("/repositories", KEPT, json.dumps({"path": "saved"}))
+    assert db.save()["conflicts"] == []
+    path = Path(repo.working_dir) / CLOUDMAP
+    path.write_text(path.read_text().replace("path: saved", "path: by-hand"))
+    assert db.scan()["conflicts"] == [(CLOUDMAP, "/repositories", KEPT)]
+
+    db.resolve("/repositories", KEPT)
+    assert [json.loads(j) for _, _, j in db.find("/repositories")] == [{"path": "by-hand"}]
+    saved = db.save()
+    assert saved["conflicts"] == [] and saved["written"] == [], saved
+    assert db.scan()["conflicts"] == []
+    with pytest.raises(GitSyncError):
+        db.resolve("/repositories", KEPT)

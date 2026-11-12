@@ -12,8 +12,8 @@ use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use unfurl_git_sync::{
-    git, CommitOptions, DbConfig, Error, FormatRegistry, OpenOptions, RecordQuery, ScanOptions,
-    SyncOutcome, SyncedDir,
+    git, CommitOptions, DbConfig, Error, FormatRegistry, OpenOptions, RecordQuery, Resolution,
+    ScanOptions, SyncOutcome, SyncedDir,
 };
 
 create_exception!(
@@ -214,6 +214,17 @@ impl GitSyncDB {
         let (sync, file_path) = (self.sync.clone(), self.file_path.clone());
         run(py, async move {
             sync.delete_record(Some(&file_path), &section, &key, None, false)
+                .await
+        })?;
+        Ok(())
+    }
+
+    /// Settle the conflict at `key` under `section` with the file's value,
+    /// withdrawing the pending change.
+    fn resolve(&self, py: Python<'_>, section: String, key: String) -> PyResult<()> {
+        let (sync, file_path) = (self.sync.clone(), self.file_path.clone());
+        run(py, async move {
+            sync.resolve_conflict(&file_path, &section, &key, Resolution::Theirs, None)
                 .await
         })?;
         Ok(())
