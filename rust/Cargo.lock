@@ -4887,6 +4887,7 @@ dependencies = [
 name = "unfurl-py"
 version = "0.1.0"
 dependencies = [
+ "log",
  "pyo3",
  "pyo3-log",
  "serde_json",

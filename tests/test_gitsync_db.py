@@ -193,3 +193,15 @@ def test_resolve_takes_the_files_value(repo: git.Repo, tmp_path: Path) -> None:
     assert db.scan()["conflicts"] == []
     with pytest.raises(GitSyncError):
         db.resolve("/repositories", KEPT)
+
+
+def test_sql_statements_arent_logged(repo: git.Repo, tmp_path: Path, caplog) -> None:
+    """sqlx logs every statement at debug; only its warnings reach Python."""
+    import logging
+
+    with caplog.at_level(logging.DEBUG):
+        db = _open(repo, tmp_path)
+        db.scan()
+        db.find("/repositories")
+    names = {record.name for record in caplog.records}
+    assert not [name for name in names if name.startswith("sqlx")]

@@ -22,7 +22,11 @@ const PARTS: &[AddPart] = &[
 #[pymodule]
 #[pyo3(name = "_rust")]
 fn unfurl_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    pyo3_log::init();
+    // sqlx logs every statement at debug; its warnings (slow statements) stay
+    pyo3_log::Logger::default()
+        .filter_target("sqlx::query".to_owned(), log::LevelFilter::Warn)
+        .install()
+        .expect("no other logger is installed");
     for add in PARTS {
         add(m)?;
     }

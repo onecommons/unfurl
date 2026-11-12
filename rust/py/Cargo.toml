@@ -13,6 +13,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
+log = "0.4"
 pyo3 = { version = "0.25.1", features = ["hashbrown"] }
 pyo3-log = "0.12.4"
 serde_json = { version = "1.0.154", optional = true }
