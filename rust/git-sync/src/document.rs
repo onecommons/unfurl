@@ -101,7 +101,7 @@ impl Syntax {
         };
         match self {
             Self::Yaml => Ok(Parsed {
-                chunks: vec![serde_saphyr::from_str(text()?).map_err(|e| Error::Yaml {
+                chunks: vec![from_yaml(text()?).map_err(|e| Error::Yaml {
                     path: file_path.to_string(),
                     message: e.to_string(),
                 })?],
@@ -525,8 +525,8 @@ pub(crate) fn splice_touched_sections(
     let rendered = std::str::from_utf8(rendered).ok()?;
     let original = unfurl_merge::template::Template::parse(src)?;
     let updated = unfurl_merge::template::Template::parse(rendered)?;
-    let want: serde_json::Value = serde_saphyr::from_str(rendered).ok()?;
-    let have: serde_json::Value = serde_saphyr::from_str(src).ok()?;
+    let want: serde_json::Value = from_yaml(rendered).ok()?;
+    let have: serde_json::Value = from_yaml(src).ok()?;
 
     let mut replacements = std::collections::HashMap::new();
     for name in touched {
@@ -555,8 +555,16 @@ pub(crate) fn splice_touched_sections(
     }
     let spliced = original.render(&replacements);
 
-    let got: serde_json::Value = serde_saphyr::from_str(&spliced).ok()?;
+    let got: serde_json::Value = from_yaml(&spliced).ok()?;
     (got == want).then(|| spliced.into_bytes())
+}
+
+/// `text` parsed as YAML whose booleans are only `true` and `false`, as in
+/// YAML 1.2's core schema: `yes`, `on` and `y` are strings.
+pub(crate) fn from_yaml<T: serde::de::DeserializeOwned>(
+    text: &str,
+) -> std::result::Result<T, serde_saphyr::Error> {
+    serde_saphyr::from_str_with_options(text, serde_saphyr::options! { strict_booleans: true })
 }
 
 /// Atomic-replace `abs` with `bytes` via a tempfile in the same

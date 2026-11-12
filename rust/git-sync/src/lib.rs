@@ -24,7 +24,8 @@
 //! existing file from disk, applies in-flight record changes
 //! (`commit_id IS NULL`) — set, replace, or delete — and writes the
 //! result back. Untouched keys preserve their original ordering and
-//! content. YAML parsing and serialization uses [`serde_saphyr`](https://docs.rs/serde_saphyr).
+//! content. YAML parsing and serialization uses [`serde_saphyr`](https://docs.rs/serde_saphyr),
+//! reading YAML 1.2: only `true` and `false` are booleans.
 //!
 //! # Backends
 //!

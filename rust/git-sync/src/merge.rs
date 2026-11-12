@@ -295,7 +295,7 @@ fn duplicate_free(file: &str, bytes: &[u8]) -> bool {
     match Syntax::for_extension(&extract_ext(file)) {
         Some(Syntax::Json) => std::str::from_utf8(bytes)
             .ok()
-            .is_some_and(|text| serde_saphyr::from_str::<serde_json::Value>(text).is_ok()),
+            .is_some_and(|text| crate::document::from_yaml::<serde_json::Value>(text).is_ok()),
         _ => true,
     }
 }

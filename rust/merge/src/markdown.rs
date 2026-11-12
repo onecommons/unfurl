@@ -163,7 +163,7 @@ pub fn front_matter_name(src: &str) -> Option<String> {
         matches!(line.trim_end(), "---" | "...").then_some(at)
     })?;
 
-    let doc: serde_json::Value = serde_saphyr::from_str(&rest[..terminator]).ok()?;
+    let doc: serde_json::Value = from_yaml(&rest[..terminator]).ok()?;
     let name = doc.get("literate-yaml")?.as_str()?;
     (!name.is_empty()).then(|| name.to_string())
 }
@@ -307,6 +307,12 @@ impl Fence {
     }
 }
 
+/// `text` parsed as YAML whose booleans are only `true` and `false`, as in
+/// YAML 1.2's core schema: `yes`, `on` and `y` are strings.
+fn from_yaml(text: &str) -> std::result::Result<serde_json::Value, serde_saphyr::Error> {
+    serde_saphyr::from_str_with_options(text, serde_saphyr::options! { strict_booleans: true })
+}
+
 /// One block, dedented and parsed. See [`Block::value`] for what makes
 /// it inert.
 fn block(file_path: &str, src: &str, body: Range<usize>, indent: usize) -> Block {
@@ -314,7 +320,7 @@ fn block(file_path: &str, src: &str, body: Range<usize>, indent: usize) -> Block
     let value = if ignored(&text) {
         None
     } else {
-        match serde_saphyr::from_str::<serde_json::Value>(&text) {
+        match from_yaml(&text) {
             Ok(value) if value.is_object() => Some(value),
             // Prose routinely holds YAML that is elided, abbreviated, or
             // deliberately wrong. Skipping is the only reading that
@@ -959,6 +965,17 @@ key: [unclosed
         let err = additive_fallback("t.md", &src, &root, &act("a", false), &md, &["components"])
             .expect_err("a dropped field cannot be appended");
         assert!(err.to_string().contains("removes something"), "{err}");
+    }
+
+    /// A block's `yes`, `on` and `y` are strings, as YAML 1.2 has them.
+    #[test]
+    fn yaml_1_1_booleans_are_strings() {
+        let src = one_block("components:\n  a:\n    t: y\n    u: [yes, on, true]\n");
+        let md = Markdown::parse("t.md", &src).expect("literate");
+        assert_eq!(
+            md.value["components"]["a"],
+            serde_json::json!({"t": "y", "u": ["yes", "on", true]})
+        );
     }
 
     /// `foo:` is null and `foo: {}` is an empty map -- different

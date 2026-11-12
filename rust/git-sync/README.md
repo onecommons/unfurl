@@ -8,7 +8,8 @@ Postgres via gitoxide and sqlx.
 - **Scan:** indexes a git working tree's YAML, JSON, JSON5/JSONC and
   Markdown (with embedded YAML) files into SQL, re-parsing only files
   whose bytes changed. A file that fails to parse is reported, not
-  fatal.
+  fatal. YAML is read as YAML 1.2: only `true` and `false` are
+  booleans, so `yes`, `on` and `y` are strings.
 - **Record oriented:** documents are split into records by
   application-level schemas.
 - **Pluggable formats:** a `DataFormat` trait describes an application
@@ -23,7 +24,8 @@ Postgres via gitoxide and sqlx.
   batches, with git commits as optimistic-concurrency tokens.
 - **Write back:** saves edits to the files in place, keeping untouched
   keys' order, comments and prose, and commits them with a message that
-  records who made each change and why.
+  records who made each change and why. A string that a YAML 1.1 reader
+  would take for a boolean, such as `yes`, is written quoted.
 - **Conflicts:** when the file and an unsaved edit both change a record,
   neither is overwritten; the file's value is kept as a conflict to
   resolve.
