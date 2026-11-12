@@ -448,6 +448,7 @@ pub fn commit_paths_onto(
         .workdir()
         .ok_or_else(|| Error::Git("repository has no working tree".to_string()))?
         .to_path_buf();
+    index_updatable(repo)?;
 
     // For each path: read disk bytes, write a blob, capture (segments,
     // oid) -- or `None` for a path that is gone, which the commit
@@ -479,18 +480,68 @@ pub fn commit_paths_onto(
         }
     };
 
-    // Refresh the index to match the tree we just committed. Building the tree
-    // directly (above) never touches the index, so without this it still holds
-    // the pre-commit blobs: `git status` would report the just-committed files
-    // as both staged-modified and worktree-modified, and a later `git commit -a`
-    // by another tool could revert them. `index_from_tree` walks the whole tree,
-    // which is fine for the small documents this crate syncs.
-    let mut index = repo.index_from_tree(&new_tree_oid).map_err(git_err)?;
-    index
-        .write(gix::index::write::Options::default())
-        .map_err(git_err)?;
+    // Building the tree directly (above) never touches the index, so without
+    // this it still holds the pre-commit blobs: `git status` would report the
+    // just-committed files as both staged-modified and worktree-modified, and
+    // a later `git commit -a` by another tool could revert them.
+    let committed: Vec<(&String, Option<gix::ObjectId>)> = paths
+        .iter()
+        .zip(updates.iter().map(|(_, blob)| *blob))
+        .collect();
+    index_committed(repo, &work_dir, &committed)?;
 
     Ok(id.detach().into())
+}
+
+/// An error for an index [`index_committed`] can't update: a sparse one,
+/// whose directory entries may hold the paths. A split index is read whole,
+/// and written so.
+fn index_updatable(repo: &gix::Repository) -> Result<()> {
+    let Some(index) = repo.try_index().map_err(git_err)? else {
+        return Ok(());
+    };
+    match index.is_sparse() {
+        true => Err(Error::Git(format!(
+            "{}: a sparse index can't be updated by a commit made here",
+            index.path().display()
+        ))),
+        false => Ok(()),
+    }
+}
+
+/// Set the index entries of `committed`, paths under `work_dir` with the
+/// blob a commit just gave each (`None`: it removed the path), as
+/// `git commit <path>` does; every other entry stays as it was.
+fn index_committed(
+    repo: &gix::Repository,
+    work_dir: &Path,
+    committed: &[(&String, Option<gix::ObjectId>)],
+) -> Result<()> {
+    let mut index = repo
+        .index_or_load_from_head_or_empty()
+        .map_err(git_err)?
+        .into_owned();
+    // the cached trees would still name the commit's parent; git rebuilds
+    // them, and gix doesn't write the other, optional, extensions
+    index.remove_tree();
+    let paths: HashSet<&str> = committed.iter().map(|(p, _)| p.as_str()).collect();
+    index.remove_entries(|_, path, _| path.to_str().is_ok_and(|p| paths.contains(p)));
+    for (path, blob) in committed {
+        let Some(blob) = blob else { continue };
+        let metadata = gix::index::fs::Metadata::from_path_no_follow(&work_dir.join(path))?;
+        let stat = gix::index::entry::Stat::from_fs(&metadata).map_err(git_err)?;
+        index.dangerously_push_entry(
+            stat,
+            *blob,
+            gix::index::entry::Flags::empty(),
+            gix::index::entry::Mode::FILE,
+            path.as_str().into(),
+        );
+    }
+    index.sort_entries();
+    index
+        .write(gix::index::write::Options::default())
+        .map_err(git_err)
 }
 
 /// A commit of `parent`'s tree with `files` overlaid -- each path's new
