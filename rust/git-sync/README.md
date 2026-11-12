@@ -27,8 +27,9 @@ Postgres via gitoxide and sqlx.
   records who made each change and why. What it writes is YAML as ruamel
   writes it, with a few deliberate differences: a string a YAML 1.1 reader
   would take for a boolean, such as `yes`, is written quoted, a multi-line
-  string is a literal block, and long lines aren't wrapped (the full list
-  is in [docs/cloudmapdb-on-git-sync.md](docs/cloudmapdb-on-git-sync.md)).
+  string is a literal block, and a long double-quoted string isn't
+  wrapped (the full list is in
+  [docs/cloudmapdb-on-git-sync.md](docs/cloudmapdb-on-git-sync.md)).
 - **Conflicts:** when the file and an unsaved edit both change a record,
   neither is overwritten; the file's value is kept as a conflict to
   resolve.

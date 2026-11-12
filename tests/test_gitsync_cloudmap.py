@@ -1351,9 +1351,27 @@ WRITTEN_ALIKE = [
 ]
 
 
-def _add_with_both(tmp_path: Path, extensions: Dict[str, Any]) -> Tuple[Path, Path]:
+# long strings, which both wrap past column 80 when plain or single-quoted
+LONG_ALIKE = [
+    " ".join(["word"] * 40),
+    "*" + " ".join(["word"] * 40),
+    " ".join(["word"] * 40) + " ",
+    " " + " ".join(["word"] * 40),
+    "x" * 100 + " " + " ".join(["word"] * 20),
+    "  ".join(["word"] * 30),
+    " ".join(["\U0001f600" * 3] * 30),
+    " ".join(["\xe9" * 5] * 30),
+    ("x" * 10 + "\xa0") * 9 + " y",
+    "aaa " * 19 + "- bbb ccc",
+    "aaa " * 19 + "#x y",
+]
+
+
+def _add_with_both(
+    tmp_path: Path, extensions: Dict[str, Any], url: str = "git://e.com/team/charlie.git"
+) -> Tuple[Path, Path]:
     """The files CloudMapDB and git-sync save after each adds a repository
-    with ``extensions`` to the same CloudMapDB-written cloudmap."""
+    at ``url`` with ``extensions`` to the same CloudMapDB-written cloudmap."""
     files = []
     for name in ("python", "git_sync"):
         path = tmp_path / name / FILE
@@ -1366,7 +1384,7 @@ def _add_with_both(tmp_path: Path, extensions: Dict[str, Any]) -> Tuple[Path, Pa
     python = CloudMapDB(str(files[0]))
     git_sync = GitSyncCloudMapDB(str(files[1].parent), FILE, str(tmp_path / "db.sqlite"))
     for db in (python, git_sync):
-        db.add_record(Repository(url="git://e.com/team/charlie.git", path="c", **extensions))
+        db.add_record(Repository(url=url, path="c", **extensions))
         assert db.save()
     return files[0], files[1]
 
@@ -1379,17 +1397,63 @@ def test_an_added_record_is_written_as_cloudmap_db_writes_it(tmp_path: Path) -> 
             "org.foo.keys": {s: i for i, s in enumerate(WRITTEN_ALIKE)},
             "org.foo.list": WRITTEN_ALIKE,
             "org.foo.nested": [{"a": [1, 2.5]}, [True, False], {}, [], {"b": None}],
+            "org.foo.long": {f"l{i}": s for i, s in enumerate(LONG_ALIKE)},
+            "org.foo.long-list": LONG_ALIKE,
+            "org.foo.deep": {"a": {"b": [{"c": LONG_ALIKE[0], "d": [LONG_ALIKE[1]]}]}},
         },
     )
     assert git_sync.read_text() == python.read_text()
 
 
+@pytest.mark.parametrize("length", [1018, 1019])
+def test_a_long_key_is_written_as_cloudmap_db_writes_it(tmp_path: Path, length: int) -> None:
+    """ruamel writes a key over 1018 characters as an explicit key."""
+    url = "git://e.com/" + "x" * (length - 16) + ".git"
+    keys = {"k" * length: 1, "k" * (length - 1) + ":": 2}
+    if length <= 1018:
+        # on its value's line, where ruamel doesn't wrap it either
+        keys[("k" * 50 + " ") * (length // 51) + "k" * (length % 51)] = 3
+    python, git_sync = _add_with_both(tmp_path, {"org.foo.keys": keys}, url)
+    text = git_sync.read_text()
+    assert (f"  ? {url}\n" in text) == (length > 1018)
+    assert text == python.read_text()
+
+
+def test_a_long_key_is_never_wrapped(tmp_path: Path) -> None:
+    """ruamel wraps an explicit key; git-sync writes it on one line, which
+    CloudMapDB reads back. (A repository's own url can't hold a space.)"""
+    url = "git://e.com/" + " ".join(["seg"] * 272) + "x"
+    assert len(url) == 1100
+    python, git_sync = _add_with_both(tmp_path, {"org.foo.urls": {url: {"a": 1}}})
+    assert f"      ? {url}\n      : a: 1\n" in git_sync.read_text()
+    assert f"      ? {url}\n" not in python.read_text()
+    record = CloudMapDB(str(git_sync)).repositories["git://e.com/team/charlie.git"]
+    assert record.extensions["org.foo.urls"] == {url: {"a": 1}}
+
+
+def test_an_edited_long_value_is_written_as_cloudmap_db_writes_it(tmp_path: Path) -> None:
+    """An edit that makes a value long wraps it where ruamel does, and one
+    that makes it short again puts it back on one line."""
+    long = " ".join(["word"] * 30)
+    python_path, git_sync_path = _add_with_both(tmp_path, {"org.foo.note": "short"})
+    python = CloudMapDB(str(python_path))
+    git_sync = GitSyncCloudMapDB(str(git_sync_path.parent), FILE, str(tmp_path / "db.sqlite"))
+    for note in (long, "short", long + " more", long):
+        for db in (python, git_sync):
+            record = db.repositories["git://e.com/team/charlie.git"]
+            record.extensions["org.foo.note"] = note
+            db.add_record(record)
+            assert db.save()
+        assert git_sync_path.read_text() == python_path.read_text(), note
+
+
 def test_what_git_sync_writes_unlike_cloudmap_db(tmp_path: Path) -> None:
     """git-sync quotes YAML 1.1's booleans, writes a multi-line string as a
-    literal block, wraps nothing, escapes U+0085, U+2028 and U+2029, writes
-    a null in a list as ``null`` and a float's exponent after ``.0``; ruamel
-    doesn't. CloudMapDB reads back what git-sync writes."""
-    long = " ".join(["word"] * 40)
+    literal block, doesn't wrap a double-quoted string, escapes U+0085,
+    U+2028 and U+2029, writes a null in a list as ``null`` and a float's
+    exponent after ``.0``; ruamel doesn't. CloudMapDB reads back what
+    git-sync writes."""
+    long = "it's: " + " ".join(["word"] * 40)
     values = {
         "bool": "yes",
         "multi": "a\nb\n",
@@ -1405,7 +1469,7 @@ def test_what_git_sync_writes_unlike_cloudmap_db(tmp_path: Path) -> None:
     lines = {
         "bool": ("      bool: yes\n", "      bool: 'yes'\n"),
         "multi": ('      multi: "a\\nb\\n"\n', "      multi: |\n        a\n        b\n"),
-        "long": ("      long: word word", f"      long: {long}\n"),
+        "long": ('      long: "it\'s: word word', f'      long: "{long}"\n'),
         "nel": ("      nel: 'a\x85 ", '      nel: "a\\Nb"\n'),
         "ls": ("      ls: 'a\U00002028 ", '      ls: "a\\Lb"\n'),
         "ps": ("      ps: 'a\U00002029 ", '      ps: "a\\Pb"\n'),
@@ -1417,7 +1481,7 @@ def test_what_git_sync_writes_unlike_cloudmap_db(tmp_path: Path) -> None:
     for name, (ruamel, ours) in lines.items():
         assert ruamel in python_text, (name, python_text)
         assert ours in git_sync_text, (name, git_sync_text)
-    assert f"      long: {long}\n" not in python_text, "ruamel wraps it"
+    assert f'      long: "{long}"\n' not in python_text, "ruamel wraps it"
     record = CloudMapDB(str(git_sync)).repositories["git://e.com/team/charlie.git"]
     assert record.extensions["org.foo.diff"] == values
 

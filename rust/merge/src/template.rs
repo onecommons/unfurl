@@ -197,6 +197,17 @@ pub fn splice_value(
     before: &serde_json::Value,
     after: &serde_json::Value,
 ) -> Option<String> {
+    splice_value_at(body, before, after, 0)
+}
+
+/// [`splice_value`] for a body whose column 0 sits `indent` columns in,
+/// so what it writes wraps where it would there.
+pub fn splice_value_at(
+    body: &str,
+    before: &serde_json::Value,
+    after: &serde_json::Value,
+    indent: usize,
+) -> Option<String> {
     let (before, after) = (before.as_object()?, after.as_object()?);
     // A key *removed* at this level leaves a hole `Template` cannot
     // close, so the caller re-serializes the enclosing body. A key
@@ -214,23 +225,24 @@ pub fn splice_value(
         let text = match template.section(key) {
             Some(section) => {
                 let nested = dedent_block(template.body(section), section.indent);
-                splice_value(&nested, was, now).or_else(|| to_yaml(now, "").ok())?
+                let at = indent + section.indent;
+                splice_value_at(&nested, was, now, at)
+                    .unwrap_or_else(|| crate::emit::to_yaml_at(now, at))
             }
             // A value sharing its key's line is swapped where it sits,
             // so the comment after it and every comment elsewhere in
             // this body survive -- which is the whole difference for a
-            // scalar field, the most common thing an edit touches.
-            // Only while it stays one line: a block scalar cannot go on
-            // a key's line, and widening the hole to fit one would
-            // swallow the comment this exists to keep.
+            // scalar field, the most common thing an edit touches. A
+            // long one wraps onto the lines below, and a comment after
+            // it still follows it. A block scalar cannot go on a key's
+            // line, and widening the hole to fit one would swallow the
+            // comment this exists to keep.
             None => {
-                template.inline(key)?;
-                let text = to_yaml(now, "").ok()?;
-                let line = text.trim_end_matches('\n');
-                if line.contains('\n') {
-                    return None;
-                }
-                line.to_string()
+                let hole = template.inline(key)?;
+                let line = &body[body[..hole.start].rfind('\n').map_or(0, |n| n + 1)..hole.start];
+                let key_column = line.len() - line.trim_start_matches(' ').len();
+                let column = line.chars().count();
+                crate::emit::inline_scalar(now, column, key_column + 2, indent)?
             }
         };
         replacements.insert(key.as_str(), text);
@@ -246,7 +258,10 @@ pub fn splice_value(
         if !out.is_empty() && !out.ends_with('\n') {
             out.push('\n');
         }
-        out.push_str(&to_yaml(&serde_json::Value::Object(added), "").ok()?);
+        out.push_str(&crate::emit::to_yaml_at(
+            &serde_json::Value::Object(added),
+            indent,
+        ));
     }
     Some(out)
 }
@@ -529,6 +544,90 @@ e:
             out,
             "'a':\n  x: 1\nd1:\n  x: 41\nd2:\n  x: 42\n# about c\ne:\n  x: 5\n"
         );
+    }
+
+    const SHORT: &str = "\
+name: a  # the name
+# about the description
+description: short  # kept
+path: p
+";
+
+    /// `SHORT` with a 99-character description, as ruamel wraps it four
+    /// columns in: from column 17, broken at the first space past column
+    /// 80, continued at column 6.
+    fn wrapped() -> (serde_json::Value, String) {
+        let long = format!("{}end", "word ".repeat(19));
+        let first = format!("{}word", "word ".repeat(12));
+        let text = SHORT.replace("short", &format!("{first}\n  {}end", "word ".repeat(6)));
+        (
+            serde_json::json!({"name": "a", "description": long, "path": "p"}),
+            text,
+        )
+    }
+
+    /// An edited value too long for its line wraps in its hole where it
+    /// would at the body's real column; the comments after it and above
+    /// it stay.
+    #[test]
+    fn a_long_value_wraps_in_its_hole() {
+        let before = serde_json::json!({"name": "a", "description": "short", "path": "p"});
+        let (after, want) = wrapped();
+        assert_eq!(splice_value_at(SHORT, &before, &after, 4), Some(want));
+        // the same body at column 0 wraps later
+        let at_zero = splice_value(SHORT, &before, &after).expect("splices");
+        assert!(
+            at_zero.contains(&format!("{}word\n  word", "word ".repeat(13))),
+            "{at_zero}"
+        );
+    }
+
+    /// A wrapped value's hole covers every line of it.
+    #[test]
+    fn a_wrapped_value_is_replaced_whole() {
+        let (before, src) = wrapped();
+        let after = serde_json::json!({"name": "a", "description": "brief", "path": "p"});
+        let want = SHORT.replace("short", "brief");
+        assert_eq!(splice_value_at(&src, &before, &after, 4), Some(want));
+    }
+
+    /// A nested body's edits wrap at its real column.
+    #[test]
+    fn a_nested_value_wraps_at_its_real_column() {
+        let body = "outer:\n  description: short  # kept\n";
+        let before = serde_json::json!({"outer": {"description": "short"}});
+        let long = format!("{}end", "word ".repeat(19));
+        let after = serde_json::json!({"outer": {"description": long}});
+        // two columns in, the value starts at column 17, as in `wrapped`
+        let want = format!(
+            "outer:\n  description: {}word\n    {}end  # kept\n",
+            "word ".repeat(12),
+            "word ".repeat(6)
+        );
+        assert_eq!(splice_value_at(body, &before, &after, 2), Some(want));
+    }
+
+    /// A key added to a body further in wraps at its real column.
+    #[test]
+    fn an_added_value_wraps_at_its_real_column() {
+        let before = serde_json::json!({"name": "a", "description": "short", "path": "p"});
+        let note = serde_json::json!({"note": format!("{}end", "word ".repeat(19))});
+        let mut after = before.clone();
+        after["note"] = note["note"].clone();
+        let added = crate::emit::to_yaml_at(&note, 4);
+        assert_ne!(added, crate::emit::to_yaml(&note), "the column matters");
+        assert_eq!(
+            splice_value_at(SHORT, &before, &after, 4),
+            Some(format!("{SHORT}{added}"))
+        );
+    }
+
+    /// A literal block can't go on a key's line: the level is re-rendered.
+    #[test]
+    fn a_literal_block_is_not_put_in_a_hole() {
+        let before = serde_json::json!({"name": "a", "description": "short", "path": "p"});
+        let after = serde_json::json!({"name": "a", "description": "a\nb", "path": "p"});
+        assert_eq!(splice_value_at(SHORT, &before, &after, 4), None);
     }
 
     /// A block scalar can hold a line that starts with `#`. It is text,

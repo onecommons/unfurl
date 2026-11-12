@@ -553,6 +553,7 @@ pub(crate) fn splice_touched_sections(
             &fresh,
             have.get(name.as_str()),
             want.get(name.as_str()),
+            section.indent,
         );
         replacements.insert(name.as_str(), spliced.unwrap_or(fresh));
     }
@@ -566,18 +567,20 @@ pub(crate) fn splice_touched_sections(
 }
 
 /// The body of a section, `body` in the file and `fresh` as rendered, at
-/// column 0, holding `want` instead of `have`, with every record that
-/// didn't change kept as the file has it: an added record is `fresh`'s,
-/// placed after the record before it in `want`'s order, a removed one is
-/// taken out, and a changed one is edited where it sits.
+/// column 0 for a place `indent` columns in, holding `want` instead of
+/// `have`, with every record that didn't change kept as the file has it:
+/// an added record is `fresh`'s, placed after the record before it in
+/// `want`'s order, a removed one is taken out, and a changed one is
+/// edited where it sits.
 fn splice_section(
     body: &str,
     fresh: &str,
     have: Option<&serde_json::Value>,
     want: Option<&serde_json::Value>,
+    indent: usize,
 ) -> Option<String> {
     if same_keys(have, want) {
-        return unfurl_merge::template::splice_value(body, have?, want?);
+        return unfurl_merge::template::splice_value_at(body, have?, want?, indent);
     }
     let (have, want) = (have?.as_object()?, want?.as_object()?);
     let rendered = unfurl_merge::template::entries(fresh)?;
@@ -605,10 +608,11 @@ fn splice_section(
     if held == *want {
         return Some(moved);
     }
-    unfurl_merge::template::splice_value(
+    unfurl_merge::template::splice_value_at(
         &moved,
         &serde_json::Value::Object(held),
         &serde_json::Value::Object(want.clone()),
+        indent,
     )
 }
 
