@@ -560,11 +560,24 @@ pub(crate) fn splice_touched_sections(
 }
 
 /// Atomic-replace `abs` with `bytes` via a tempfile in the same
-/// directory. Creates the parent directory if needed.
+/// directory, with `abs`'s permissions, or a new file's. Creates the
+/// parent directory if needed.
 pub(crate) fn stage_write(abs: &Path, bytes: &[u8]) -> Result<tempfile::NamedTempFile> {
     let dir = abs.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(dir)?;
-    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    let mut builder = tempfile::Builder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // less the umask, as for any new file
+        builder.permissions(std::fs::Permissions::from_mode(0o666));
+    }
+    let mut tmp = builder.tempfile_in(dir)?;
+    match std::fs::metadata(abs) {
+        Ok(metadata) => tmp.as_file().set_permissions(metadata.permissions())?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
     tmp.write_all(bytes)?;
     tmp.flush()?;
     // `flush` only empties userspace buffers. Without this the rename can
