@@ -31,6 +31,10 @@ environments:
             visibility: public
 ```
 
+A relative path in a cloudmap's repository configuration (a ``url`` that is a
+file path, ``clone_root``, ``local_cloudmap``, ``db_dir``), or in a ``local``
+host's ``clone_root``, is relative to the project's root, and ``~`` is expanded.
+
 then projects found on staging.unfurl.cloud will be saved in the cloudmap as belonging to unfurl.cloud.
 So following commands will push all the projects in "onecommons/blueprints" namespace from the staging instance to the production instance at unfurl.cloud:
 
@@ -1076,10 +1080,10 @@ class CloudMap:
                 local_env, url, revision, host_branch, logger
             )
         if clone_root is None:
-            local_repo_root = repository.get("clone_root") or ""
+            local_repo_root = cls._configured_path(local_env, repository.get("clone_root"))
         else:
             local_repo_root = clone_root
-        db_dir = repository.get("db_dir")
+        db_dir = cls._configured_path(local_env, repository.get("db_dir"))
         backend = _backend(name, repository)
 
         cloud_map = CloudMap(
@@ -1092,10 +1096,12 @@ class CloudMap:
             commit,
             logger,
             local_env,
-            db_dir=os.path.expanduser(db_dir) if db_dir else None,
+            db_dir=db_dir or None,
             backend=backend,
         )
-        cloud_map.directory.local_cloudmap = repository.get("local_cloudmap", "")
+        cloud_map.directory.local_cloudmap = cls._configured_path(
+            local_env, repository.get("local_cloudmap")
+        )
         return cloud_map
 
     @staticmethod
@@ -1156,13 +1162,31 @@ class CloudMap:
         return custom_analyzers
 
     @staticmethod
-    def _local_cloudmap_path(local_env: "LocalEnv", path: str) -> Tuple[Optional[GitRepo], str]:
+    def _configured_path(local_env: "LocalEnv", value: Optional[str]) -> str:
+        """``value``, a path in a cloudmap's repository configuration, with
+        ``~`` expanded and, when relative, joined to the root of the project
+        the configuration is read from (the home project's without one), or
+        "" for none."""
+        if not value:
+            return ""
+        path = os.path.expanduser(value)
+        project = local_env.project or local_env.homeProject
+        if os.path.isabs(path) or not project:
+            return path
+        return os.path.normpath(os.path.join(project.projectRoot, path))
+
+    @classmethod
+    def _local_cloudmap_path(
+        cls, local_env: "LocalEnv", path: str
+    ) -> Tuple[Optional[GitRepo], str]:
         """The project's repository, if it has one, and the path relative to its
         root of the cloudmap file at ``path``, a local cloudmap url."""
         assert local_env.project
         repo = local_env.project.project_repoview.repo
         assert repo is None or isinstance(repo, GitRepo)
-        return repo, os.path.relpath(os.path.abspath(path), local_env.project.projectRoot)
+        return repo, os.path.relpath(
+            cls._configured_path(local_env, path), local_env.project.projectRoot
+        )
 
     @classmethod
     def _configured_for(
@@ -1180,7 +1204,7 @@ class CloudMap:
             url, path, _, repository = cls.get_config(local_env, name)
             candidates = []
             if repository.get("local_cloudmap"):
-                candidates.append(os.path.expanduser(repository["local_cloudmap"]))
+                candidates.append(cls._configured_path(local_env, repository["local_cloudmap"]))
             if not url and local_env.project:
                 repo, relative = cls._local_cloudmap_path(local_env, path)
                 root = repo.working_dir if repo else local_env.project.projectRoot
@@ -1298,6 +1322,7 @@ class CloudMap:
         environment = local_env.get_context().get("cloudmaps", {})
         hosts = environment.get("hosts", {})
         host_config: Optional[HostConfig] = hosts.get(name)
+        configured = host_config is not None
         if host_config is None:
             if name == "local":
                 host_config = LocalHostConfig(
@@ -1322,6 +1347,7 @@ class CloudMap:
                         hosts, local_env.get_context().get("variables")
                     )
                     name, host_config = cls._find_host_config(hosts, hostname, path)
+                    configured = host_config is not None
                 if host_config is None:
                     assert hostname
                     if hostname.endswith("github.com"):
@@ -1351,7 +1377,12 @@ class CloudMap:
         assert host_config
         if visibility:
             host_config["visibility"] = visibility
-        return cls.make_host(host_config, name, namespace, repo_filter, repos_root)
+        clone_root = repos_root
+        if configured and not clone_root and host_config["type"] == "local":
+            clone_root = cls._configured_path(
+                local_env, cast(LocalHostConfig, host_config).get("clone_root")
+            )
+        return cls.make_host(host_config, name, namespace, repo_filter, clone_root)
 
     @classmethod
     def make_host(

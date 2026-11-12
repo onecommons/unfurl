@@ -97,7 +97,7 @@ Each clone gets a repository record (see the {ref}`schema <CloudMap Schema>`):
 
 ## Configuration
 
-You can configure the cloud map location and repository hosts used for synchronize in the environments section of `unfurl.yaml`.  This configuration sample illustrates the available options:
+You can configure the cloud map location and repository hosts used for synchronize in the environments section of `unfurl.yaml`.  This configuration sample illustrates the available options. A relative path in a cloud map's repository configuration (a `url` that is a file path, `clone_root`, `local_cloudmap` and `db_dir`), or in a `local` host's `clone_root`, is relative to the project's root, the directory holding `unfurl.yaml`, and `~` is expanded:
 
 ```yaml
 environments:
@@ -112,8 +112,7 @@ environments:
           # their remotes (see "Track local clones" above)
           local_cloudmap: ../local-cloudmap.yaml
           # optional: the directory for the git-sync databases of the cloud map
-          # and its local_cloudmap, instead of the project's local/ directory;
-          # "~" is expanded, otherwise it's relative to the current directory
+          # and its local_cloudmap, instead of the project's local/ directory
           db_dir: ~/.cache/unfurl-cloudmap
           # optional: "python" keeps the cloud map and its local_cloudmap
           # without git-sync; the default is git-sync
@@ -128,6 +127,9 @@ environments:
             url: https://unfurl.cloud/onecommons/
             # limit to projects with this visibility:
             visibility: public  # optional, --visibility option overrides this
+        mine:
+            type: local
+            clone_root: ../repos  # the directory holding the local repositories
 ```
 
 ## Anatomy of a cloud map

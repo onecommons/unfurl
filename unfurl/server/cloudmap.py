@@ -1416,14 +1416,15 @@ def _cloudmap_local_env() -> Optional[LocalEnv]:
 def _analysis_clone_root(local_env: Optional[LocalEnv]) -> str:
     """Where ``POST /cloudmap/analyze`` clones repositories that aren't on the
     unfurl cloud server: the ``clone_root`` configured for the cloudmap, as
-    ``CloudMap.from_name`` uses, otherwise the server's own clone root."""
+    ``CloudMap.from_name`` uses and resolves it, otherwise the server's own
+    clone root."""
     from ..cloudmap import CloudMap
 
     if local_env:
         config = CloudMap.get_config(local_env, "cloudmap")
-        clone_root = config.repository.get("clone_root")
+        clone_root = CloudMap._configured_path(local_env, config.repository.get("clone_root"))
         if clone_root:
-            return str(clone_root)
+            return clone_root
     return str(current_app.config.get("UNFURL_CLONE_ROOT", "."))
 
 

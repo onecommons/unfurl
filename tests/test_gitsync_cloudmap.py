@@ -1017,3 +1017,130 @@ def test_a_hand_edit_of_a_saved_untracked_record_isnt_a_conflict(tmp_path: Path,
     assert db.get_repository(A).path == "by-hand"
     assert _ours(caplog) == []
     assert not any("diverges" in r.getMessage() for r in caplog.records)
+
+
+def _relative_project(tmp_path: Path, keys: str) -> Path:
+    """A project whose cloudmap ``cloudmap`` is ``maps/cloudmap.yaml``, given
+    relative to it, its repository configuration with ``keys`` too, and a
+    sibling directory ``elsewhere`` to run from."""
+    project = tmp_path / "project"
+    (project / "maps").mkdir(parents=True)
+    (project / "maps" / FILE).write_text(VERSIONED)
+    (project / "maps" / "local.yaml").write_text(VERSIONED)
+    (tmp_path / "elsewhere").mkdir()
+    (project / "unfurl.yaml").write_text(
+        f"""apiVersion: unfurl/v1.0.0
+kind: Project
+environments:
+  defaults:
+    cloudmaps:
+      repositories:
+        cloudmap:
+          url: maps/{FILE}
+          {keys}
+"""
+    )
+    return project
+
+
+class _Opened:
+    """The ``(file, db_dir)`` of each ``open_cloudmap_db`` call."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import unfurl.cloudmap.gitsync_db as module
+
+        self.calls: List[Tuple[str, str]] = []
+        real = module.open_cloudmap_db
+
+        def spy(
+            filepath: str,
+            project_root: Optional[str],
+            logger: UnfurlLogger,
+            *,
+            db_dir: Optional[str] = None,
+            backend: Backend = "git-sync",
+        ) -> CloudMapDB:
+            self.calls.append((os.path.realpath(filepath), os.path.realpath(db_dir or "")))
+            return real(filepath, project_root, logger, db_dir=db_dir, backend=backend)
+
+        monkeypatch.setattr(module, "open_cloudmap_db", spy)
+
+
+def test_relative_settings_resolve_against_the_project(tmp_path: Path, monkeypatch) -> None:
+    """Run from outside the project, a relative ``url``, ``db_dir``,
+    ``local_cloudmap`` and ``clone_root`` each name what's under it."""
+    from unfurl.cloudmap import CloudMap
+    from unfurl.util import change_cwd
+
+    project = _relative_project(
+        tmp_path, "local_cloudmap: maps/local.yaml\n          db_dir: dbs\n          clone_root: repos"
+    )
+    opened = _Opened(monkeypatch)
+    real = os.path.realpath
+    with change_cwd(str(tmp_path / "elsewhere")):
+        local_env = LocalEnv(str(project / "unfurl.yaml"), can_be_empty=True)
+        cloud_map = CloudMap.from_name(local_env, "cloudmap", None, "", True, False)
+        assert real(cloud_map.directory.local_cloudmap) == real(project / "maps" / "local.yaml")
+        assert real(cloud_map.directory.repos_root) == real(project / "repos")
+        cloud_map.directory.save_local_repositories(cloud_map.directory.local_cloudmap)
+    assert opened.calls == [
+        (real(project / "maps" / FILE), real(project / "dbs")),
+        (real(project / "maps" / "local.yaml"), real(project / "dbs")),
+    ]
+    assert not list((tmp_path / "elsewhere").iterdir())
+
+
+def test_absolute_and_home_settings_are_unchanged(tmp_path: Path, monkeypatch) -> None:
+    from unfurl.cloudmap import CloudMap
+    from unfurl.util import change_cwd
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    project = _relative_project(
+        tmp_path, f"db_dir: ~/dbs\n          clone_root: {tmp_path / 'clones'}"
+    )
+    opened = _Opened(monkeypatch)
+    with change_cwd(str(tmp_path / "elsewhere")):
+        local_env = LocalEnv(str(project / "unfurl.yaml"), can_be_empty=True)
+        cloud_map = CloudMap.from_name(local_env, "cloudmap", None, "", True, False)
+    real = os.path.realpath
+    assert opened.calls == [(real(project / "maps" / FILE), real(tmp_path / "home" / "dbs"))]
+    assert real(cloud_map.directory.repos_root) == real(tmp_path / "clones")
+
+
+def test_validate_from_elsewhere_matches_relative_settings(tmp_path: Path, monkeypatch) -> None:
+    """``unfurl validate`` run outside the project honours ``backend: python``
+    for a cloudmap and a local cloudmap given relative to the project."""
+    from unfurl.util import change_cwd
+
+    project = _relative_project(
+        tmp_path, "local_cloudmap: maps/local.yaml\n          backend: python"
+    )
+    validated = _Validated(monkeypatch)
+    with change_cwd(str(tmp_path / "elsewhere")):
+        for name in (FILE, "local.yaml"):
+            result = validated.run(project / "maps" / name)
+            assert result.exit_code == 0, (name, result.output, result.exception)
+    assert validated.git_sync_stores == 0
+
+
+def test_a_local_hosts_clone_root_resolves_against_the_project(tmp_path: Path) -> None:
+    """A configured ``local`` host's relative ``clone_root`` names a directory
+    under the project, run from outside it; a ``repos_root`` passed in wins."""
+    from unfurl.cloudmap import CloudMap
+    from unfurl.cloudmap.host import LocalRepositoryHost
+    from unfurl.util import change_cwd
+
+    project = _relative_project(tmp_path, "")
+    (project / "unfurl.yaml").write_text(
+        (project / "unfurl.yaml").read_text()
+        + "      hosts:\n        mine:\n          type: local\n          clone_root: repos\n"
+    )
+    real = os.path.realpath
+    with change_cwd(str(tmp_path / "elsewhere")):
+        local_env = LocalEnv(str(project / "unfurl.yaml"), can_be_empty=True)
+        host = CloudMap.get_host(local_env, "mine", "", "")
+        assert isinstance(host, LocalRepositoryHost)
+        assert real(host.repos_root) == real(project / "repos")
+        given = CloudMap.get_host(local_env, "mine", "", "given")
+        assert isinstance(given, LocalRepositoryHost)
+        assert real(given.repos_root) == real(tmp_path / "elsewhere" / "given")

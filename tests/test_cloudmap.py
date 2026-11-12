@@ -3767,6 +3767,7 @@ def test_analyze_endpoint_clone_root():
     from unfurl.server.serve import app
 
     configured = Mock()
+    configured.project.projectRoot = "/projects/p"
     configured.get_context.return_value = {
         "cloudmaps": {
             "repositories": {
@@ -3779,7 +3780,8 @@ def test_analyze_endpoint_clone_root():
         "cloudmaps": {"repositories": {"cloudmap": {"url": "https://example.com/cloudmap.git"}}}
     }
     with app.app_context(), patch.dict(app.config, UNFURL_CLONE_ROOT="/srv/clones"):
-        assert _analysis_clone_root(configured) == "repos"
+        # relative to the project's root, as from_name resolves it
+        assert _analysis_clone_root(configured) == "/projects/p/repos"
         assert _analysis_clone_root(unconfigured) == "/srv/clones"
         assert _analysis_clone_root(None) == "/srv/clones"
 
