@@ -166,13 +166,7 @@ impl Syntax {
     /// [`crate::template`].
     pub(crate) fn serialize(self, root: &serde_json::Value, file_path: &str) -> Result<Vec<u8>> {
         match self {
-            Self::Yaml => {
-                let s = serde_saphyr::to_string(root).map_err(|e| Error::Yaml {
-                    path: file_path.to_string(),
-                    message: e.to_string(),
-                })?;
-                Ok(unfurl_merge::util::elide_explicit_nulls(&s).into_bytes())
-            }
+            Self::Yaml => Ok(unfurl_merge::emit::to_yaml(root).into_bytes()),
             Self::Json | Self::Json5 => serde_json::to_vec_pretty(root).map_err(|e| Error::Json {
                 path: file_path.to_string(),
                 source: e,

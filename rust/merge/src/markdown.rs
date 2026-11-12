@@ -979,7 +979,7 @@ key: [unclosed
     }
 
     /// `foo:` is null and `foo: {}` is an empty map -- different
-    /// values, and `elide_explicit_nulls` rewrites only the first. An
+    /// values, and only the first is written without a value. An
     /// anchor that came back as `{}` would stop being an anchor, and an
     /// empty map that came back as null would lose a record's field.
     #[test]

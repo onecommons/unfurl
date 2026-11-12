@@ -20,13 +20,13 @@
 #![deny(rust_2018_idioms)]
 
 pub mod dict_merge;
+pub mod emit;
 pub mod error;
 pub mod expand;
 pub mod include;
 pub mod markdown;
 pub mod node;
 pub mod template;
-pub mod util;
 
 #[doc(inline)]
 pub use dict_merge::{

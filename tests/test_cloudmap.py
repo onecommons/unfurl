@@ -1,7 +1,9 @@
 import os
 from pathlib import Path
+import difflib
 import io
 from pprint import pformat
+import re
 from typing import Callable, Dict, Iterator, List, Protocol, Tuple
 import traceback
 from click.testing import CliRunner
@@ -110,9 +112,21 @@ def _first_difference(want: object, got: object, where: str = "") -> str:
     return f"{where or 'document'}:\n  expected: {pformat(want)}\n  got:      {pformat(got)}"
 
 
+_EMPTY_SECTION = re.compile(r"^\w+: \{\}\n", re.MULTILINE)
+
+
+def _text_difference(want: str, got: str) -> str:
+    """A diff from ``want`` to ``got``, two cloudmap files, without empty
+    sections, which CloudMapDB drops and git-sync keeps; "" if they match."""
+    want, got = (_EMPTY_SECTION.sub("", text) for text in (want, got))
+    diff = difflib.unified_diff(want.splitlines(True), got.splitlines(True), "CloudMapDB", "git-sync")
+    return "".join(diff)
+
+
 def _round_trip_failure(db: GitSyncCloudMapDB, path: str, db_dir: Path) -> str:
     """How ``db``'s records, saved and reopened from the same database, or the
-    file git-sync saved, differ from them as CloudMapDB would write them."""
+    file git-sync saved, differ from them as CloudMapDB would write them, in
+    value or, empty sections aside, in text."""
     db.save()
     want: Dict[str, object] = {**db._saved_records(), "metadata": db.metadata}
     reopened = _open_git_sync(path, db_dir)
@@ -128,7 +142,10 @@ def _round_trip_failure(db: GitSyncCloudMapDB, path: str, db_dir: Path) -> str:
     python.config.dump(written)
     as_python = {k: v for k, v in YAML(typ="safe").load(written.getvalue()).items() if v != {}}
     found = _first_difference(as_python, cloudmap_document(path))
-    return found and f"the file differs from CloudMapDB's at {found}"
+    if found:
+        return f"the file differs from CloudMapDB's at {found}"
+    diff = _text_difference(written.getvalue(), Path(path).read_text())
+    return diff and f"the file's text differs from CloudMapDB's:\n{diff}"
 
 
 @pytest.fixture
@@ -141,7 +158,8 @@ def memory_store(
     document, as ``CloudMapDB("", contents=…)``, or git-sync from a file
     CloudMapDB's writer makes of it (``{}`` as ``make_empty_cloudmap()``). On
     teardown each git-sync store is saved, reopened and checked against
-    itself and against what CloudMapDB writes for its records."""
+    itself and against what CloudMapDB writes for its records, value and
+    text."""
     built: List[Tuple[GitSyncCloudMapDB, str, Path]] = []
 
     def build(

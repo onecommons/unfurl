@@ -251,14 +251,10 @@ pub fn splice_value(
     Some(out)
 }
 
-/// Serialize a YAML fragment: YAML at column 0, with the explicit nulls
-/// elided so an anchor written `x:` does not come back as `x: null`.
-pub fn to_yaml(value: &serde_json::Value, file_path: &str) -> crate::error::Result<String> {
-    let text = serde_saphyr::to_string(value).map_err(|e| crate::error::MergeError::Yaml {
-        path: file_path.to_string(),
-        message: e.to_string(),
-    })?;
-    Ok(crate::util::elide_explicit_nulls(&text))
+/// Serialize a YAML fragment at column 0 with [`crate::emit::to_yaml`];
+/// it never fails.
+pub fn to_yaml(value: &serde_json::Value, _file_path: &str) -> crate::error::Result<String> {
+    Ok(crate::emit::to_yaml(value))
 }
 
 /// Each key of `src`, a block mapping whose keys sit at column 0, with

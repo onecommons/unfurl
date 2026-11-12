@@ -37,7 +37,7 @@ artifacts:
 const BETA: &str = "  'git://e.com/beta.git':\n    path: beta\n";
 
 fn block(name: &str) -> String {
-    format!("  \"git://e.com/{name}.git\":\n    path: {name}\n")
+    format!("  git://e.com/{name}.git:\n    path: {name}\n")
 }
 
 async fn open(root: &Path, db: &Path) -> SyncedDir {
@@ -149,7 +149,7 @@ async fn a_new_section_is_appended() {
         .expect("upsert");
     })
     .await;
-    let services = "services:\n  \"https://svc.example.com\":\n    access: public\n";
+    let services = "services:\n  https://svc.example.com:\n    access: public\n";
     assert_eq!(got, format!("{BASE}{services}"));
 }
 
@@ -169,7 +169,7 @@ async fn an_empty_section_takes_its_first_record() {
         .expect("upsert");
     })
     .await;
-    let services = "services:\n  \"https://svc.example.com\":\n    access: public\n";
+    let services = "services:\n  https://svc.example.com:\n    access: public\n";
     assert_eq!(got, base.replacen("services: {}\n", services, 1));
 }
 

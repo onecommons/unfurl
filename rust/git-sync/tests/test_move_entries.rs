@@ -145,7 +145,7 @@ async fn a_move_into_two_files_hands_the_entry_to_one(sync: &SyncedRepo, tmp: &T
     assert_eq!(id, tag);
 
     // outside the database: the record leaves cloudmap.yaml for both others
-    let block = format!("  \"{MOVER}\":\n    name: mover\n");
+    let block = format!("  {MOVER}:\n    name: mover\n");
     let path = tmp.path().join("cloudmap.yaml");
     let text = std::fs::read_to_string(&path).expect("read");
     assert!(text.contains(&block), "{text}");

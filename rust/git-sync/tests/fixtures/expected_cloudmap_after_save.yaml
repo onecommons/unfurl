@@ -1,7 +1,7 @@
 apiVersion: unfurl/v1.0.0
 kind: CloudMap
 repositories:
-  "git://example.com/added.git":
+  git://example.com/added.git:
     path: example/added
     name: added
   git://unfurl.cloud/onecommons/blueprints/odoo.git:

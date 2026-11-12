@@ -87,13 +87,13 @@ pub enum Error {
     /// tracked files inside the working tree).
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
-    /// YAML parse or emit failure. `path` identifies the offending
-    /// file; `message` is the upstream parser/emitter diagnostic.
+    /// YAML parse failure. `path` identifies the offending file;
+    /// `message` is the upstream parser diagnostic.
     #[error("yaml error in {path}: {message}")]
     Yaml {
         /// Working-tree-relative path of the offending file.
         path: String,
-        /// Upstream parser / emitter diagnostic.
+        /// Upstream parser diagnostic.
         message: String,
     },
     /// JSON parse failure. `path` identifies the offending file;

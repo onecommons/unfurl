@@ -4873,6 +4873,7 @@ version = "0.1.0"
 dependencies = [
  "granit-parser",
  "indexmap 2.13.0",
+ "proptest",
  "regex",
  "saphyr",
  "serde",
