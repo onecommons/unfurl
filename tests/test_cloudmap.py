@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Dict, Iterator
 import traceback
 from click.testing import CliRunner
 import pytest
@@ -38,6 +38,43 @@ from unfurl.cloudmap import (
     GithubManager,
     CloudMapDB,
 )
+
+OpenStore = Callable[[str], CloudMapDB]
+
+
+def _has_git_sync() -> bool:
+    try:
+        from unfurl import _rust
+    except ImportError:
+        return False
+    return hasattr(_rust, "GitSyncDB")
+
+
+@pytest.fixture(params=["python", "gitsync"])
+def open_store(
+    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+) -> OpenStore:
+    """Opens the cloudmap at a path with the store the param names: git-sync
+    through ``open_cloudmap_db``, with a database for each file."""
+    if request.param == "python":
+        return CloudMapDB
+    if not _has_git_sync():
+        pytest.skip("built without the cloudmap-sync feature")
+    from unfurl.cloudmap.gitsync_db import GitSyncCloudMapDB, open_cloudmap_db
+    from unfurl.logs import getLogger
+
+    db_dirs: Dict[str, Path] = {}
+
+    def open_git_sync(path: str) -> CloudMapDB:
+        if path not in db_dirs:
+            db_dirs[path] = tmp_path_factory.mktemp("gitsync")
+        db = open_cloudmap_db(path, None, getLogger("unfurl"), db_dir=str(db_dirs[path]))
+        # a failure with a new database falls back to CloudMapDB
+        assert isinstance(db, GitSyncCloudMapDB), path
+        return db
+
+    return open_git_sync
+
 
 # The cloudmap `test_create` expects after syncing with the test provider, and
 # the source the graph fixtures are derived from. Rebuild it by running
@@ -486,10 +523,10 @@ def test_normalize_url():
         assert normalize(malformed, "services") == ("", malformed, [])
 
 
-def test_get_record_by_pseudo_url(tmp_path):
+def test_get_record_by_pseudo_url(tmp_path, open_store: OpenStore):
     cloudmap_path = tmp_path / "cloudmap.yaml"
     cloudmap_path.write_text(expected_cloudmap)
-    db = CloudMapDB(str(cloudmap_path))
+    db = open_store(str(cloudmap_path))
 
     repo_url = "git://unfurl.cloud/feb20a/dashboard.git"
     assert db.get_repository("repository:" + repo_url) is db.repositories[repo_url]
@@ -521,10 +558,10 @@ def test_get_record_by_pseudo_url(tmp_path):
     )
 
 
-def test_get_record_by_cloudmap_url(tmp_path):
+def test_get_record_by_cloudmap_url(tmp_path, open_store: OpenStore):
     cloudmap_path = tmp_path / "cloudmap.yaml"
     cloudmap_path.write_text(expected_cloudmap)
-    db = CloudMapDB(str(cloudmap_path))
+    db = open_store(str(cloudmap_path))
     assert db.path == str(cloudmap_path)
 
     service_url = "https://example.com/oodo"
@@ -563,7 +600,7 @@ def test_get_record_by_cloudmap_url(tmp_path):
     # a "file:" url percent-encodes what a bare path spells out
     spaced_path = tmp_path / "my map.yaml"
     spaced_path.write_text(expected_cloudmap)
-    spaced = CloudMapDB(str(spaced_path))
+    spaced = open_store(str(spaced_path))
     for cloudmap_url in (spaced_path.as_uri(), "file:my%20map.yaml", "my map.yaml"):
         assert (
             spaced.get_service(f"cloudmap:[{cloudmap_url}]:service:{service_url}")
@@ -1651,10 +1688,8 @@ def test_cloudmap_schema_typed_url_keys():
     assert not validates({"the_db": {"has space": None}})
 
 
-def test_cloudmap_schema_with_artifacts_and_services():
+def test_cloudmap_schema_with_artifacts_and_services(tmp_path, open_store: OpenStore):
     """Test CloudMapDB validates artifacts and services sections with new schema."""
-    import tempfile
-
     cloudmap_yaml = f"""apiVersion: {API_VERSION}
 kind: CloudMap
 repositories:
@@ -1778,13 +1813,12 @@ types:
     - software.WebServer@unfurl.cloud/onecommons/std:generic_types
 """
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
-        f.write(cloudmap_yaml)
-        temp_path = f.name
+    temp_path = str(tmp_path / "cloudmap.yml")
+    Path(temp_path).write_text(cloudmap_yaml)
 
     try:
         # This should validate the schema successfully
-        db = CloudMapDB(temp_path)
+        db = open_store(temp_path)
 
         # Verify repositories loaded correctly
         assert len(db.repositories) == 1
@@ -2848,11 +2882,11 @@ Artifact git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/bl
 # fmt: on
 
 
-def test_cloudmap_graph(tmp_path):
+def test_cloudmap_graph(tmp_path, open_store: OpenStore):
     """Test cloudmap_graph_console renders the expected tree from expected_cloudmap."""
     cloudmap_path = tmp_path / "cloudmap.yaml"
     cloudmap_path.write_text(expected_cloudmap)
-    db = CloudMapDB(str(cloudmap_path))
+    db = open_store(str(cloudmap_path))
 
     assert _capture_graph(db) == expected_full_graph
 
@@ -2876,7 +2910,7 @@ def test_cloudmap_graph(tmp_path):
     assert "Record not found" in _capture_graph(db, "nonexistent://url")
 
 
-def test_cloudmap_graph_json(tmp_path):
+def test_cloudmap_graph_json(tmp_path, open_store: OpenStore):
     """Test cloudmap_graph_json returns the expected JSON structure."""
     import json
     from pathlib import Path
@@ -2885,7 +2919,7 @@ def test_cloudmap_graph_json(tmp_path):
 
     cloudmap_path = tmp_path / "cloudmap.yaml"
     cloudmap_path.write_text(expected_cloudmap)
-    db = CloudMapDB(str(cloudmap_path))
+    db = open_store(str(cloudmap_path))
 
     # Single artifact query
     fixture_dir = Path(__file__).parent / "fixtures"
@@ -4170,12 +4204,12 @@ def _version_records(section: dict) -> Iterator[dict]:
         yield from (record.get("versions") or {}).values()
 
 
-def test_record_extensions_round_trip(tmp_path: Path) -> None:
+def test_record_extensions_round_trip(tmp_path: Path, open_store: OpenStore) -> None:
     from ruamel.yaml import YAML
 
     cloudmap_path = tmp_path / "cloudmap.yaml"
     cloudmap_path.write_text(_EXTENDED_CLOUDMAP)
-    db = CloudMapDB(str(cloudmap_path))
+    db = open_store(str(cloudmap_path))
     assert db.artifacts["pkg:npm/example"].extensions == _EXTENSIONS
     db.save()
 
@@ -4194,14 +4228,14 @@ def test_record_extensions_round_trip(tmp_path: Path) -> None:
         for version in _version_records(saved[section]):
             assert {k: version.get(k) for k in _EXTENSIONS} == _VERSION_EXTENSIONS
     assert len(list(_version_records(saved["artifacts"]))) == 1
-    reloaded = CloudMapDB(str(cloudmap_path))
+    reloaded = open_store(str(cloudmap_path))
     assert reloaded.types["Thing@example.com"].extensions == _EXTENSIONS
     assert reloaded.services["https://svc.example.com"].versions[
         "v1"
     ].extensions == (_VERSION_EXTENSIONS)
 
 
-def test_versions_inherit_extensions(tmp_path: Path) -> None:
+def test_versions_inherit_extensions(tmp_path: Path, open_store: OpenStore) -> None:
     from ruamel.yaml import YAML
 
     cloudmap_path = tmp_path / "cloudmap.yaml"
@@ -4220,13 +4254,13 @@ artifacts:
         org.foo.tier: 2
 """
     )
-    artifact = CloudMapDB(str(cloudmap_path)).artifacts["pkg:npm/example"]
+    artifact = open_store(str(cloudmap_path)).artifacts["pkg:npm/example"]
     inherited = artifact.versions["@1.0"]
     overridden = artifact.versions["@2.0"]
     assert inherited.extensions == {"org.foo.owner": "team-a", "org.foo.tier": 1}
     assert overridden.extensions == {"org.foo.owner": "team-a", "org.foo.tier": 2}
 
-    db = CloudMapDB(str(cloudmap_path))
+    db = open_store(str(cloudmap_path))
     db.save()
     saved = YAML(typ="safe").load(cloudmap_path.read_text())
     versions = saved["artifacts"]["pkg:npm/example"]["versions"]
@@ -4234,15 +4268,25 @@ artifacts:
     assert versions["@2.0"] == {"org.foo.tier": 2}
 
 
-def test_record_extensions_need_an_authority(tmp_path: Path) -> None:
+def test_record_extensions_need_an_authority(tmp_path: Path, open_store: OpenStore) -> None:
     from unfurl.util import UnfurlSchemaError
 
     cloudmap_path = tmp_path / "cloudmap.yaml"
     cloudmap_path.write_text(
         _EXTENDED_CLOUDMAP.replace("org.foo.custom-property", "custom-property", 1)
     )
-    with pytest.raises(UnfurlSchemaError, match="custom-property"):
-        CloudMapDB(str(cloudmap_path))
+    if open_store is CloudMapDB:
+        with pytest.raises(UnfurlSchemaError, match="custom-property"):
+            open_store(str(cloudmap_path))
+    else:
+        from unfurl.cloudmap.gitsync_db import GitSyncCloudMapDB
+
+        # git-sync validates each record: only the repository is rejected
+        db = open_store(str(cloudmap_path))
+        assert isinstance(db, GitSyncCloudMapDB)
+        assert db.invalid == ["cloudmap.yaml"]
+        assert "git://example.com/org/repo.git" not in db.repositories
+        assert "pkg:npm/example" in db.artifacts
     with pytest.raises(TypeError, match='"org.example.custom-property"'):
         Artifact(url="pkg:npm/example", **{"custom-property": 1})
 
