@@ -270,3 +270,59 @@ async fn one_record_added_twice_conflicts() {
         .await
     );
 }
+
+async fn put(sync: &SyncedDir, section: &str, key: &str, value: serde_json::Value) {
+    sync.upsert_record(Some(FILE), section, key, value, None, false)
+        .await
+        .expect("upsert");
+}
+
+const HEADER: &str = "apiVersion: unfurl/v1.0.0\nkind: CloudMap\n";
+const TYPES: &str = "types:\n  Example:\n    name: Example\n    kind: component\n";
+const ARTIFACTS: &str = "artifacts:\n  pkg:npm/example:\n    digest: sha256:0\n";
+
+/// Sections are written in the schema's order, as CloudMapDB writes them,
+/// whatever order their records arrive in.
+#[tokio::test]
+async fn new_sections_are_in_the_schemas_order() {
+    let got = saved(HEADER, async |s| {
+        put(
+            s,
+            "/types",
+            "Example",
+            json!({"name": "Example", "kind": "component"}),
+        )
+        .await;
+        put(
+            s,
+            "/artifacts",
+            "pkg:npm/example",
+            json!({"digest": "sha256:0"}),
+        )
+        .await;
+        add(s, "alpha").await;
+    })
+    .await;
+    let repositories = format!("repositories:\n{}", block("alpha"));
+    assert_eq!(got, format!("{HEADER}{repositories}{ARTIFACTS}{TYPES}"));
+}
+
+#[tokio::test]
+async fn a_new_section_goes_between_the_ones_the_schema_puts_around_it() {
+    let repositories = format!("repositories:\n{}", block("alpha"));
+    let base = format!("{HEADER}{repositories}# the types\n{TYPES}");
+    let got = saved(&base, async |s| {
+        put(
+            s,
+            "/artifacts",
+            "pkg:npm/example",
+            json!({"digest": "sha256:0"}),
+        )
+        .await;
+    })
+    .await;
+    assert_eq!(
+        got,
+        format!("{HEADER}{repositories}{ARTIFACTS}# the types\n{TYPES}")
+    );
+}

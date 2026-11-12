@@ -271,7 +271,9 @@ pub trait DataFormat: Send + Sync {
     ///
     /// Only the record's top-level fields are ordered; nested objects
     /// keep the order they arrived in. `path` is the section name
-    /// without a leading slash, as in [`DataFormat::get_order`].
+    /// without a leading slash, as in [`DataFormat::get_order`], or `""`
+    /// for the document itself: the order of its sections, which places
+    /// a section the file doesn't have yet.
     fn field_order(&self, _path: &str) -> &[&str] {
         &[]
     }

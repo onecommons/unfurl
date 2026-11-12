@@ -380,21 +380,18 @@ pub(crate) fn apply_insert(
                 None => json,
             },
         };
-        root_obj.insert(section_name.to_string(), json);
+        let at = section_index(root_obj, section_name, format);
+        root_obj.shift_insert(at, section_name.to_string(), json);
         return;
     }
-    let section = root_obj
-        .entry(section_name.to_string())
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-    if !section.is_object() {
-        *section = serde_json::Value::Object(serde_json::Map::new());
+    if !root_obj.get(section_name).is_some_and(|v| v.is_object()) {
+        let at = section_index(root_obj, section_name, format);
+        let empty = serde_json::Value::Object(serde_json::Map::new());
+        root_obj.shift_insert(at, section_name.to_string(), empty);
     }
     let section = root_obj
-        .entry(section_name.to_string())
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-    if !section.is_object() {
-        *section = serde_json::Value::Object(serde_json::Map::new());
-    }
+        .get_mut(section_name)
+        .expect("the section was just ensured");
     let section = section.as_object_mut().expect("section is object");
     let json = match section.get(&key) {
         Some(previous) => reorder_like(previous, json),
@@ -406,6 +403,28 @@ pub(crate) fn apply_insert(
         },
     };
     section.insert(key, json);
+}
+
+/// Where `section_name` goes among the document's keys: where it is, or
+/// for a new one, before the first key the format's order for the root
+/// (`field_order("")`) puts after it, else at the end.
+fn section_index(
+    root_obj: &serde_json::Map<String, serde_json::Value>,
+    section_name: &str,
+    format: Option<&dyn crate::DataFormat>,
+) -> usize {
+    if let Some(at) = root_obj.keys().position(|key| key == section_name) {
+        return at;
+    }
+    let order = format.map_or(&[][..], |fmt| fmt.field_order(""));
+    let Some(rank) = order.iter().position(|name| *name == section_name) else {
+        return root_obj.len();
+    };
+    let later = &order[rank + 1..];
+    root_obj
+        .keys()
+        .position(|key| later.contains(&key.as_str()))
+        .unwrap_or(root_obj.len())
 }
 
 /// Emit `json`'s top-level keys in `order`, appending any it doesn't

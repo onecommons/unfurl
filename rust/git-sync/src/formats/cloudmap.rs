@@ -1211,6 +1211,21 @@ mod tests {
             CloudMapFormat.field_order("apiVersion").is_empty(),
             "envelope keys are not record sections"
         );
+        assert_eq!(
+            CloudMapFormat.field_order(""),
+            [
+                "apiVersion",
+                "kind",
+                "metadata",
+                "repositories",
+                "artifacts",
+                "components",
+                "services",
+                "instantiations",
+                "types",
+            ],
+            "the document's sections, in the order CloudMapDB.save() writes them"
+        );
     }
 
     /// Pins the generated order against the Python dataclasses, whose

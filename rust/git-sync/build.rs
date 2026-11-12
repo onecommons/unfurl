@@ -179,6 +179,13 @@ fn field_order_source(schema_text: &str) -> String {
         .get("properties")
         .and_then(|v| v.as_object())
         .expect("cloudmap-schema.json has top-level properties");
+    // The root's own entry, under "": the order of the sections.
+    let root_fields = sections
+        .keys()
+        .map(|f| format!("{f:?}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    entries.push_str(&format!("    (\"\", &[{root_fields}]),\n"));
     for (section, node) in sections {
         // A section is either a map of records -- `additionalProperties`
         // is the `$ref` naming the definition each of its values conforms
@@ -214,7 +221,8 @@ fn field_order_source(schema_text: &str) -> String {
          // a record that has no counterpart on disk to copy an order from, and\n\
          // by `validate_record`, which checks the names of undeclared fields.\n\
          \n\
-         /// Record field order per top-level section, as declared in the schema.\n\
+         /// Record field order per top-level section, as declared in the schema,\n\
+         /// and under `\"\"` the order of the document's own keys, the sections.\n\
          pub const FIELD_ORDER: &[(&str, &[&str])] = &[\n{entries}];\n\
          \n\
          /// Per section of closed records, the pattern a property name not in\n\

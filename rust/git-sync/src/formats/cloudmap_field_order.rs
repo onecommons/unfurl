@@ -5,8 +5,23 @@
 // a record that has no counterpart on disk to copy an order from, and
 // by `validate_record`, which checks the names of undeclared fields.
 
-/// Record field order per top-level section, as declared in the schema.
+/// Record field order per top-level section, as declared in the schema,
+/// and under `""` the order of the document's own keys, the sections.
 pub const FIELD_ORDER: &[(&str, &[&str])] = &[
+    (
+        "",
+        &[
+            "apiVersion",
+            "kind",
+            "metadata",
+            "repositories",
+            "artifacts",
+            "components",
+            "services",
+            "instantiations",
+            "types",
+        ],
+    ),
     (
         "metadata",
         &[
