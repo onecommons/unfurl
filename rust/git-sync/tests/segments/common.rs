@@ -69,11 +69,19 @@ impl Git {
     /// `git merge-base --all a b`: the common ancestors no other one
     /// descends from; none for unrelated histories.
     fn merge_bases(&self, a: CommitId, b: CommitId) -> Vec<CommitId> {
-        let common: BTreeSet<CommitId> = self.ancestors(a).intersection(&self.ancestors(b)).copied().collect();
+        let common: BTreeSet<CommitId> = self
+            .ancestors(a)
+            .intersection(&self.ancestors(b))
+            .copied()
+            .collect();
         common
             .iter()
             .copied()
-            .filter(|&c| !common.iter().any(|&x| x != c && self.ancestors(x).contains(&c)))
+            .filter(|&c| {
+                !common
+                    .iter()
+                    .any(|&x| x != c && self.ancestors(x).contains(&c))
+            })
             .collect()
     }
 

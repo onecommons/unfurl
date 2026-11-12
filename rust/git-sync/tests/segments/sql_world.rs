@@ -12,7 +12,9 @@ fn place(k: Key) -> (String, &'static str, String) {
 }
 
 fn key_of(file_path: &str, key: &str) -> Key {
-    let f: Key = file_path[1..file_path.len() - ".json".len()].parse().unwrap();
+    let f: Key = file_path[1..file_path.len() - ".json".len()]
+        .parse()
+        .unwrap();
     let i: Key = key[1..].parse().unwrap();
     f * KEYS_PER_FILE + i
 }
@@ -146,7 +148,10 @@ impl SqlWorld {
                     (config, Raw::Postgres(pool, schema))
                 }
                 _ => {
-                    let url = format!("sqlite://{}?mode=rwc", db.path().join("db.sqlite").display());
+                    let url = format!(
+                        "sqlite://{}?mode=rwc",
+                        db.path().join("db.sqlite").display()
+                    );
                     let pool = sqlx::SqlitePool::connect(&url).await.unwrap();
                     (DbConfig::Sqlite { url }, Raw::Sqlite(pool))
                 }
@@ -184,20 +189,21 @@ impl SqlWorld {
                 }
                 let d = &world.model.wts[w].draft[&k];
                 let (file, path, key) = place(k);
-                self.rt.block_on(async {
-                    if deleted {
-                        self.repos[&w]
-                            .delete_record(Some(&file), path, &key, None, false)
-                            .await
-                            .map(|_| ())
-                    } else {
-                        self.repos[&w]
-                            .upsert_record(Some(&file), path, &key, value(d.ver), None, false)
-                            .await
-                            .map(|_| ())
-                    }
-                })
-                .unwrap();
+                self.rt
+                    .block_on(async {
+                        if deleted {
+                            self.repos[&w]
+                                .delete_record(Some(&file), path, &key, None, false)
+                                .await
+                                .map(|_| ())
+                        } else {
+                            self.repos[&w]
+                                .upsert_record(Some(&file), path, &key, value(d.ver), None, false)
+                                .await
+                                .map(|_| ())
+                        }
+                    })
+                    .unwrap();
             }
             Op::Resave(_, k) => {
                 let Some(ver) = before.resave else { return };
@@ -345,7 +351,10 @@ impl SqlWorld {
             .current_dir(&mirror.root)
             .output()
             .expect("git");
-        assert!(matches!(out.status.code(), Some(0 | 1)), "merge-tree: {out:?}");
+        assert!(
+            matches!(out.status.code(), Some(0 | 1)),
+            "merge-tree: {out:?}"
+        );
         let text = String::from_utf8(out.stdout).unwrap();
         let mut lines = text.lines();
         let tree = gix::ObjectId::from_hex(lines.next().unwrap().as_bytes()).unwrap();
@@ -362,12 +371,18 @@ impl SqlWorld {
             (unfurl_git_sync::MergedUpstream::Merged { commit, .. }, false) => {
                 // the caller's fast-forward, while HEAD is still `l`
                 let dir = mirror.checkouts[&w].dir.clone();
-                git(&dir, &["merge", "-q", "--ff-only", &commit.to_string()], None);
+                git(
+                    &dir,
+                    &["merge", "-q", "--ff-only", &commit.to_string()],
+                    None,
+                );
                 mirror.adopt(&world.git, w, end, &commit.to_string());
                 mirror.sync(world);
                 self.scan(w, false);
             }
-            (merged, refused) => panic!("the model refused: {refused}; the implementation: {merged:?}"),
+            (merged, refused) => {
+                panic!("the model refused: {refused}; the implementation: {merged:?}")
+            }
         }
     }
 
@@ -418,7 +433,13 @@ impl SqlWorld {
 
     /// An export from `before.w` to `branch` that stopped: its edits in the
     /// branch's draft, or folded into a commit the ref isn't at.
-    fn stopped_export(&mut self, world: &World, mirror: &mut GitMirror, before: &Before, branch: String) {
+    fn stopped_export(
+        &mut self,
+        world: &World,
+        mirror: &mut GitMirror,
+        before: &Before,
+        branch: String,
+    ) {
         let (w, f) = (before.w, before.wts);
         let folded = match world.stuck.get(&w) {
             Some(Unfinished::Moved(_)) => false,
@@ -441,7 +462,14 @@ impl SqlWorld {
 
     /// Export branch `f`'s commit, made in this step if the model made
     /// one: it's the model's, on the base the model forked at.
-    fn took_export(&mut self, world: &World, mirror: &mut GitMirror, before: &Before, f: Wt, commit: &str) {
+    fn took_export(
+        &mut self,
+        world: &World,
+        mirror: &mut GitMirror,
+        before: &Before,
+        f: Wt,
+        commit: &str,
+    ) {
         let history = &world.imp.wts[f].history;
         let base = match world.git.commits.len() > before.commits {
             true => {
@@ -488,7 +516,10 @@ impl SqlWorld {
             .chain(&rollup.records)
             .map(|r| {
                 let file = r.file_path.as_deref().expect("a file on every record line");
-                (key_of(file, &r.key), r.key_id.expect("an id on every record line"))
+                (
+                    key_of(file, &r.key),
+                    r.key_id.expect("an id on every record line"),
+                )
             })
             .collect();
         let want = world.git.rollups[c].clone().unwrap_or_default();
@@ -537,7 +568,11 @@ impl SqlWorld {
             #[cfg(feature = "postgres")]
             Raw::Postgres(pool, _) => self
                 .rt
-                .block_on(sqlx::query_scalar(&sql.replace("?1", "$1")).bind(w).fetch_one(pool))
+                .block_on(
+                    sqlx::query_scalar(&sql.replace("?1", "$1"))
+                        .bind(w)
+                        .fetch_one(pool),
+                )
                 .unwrap(),
         };
         usize::try_from(n).expect("a count")
@@ -560,7 +595,9 @@ impl SqlWorld {
                 .unwrap(),
             #[cfg(feature = "postgres")]
             Raw::Postgres(pool, _) => {
-                let sql = sql.replace("json(r.json)", "r.json::text").replace("?1", "$1");
+                let sql = sql
+                    .replace("json(r.json)", "r.json::text")
+                    .replace("?1", "$1");
                 self.rt
                     .block_on(sqlx::query_as(&sql).bind(w).fetch_all(pool))
                     .unwrap()
@@ -649,9 +686,12 @@ impl SqlWorld {
             Raw::Postgres(pool, _) => self
                 .rt
                 .block_on(
-                    sqlx::query_as(&sql.replace("json(r.json)", "r.json::text").replace("?1", "$1"))
-                        .bind(w)
-                        .fetch_all(pool),
+                    sqlx::query_as(
+                        &sql.replace("json(r.json)", "r.json::text")
+                            .replace("?1", "$1"),
+                    )
+                    .bind(w)
+                    .fetch_all(pool),
                 )
                 .unwrap(),
         };
@@ -680,16 +720,22 @@ impl SqlWorld {
         }
         let ids: Vec<i64> = open.iter().map(|&w| self.worktree_id(w)).collect();
         let query = RecordQuery::default().worktrees(unfurl_git_sync::WorktreeFilter {
-                ids: Some(ids),
-                ..Default::default()
-            });
+            ids: Some(ids),
+            ..Default::default()
+        });
         let repo = &self.repos[&open[0]];
         let wt_of: BTreeMap<i64, Wt> = open.iter().map(|&w| (self.worktree_id(w), w)).collect();
         let live = |records: Vec<Record>| -> BTreeSet<(Wt, Key, Ver)> {
             records
                 .into_iter()
                 .filter(|r| !r.deleted)
-                .map(|r| (wt_of[&r.worktree_id], key_of(&r.file_path, &r.key), version_of(&r.json)))
+                .map(|r| {
+                    (
+                        wt_of[&r.worktree_id],
+                        key_of(&r.file_path, &r.key),
+                        version_of(&r.json),
+                    )
+                })
                 .collect()
         };
         let imp = &world.imp;
@@ -719,7 +765,9 @@ impl SqlWorld {
             !views.is_empty()
                 && views.iter().all(|t| imp.live(t, k) != Some(v))
                 && views.iter().any(|t| {
-                    (0..KEYS).any(|j| j != k && imp.live(t, j) == Some(v) && imp.live_id(t, j) != Some(id))
+                    (0..KEYS).any(|j| {
+                        j != k && imp.live(t, j) == Some(v) && imp.live_id(t, j) != Some(id)
+                    })
                 })
         };
         let renamed_copy = |&(w, k, v): &(Wt, Key, Ver)| {
@@ -727,7 +775,11 @@ impl SqlWorld {
                 .into_iter()
                 .map(|r| &imp.rows[&r])
                 .any(|a| {
-                    a.ver == v && !a.deleted && open.iter().any(|&u| u != w && moved_from_another(w, u, k, v, a.id))
+                    a.ver == v
+                        && !a.deleted
+                        && open
+                            .iter()
+                            .any(|&u| u != w && moved_from_another(w, u, k, v, a.id))
                 })
         };
         let spec = FacetSpec {
@@ -762,7 +814,11 @@ impl SqlWorld {
                     break;
                 }
             }
-            assert_eq!(live(paged), sql, "step {step}: a read across {open:?}, paged, {how}");
+            assert_eq!(
+                live(paged),
+                sql,
+                "step {step}: a read across {open:?}, paged, {how}"
+            );
             let facets = self.rt.block_on(repo.facet_records(&query, &spec)).unwrap();
             // a facet counts a (path, key), which a key in each file shares
             let keys: BTreeSet<Key> = sql.iter().map(|&(_, k, _)| k % KEYS_PER_FILE).collect();
@@ -773,7 +829,10 @@ impl SqlWorld {
             );
             // and its filters take the rows the rule keeps
             let one_file = query.clone().file_path(file_name(0));
-            let in_file = self.rt.block_on(repo.facet_records(&one_file, &spec)).unwrap();
+            let in_file = self
+                .rt
+                .block_on(repo.facet_records(&one_file, &spec))
+                .unwrap();
             let keys: BTreeSet<Key> = sql
                 .iter()
                 .map(|&(_, k, _)| k)
@@ -798,9 +857,15 @@ impl SqlWorld {
         T: RawPg,
     {
         match &self.raw {
-            Raw::Sqlite(pool) => self.rt.block_on(sqlx::query_as(sql).fetch_all(pool)).unwrap(),
+            Raw::Sqlite(pool) => self
+                .rt
+                .block_on(sqlx::query_as(sql).fetch_all(pool))
+                .unwrap(),
             #[cfg(feature = "postgres")]
-            Raw::Postgres(pool, _) => self.rt.block_on(sqlx::query_as(sql).fetch_all(pool)).unwrap(),
+            Raw::Postgres(pool, _) => self
+                .rt
+                .block_on(sqlx::query_as(sql).fetch_all(pool))
+                .unwrap(),
         }
     }
 
@@ -814,7 +879,8 @@ impl SqlWorld {
         }
         let segs: Vec<(i64, Option<i64>, Option<String>)> =
             self.raw_all("SELECT id, parent_id, head_commit FROM segment WHERE kind <> 'draft'");
-        let merges: Vec<(i64, i64)> = self.raw_all("SELECT segment_id, merged_segment_id FROM segment_merge");
+        let merges: Vec<(i64, i64)> =
+            self.raw_all("SELECT segment_id, merged_segment_id FROM segment_merge");
         let heads: BTreeMap<i64, i64> = self
             .raw_all::<(i64, Option<i64>)>("SELECT id, head_segment_id FROM worktree")
             .into_iter()
@@ -828,7 +894,10 @@ impl SqlWorld {
                 m.entry(from).or_insert_with(Vec::new).push(to);
                 m
             });
-        let ends: BTreeMap<i64, &str> = segs.iter().filter_map(|(id, _, c)| c.as_deref().map(|c| (*id, c))).collect();
+        let ends: BTreeMap<i64, &str> = segs
+            .iter()
+            .filter_map(|(id, _, c)| c.as_deref().map(|c| (*id, c)))
+            .collect();
         let history = |s: i64| {
             let mut out = BTreeSet::from([s]);
             let mut todo = vec![s];
@@ -853,13 +922,19 @@ impl SqlWorld {
         let imp = &world.imp;
         for (i, &w) in open.iter().enumerate() {
             for &u in &open[i + 1..] {
-                let sql = bases(history(heads[&self.worktree_id(w)]), history(heads[&self.worktree_id(u)]));
+                let sql = bases(
+                    history(heads[&self.worktree_id(w)]),
+                    history(heads[&self.worktree_id(u)]),
+                );
                 let want: BTreeSet<String> = imp
                     .merge_bases(w, u)
                     .into_iter()
                     .map(|s| mirror.oids[imp.segs[s].head_commit.unwrap()].clone())
                     .collect();
-                assert_eq!(sql, want, "step {step}: worktrees {w} and {u}'s merge bases");
+                assert_eq!(
+                    sql, want,
+                    "step {step}: worktrees {w} and {u}'s merge bases"
+                );
             }
         }
     }
@@ -881,10 +956,24 @@ impl SqlWorld {
         let open: Vec<Wt> = self.repos.keys().copied().collect();
         for w in open {
             let view = self.view(w);
-            self.same_ids(&format!("worktree {w}'s view"), step, &view, &rows(imp.own_view(w)));
+            self.same_ids(
+                &format!("worktree {w}'s view"),
+                step,
+                &view,
+                &rows(imp.own_view(w)),
+            );
             let chain = self.chain(w);
-            self.same_ids(&format!("worktree {w}'s committed chain"), step, &chain, &rows(imp.chain_set(w)));
-            assert_eq!(self.conflicts(w), imp.conflicts(w), "step {step}: worktree {w}'s conflicts");
+            self.same_ids(
+                &format!("worktree {w}'s committed chain"),
+                step,
+                &chain,
+                &rows(imp.chain_set(w)),
+            );
+            assert_eq!(
+                self.conflicts(w),
+                imp.conflicts(w),
+                "step {step}: worktree {w}'s conflicts"
+            );
             if !shape {
                 continue;
             }
@@ -911,7 +1000,11 @@ impl SqlWorld {
                     (r.key, r.ver, kind, seg.owner)
                 })
                 .collect();
-            assert_eq!(self.draft_entries(w), want, "step {step}: worktree {w}'s draft entries");
+            assert_eq!(
+                self.draft_entries(w),
+                want,
+                "step {step}: worktree {w}'s draft entries"
+            );
         }
         self.check_across(world, step);
         // an exported branch: its chain is its view, unless its export
@@ -924,11 +1017,24 @@ impl SqlWorld {
             .map(|&(f, _, _)| f)
             .collect();
         for w in exported {
-            assert!(imp.conflicts(w).is_empty(), "step {step}: worktree {w}'s conflicts");
+            assert!(
+                imp.conflicts(w).is_empty(),
+                "step {step}: worktree {w}'s conflicts"
+            );
             let chain = self.chain(w);
-            self.same_ids(&format!("worktree {w}'s committed chain"), step, &chain, &rows(imp.chain_set(w)));
+            self.same_ids(
+                &format!("worktree {w}'s committed chain"),
+                step,
+                &chain,
+                &rows(imp.chain_set(w)),
+            );
             if !stuck.contains(&w) {
-                self.same_ids(&format!("worktree {w}'s view"), step, &chain, &rows(imp.own_view(w)));
+                self.same_ids(
+                    &format!("worktree {w}'s view"),
+                    step,
+                    &chain,
+                    &rows(imp.own_view(w)),
+                );
             }
             if shape {
                 assert_eq!(

@@ -414,7 +414,11 @@ impl Segments {
     /// version unchanged since its merge base with another that has
     /// changed it since. Content is `(ver, deleted)`.
     fn read_across(&self, across: &[Wt]) -> Vec<RowId> {
-        let ids: BTreeSet<RowId> = self.read_across_by(across).into_iter().map(|(_, id)| id).collect();
+        let ids: BTreeSet<RowId> = self
+            .read_across_by(across)
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect();
         ids.into_iter().collect()
     }
 
@@ -434,7 +438,10 @@ impl Segments {
             .iter()
             .filter(|(_, r)| r.conflict.is_none() && in_view(r.seg) != 0)
             .map(|(&id, r)| {
-                let gone = self.sup.range((id, 0)..(id + 1, 0)).fold(0, |a, &(_, s)| a | in_view(s));
+                let gone = self
+                    .sup
+                    .range((id, 0)..(id + 1, 0))
+                    .fold(0, |a, &(_, s)| a | in_view(s));
                 (id, r, in_view(r.seg) & !gone)
             })
             .collect();
@@ -502,7 +509,11 @@ impl Segments {
         let mut out = BTreeSet::from([s]);
         let mut todo = vec![s];
         while let Some(x) = todo.pop() {
-            let merged = self.merges.iter().filter(|&&(from, _, _)| from == x).map(|&(_, _, to)| to);
+            let merged = self
+                .merges
+                .iter()
+                .filter(|&&(from, _, _)| from == x)
+                .map(|&(_, _, to)| to);
             for y in self.segs[x].parent.into_iter().chain(merged) {
                 if out.insert(y) {
                     todo.push(y);
@@ -523,7 +534,11 @@ impl Segments {
         common
             .iter()
             .copied()
-            .filter(|&s| !common.iter().any(|&x| x != s && self.history_of(x).contains(&s)))
+            .filter(|&s| {
+                !common
+                    .iter()
+                    .any(|&x| x != s && self.history_of(x).contains(&s))
+            })
             .collect()
     }
 
@@ -1032,11 +1047,25 @@ impl Segments {
     ) {
         // what this brings in of other worktrees' lines: the commit itself
         // where one holds it, else a merge's other parents
-        let theirs = self.wts.iter().enumerate().any(|(u, wt)| u != w && wt.alive && wt.history.contains(&commit));
-        let own = |c: &CommitId| self.wts[w].chain.iter().any(|&(s, _)| self.segs[s].head_commit == Some(*c));
+        let theirs = self
+            .wts
+            .iter()
+            .enumerate()
+            .any(|(u, wt)| u != w && wt.alive && wt.history.contains(&commit));
+        let own = |c: &CommitId| {
+            self.wts[w]
+                .chain
+                .iter()
+                .any(|&(s, _)| self.segs[s].head_commit == Some(*c))
+        };
         let merged: Vec<CommitId> = match theirs {
             true => vec![commit],
-            false => git.parents[commit].iter().skip(1).copied().filter(|c| !own(c)).collect(),
+            false => git.parents[commit]
+                .iter()
+                .skip(1)
+                .copied()
+                .filter(|c| !own(c))
+                .collect(),
         };
         for &c in &merged {
             self.end_segment_at(c, git);
@@ -1161,14 +1190,22 @@ impl Segments {
         // move carries its id over, or it's a new record
         let record = self.shown_id(&self.chain_set(w), key);
         let live_record = self.live_id(&self.chain_set(w), key);
-        let drafted = self.row_in(self.wts[w].draft, key).map(|r| self.rows[&r].id);
+        let drafted = self
+            .row_in(self.wts[w].draft, key)
+            .map(|r| self.rows[&r].id);
         let pinned = head_row.is_some() && self.held_elsewhere(key, w);
         let entries = self.draft_entries(head_row.as_slice(), w);
         let reused = change.is_some_and(|v| self.given.contains(&v));
         // a deletion of the head's row leaves a tombstone where the head
         // hides something at the key, as a commit's fold keeps one (§4.3)
         let tombstone = match head_row {
-            Some(_) => pinned || self.sup.iter().any(|&(r, s)| s == h && self.rows[&r].key == key),
+            Some(_) => {
+                pinned
+                    || self
+                        .sup
+                        .iter()
+                        .any(|&(r, s)| s == h && self.rows[&r].key == key)
+            }
             None => vis_below.iter().any(|r| !self.rows[r].deleted),
         };
         if let Some(hr) = head_row {
@@ -1547,8 +1584,11 @@ impl Segments {
         let commit = *self.wts[w].history.last().unwrap();
         // empty: no rows, and no entries hiding rows below; and its parent
         // ends where it does, or the fork's merge base would end no segment
-        let parent_ends_here = self.segs[h].parent.is_some_and(|p| self.segs[p].head_commit == Some(commit));
-        if parent_ends_here && self.rows_in(h).is_empty() && !self.sup.iter().any(|&(_, s)| s == h) {
+        let parent_ends_here = self.segs[h]
+            .parent
+            .is_some_and(|p| self.segs[p].head_commit == Some(commit));
+        if parent_ends_here && self.rows_in(h).is_empty() && !self.sup.iter().any(|&(_, s)| s == h)
+        {
             let chain = self.wts[w]
                 .chain
                 .iter()
@@ -1580,7 +1620,10 @@ impl Segments {
         match self.ending_at(c) {
             Some((u, i)) => {
                 let s = self.wts[u].chain[i].0;
-                if let Some(owner) = self.segs[s].owner.filter(|_| self.segs[s].kind == Kind::Head) {
+                if let Some(owner) = self.segs[s]
+                    .owner
+                    .filter(|_| self.segs[s].kind == Kind::Head)
+                {
                     self.close_head(owner);
                 }
             }
@@ -1622,7 +1665,9 @@ impl Segments {
         if holds(w) {
             return w;
         }
-        (0..self.wts.len()).find(|&u| u != f && holds(u)).unwrap_or(w)
+        (0..self.wts.len())
+            .find(|&u| u != f && holds(u))
+            .unwrap_or(w)
     }
 
     /// C.16's placement of `c` inside a segment, split there: down the
@@ -1662,7 +1707,11 @@ impl Segments {
         if self.segs[s].head_commit != Some(c) {
             self.split(s, c, git, &history);
         }
-        self.wts[w].chain.iter().position(|&(seg, _)| seg == s).unwrap()
+        self.wts[w]
+            .chain
+            .iter()
+            .position(|&(seg, _)| seg == s)
+            .unwrap()
     }
 
     /// C.21's unfold into `w`'s draft: for each record the local commits
@@ -1681,7 +1730,10 @@ impl Segments {
         {
             if let Some(r) = self.row_in(d, key) {
                 let row = self.rows.get_mut(&r).unwrap();
-                let e = row.edit.as_mut().expect("a clean working tree has no file rows");
+                let e = row
+                    .edit
+                    .as_mut()
+                    .expect("a clean working tree has no file rows");
                 e.base = was;
                 e.base_commit = was.map(|_| b);
                 if row.deleted {
@@ -1946,8 +1998,8 @@ impl Segments {
                     // changed before c and back after it
                     let new = self.insert_value(s, k, v_c);
                     // a new record: its version may be an older record's id
-                        let fresh = Some(fresh_id(self.rows[&new].ver, k))
-                            .filter(|id| !taken.contains(id) && !self.given.contains(id));
+                    let fresh = Some(fresh_id(self.rows[&new].ver, k))
+                        .filter(|id| !taken.contains(id) && !self.given.contains(id));
                     let id = recovered
                         .get(&k)
                         .copied()
@@ -2158,7 +2210,9 @@ impl Segments {
         for c in self.rows_in(self.wts[MAIN].draft) {
             let row = &self.rows[&c];
             if row.conflict.is_none() && !row.deleted && seen.contains(&(row.key, row.ver)) {
-                let tag = self.row_in(d, row.key).map_or(CHAIN_TAG, |x| self.rows[&x].id);
+                let tag = self
+                    .row_in(d, row.key)
+                    .map_or(CHAIN_TAG, |x| self.rows[&x].id);
                 self.entry(c, d, tag);
             }
         }
@@ -2328,7 +2382,11 @@ impl Segments {
                 .flat_map(|w| self.history_of(w.head))
                 .collect();
             let dead: Vec<SegId> = (0..self.segs.len())
-                .filter(|&s| self.segs[s].alive && self.segs[s].kind != Kind::Draft && !referenced.contains(&s))
+                .filter(|&s| {
+                    self.segs[s].alive
+                        && self.segs[s].kind != Kind::Draft
+                        && !referenced.contains(&s)
+                })
                 .collect();
             if !dead.is_empty() {
                 for s in dead {

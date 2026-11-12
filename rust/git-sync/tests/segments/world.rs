@@ -421,8 +421,10 @@ impl World {
     /// its merge base with another which has since changed it. Pending
     /// edits count as changes on top of a head.
     fn read_across(&self, across: &[Wt]) -> BTreeSet<(Key, Ver)> {
-        let views: BTreeMap<Wt, BTreeMap<Key, Ver>> =
-            across.iter().map(|&w| (w, self.model.wts[w].view())).collect();
+        let views: BTreeMap<Wt, BTreeMap<Key, Ver>> = across
+            .iter()
+            .map(|&w| (w, self.model.wts[w].view()))
+            .collect();
         let lines: BTreeMap<Wt, BTreeSet<CommitId>> = across
             .iter()
             .map(|&w| (w, self.ancestors(*self.imp.wts[w].history.last().unwrap())))
@@ -433,7 +435,11 @@ impl World {
             common
                 .iter()
                 .copied()
-                .filter(|&c| !common.iter().any(|&x| x != c && self.ancestors(x).contains(&c)))
+                .filter(|&c| {
+                    !common
+                        .iter()
+                        .any(|&x| x != c && self.ancestors(x).contains(&c))
+                })
                 .map(|c| &self.git.commits[c])
                 .collect()
         };
@@ -445,7 +451,8 @@ impl World {
                 }
                 let theirs = &views[&u];
                 // the base had it here, and the other has changed it here
-                let here = trees.iter().all(|t| t.get(&k) == Some(&v)) && theirs.get(&k) != Some(&v);
+                let here =
+                    trees.iter().all(|t| t.get(&k) == Some(&v)) && theirs.get(&k) != Some(&v);
                 // moved here since the base, and the other, not moving it
                 // here too, has modified it where the base had it: a rename
                 // and a modification, where a rename and a deletion is a
@@ -453,7 +460,8 @@ impl World {
                 let moved = theirs.get(&k) != Some(&v)
                     && trees.iter().all(|t| {
                         t.get(&k) != Some(&v)
-                            && t.iter().any(|(j, &x)| x == v && theirs.get(j).is_some_and(|&y| y != v))
+                            && t.iter()
+                                .any(|(j, &x)| x == v && theirs.get(j).is_some_and(|&y| y != v))
                     });
                 here || moved
             })
@@ -497,8 +505,12 @@ impl World {
                     .into_iter()
                     .map(|s| self.imp.segs[s].head_commit.unwrap())
                     .collect();
-                let git: BTreeSet<CommitId> = self.git.merge_bases(head(w), head(u)).into_iter().collect();
-                assert_eq!(graph, git, "step {step} ({op:?}): worktrees {w} and {u}'s merge bases");
+                let git: BTreeSet<CommitId> =
+                    self.git.merge_bases(head(w), head(u)).into_iter().collect();
+                assert_eq!(
+                    graph, git,
+                    "step {step} ({op:?}): worktrees {w} and {u}'s merge bases"
+                );
             }
         }
         let want = self.read_across(&across);
@@ -863,15 +875,16 @@ impl World {
         // SQL sees only the commit, so the base is the segment §4.6 takes
         // for it, which needn't be the one picked
         let base = base.map(|(u, i)| {
-            let bc = self.imp.segs[self.imp.wts[u].chain[i].0].head_commit.unwrap();
+            let bc = self.imp.segs[self.imp.wts[u].chain[i].0]
+                .head_commit
+                .unwrap();
             self.imp.ending_at(bc).unwrap_or((u, i))
         });
         let base_commit = base.map(|(u, i)| {
             let seg = self.imp.wts[u].chain[i].0;
             self.imp.segs[seg].head_commit.unwrap()
         });
-        let mut tree =
-            base_commit.map_or_else(BTreeMap::new, |c| self.git.commits[c].clone());
+        let mut tree = base_commit.map_or_else(BTreeMap::new, |c| self.git.commits[c].clone());
         let mut base_ids = base
             .zip(base_commit)
             .map_or_else(BTreeMap::new, |((u, _), c)| self.ids_at(u, c));
@@ -886,8 +899,7 @@ impl World {
                 let named = self.named_id(k, bc);
                 let lost = named.is_some_and(|n| {
                     n != *id
-                        || (0..KEYS)
-                            .any(|j| j != k && self.imp.live_id(&base_view, j) == Some(n))
+                        || (0..KEYS).any(|j| j != k && self.imp.live_id(&base_view, j) == Some(n))
                 });
                 if named.is_none() || lost {
                     if let Some(got) = self.imp.live_id(&base_view, k) {
@@ -934,7 +946,11 @@ impl World {
                     .or(m.ids.get(&k).filter(|id| !taken.contains(id)))
                     .copied()
                     // else the record the draft holds at the key
-                    .or(m.draft.get(&k).map(|d| d.id).filter(|id| !taken.contains(id)))
+                    .or(m
+                        .draft
+                        .get(&k)
+                        .map(|d| d.id)
+                        .filter(|id| !taken.contains(id)))
                     .unwrap_or(v);
                 (k, id)
             })
@@ -1034,7 +1050,11 @@ impl World {
     /// [`Self::split_ids`] has them.
     fn adopt_merged_splits(&mut self) {
         for (u, c) in std::mem::take(&mut self.imp.merged_splits) {
-            let ending = self.imp.wts[u].chain.iter().map(|&(s, _)| s).find(|&s| self.imp.segs[s].head_commit == Some(c));
+            let ending = self.imp.wts[u]
+                .chain
+                .iter()
+                .map(|&(s, _)| s)
+                .find(|&s| self.imp.segs[s].head_commit == Some(c));
             let Some(s) = ending else { continue };
             let mut chain = self.imp.ancestors(s);
             chain.insert(s);
@@ -1046,11 +1066,17 @@ impl World {
     /// `ids` at commit `c`, with the id `chain`, what a split built, shows
     /// at each key no rollup names there, or whose rollup names an id the
     /// worktree didn't give it at `c` or another key took (§4.7).
-    fn split_ids(&self, mut ids: BTreeMap<Key, Ver>, chain: &BTreeSet<SegId>, c: CommitId) -> BTreeMap<Key, Ver> {
+    fn split_ids(
+        &self,
+        mut ids: BTreeMap<Key, Ver>,
+        chain: &BTreeSet<SegId>,
+        c: CommitId,
+    ) -> BTreeMap<Key, Ver> {
         for (k, id) in ids.iter_mut() {
             let named = self.named_id(*k, c);
-            let lost = named
-                .is_some_and(|n| n != *id || (0..KEYS).any(|j| j != *k && self.imp.live_id(chain, j) == Some(n)));
+            let lost = named.is_some_and(|n| {
+                n != *id || (0..KEYS).any(|j| j != *k && self.imp.live_id(chain, j) == Some(n))
+            });
             // the split falls back on the ids it has, which can miss a
             // record deleted and re-created after `c` outside git-sync
             if named.is_none() || lost {
@@ -1202,13 +1228,17 @@ impl World {
         }
         let head = *self.imp.wts[w].history.last().unwrap();
         let below = self.ancestors(b);
-        let mut local: Vec<CommitId> =
-            self.ancestors(head).into_iter().filter(|c| !below.contains(c)).collect();
-        local.sort_unstable();
-        local
+        let mut local: Vec<CommitId> = self
+            .ancestors(head)
             .into_iter()
-            .rev()
-            .find_map(|c| self.git.rollups[c].as_ref().and_then(|r| r.get(&k).copied()))
+            .filter(|c| !below.contains(c))
+            .collect();
+        local.sort_unstable();
+        local.into_iter().rev().find_map(|c| {
+            self.git.rollups[c]
+                .as_ref()
+                .and_then(|r| r.get(&k).copied())
+        })
     }
 
     /// An outside commit off `b` with `extra`, never checked out: no rollup
@@ -1272,7 +1302,9 @@ impl World {
             // find it: no rebuild names it, and a purged tombstone forgot it
             let id = match now {
                 Some(_) => id,
-                None => self.named_by_rows(w, b, k).unwrap_or_else(|| self.imp.private_ver()),
+                None => self
+                    .named_by_rows(w, b, k)
+                    .unwrap_or_else(|| self.imp.private_ver()),
             };
             let ver = match now {
                 Some(v) => v,
@@ -1314,7 +1346,9 @@ impl World {
                     let ver = self.ver();
                     // a deletion names its record only as the
                     // implementation can find it, as a merge's does
-                    let id = self.named_by_rows(w, b, k).unwrap_or_else(|| self.imp.private_ver());
+                    let id = self
+                        .named_by_rows(w, b, k)
+                        .unwrap_or_else(|| self.imp.private_ver());
                     tombstones.push((k, was, ver, id));
                 }
                 _ => {
@@ -1342,7 +1376,10 @@ impl World {
                 None => (w, self.imp.segment_at(w, pos, &self.git)),
             },
         };
-        let unfold = Unfold { base: b, tombstones };
+        let unfold = Unfold {
+            base: b,
+            tombstones,
+        };
         self.rebuild_with(w, Some(base), extra, &unfold);
     }
 
@@ -1462,7 +1499,14 @@ impl World {
                 let Some(&ver) = self.model.wts[w].view().get(&k) else {
                     return;
                 };
-                self.write(w, k, Value { ver, deleted: false });
+                self.write(
+                    w,
+                    k,
+                    Value {
+                        ver,
+                        deleted: false,
+                    },
+                );
             }
             Op::Revert(n, k, back) => {
                 let w = self.pick(n, false).unwrap();
@@ -2119,9 +2163,11 @@ impl World {
                     // when main saves that row unchanged
                     let main_chain = self.imp.chain_set(MAIN);
                     let recreated = rows.iter().any(|r| r.key == k && r.ver == v && r.recreated)
-                        || self.imp.visible(&main_chain, Some(k)).iter().any(|r| {
-                            self.imp.rows[r].ver == v && self.imp.rows[r].recreated
-                        });
+                        || self
+                            .imp
+                            .visible(&main_chain, Some(k))
+                            .iter()
+                            .any(|r| self.imp.rows[r].ver == v && self.imp.rows[r].recreated);
                     // at this key, or at one a move brought it from
                     let edited_over = stack.iter().any(|&u| {
                         self.model.wts[u]
@@ -2183,7 +2229,9 @@ fn case_done() {
         n.set(n.get() + 1);
         n.get()
     });
-    if let Some(path) = std::env::var_os("SEGMENTS_ALLOWANCES").filter(|_| cases.is_multiple_of(10000)) {
+    if let Some(path) =
+        std::env::var_os("SEGMENTS_ALLOWANCES").filter(|_| cases.is_multiple_of(10000))
+    {
         let counts: Vec<String> = ALLOWED.with(|a| {
             ALLOWANCES
                 .iter()

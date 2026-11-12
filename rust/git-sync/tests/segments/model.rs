@@ -467,12 +467,7 @@ impl OWt {
                 // else the record the draft holds at the key
                 let id = match self.draft.get(&k) {
                     Some(d) if carried.contains(&k) => d.id,
-                    d => self
-                        .ids
-                        .get(&k)
-                        .copied()
-                        .or(d.map(|d| d.id))
-                        .unwrap_or(v),
+                    d => self.ids.get(&k).copied().or(d.map(|d| d.id)).unwrap_or(v),
                 };
                 (k, id)
             })

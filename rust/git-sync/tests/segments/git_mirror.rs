@@ -51,7 +51,10 @@ fn record_key(key: Key) -> String {
 /// File `file`'s content for a tree.
 fn file_json(tree: &BTreeMap<Key, Ver>, file: Key) -> String {
     let records: serde_json::Map<String, serde_json::Value> = keys_of(file)
-        .filter_map(|k| tree.get(&k).map(|&v| (record_key(k), serde_json::json!({ "v": v }))))
+        .filter_map(|k| {
+            tree.get(&k)
+                .map(|&v| (record_key(k), serde_json::json!({ "v": v })))
+        })
         .collect();
     let doc = serde_json::json!({ "kind": "segtest", "r": records });
     serde_json::to_string_pretty(&doc).unwrap() + "\n"
@@ -98,7 +101,10 @@ fn git(dir: &Path, args: &[&str], stdin: Option<&str>) -> String {
         "git {args:?} failed: {}",
         String::from_utf8_lossy(&out.stderr)
     );
-    String::from_utf8(out.stdout).unwrap().trim_end().to_string()
+    String::from_utf8(out.stdout)
+        .unwrap()
+        .trim_end()
+        .to_string()
 }
 
 struct Checkout {
@@ -128,7 +134,11 @@ impl GitMirror {
         std::fs::create_dir(&root).unwrap();
         git(&root, &["init", "-q", "-b", "main"], None);
         // one origin for every checkout: they're branches of one repository
-        git(&root, &["remote", "add", "origin", "https://example.com/segtest.git"], None);
+        git(
+            &root,
+            &["remote", "add", "origin", "https://example.com/segtest.git"],
+            None,
+        );
         let repo = gix::open(&root).expect("open the mirror");
         GitMirror {
             tmp,
@@ -142,7 +152,11 @@ impl GitMirror {
     /// File `file` in commit `oid`: its blob's id and its text.
     fn file_at(&self, oid: &str, file: Key) -> (gix::ObjectId, String) {
         let spec = format!("{oid}:{}", file_name(file));
-        let id = self.repo.rev_parse_single(spec.as_str()).expect("a file in a commit").detach();
+        let id = self
+            .repo
+            .rev_parse_single(spec.as_str())
+            .expect("a file in a commit")
+            .detach();
         let blob = self.repo.find_blob(id).expect("a blob");
         (id, String::from_utf8(blob.data.clone()).unwrap())
     }
@@ -200,7 +214,11 @@ impl GitMirror {
                     let dir = self.tmp.path().join(format!("w{w}"));
                     let path = dir.to_str().unwrap();
                     let branch = format!("w{w}");
-                    git(&self.root, &["worktree", "add", "-q", "-b", &branch, path, &oid], None);
+                    git(
+                        &self.root,
+                        &["worktree", "add", "-q", "-b", &branch, path, &oid],
+                        None,
+                    );
                     let repo = gix::open(&dir).expect("open a checkout");
                     self.checkouts.insert(w, Checkout { dir, head, repo });
                 }
@@ -210,9 +228,12 @@ impl GitMirror {
             let dir = &self.checkouts[&w].dir;
             for f in 0..KEYS / KEYS_PER_FILE {
                 let path = dir.join(file_name(f));
-                let want: BTreeMap<Key, Ver> =
-                    keys_of(f).filter_map(|k| m.disk.get(&k).map(|&v| (k, v))).collect();
-                let now = std::fs::read_to_string(&path).ok().map(|t| parse_file(f, &t));
+                let want: BTreeMap<Key, Ver> = keys_of(f)
+                    .filter_map(|k| m.disk.get(&k).map(|&v| (k, v)))
+                    .collect();
+                let now = std::fs::read_to_string(&path)
+                    .ok()
+                    .map(|t| parse_file(f, &t));
                 let differs = now.as_ref() != Some(&want);
                 if !differs && !moved {
                     continue;
@@ -235,9 +256,15 @@ impl GitMirror {
         assert_eq!(c, self.oids.len(), "commits adopted in order");
         for f in 0..KEYS / KEYS_PER_FILE {
             let back = parse_file(f, &self.file_at(oid, f).1);
-            let want: BTreeMap<Key, Ver> =
-                keys_of(f).filter_map(|k| g.commits[c].get(&k).map(|&v| (k, v))).collect();
-            assert_eq!(back, want, "the implementation's commit {c}'s {}", file_name(f));
+            let want: BTreeMap<Key, Ver> = keys_of(f)
+                .filter_map(|k| g.commits[c].get(&k).map(|&v| (k, v)))
+                .collect();
+            assert_eq!(
+                back,
+                want,
+                "the implementation's commit {c}'s {}",
+                file_name(f)
+            );
         }
         self.oids.push(oid.to_string());
         if let Some(checkout) = self.checkouts.get_mut(&w) {
@@ -249,8 +276,9 @@ impl GitMirror {
     fn make_commit(&self, g: &Git, c: CommitId) -> String {
         let mut entries = Vec::new();
         for f in 0..KEYS / KEYS_PER_FILE {
-            let want: BTreeMap<Key, Ver> =
-                keys_of(f).filter_map(|k| g.commits[c].get(&k).map(|&v| (k, v))).collect();
+            let want: BTreeMap<Key, Ver> = keys_of(f)
+                .filter_map(|k| g.commits[c].get(&k).map(|&v| (k, v)))
+                .collect();
             // A parent's blob where the content is unchanged: the
             // implementation writes files in its own layout, and a
             // checkout's bytes have to stay those of its HEAD.
@@ -269,7 +297,11 @@ impl GitMirror {
             });
         }
         let tree = gix::objs::Tree { entries };
-        let tree = self.repo.write_object(&tree).expect("write a tree").detach();
+        let tree = self
+            .repo
+            .write_object(&tree)
+            .expect("write a tree")
+            .detach();
         let message: gix::bstr::BString = match (g.replayed_from.get(&c), &g.rollups[c]) {
             (Some(&from), _) => self.message(&self.oids[from]),
             (None, Some(ids)) => format!("git-sync commit {c}\n\nrollup: {ids:?}").into(),
@@ -285,7 +317,10 @@ impl GitMirror {
                 offset: 0,
             },
         };
-        let parents: Vec<gix::ObjectId> = g.parents[c].iter().map(|&p| object_id(&self.oids[p])).collect();
+        let parents: Vec<gix::ObjectId> = g.parents[c]
+            .iter()
+            .map(|&p| object_id(&self.oids[p]))
+            .collect();
         let commit = gix::objs::Commit {
             tree,
             parents: parents.iter().copied().collect(),
@@ -295,7 +330,11 @@ impl GitMirror {
             message,
             extra_headers: Vec::new(),
         };
-        let oid = self.repo.write_object(&commit).expect("write a commit").detach();
+        let oid = self
+            .repo
+            .write_object(&commit)
+            .expect("write a commit")
+            .detach();
         let back: Vec<gix::ObjectId> = self
             .repo
             .find_commit(oid)
@@ -311,8 +350,9 @@ impl GitMirror {
         }
         for f in 0..KEYS / KEYS_PER_FILE {
             let back = parse_file(f, &self.file_at(&oid, f).1);
-            let want: BTreeMap<Key, Ver> =
-                keys_of(f).filter_map(|k| g.commits[c].get(&k).map(|&v| (k, v))).collect();
+            let want: BTreeMap<Key, Ver> = keys_of(f)
+                .filter_map(|k| g.commits[c].get(&k).map(|&v| (k, v)))
+                .collect();
             assert_eq!(back, want, "commit {c}'s {}", file_name(f));
         }
         oid
@@ -322,21 +362,46 @@ impl GitMirror {
     /// tree, and its files are the model's working tree.
     fn check(&self, world: &World, step: usize) {
         let entries = |index: &gix::index::File| -> Vec<(gix::bstr::BString, gix::ObjectId)> {
-            index.entries().iter().map(|e| (e.path(index).to_owned(), e.id)).collect()
+            index
+                .entries()
+                .iter()
+                .map(|e| (e.path(index).to_owned(), e.id))
+                .collect()
         };
         for (&w, c) in &self.checkouts {
             let head = c.repo.head_id().expect("HEAD").detach();
-            assert_eq!(head.to_string(), self.oids[c.head], "step {step}: worktree {w}'s HEAD");
-            let tree = c.repo.find_commit(head).expect("HEAD's commit").tree_id().expect("a tree");
-            let want = c.repo.index_from_tree(&tree).expect("HEAD's tree as an index");
+            assert_eq!(
+                head.to_string(),
+                self.oids[c.head],
+                "step {step}: worktree {w}'s HEAD"
+            );
+            let tree = c
+                .repo
+                .find_commit(head)
+                .expect("HEAD's commit")
+                .tree_id()
+                .expect("a tree");
+            let want = c
+                .repo
+                .index_from_tree(&tree)
+                .expect("HEAD's tree as an index");
             let index = c.repo.open_index().expect("the index");
-            assert_eq!(entries(&index), entries(&want), "step {step}: worktree {w}'s index");
+            assert_eq!(
+                entries(&index),
+                entries(&want),
+                "step {step}: worktree {w}'s index"
+            );
             for f in 0..KEYS / KEYS_PER_FILE {
                 let text = std::fs::read_to_string(c.dir.join(file_name(f))).unwrap();
                 let want: BTreeMap<Key, Ver> = keys_of(f)
                     .filter_map(|k| world.model.wts[w].disk.get(&k).map(|&v| (k, v)))
                     .collect();
-                assert_eq!(parse_file(f, &text), want, "step {step}: worktree {w}'s {}", file_name(f));
+                assert_eq!(
+                    parse_file(f, &text),
+                    want,
+                    "step {step}: worktree {w}'s {}",
+                    file_name(f)
+                );
             }
         }
     }
