@@ -1933,6 +1933,9 @@ impl SyncedDir {
     /// record in it plainly exists, so the two states cannot both hold
     /// and the write is the more recent statement of intent.
     ///
+    /// At a path through a symlink, the records are deleted and the link,
+    /// and the file it names, are left on disk.
+    ///
     /// `expected_commit` is the optimistic-concurrency token, checked
     /// against the file rather than any one record:
     /// [`CommitRef::Commit`] must match the file row's `commit_id`, and

@@ -787,3 +787,63 @@ async fn a_dirty_tracked_file_isnt_committed_through_a_linked_directory() {
     let _ = repo.commit_repository("x", Default::default()).await;
     assert_eq!(git_out(&root, &["rev-parse", "HEAD:a/b.yaml"]), blob);
 }
+
+/// `delete_file` at a refused link whose records were kept deletes the
+/// records and leaves the link, and the file it names, on disk.
+#[tokio::test]
+async fn deleting_a_refused_links_file_leaves_the_link() {
+    for mode in MODES {
+        let tmp = setup(mode);
+        let root = tmp.path().join("root");
+        write(&root, "maps/x.yaml", &cloudmap("x"));
+        let sync = open(&root, &["maps/"]).await.expect("open");
+        scan(&sync).await;
+        write(tmp.path(), "outside/x.yaml", &cloudmap("outside"));
+        std::fs::remove_file(root.join("maps/x.yaml")).expect("rm");
+        link(&root, "maps/x.yaml", "../../outside/x.yaml");
+        scan(&sync).await;
+        assert_eq!(path_of(&sync, "maps/x.yaml").await, "x", "{mode:?}");
+
+        sync.delete_file("maps/x.yaml", None).await.expect("delete");
+        let written = sync.write_file("maps/x.yaml").await.expect("write");
+        assert!(
+            written.deleted && written.written.is_none(),
+            "{mode:?}: {written:?}"
+        );
+        assert!(
+            !records(&sync).await.iter().any(|(f, _)| f == "maps/x.yaml"),
+            "{mode:?}"
+        );
+        assert!(is_link(&root, "maps/x.yaml"), "{mode:?}");
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("outside/x.yaml")).expect("read"),
+            cloudmap("outside")
+        );
+        scan(&sync).await;
+        assert!(
+            !records(&sync).await.iter().any(|(f, _)| f == "maps/x.yaml"),
+            "{mode:?}"
+        );
+    }
+}
+
+/// A link read as the file it names has no file of its own to delete.
+#[tokio::test]
+async fn deleting_a_link_read_as_its_file_is_not_found() {
+    for mode in MODES {
+        let tmp = setup(mode);
+        let root = tmp.path().join("root");
+        let sync = open(&root, &[LINK, REAL]).await.expect("open");
+        scan(&sync).await;
+        let deleted = sync.delete_file(LINK, None).await;
+        assert!(
+            matches!(deleted, Err(unfurl_git_sync::Error::NotFound { .. })),
+            "{mode:?}: {deleted:?}"
+        );
+        assert_eq!(
+            records(&sync).await,
+            [(REAL.to_string(), A.to_string())],
+            "{mode:?}"
+        );
+    }
+}
