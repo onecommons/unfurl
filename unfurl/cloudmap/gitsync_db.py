@@ -246,7 +246,7 @@ def open_cloudmap_db(
     db_dir: Optional[str] = None,
     backend: Backend = "git-sync",
 ) -> CloudMapDB:
-    """The store for the cloudmap at ``filepath``: a
+    """The store for the cloudmap at ``filepath``, or in it for a directory: a
     :py:class:`GitSyncCloudMapDB`, or a :py:class:`CloudMapDB` where git-sync
     can't be used or ``backend`` is ``python``. git-sync opens the innermost
     working tree holding the file, creating the file's directory if it's
@@ -259,6 +259,7 @@ def open_cloudmap_db(
     Otherwise the failure raises :py:class:`UnfurlError`, as does a markdown
     cloudmap git-sync can't load. Either names ``db_dir`` when the database
     couldn't be created."""
+    filepath = CloudMapDB.file_in(filepath)
     reason = _python_reason(filepath, backend)
     if reason:
         if filepath.endswith(".md"):

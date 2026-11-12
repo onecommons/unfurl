@@ -409,10 +409,17 @@ class CloudMapDB(CloudMapStore):
             "types": {},
         }
 
+    @classmethod
+    def file_in(cls, path: str) -> str:
+        """The cloudmap file ``path`` names: ``path``, or for a directory,
+        :py:attr:`DEFAULT_NAME` in it."""
+        if os.path.isdir(path):
+            return os.path.join(path, cls.DEFAULT_NAME)
+        return path
+
     def _load(self, path: str, contents=None, validate: bool = True) -> None:
         if contents is None:
-            if os.path.isdir(path):
-                path = os.path.join(path, self.DEFAULT_NAME)
+            path = self.file_in(path)
             contents = self.make_empty_cloudmap()  # if path doesn't exist
             config_path = path
         else:

@@ -1213,7 +1213,7 @@ class CloudMap:
                 checkout = local_env.find_repo(url)
                 if checkout:
                     candidates.append(os.path.join(checkout.working_dir, path))
-            if any(os.path.realpath(c) == target for c in candidates):
+            if any(os.path.realpath(CloudMapDB.file_in(c)) == target for c in candidates):
                 return name, repository
         return None
 

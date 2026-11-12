@@ -1144,3 +1144,38 @@ def test_a_local_hosts_clone_root_resolves_against_the_project(tmp_path: Path) -
         given = CloudMap.get_host(local_env, "mine", "", "given")
         assert isinstance(given, LocalRepositoryHost)
         assert real(given.repos_root) == real(tmp_path / "elsewhere" / "given")
+
+
+@pytest.mark.parametrize("existing", [True, False])
+@pytest.mark.parametrize("backend", ["git-sync", "python"])
+def test_a_directory_names_its_cloudmap_file(tmp_path: Path, backend: Backend, existing: bool) -> None:
+    """A directory is the cloudmap file ``CloudMapDB.DEFAULT_NAME`` in it,
+    there or not yet, and git-sync keeps one database for both names."""
+    maps = tmp_path / "maps"
+    maps.mkdir()
+    file = maps / CloudMapDB.DEFAULT_NAME
+    if existing:
+        file.write_text(VERSIONED)
+    db = open_cloudmap_db(str(maps), None, LOGGER, backend=backend)
+    assert type(db) is (GitSyncCloudMapDB if backend == "git-sync" else CloudMapDB)
+    assert os.path.realpath(db.path) == os.path.realpath(file)
+    assert bool(db.artifacts) == existing
+    db.add_record(Repository(url="git://e.com/added.git", path="added"))
+    db.save()
+    assert "e.com/added.git" in file.read_text()
+    if backend == "git-sync":
+        again = open_cloudmap_db(str(file), None, LOGGER)
+        assert again.get_repository("git://e.com/added.git")
+        assert len(list((maps / "local").glob("*.sqlite"))) == 1
+
+
+def test_validate_matches_a_cloudmap_configured_as_a_directory(tmp_path: Path, monkeypatch) -> None:
+    project = _relative_project(tmp_path, "backend: python")
+    (project / "maps" / CloudMapDB.DEFAULT_NAME).write_text(VERSIONED)
+    (project / "unfurl.yaml").write_text(
+        (project / "unfurl.yaml").read_text().replace(f"url: maps/{FILE}", "url: maps")
+    )
+    validated = _Validated(monkeypatch)
+    result = validated.run(project / "maps" / CloudMapDB.DEFAULT_NAME)
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert validated.git_sync_stores == 0
