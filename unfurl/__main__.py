@@ -61,6 +61,7 @@ from .logs import Levels
 from .support import Status
 from .util import (
     UnfurlBadDocumentError,
+    UnfurlError,
     UnfurlValidationError,
     filter_env,
     get_package_digest,
@@ -1980,7 +1981,16 @@ def validate(ctx, path, **options):
                 resolver=_stub_resolver(doc),
             )
     elif doc_type == "CloudMap":
-        _validate_cloudmap(path, localEnv)
+        _validate_cloudmap(path, localEnv or _cloudmap_local_env(path, options, overrides))
+
+
+def _cloudmap_local_env(path: str, options: dict, overrides: dict) -> Optional[LocalEnv]:
+    """The environment of the project holding the cloudmap at ``path``, found
+    as :func:`_get_local_env` finds it without loading the file, or None."""
+    try:
+        return LocalEnv(path, options.get("home"), overrides=overrides, can_be_empty=True)
+    except UnfurlError:
+        return None
 
 
 def _is_literate_cloudmap(path: str) -> bool:
@@ -2001,19 +2011,27 @@ def _is_literate_cloudmap(path: str) -> bool:
 
 
 def _validate_cloudmap(path: str, localEnv: Optional[LocalEnv]) -> None:
-    """Load the cloudmap at ``path`` as Unfurl would, with its git-sync
-    database in a temporary directory so nothing is left beside it."""
+    """Load the cloudmap at ``path`` as Unfurl would, with the ``backend`` of
+    the cloudmap configured for it in ``localEnv``'s project, if there is one,
+    and its git-sync database in a temporary directory, whatever ``db_dir``
+    says, so nothing is left beside it."""
     import tempfile
 
-    from .cloudmap import CloudMapDB
-    from .cloudmap.gitsync_db import GitSyncCloudMapDB, open_cloudmap_db
+    from .cloudmap import CloudMap, CloudMapDB, _backend
+    from .cloudmap.gitsync_db import Backend, GitSyncCloudMapDB, open_cloudmap_db
     from .logs import getLogger
 
     if not path.endswith(".md"):
         CloudMapDB(path)  # validates the document against the schema
     project_root = localEnv.project.projectRoot if localEnv and localEnv.project else None
+    backend: Backend = "git-sync"
+    configured = CloudMap._configured_for(localEnv, path) if localEnv else None
+    if configured:
+        backend = _backend(*configured)
     with tempfile.TemporaryDirectory() as db_dir:
-        db = open_cloudmap_db(path, project_root, getLogger("unfurl"), db_dir=db_dir)
+        db = open_cloudmap_db(
+            path, project_root, getLogger("unfurl"), db_dir=db_dir, backend=backend
+        )
         if isinstance(db, GitSyncCloudMapDB) and db.invalid:
             raise UnfurlValidationError(f"git-sync rejected records in {path}")
 

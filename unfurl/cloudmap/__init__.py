@@ -18,6 +18,8 @@ environments:
         cloudmap:
           url: file:../cloudmap
           clone_root: ../repos
+          db_dir: ~/.cache/unfurl-cloudmap  # optional, where git-sync keeps its databases
+          backend: git-sync  # optional, "python" keeps the cloudmap without git-sync
       hosts:
         staging:
             type: unfurl.cloud
@@ -73,6 +75,7 @@ from typing import (
 from typing_extensions import Required, Literal, Protocol, TypedDict
 
 if TYPE_CHECKING:
+    from .gitsync_db import Backend
     from .proxy import CloudMapProxy
 from urllib.parse import ParseResult, urlparse, quote
 import git
@@ -524,6 +527,8 @@ class Directory(_LocalGitRepos):
             RepositoryHost.MAX_GIT_REFS,
             self.logger,
             project_root=project_root,
+            db_dir=self.cloudmap.db_dir,
+            backend=self.cloudmap.backend,
         )
 
     def compare_upstreams(self, repo_info: Repository) -> None:
@@ -643,6 +648,24 @@ class CloudMapRepositoryConfig(TypedDict, total=False):
     local_cloudmap: str
     """A cloudmap file to keep a record in of each local clone with uncommitted
     changes or refs that differ from its remotes'."""
+    db_dir: str
+    """A directory for the git-sync databases of the cloudmap and its
+    ``local_cloudmap``, instead of the project's ``local/``."""
+    backend: str
+    """``git-sync`` (the default) or ``python``, to keep the cloudmap and its
+    ``local_cloudmap`` in :py:class:`CloudMapDB` alone."""
+
+
+def _backend(name: str, repository: CloudMapRepositoryConfig) -> "Backend":
+    """The ``backend`` the repository configuration of cloudmap ``name`` sets."""
+    value = repository.get("backend", "git-sync")
+    if value == "git-sync":
+        return "git-sync"
+    if value == "python":
+        return "python"
+    raise UnfurlError(
+        f'cloudmaps.repositories.{name}.backend is "{value}": it must be "git-sync" or "python"'
+    )
 
 
 class CloudMapConfig(NamedTuple):
@@ -677,6 +700,9 @@ class CloudMap:
         local_env: Optional["LocalEnv"] = None,
         db: Optional[CloudMapStore] = None,
         repo_locator: Optional[RepoLocator] = None,
+        *,
+        db_dir: Optional[str] = None,
+        backend: "Backend" = "git-sync",
     ):
         """Initialize a CloudMap bound to a local cloudmap git checkout.
 
@@ -695,6 +721,10 @@ class CloudMap:
                 :py:class:`~unfurl.cloudmap.proxy.CloudMapProxy`.
             repo_locator: Where to find and clone repositories, instead of
                 under ``localrepo_root``.
+            db_dir: The directory for git-sync databases, instead of
+                ``local/`` (see :py:class:`CloudMapRepositoryConfig`).
+            backend: ``python`` to keep the cloudmap in
+                :py:class:`CloudMapDB` alone, instead of git-sync.
         """
         self.logger = logger
         self.host_branch = host_branch or source_branch
@@ -715,6 +745,8 @@ class CloudMap:
         )
         self.repo = repo
         self.commit = commit
+        self.db_dir = db_dir
+        self.backend: "Backend" = backend
 
         # URL-based analyzer registry, keyed by URL prefix. Seeded with the
         # built-in OCI/PURL handlers from .analyzers; any custom
@@ -741,6 +773,8 @@ class CloudMap:
                 if local_env and local_env.project
                 else None,
                 logger,
+                db_dir=db_dir,
+                backend=backend,
             )
         db.set_cloudmap(self)
         self.directory = Directory(
@@ -1032,14 +1066,11 @@ class CloudMap:
         url, path, revision, repository = cls.get_config(local_env, name)
         if not url:
             # create or use cloudmap file in the project repo
-            assert local_env.project
-            repo = local_env.project.project_repoview.repo
+            repo, path = cls._local_cloudmap_path(local_env, path)
             if repo:
-                assert isinstance(repo, GitRepo)
                 revision = host_branch = repo.active_branch
             else:
                 host_branch = ""
-            path = os.path.relpath(os.path.abspath(path), local_env.project.projectRoot)
         else:
             repo, host_branch = cls._checkout_cloudmap(
                 local_env, url, revision, host_branch, logger
@@ -1048,6 +1079,8 @@ class CloudMap:
             local_repo_root = repository.get("clone_root") or ""
         else:
             local_repo_root = clone_root
+        db_dir = repository.get("db_dir")
+        backend = _backend(name, repository)
 
         cloud_map = CloudMap(
             cast(Optional[GitRepo], repo),
@@ -1059,6 +1092,8 @@ class CloudMap:
             commit,
             logger,
             local_env,
+            db_dir=os.path.expanduser(db_dir) if db_dir else None,
+            backend=backend,
         )
         cloud_map.directory.local_cloudmap = repository.get("local_cloudmap", "")
         return cloud_map
@@ -1119,6 +1154,44 @@ class CloudMap:
                 )
 
         return custom_analyzers
+
+    @staticmethod
+    def _local_cloudmap_path(local_env: "LocalEnv", path: str) -> Tuple[Optional[GitRepo], str]:
+        """The project's repository, if it has one, and the path relative to its
+        root of the cloudmap file at ``path``, a local cloudmap url."""
+        assert local_env.project
+        repo = local_env.project.project_repoview.repo
+        assert repo is None or isinstance(repo, GitRepo)
+        return repo, os.path.relpath(os.path.abspath(path), local_env.project.projectRoot)
+
+    @classmethod
+    def _configured_for(
+        cls, local_env: "LocalEnv", filepath: str
+    ) -> Optional[Tuple[str, CloudMapRepositoryConfig]]:
+        """The name and repository configuration of the cloudmap in
+        ``cloudmaps.repositories`` whose file, or ``local_cloudmap``, is
+        ``filepath``: a local one as :py:meth:`from_name` opens it, a remote one
+        only in a checkout already there."""
+        target = os.path.realpath(filepath)
+        names: Dict[str, object] = local_env.get_context().get("cloudmaps", {}).get(
+            "repositories", {}
+        )
+        for name in names:
+            url, path, _, repository = cls.get_config(local_env, name)
+            candidates = []
+            if repository.get("local_cloudmap"):
+                candidates.append(os.path.expanduser(repository["local_cloudmap"]))
+            if not url and local_env.project:
+                repo, relative = cls._local_cloudmap_path(local_env, path)
+                root = repo.working_dir if repo else local_env.project.projectRoot
+                candidates.append(os.path.join(root, relative))
+            elif url:
+                checkout = local_env.find_repo(url)
+                if checkout:
+                    candidates.append(os.path.join(checkout.working_dir, path))
+            if any(os.path.realpath(c) == target for c in candidates):
+                return name, repository
+        return None
 
     @classmethod
     def get_config(cls, local_env: "LocalEnv", name: str) -> CloudMapConfig:

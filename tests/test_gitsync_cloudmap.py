@@ -6,9 +6,10 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import git
+from click.testing import Result
 import pytest
 
 from unfurl.cloudmap.db import CloudMapDB
@@ -154,8 +155,9 @@ def test_versions_save_inside_their_parent(tmp_path: Path) -> None:
     assert list(document["artifacts"]) == ["pkg:npm/example"]
 
 
-from unfurl.cloudmap.gitsync_db import open_cloudmap_db  # noqa: E402
-from unfurl.logs import getLogger  # noqa: E402
+from unfurl.cloudmap.gitsync_db import Backend, open_cloudmap_db  # noqa: E402
+from unfurl.localenv import LocalEnv  # noqa: E402
+from unfurl.logs import UnfurlLogger, getLogger  # noqa: E402
 from unfurl.util import UnfurlError  # noqa: E402
 
 LOGGER = getLogger("unfurl")
@@ -185,21 +187,22 @@ def test_a_tracked_cloudmap_uses_git_sync(tmp_path: Path) -> None:
     assert (tmp_path / "repo" / "local" / ".cloudmap.yaml.sqlite").exists()
 
 
-@pytest.mark.parametrize("case", ["environment", "no extension", "notable"])
+@pytest.mark.parametrize("case", ["backend", "no extension", "notable"])
 def test_falls_back_to_cloudmap_db(tmp_path: Path, monkeypatch, case: str) -> None:
     import unfurl._rust
 
     repo = _tracked(tmp_path)
     path = tmp_path / "repo" / FILE
-    if case == "environment":
-        monkeypatch.setenv("UNFURL_CLOUDMAP_BACKEND", "python")
+    backend: Backend = "git-sync"
+    if case == "backend":
+        backend = "python"
     elif case == "no extension":
         monkeypatch.delattr(unfurl._rust, "GitSyncDB")
     elif case == "notable":
         path.write_text(
             VERSIONED + "repositories:\n  git://e.com/r.git:\n    path: r\n    notable: {}\n"
         )
-    db = open_cloudmap_db(str(path), None, LOGGER)
+    db = open_cloudmap_db(str(path), None, LOGGER, backend=backend)
     assert type(db) is CloudMapDB, case
 
 
@@ -236,6 +239,8 @@ def test_a_failure_with_a_new_database_falls_back(tmp_path: Path, monkeypatch, c
     [warning] = [r for r in caplog.records if r.levelname == "WARNING"]
     message = warning.getMessage()
     assert str(path) in message and ".cloudmap.yaml.sqlite" in message and "broken" in message
+    # the database was created, so where it goes isn't why
+    assert "db_dir" not in message
 
 
 def _edit_and_reload(db: CloudMapDB, path: Path) -> None:
@@ -395,6 +400,7 @@ def test_a_load_git_sync_can_t_make(tmp_path: Path, case: str, caplog) -> None:
             assert [p.name for p in plain.iterdir()] == [FILE]
             [warning] = [r for r in caplog.records if r.levelname == "WARNING"]
             assert str(path) in warning.getMessage()
+            assert "db_dir" in warning.getMessage()
             return
         with pytest.raises(Exception) as raised:
             open_cloudmap_db(str(path), None, LOGGER)
@@ -406,7 +412,7 @@ def test_a_load_git_sync_can_t_make(tmp_path: Path, case: str, caplog) -> None:
     message = str(raised.value)
     if case == "locked database":
         assert isinstance(raised.value, UnfurlError)
-        assert FILE in message and "UNFURL_CLOUDMAP_BACKEND=python" in message, message
+        assert FILE in message and "backend: python" in message, message
     else:
         # git-sync's failure is a warning, then CloudMapDB's own error
         assert any(r.levelname == "WARNING" for r in caplog.records)
@@ -438,7 +444,7 @@ def test_an_unparsed_file_with_a_database_raises(tmp_path: Path) -> None:
     path.write_text(VERSIONED)
     assert isinstance(open_cloudmap_db(str(path), None, LOGGER), GitSyncCloudMapDB)
     path.write_text(VERSIONED + "repositories: [unclosed\n")
-    with pytest.raises(UnfurlError, match="UNFURL_CLOUDMAP_BACKEND=python"):
+    with pytest.raises(UnfurlError, match="backend: python"):
         open_cloudmap_db(str(path), None, LOGGER)
 
 
@@ -455,8 +461,29 @@ def test_a_markdown_cloudmap_never_falls_back(tmp_path: Path, monkeypatch, case:
         raise RuntimeError("broken")
 
     monkeypatch.setattr(GitSyncCloudMapDB, "_load_records", broken)
-    with pytest.raises(UnfurlError, match="broken"):
+    with pytest.raises(UnfurlError, match="broken") as raised:
         open_cloudmap_db(str(path), None, LOGGER)
+    # the database was created, and CloudMapDB can't read markdown
+    assert "db_dir" not in str(raised.value)
+    assert "backend: python" not in str(raised.value)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes to read-only directories")
+def test_a_markdown_cloudmap_in_a_read_only_directory_names_db_dir(tmp_path: Path) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    path = plain / "cloudmap.md"
+    path.write_text(LITERATE)
+    try:
+        plain.chmod(0o555)
+        with pytest.raises(UnfurlError) as raised:
+            open_cloudmap_db(str(path), None, LOGGER)
+    finally:
+        plain.chmod(0o755)
+    message = str(raised.value)
+    assert "db_dir" in message, message
+    assert "backend: python" not in message, message
+    assert [p.name for p in plain.iterdir()] == ["cloudmap.md"]
 
 
 @pytest.mark.parametrize("case", ["no project", "project", "project elsewhere"])
@@ -566,3 +593,283 @@ def test_a_hand_edit_after_a_save_loads(tmp_path: Path, case: str) -> None:
     db.add_record(Repository(url="git://e.com/b.git", path="b"))
     assert db.save()
     assert "path: by-hand" in path.read_text() and "e.com/b.git" in path.read_text()
+
+
+def test_db_dir_with_a_read_only_cloudmap_directory(tmp_path: Path) -> None:
+    """Both a YAML and a markdown cloudmap load through git-sync, and nothing
+    is created beside them."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / FILE).write_text(VERSIONED)
+    (plain / "cloudmap.md").write_text(LITERATE)
+    db_dir = tmp_path / "dbs"
+    try:
+        plain.chmod(0o555)
+        for name in (FILE, "cloudmap.md"):
+            db = open_cloudmap_db(str(plain / name), None, LOGGER, db_dir=str(db_dir))
+            assert isinstance(db, GitSyncCloudMapDB), name
+        assert sorted(p.name for p in plain.iterdir()) == ["cloudmap.md", FILE]
+    finally:
+        plain.chmod(0o755)
+    assert len(list(db_dir.glob(".cloudmap-*.sqlite"))) == 2
+
+
+def test_two_cloudmaps_in_one_db_dir_have_their_own_databases(tmp_path: Path) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    db_dir = tmp_path / "dbs"
+    for name, url in (("a.yaml", "git://e.com/a.git"), ("b.yaml", "git://e.com/b.git")):
+        (plain / name).write_text(
+            f"apiVersion: unfurl/v1.0.0\nkind: CloudMap\nrepositories:\n  {url}:\n    path: x\n"
+        )
+    loaded = {
+        name: list(open_cloudmap_db(str(plain / name), None, LOGGER, db_dir=str(db_dir)).repositories)
+        for name in ("a.yaml", "b.yaml")
+    }
+    assert loaded == {"a.yaml": ["git://e.com/a.git"], "b.yaml": ["git://e.com/b.git"]}
+    assert len(list(db_dir.glob(".cloudmap-*.sqlite"))) == 2
+
+
+def test_the_db_dir_key_places_both_databases(tmp_path: Path) -> None:
+    """``cloudmaps.repositories.<name>.db_dir`` puts the cloudmap's and its
+    ``local_cloudmap``'s git-sync databases there, each its own."""
+    from unfurl.cloudmap import CloudMap
+
+    maps, project, db_dir = tmp_path / "maps", tmp_path / "project", tmp_path / "dbs"
+    local_env = _cloudmap_project(tmp_path, f"db_dir: {db_dir}")
+    cloud_map = CloudMap.from_name(local_env, "cloudmap", None, "", True, False)
+    assert isinstance(cloud_map.directory.store, GitSyncCloudMapDB)
+    assert cloud_map.directory.store.artifacts
+    assert len(list(db_dir.glob(".cloudmap-*.sqlite"))) == 1
+
+    cloud_map.directory.save_local_repositories(str(maps / "local-cloudmap.yaml"))
+    assert len(list(db_dir.glob(".cloudmap-*.sqlite"))) == 2
+    assert not (project / "local").exists() and not (maps / "local").exists()
+
+
+def _cloudmap_project(tmp_path: Path, keys: str) -> LocalEnv:
+    """A project in ``tmp_path/project`` whose cloudmap ``cloudmap`` is
+    ``tmp_path/maps/cloudmap.yaml``, its repository configuration with ``keys``
+    too."""
+    maps = tmp_path / "maps"
+    maps.mkdir()
+    (maps / FILE).write_text(VERSIONED)
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "unfurl.yaml").write_text(
+        f"""apiVersion: unfurl/v1.0.0
+kind: Project
+environments:
+  defaults:
+    cloudmaps:
+      repositories:
+        cloudmap:
+          url: {maps / FILE}
+          {keys}
+"""
+    )
+    return LocalEnv(str(project / "unfurl.yaml"), can_be_empty=True)
+
+
+def test_the_backend_key_keeps_both_cloudmaps_in_cloudmap_db(tmp_path: Path, monkeypatch) -> None:
+    """``backend: python`` loads the cloudmap and its local cloudmap with
+    CloudMapDB, and creates no git-sync database."""
+    import unfurl.cloudmap.gitsync_db as module
+    from unfurl.cloudmap import CloudMap
+
+    opened: List[CloudMapDB] = []
+    real = module.open_cloudmap_db
+
+    def spy(
+        filepath: str,
+        project_root: Optional[str],
+        logger: UnfurlLogger,
+        *,
+        db_dir: Optional[str] = None,
+        backend: Backend = "git-sync",
+    ) -> CloudMapDB:
+        db = real(filepath, project_root, logger, db_dir=db_dir, backend=backend)
+        opened.append(db)
+        return db
+
+    monkeypatch.setattr(module, "open_cloudmap_db", spy)
+    local_env = _cloudmap_project(tmp_path, "backend: python")
+    cloud_map = CloudMap.from_name(local_env, "cloudmap", None, "", True, False)
+    cloud_map.directory.save_local_repositories(str(tmp_path / "maps" / "local.yaml"))
+    assert [type(db) for db in opened] == [CloudMapDB, CloudMapDB]
+    assert cloud_map.directory.store.artifacts
+    assert not list(tmp_path.rglob("*.sqlite"))
+
+
+def test_an_unknown_backend_is_an_error(tmp_path: Path) -> None:
+    from unfurl.cloudmap import CloudMap
+
+    local_env = _cloudmap_project(tmp_path, "backend: rust")
+    with pytest.raises(UnfurlError) as raised:
+        CloudMap.from_name(local_env, "cloudmap", None, "", True, False)
+    message = str(raised.value)
+    assert "cloudmaps.repositories.cloudmap.backend" in message, message
+    assert '"git-sync"' in message and '"python"' in message and "rust" in message, message
+
+
+def test_a_markdown_cloudmap_with_the_python_backend_raises(tmp_path: Path) -> None:
+    path = tmp_path / "cloudmap.md"
+    path.write_text(LITERATE)
+    with pytest.raises(UnfurlError, match="backend: python"):
+        open_cloudmap_db(str(path), None, LOGGER, backend="python")
+
+
+def _validate_project(tmp_path: Path, keys: str = "") -> Tuple[Path, Path]:
+    """A project with ``maps/cloudmap.yaml`` configured as cloudmap
+    ``cloudmap``, its repository configuration with ``keys`` too, and
+    ``maps/other.yaml`` configured as nothing."""
+    project = tmp_path / "project"
+    maps = project / "maps"
+    maps.mkdir(parents=True)
+    (maps / FILE).write_text(VERSIONED)
+    (maps / "other.yaml").write_text(VERSIONED)
+    (project / "unfurl.yaml").write_text(
+        f"""apiVersion: unfurl/v1.0.0
+kind: Project
+environments:
+  defaults:
+    cloudmaps:
+      repositories:
+        cloudmap:
+          url: {maps / FILE}
+          {keys}
+"""
+    )
+    return project, maps
+
+
+class _Validated:
+    """What ``unfurl validate`` did: the environment it reached
+    ``_validate_cloudmap`` with and the git-sync stores it built."""
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import unfurl.__main__ as main
+
+        self.local_envs: List[Optional[LocalEnv]] = []
+        self.git_sync_stores = 0
+        validate = main._validate_cloudmap
+        init = GitSyncCloudMapDB.__init__
+
+        def spy_validate(path: str, local_env: Optional[LocalEnv]) -> None:
+            self.local_envs.append(local_env)
+            validate(path, local_env)
+
+        def spy_init(db: GitSyncCloudMapDB, repo_root: str, file_path: str, db_path: str) -> None:
+            self.git_sync_stores += 1
+            init(db, repo_root, file_path, db_path)
+
+        monkeypatch.setattr(main, "_validate_cloudmap", spy_validate)
+        monkeypatch.setattr(GitSyncCloudMapDB, "__init__", spy_init)
+
+    def run(self, path: Path) -> Result:
+        from click.testing import CliRunner
+
+        from unfurl.__main__ import cli
+
+        return CliRunner().invoke(cli, ["validate", str(path)])
+
+
+def test_validate_reaches_a_cloudmap_with_its_project(tmp_path: Path, monkeypatch) -> None:
+    project, maps = _validate_project(tmp_path)
+    validated = _Validated(monkeypatch)
+    result = validated.run(maps / FILE)
+    assert result.exit_code == 0, (result.output, result.exception)
+    [local_env] = validated.local_envs
+    assert local_env and local_env.project
+    assert os.path.realpath(local_env.project.projectRoot) == os.path.realpath(project)
+
+
+@pytest.mark.parametrize("keys,git_sync", [("backend: python", 0), ("", 1)])
+def test_validate_uses_the_configured_backend(
+    tmp_path: Path, monkeypatch, keys: str, git_sync: int
+) -> None:
+    """Without a database left anywhere, and with the default only where no
+    configured cloudmap is the file."""
+    project, maps = _validate_project(tmp_path, keys)
+    before = sorted(str(p) for p in tmp_path.rglob("*"))
+    validated = _Validated(monkeypatch)
+    result = validated.run(maps / FILE)
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert validated.git_sync_stores == git_sync
+    result = validated.run(maps / "other.yaml")
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert validated.git_sync_stores == git_sync + 1
+    assert sorted(str(p) for p in tmp_path.rglob("*")) == before
+
+
+def test_validate_uses_the_local_cloudmaps_backend(tmp_path: Path, monkeypatch) -> None:
+    project, maps = _validate_project(
+        tmp_path, f"local_cloudmap: {maps_local(tmp_path)}\n          backend: python"
+    )
+    maps_local(tmp_path).write_text(VERSIONED)
+    validated = _Validated(monkeypatch)
+    result = validated.run(maps_local(tmp_path))
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert validated.git_sync_stores == 0
+
+
+def maps_local(tmp_path: Path) -> Path:
+    return tmp_path / "project" / "maps" / "local.yaml"
+
+
+def test_validate_never_clones_a_remote_cloudmap(tmp_path: Path, monkeypatch) -> None:
+    """A remote cloudmap with no checkout here matches nothing: the file takes
+    the default."""
+    from unfurl.cloudmap import CloudMap
+
+    def no_clone(*args: object, **kwargs: object) -> None:
+        raise AssertionError("validate tried to clone or fetch")
+
+    monkeypatch.setattr(CloudMap, "_checkout_cloudmap", no_clone)
+    monkeypatch.setattr(git.Repo, "clone_from", no_clone)
+    monkeypatch.setattr(git.Remote, "fetch", no_clone)
+    project, maps = _validate_project(tmp_path)
+    (project / "unfurl.yaml").write_text(
+        (project / "unfurl.yaml")
+        .read_text()
+        .replace(f"url: {maps / FILE}", "url: https://example.com/cloudmap.git#:cloudmap.yaml")
+        + "          backend: python\n"
+    )
+    validated = _Validated(monkeypatch)
+    result = validated.run(maps / FILE)
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert validated.git_sync_stores == 1
+
+
+def test_validate_reports_a_bad_backend(tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from unfurl.__main__ import cli
+
+    project, maps = _validate_project(tmp_path, "backend: rust")
+    result = CliRunner().invoke(cli, ["validate", str(maps / FILE)])
+    assert result.exit_code != 0
+    assert "cloudmaps.repositories.cloudmap.backend" in str(result.exception), result.exception
+
+
+def test_validate_without_the_projects_environment(tmp_path: Path, monkeypatch) -> None:
+    """When the project's environment can't be built for the cloudmap, it's
+    validated as one in no project."""
+    import unfurl.__main__ as main
+
+    project, maps = _validate_project(tmp_path, "backend: python")
+    built: List[str] = []
+    real = main.LocalEnv
+
+    def local_env(path: str, *args: object, **kwargs: object) -> LocalEnv:
+        built.append(path)
+        if len(built) > 1:
+            raise UnfurlError("unusable project")
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(main, "LocalEnv", local_env)
+    validated = _Validated(monkeypatch)
+    result = validated.run(maps / FILE)
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert len(built) == 2 and validated.local_envs == [None]
+    assert validated.git_sync_stores == 1

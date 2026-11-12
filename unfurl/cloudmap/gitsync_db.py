@@ -9,6 +9,8 @@ import json
 import os
 import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from typing_extensions import Literal
 from urllib.parse import quote
 
 from ..repo import GitRepo, Repo
@@ -17,6 +19,9 @@ from .db import CloudMapDB
 
 if TYPE_CHECKING:
     from ..logs import UnfurlLogger
+
+Backend = Literal["git-sync", "python"]
+"What stores a cloudmap: git-sync, or :py:class:`CloudMapDB` alone."
 
 SECTIONS = (
     "types",
@@ -142,22 +147,21 @@ class GitSyncCloudMapDB(CloudMapDB):
 
 def _db_path(filepath: str, project_root: Optional[str], db_dir: Optional[str]) -> str:
     """Where the git-sync database for the cloudmap at ``filepath`` lives:
-    ``db_dir`` if given, else the project's ``local/``, named for the
-    cloudmap's path (a project can use more than one), or without a project,
+    ``db_dir`` if given, else the project's ``local/``, either named for the
+    cloudmap's path (one directory can hold several), or without a project,
     ``local/`` beside the cloudmap."""
-    if db_dir:
-        return os.path.join(db_dir, ".cloudmap.sqlite")
-    if project_root:
+    shared = db_dir or (project_root and os.path.join(project_root, "local"))
+    if shared:
         digest = hashlib.sha1(os.path.abspath(filepath).encode()).hexdigest()[:12]
-        return os.path.join(project_root, "local", f".cloudmap-{digest}.sqlite")
+        return os.path.join(shared, f".cloudmap-{digest}.sqlite")
     directory, name = os.path.split(filepath)
     return os.path.join(directory, "local", f".{name}.sqlite")
 
 
-def _python_reason(filepath: str) -> str:
+def _python_reason(filepath: str, backend: Backend) -> str:
     """Why the cloudmap at ``filepath`` can't use git-sync, or ""."""
-    if os.getenv("UNFURL_CLOUDMAP_BACKEND") == "python":
-        return "UNFURL_CLOUDMAP_BACKEND is python"
+    if backend == "python":
+        return "its repository configuration sets backend: python"
     try:
         from .._rust import GitSyncDB  # noqa: F401
     except ImportError:
@@ -169,7 +173,14 @@ def _python_reason(filepath: str) -> str:
     return ""
 
 
-FALLBACK_HINT = "set UNFURL_CLOUDMAP_BACKEND=python to load it without git-sync"
+FALLBACK_HINT = (
+    "set backend: python in the cloudmap's repository configuration to load "
+    "it without git-sync"
+)
+DB_DIR_HINT = (
+    "set db_dir in the cloudmap's repository configuration to put its "
+    "git-sync database elsewhere"
+)
 
 
 def _root(filepath: str, project_root: Optional[str]) -> str:
@@ -219,19 +230,22 @@ def open_cloudmap_db(
     logger: "UnfurlLogger",
     *,
     db_dir: Optional[str] = None,
+    backend: Backend = "git-sync",
 ) -> CloudMapDB:
     """The store for the cloudmap at ``filepath``: a
     :py:class:`GitSyncCloudMapDB`, or a :py:class:`CloudMapDB` where git-sync
-    can't be used. git-sync opens the innermost working tree holding the
-    file, creating the file's directory if it's missing. ``db_dir`` puts the
+    can't be used or ``backend`` is ``python``. git-sync opens the innermost
+    working tree holding the file, creating the file's directory if it's
+    missing. ``db_dir`` puts the
     git-sync database there instead of under ``local/``.
 
     If git-sync fails to open or load the file and its database didn't exist
     before, the database and directories this call created are removed and a
-    YAML cloudmap loads with :py:class:`CloudMapDB`, with a warning. Otherwise
-    the failure raises :py:class:`UnfurlError`, as does a markdown cloudmap
-    git-sync can't load."""
-    reason = _python_reason(filepath)
+    YAML cloudmap loads with :py:class:`CloudMapDB`, with a warning.
+    Otherwise the failure raises :py:class:`UnfurlError`, as does a markdown
+    cloudmap git-sync can't load. Either names ``db_dir`` when the database
+    couldn't be created."""
+    reason = _python_reason(filepath, backend)
     if reason:
         if filepath.endswith(".md"):
             raise UnfurlError(f"can't load {filepath}: {reason}")
@@ -249,8 +263,13 @@ def open_cloudmap_db(
         return GitSyncCloudMapDB(root, os.path.relpath(os.path.realpath(filepath), root), db_path)
     except Exception as e:
         failure = f"git-sync couldn't load {filepath} with its database {db_path}: {e}"
-        if existed or filepath.endswith(".md"):
-            raise UnfurlError(f"{failure}; {FALLBACK_HINT}") from e
+        if not os.path.exists(db_path):
+            failure += f"; {DB_DIR_HINT}"
+        markdown = filepath.endswith(".md")
+        if existed or markdown:
+            # CloudMapDB can't read markdown, so the backend can't help it
+            hint = "" if markdown else f"; {FALLBACK_HINT}"
+            raise UnfurlError(failure + hint) from e
     _remove_created(db_path, created)
     logger.warning("%s; loading it with CloudMapDB instead", failure)
     return CloudMapDB(filepath)

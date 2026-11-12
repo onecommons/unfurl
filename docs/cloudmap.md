@@ -111,6 +111,13 @@ environments:
           # optional: a cloudmap file recording local clones out of step with
           # their remotes (see "Track local clones" above)
           local_cloudmap: ../local-cloudmap.yaml
+          # optional: the directory for the git-sync databases of the cloud map
+          # and its local_cloudmap, instead of the project's local/ directory;
+          # "~" is expanded, otherwise it's relative to the current directory
+          db_dir: ~/.cache/unfurl-cloudmap
+          # optional: "python" keeps the cloud map and its local_cloudmap
+          # without git-sync; the default is git-sync
+          backend: git-sync
       hosts:  # repository hosts to synchronize with
         staging:
             type: unfurl.cloud

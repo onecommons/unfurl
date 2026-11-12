@@ -11,6 +11,7 @@ import git
 import pytest
 
 from unfurl.cloudmap.db import CloudMapDB
+from unfurl.cloudmap.gitsync_db import Backend
 from unfurl.logs import UnfurlLogger
 from unfurl.__main__ import cli
 from unfurl.cloudmap import Directory
@@ -390,6 +391,8 @@ def _directory(repos: Dict[str, object]) -> Mock:
     directory = Mock(repos=repos, repos_root="")
     directory.store.get_repository.return_value = None  # remotes aren't recorded
     directory.cloudmap.local_env = None  # in no project
+    directory.cloudmap.db_dir = None
+    directory.cloudmap.backend = "git-sync"
     return directory
 
 
@@ -815,8 +818,9 @@ def test_the_local_cloudmap_loads_through_git_sync(work_clone, tmp_path, monkeyp
         logger: UnfurlLogger,
         *,
         db_dir: Optional[str] = None,
+        backend: Backend = "git-sync",
     ) -> CloudMapDB:
-        db = real(filepath, project_root, logger, db_dir=db_dir)
+        db = real(filepath, project_root, logger, db_dir=db_dir, backend=backend)
         opened.append(db)
         return db
 
