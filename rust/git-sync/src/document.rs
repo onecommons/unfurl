@@ -498,13 +498,9 @@ fn reorder_like(previous: &serde_json::Value, next: serde_json::Value) -> serde_
 /// discarded rather than written. That is what makes this safe to
 /// attempt at all: being wrong costs a comment, never a document.
 /// Whether two sections hold the same keys in the same order, which is
-/// what says an edit did not move anything.
-///
-/// `apply_format_ordering` sorts a section's keys before serialization,
-/// so an added or removed record shifts every later one and only the
-/// freshly rendered body describes the result. When the keys match, the
-/// sort changed nothing and the original text is still a valid place to
-/// splice into.
+/// what says an edit did not move anything: each record can be edited
+/// where it sits. Otherwise records are added and removed around the
+/// others (see `splice_section`).
 fn same_keys(have: Option<&serde_json::Value>, want: Option<&serde_json::Value>) -> bool {
     match (
         have.and_then(|v| v.as_object()),
@@ -529,34 +525,94 @@ pub(crate) fn splice_touched_sections(
     let have: serde_json::Value = from_yaml(src).ok()?;
 
     let mut replacements = std::collections::HashMap::new();
+    // sections that aren't block bodies on both sides: written as whole
+    // top-level entries
+    let mut whole: Vec<&str> = Vec::new();
     for name in touched {
-        let from = updated.section(name)?;
-        let section = original.section(name)?;
-        // Where the section's keys are unchanged and in the same order,
-        // the sort was a no-op, so each record can be edited where it
-        // sits -- which keeps the comments between them. Adding or
-        // removing one moves the rest, and then the rendered body is
-        // the only thing that is right.
-        let edited = same_keys(have.get(name.as_str()), want.get(name.as_str()))
-            .then(|| {
-                unfurl_merge::template::splice_value(
-                    &unfurl_merge::template::dedent_block(original.body(section), section.indent),
-                    have.get(name.as_str())?,
-                    want.get(name.as_str())?,
-                )
-            })
-            .flatten();
-        replacements.insert(
-            name.as_str(),
-            edited.unwrap_or_else(|| {
-                unfurl_merge::template::dedent_block(updated.body(from), from.indent)
-            }),
+        let (Some(section), Some(from)) = (original.section(name), updated.section(name)) else {
+            whole.push(name);
+            continue;
+        };
+        let body = unfurl_merge::template::dedent_block(original.body(section), section.indent);
+        let fresh = unfurl_merge::template::dedent_block(updated.body(from), from.indent);
+        let spliced = splice_section(
+            &body,
+            &fresh,
+            have.get(name.as_str()),
+            want.get(name.as_str()),
         );
+        replacements.insert(name.as_str(), spliced.unwrap_or(fresh));
     }
-    let spliced = original.render(&replacements);
+    let mut spliced = original.render(&replacements);
+    if !whole.is_empty() {
+        spliced = splice_whole_sections(&spliced, rendered, &whole)?;
+    }
 
     let got: serde_json::Value = from_yaml(&spliced).ok()?;
     (got == want).then(|| spliced.into_bytes())
+}
+
+/// The body of a section, `body` in the file and `fresh` as rendered, at
+/// column 0, holding `want` instead of `have`, with every record that
+/// didn't change kept as the file has it: an added record is `fresh`'s,
+/// placed after the record before it in `want`'s order, a removed one is
+/// taken out, and a changed one is edited where it sits.
+fn splice_section(
+    body: &str,
+    fresh: &str,
+    have: Option<&serde_json::Value>,
+    want: Option<&serde_json::Value>,
+) -> Option<String> {
+    if same_keys(have, want) {
+        return unfurl_merge::template::splice_value(body, have?, want?);
+    }
+    let (have, want) = (have?.as_object()?, want?.as_object()?);
+    let rendered = unfurl_merge::template::entries(fresh)?;
+    let added: Vec<(&str, &str)> = want
+        .keys()
+        .filter(|key| !have.contains_key(*key))
+        .map(|key| {
+            let (_, range) = rendered.iter().find(|(k, _)| k == key)?;
+            Some((key.as_str(), &fresh[range.clone()]))
+        })
+        .collect::<Option<_>>()?;
+    let removed: Vec<&str> = have
+        .keys()
+        .filter(|key| !want.contains_key(*key))
+        .map(String::as_str)
+        .collect();
+    let order: Vec<&str> = want.keys().map(String::as_str).collect();
+    let moved = unfurl_merge::template::splice_entries(body, &added, &removed, &order)?;
+    // what `moved` holds: the kept records as they were, the added ones
+    // as wanted
+    let held: serde_json::Map<String, serde_json::Value> = want
+        .iter()
+        .map(|(key, value)| (key.clone(), have.get(key).unwrap_or(value).clone()))
+        .collect();
+    if held == *want {
+        return Some(moved);
+    }
+    unfurl_merge::template::splice_value(
+        &moved,
+        &serde_json::Value::Object(held),
+        &serde_json::Value::Object(want.clone()),
+    )
+}
+
+/// `doc` with each of the top-level `names` replaced by, or inserted as,
+/// its entry in `rendered`, or taken out where `rendered` has none.
+fn splice_whole_sections(doc: &str, rendered: &str, names: &[&str]) -> Option<String> {
+    let fresh = unfurl_merge::template::entries(rendered)?;
+    let order: Vec<&str> = fresh.iter().map(|(key, _)| key.as_str()).collect();
+    let mut blocks = Vec::new();
+    let mut removed = Vec::new();
+    for name in names {
+        match fresh.iter().find(|(key, _)| key == name) {
+            Some((_, range)) => blocks.push((*name, &rendered[range.clone()])),
+            None => removed.push(*name),
+        }
+    }
+    unfurl_merge::template::splice_entries(doc, &blocks, &removed, &order)
 }
 
 /// `text` parsed as YAML whose booleans are only `true` and `false`, as in

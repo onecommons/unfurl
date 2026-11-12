@@ -1179,3 +1179,32 @@ def test_validate_matches_a_cloudmap_configured_as_a_directory(tmp_path: Path, m
     result = validated.run(project / "maps" / CloudMapDB.DEFAULT_NAME)
     assert result.exit_code == 0, (result.output, result.exception)
     assert validated.git_sync_stores == 0
+
+
+def test_records_added_on_two_branches_merge(tmp_path: Path) -> None:
+    """A record added on each of two branches, as a host sync does, changes
+    only its own lines, so git merges the branches."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    repo = git.Repo.init(root, initial_branch="main")
+    path = root / FILE
+    base = CloudMapDB(str(path))
+    for name in ("alpha", "charlie", "echo", "golf", "india"):
+        base.add_record(Repository(url=f"git://e.com/team/{name}.git", path=name))
+    base.save()
+    (root / ".gitignore").write_text("local/\n")
+    repo.index.add([FILE, ".gitignore"])
+    repo.index.commit("base")
+    for branch, name in (("hosts/a", "delta"), ("hosts/b", "hotel")):
+        repo.git.checkout("-q", "-b", branch, "main")
+        db = open_cloudmap_db(str(path), None, LOGGER, db_dir=str(tmp_path / branch))
+        assert isinstance(db, GitSyncCloudMapDB)
+        db.add_record(Repository(url=f"git://e.com/team/{name}.git", path=name))
+        assert db.save()
+        # two lines: the record's key and its path
+        assert repo.git.diff("--numstat", FILE).split()[:2] == ["2", "0"], branch
+        repo.git.commit("-qam", branch)
+    repo.git.checkout("-q", "hosts/a")
+    repo.git.merge("-q", "--no-edit", "hosts/b")
+    merged = CloudMapDB(str(path))
+    assert {"delta", "hotel"} <= {r.path for r in merged.repositories.values()}

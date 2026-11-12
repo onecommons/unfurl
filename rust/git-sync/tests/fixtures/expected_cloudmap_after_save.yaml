@@ -4,7 +4,7 @@ repositories:
   "git://example.com/added.git":
     path: example/added
     name: added
-  "git://unfurl.cloud/onecommons/blueprints/odoo.git":
+  git://unfurl.cloud/onecommons/blueprints/odoo.git:
     path: onecommons/blueprints/odoo
     name: Odoo
     protocols:
@@ -12,11 +12,10 @@ repositories:
     - ssh
     project_url: https://unfurl.cloud/onecommons/blueprints/odoo
     metadata:
-      description: >-
-        Odoo is a suite of business management software tools including CRM,
-        e-commerce, billing, accounting, manufacturing, warehouse, project management, and
-        inventory management. The Community version is a libre software, licensed under the GNU
-        LGPLv3.
+      description: Odoo is a suite of business management software tools including
+        CRM, e-commerce, billing, accounting, manufacturing, warehouse, project management,
+        and inventory management. The Community version is a libre software, licensed
+        under the GNU LGPLv3.
       homepage_url: https://unfurl.cloud/onecommons/blueprints/odoo
       issues_url: https://unfurl.cloud/onecommons/blueprints/odoo/-/issues
     default_branch: main
@@ -28,13 +27,13 @@ repositories:
     contains:
       .gitlab-ci.yml:
         cloudmap.artifacts.ci.GitLabPipeline:
-      "ensemble-template.yaml#spec/service_template":
+      ensemble-template.yaml#spec/service_template:
         cloudmap.artifacts.tosca.ServiceTemplate:
       unfurl.yaml:
         cloudmap.artifacts.unfurl.Project:
-  "git://unfurl.cloud/onecommons/std.git":
+  git://unfurl.cloud/onecommons/std.git:
     name: renamed
-  "git://unfurl.cloud/onecommons/unfurl-types.git":
+  git://unfurl.cloud/onecommons/unfurl-types.git:
     path: onecommons/unfurl-types
     name: unfurl-types
     protocols:

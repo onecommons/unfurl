@@ -10,11 +10,10 @@
 //! a canonical order), so there is nothing to preserve there; what people
 //! lose is what they wrote.
 //!
-//! Sections are the right granularity for that. Record-level spans would
-//! be invalidated by the sort — add one record and every later one moves
-//! — but sorting happens *within* a section, so a section-sized hole
-//! survives it. Everything outside the holes, envelope included, is
-//! copied through byte for byte.
+//! Sections are the unit replaced; inside one, [`splice_entries`] adds and
+//! removes whole entries and [`splice_value`] edits them, so the records a
+//! change doesn't touch keep their bytes. Everything outside the holes,
+//! envelope included, is copied through byte for byte.
 
 use granit_parser::{Event, Parser};
 use std::collections::HashMap;
@@ -262,6 +261,120 @@ pub fn to_yaml(value: &serde_json::Value, file_path: &str) -> crate::error::Resu
     Ok(crate::util::elide_explicit_nulls(&text))
 }
 
+/// Each key of `src`, a block mapping whose keys sit at column 0, with
+/// the bytes of its entry: from the start of the key's line to the end of
+/// the value's last line. `None` when `src` isn't such a mapping or a key
+/// isn't a scalar starting its line.
+pub fn entries(src: &str) -> Option<Vec<(String, Range<usize>)>> {
+    let events = scan(src)?;
+    let mut i = 0;
+    while matches!(
+        events.get(i)?.0,
+        Event::StreamStart | Event::DocumentStart(..)
+    ) {
+        i += 1;
+    }
+    if !matches!(events.get(i)?.0, Event::MappingStart(..)) {
+        return None;
+    }
+    i += 1;
+    let mut out = Vec::new();
+    while let Some((event, key_range)) = events.get(i) {
+        let name = match event {
+            Event::MappingEnd => break,
+            Event::Scalar(text, ..) => text.to_string(),
+            _ => return None,
+        };
+        let start = src[..key_range.start].rfind('\n').map_or(0, |n| n + 1);
+        if start != key_range.start && !matches!(src.as_bytes()[start], b'"' | b'\'') {
+            return None;
+        }
+        let value = end_of_node(&events, i);
+        i = end_of_node(&events, value);
+        let last = last_content_end(&events[value..i]).unwrap_or(key_range.end);
+        out.push((name, start..line_end(src, last)));
+    }
+    Some(out)
+}
+
+/// `src`, a mapping [`entries`] can read, with each entry of `blocks`
+/// (key, text) replacing the key's entry or, for a key `src` lacks,
+/// inserted after the entry of the key before it in `order`, and the
+/// entries of `removed` taken out. Every other byte is kept, comments
+/// between entries included. `None` when `src` can't be read so.
+pub fn splice_entries(
+    src: &str,
+    blocks: &[(&str, &str)],
+    removed: &[&str],
+    order: &[&str],
+) -> Option<String> {
+    let found = entries(src)?;
+    let span = |key: &str| found.iter().find(|(k, _)| k == key).map(|(_, r)| r.clone());
+    let rank = |key: &str| order.iter().position(|k| *k == key).unwrap_or(order.len());
+    // (start, end, rank in `order`, text): inserts at one position keep
+    // the order of `order`
+    let mut edits: Vec<(usize, usize, usize, String)> = Vec::new();
+    for key in removed {
+        let range = span(key)?;
+        edits.push((range.start, range.end, 0, String::new()));
+    }
+    for (key, text) in blocks {
+        let text = with_newline(text);
+        match span(key) {
+            Some(range) => edits.push((range.start, range.end, rank(key), text)),
+            None => {
+                let at = insertion_point(&found, removed, order, key);
+                let text = match at == src.len() && !src.is_empty() && !src.ends_with('\n') {
+                    true => format!("\n{text}"),
+                    false => text,
+                };
+                edits.push((at, at, rank(key), text));
+            }
+        }
+    }
+    edits.sort_by_key(|(start, end, rank, _)| (*start, *end, *rank));
+    let mut out = String::with_capacity(src.len());
+    let mut cursor = 0;
+    for (start, end, _, text) in edits {
+        if start < cursor {
+            return None;
+        }
+        out.push_str(&src[cursor..start]);
+        out.push_str(&text);
+        cursor = end;
+    }
+    out.push_str(&src[cursor..]);
+    Some(out)
+}
+
+/// Where an entry for `key` goes in a mapping holding `found`: after the
+/// entry of the nearest key before it in `order` that is kept, else before
+/// the first kept entry, else at the end.
+fn insertion_point(
+    found: &[(String, Range<usize>)],
+    removed: &[&str],
+    order: &[&str],
+    key: &str,
+) -> usize {
+    let kept = |k: &str| !removed.contains(&k);
+    let before = &order[..order.iter().position(|k| *k == key).unwrap_or(order.len())];
+    let after_previous = before
+        .iter()
+        .rev()
+        .find_map(|k| found.iter().find(|(f, _)| f == k && kept(f)))
+        .map(|(_, range)| range.end);
+    after_previous
+        .or_else(|| found.iter().find(|(f, _)| kept(f)).map(|(_, r)| r.start))
+        .unwrap_or_else(|| found.last().map_or(0, |(_, r)| r.end))
+}
+
+fn with_newline(text: &str) -> String {
+    match text.ends_with('\n') {
+        true => text.to_string(),
+        false => format!("{text}\n"),
+    }
+}
+
 /// Every event in `src` with the bytes it covers, or `None` if the
 /// document does not parse or the parser cannot place an event in the
 /// source.
@@ -393,6 +506,33 @@ artifacts:
         );
         assert_eq!(body(&t, "artifacts"), "  z:\n    name: z\n");
         assert_eq!(t.section("repositories").expect("section").indent, 2);
+    }
+
+    /// Entries inserted at one place come out in `order`, whatever order
+    /// they're given in; a removed entry takes only its own lines, and the
+    /// comment above it stays.
+    #[test]
+    fn splice_entries_inserts_in_order_and_removes_only_the_entry() {
+        const SRC: &str = "\
+'a':
+  x: 1
+# about c
+\"c\":
+  x: 3
+e:
+  x: 5
+";
+        let out = splice_entries(
+            SRC,
+            &[("d2", "d2:\n  x: 42\n"), ("d1", "d1:\n  x: 41\n")],
+            &["c"],
+            &["a", "d1", "d2", "e"],
+        )
+        .expect("splices");
+        assert_eq!(
+            out,
+            "'a':\n  x: 1\nd1:\n  x: 41\nd2:\n  x: 42\n# about c\ne:\n  x: 5\n"
+        );
     }
 
     /// A block scalar can hold a line that starts with `#`. It is text,

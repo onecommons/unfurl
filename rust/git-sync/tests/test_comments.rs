@@ -61,10 +61,9 @@ async fn a_write_keeps_comments_elsewhere(sync: &SyncedRepo, tmp: &TempDir) {
     assert_eq!(parsed["kind"], "CloudMap");
 }
 
-/// Rewriting a section drops the comments *inside* it -- the records it
-/// annotates are re-sorted, so there is nowhere to put them back. Pinned
-/// so the boundary of what survives is stated rather than assumed.
-async fn comments_inside_a_rewritten_section_are_lost(sync: &SyncedRepo, tmp: &TempDir) {
+/// Adding a record inserts it at its sorted place and leaves the others,
+/// and the comments between them, as they were.
+async fn comments_inside_a_section_survive_an_added_record(sync: &SyncedRepo, tmp: &TempDir) {
     let path = tmp.path().join("cloudmap.yaml");
     let original = std::fs::read_to_string(&path).expect("read");
     let commented = original.replacen(
@@ -91,10 +90,10 @@ async fn comments_inside_a_rewritten_section_are_lost(sync: &SyncedRepo, tmp: &T
     sync.save_changes().await.expect("save");
 
     let after = std::fs::read_to_string(&path).expect("read");
-    assert!(!after.contains("a note about std"), "{after}");
-    // ...and this is why: the section is still sorted, so the added
-    // record sits *before* the one the comment annotated. Splicing the
-    // records where they were would have left it unsorted.
+    assert!(
+        after.contains("  # a note about std\n  git://unfurl.cloud/onecommons/std.git:"),
+        "{after}"
+    );
     let added = after.find("git://example.com/added.git").expect("added");
     let std = after
         .find("git://unfurl.cloud/onecommons/std.git")
@@ -105,9 +104,7 @@ async fn comments_inside_a_rewritten_section_are_lost(sync: &SyncedRepo, tmp: &T
 /// Editing a record the file already has moves nothing, so the section
 /// is spliced where it sits and the comments between its records stay.
 ///
-/// The complement of `comments_inside_a_rewritten_section_are_lost`:
-/// that one *adds* a record, which re-sorts the section and leaves the
-/// comments nowhere to go.
+/// The complement of `comments_inside_a_section_survive_an_added_record`.
 async fn comments_inside_an_edited_section_survive(sync: &SyncedRepo, tmp: &TempDir) {
     const STD: &str = "git://unfurl.cloud/onecommons/std.git";
     let path = tmp.path().join("cloudmap.yaml");
@@ -152,7 +149,7 @@ async fn comments_inside_an_edited_section_survive(sync: &SyncedRepo, tmp: &Temp
 
 crud_test!(comments_inside_an_edited_section_survive);
 crud_test!(a_write_keeps_comments_elsewhere);
-crud_test!(comments_inside_a_rewritten_section_are_lost);
+crud_test!(comments_inside_a_section_survive_an_added_record);
 
 /// Comments do not survive a rewrite -- the document round-trips through
 /// a `serde_json::Value`, which cannot hold them. Pinned so the loss is
