@@ -43,6 +43,12 @@ impl RecordRow {
     pub(crate) fn is_edit(&self) -> bool {
         self.commit_id.is_none()
     }
+
+    /// An edit made over a value: a committed one, or one taken in from
+    /// the file.
+    pub(crate) fn has_base(&self) -> bool {
+        self.base_commit_id.is_some() || self.base_json.is_some()
+    }
 }
 
 /// A record's place: file, section and key.

@@ -25,7 +25,7 @@ impl RecordRow {
             file_path: self.file_path,
             path: self.path,
             key: self.key,
-            commit_id: self.commit_id,
+            commit_id: self.commit_id.filter(CommitId::is_commit),
             json: self.json,
             deleted: self.deleted,
             version: self.version,
@@ -68,7 +68,7 @@ impl TryFrom<FoundColumns> for Record {
             file_path: c.file_path,
             path: c.path,
             key: c.key,
-            commit_id: c.commit_id,
+            commit_id: c.commit_id.filter(CommitId::is_commit),
             deleted: c.deleted,
             version: c.version,
         })
@@ -188,7 +188,8 @@ pub(crate) struct RenderInputs {
     /// The pending edits -- the draft's rows a client wrote, tombstones
     /// included -- in the order they were written.
     pub(crate) pending: Vec<Record>,
-    /// Each pending edit's base commit, by `(path, key)`.
+    /// Each pending edit made over a value, by `(path, key)`: the base's
+    /// commit, `None` for one taken in from the file.
     pub(crate) bases: std::collections::HashMap<(String, String), Option<CommitId>>,
     /// Each pending edit's base content, by `(path, key)`: what a stale
     /// file is checked against.
@@ -248,7 +249,11 @@ async fn render_inputs_with(
             .collect();
         edits.sort_by_key(|r| r.id);
         let at = |r: &RecordRow| (r.path.clone(), r.key.clone());
-        let bases = edits.iter().map(|r| (at(r), r.base_commit_id)).collect();
+        let bases = edits
+            .iter()
+            .filter(|r| r.has_base())
+            .map(|r| (at(r), r.base_commit_id))
+            .collect();
         let base_values = edits.iter().map(|r| (at(r), r.base_json.clone())).collect();
         let pending = edits.into_iter().map(|r| r.into_record(worktree_id)).collect();
         Ok(RenderInputs {

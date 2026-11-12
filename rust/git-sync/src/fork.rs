@@ -172,7 +172,7 @@ enum Placement {
 /// names: a fork of another origin's.
 pub(crate) async fn open(
     db: &Db,
-    repo: gix::Repository,
+    repo: Option<gix::Repository>,
     formats: &FormatRegistry,
     origin: &str,
     branch: &str,
@@ -187,16 +187,16 @@ pub(crate) async fn open(
         let mut family = Store::family_of_origin(&mut tx, origin).await?;
         tx.commit().await?;
         // the walk is git's alone, so no transaction is held open over it
-        if let (None, Some(head)) = (family, head) {
-            if let Some(named) = named_family(&repo, head, &database)? {
+        if let (None, Some(head), Some(repo)) = (family, head, &repo) {
+            if let Some(named) = named_family(repo, head, &database)? {
                 // the root's origin, so its own family
                 let mut tx = pool.begin().await?;
                 family = Store::family_of_origin(&mut tx, &named).await?;
                 tx.commit().await?;
             }
         }
-        let id = match (family, head) {
-            (Some(family), Some(head)) => {
+        let id = match (family, head, repo) {
+            (Some(family), Some(head), Some(repo)) => {
                 let history = History::open(formats, repo, db, family).await?;
                 fork_into(pool, history, family, origin, branch, head).await?
             }
@@ -726,7 +726,7 @@ fn written_after(
 ) -> Result<Vec<RecordRow>> {
     let mut late = Vec::new();
     for r in own {
-        if let Some(rc) = r.commit_id {
+        if let Some(rc) = r.commit_id.filter(CommitId::is_commit) {
             if rc != split_at && git::is_ancestor(history.repo(), split_at, rc)? {
                 late.push(r.clone());
             }
@@ -1072,7 +1072,7 @@ fn lost(repo: &gix::Repository, before: &View, after: &View) -> Result<usize> {
         if !loses(json.as_ref(), now) {
             continue;
         }
-        let Some(commit) = *commit else {
+        let Some(commit) = commit.filter(CommitId::is_commit) else {
             continue;
         };
         if let std::collections::btree_map::Entry::Vacant(e) = missing.entry(commit) {
@@ -1250,7 +1250,7 @@ fn missing_rows(repo: &gix::Repository, rows: Vec<RecordRow>) -> Result<Vec<Reco
     let mut missing: BTreeMap<CommitId, bool> = BTreeMap::new();
     let mut ours = Vec::new();
     for r in rows {
-        let Some(commit) = r.commit_id else {
+        let Some(commit) = r.commit_id.filter(CommitId::is_commit) else {
             continue;
         };
         if let std::collections::btree_map::Entry::Vacant(e) = missing.entry(commit) {
@@ -1330,7 +1330,7 @@ async fn chain_commits_in<DB: Store>(pool: &sqlx::Pool<DB>, w: i64) -> Result<BT
     let mut known: BTreeSet<CommitId> = DB::visible(&mut tx, w, Scope::Chain, Filter::All)
         .await?
         .into_iter()
-        .filter_map(|r| r.commit_id)
+        .filter_map(|r| r.commit_id.filter(CommitId::is_commit))
         .collect();
     let head = DB::segs(&mut tx, w).await?.head;
     known.extend(

@@ -1864,6 +1864,8 @@ fn committed_row_takes_the_drafts_record_at_its_key() {
         Op::External(0, vec![(3, true)]),
         Op::DiskEdit(0, 3, false, FileWins::Never),
         Op::Write(0, 3, false),
+        // the file moves on from what the edit was made over
+        Op::DiskEdit(0, 3, false, FileWins::Never),
         Op::External(0, vec![(4, false)]),
         Op::Commit(0),
     ]);
@@ -1892,6 +1894,8 @@ fn file_side_resolution_continues_the_edits_record() {
         Op::External(0, vec![(3, true)]),
         Op::DiskEdit(0, 3, false, FileWins::Never),
         Op::Write(0, 3, false),
+        // the file moves on from what the edit was made over
+        Op::DiskEdit(0, 3, false, FileWins::Never),
         Op::External(0, vec![(4, false)]),
         Op::Resolve(0, false, 0, false),
     ]);

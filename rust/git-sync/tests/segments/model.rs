@@ -177,6 +177,8 @@ impl OWt {
                 origin: Origin::Edit(e),
                 ..
             }) => e.base,
+            // a value taken in from the file is what the edit replaces
+            Some(d) if !d.deleted => Some(d.ver),
             Some(_) => None,
             None => match &inherited {
                 Some(ODraft {

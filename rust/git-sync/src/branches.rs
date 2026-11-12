@@ -27,6 +27,7 @@ impl SyncedRepo {
     /// fork, or a local ref of it, exists; [`Error::Other`] when `pushed`
     /// doesn't descend from R, or R moved before the fork.
     pub async fn fork_branch(&self, branch: &str, pushed: CommitId) -> Result<Forked> {
+        self.need_repository()?;
         let worktree = self.get_worktree().await?;
         let Some(r) = worktree.commit_id else {
             return Err(Error::Other(format!(

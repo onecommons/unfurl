@@ -616,9 +616,12 @@ impl Segments {
         let meta = edit.then(|| {
             let (base, base_commit) = match (live_anywhere, prior, other_base) {
                 (false, _, _) => (None, None),
-                (true, Some(p), _) => self.rows[&p]
-                    .edit
-                    .map_or((None, None), |e| (e.base, e.base_commit)),
+                (true, Some(p), _) => match self.rows[&p].edit {
+                    Some(e) => (e.base, e.base_commit),
+                    // a value taken in from the file is what the edit replaces
+                    None if !self.rows[&p].deleted => (Some(self.rows[&p].ver), None),
+                    None => (None, None),
+                },
                 (true, None, Some(b)) => b,
                 (true, None, None) => committed(),
             };

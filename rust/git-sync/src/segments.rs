@@ -447,6 +447,7 @@ impl Draft {
     async fn edit_base<DB: Store>(
         &self,
         tx: &mut sqlx::Transaction<'_, DB>,
+        at: At<'_>,
         record: Option<i64>,
         earlier: Option<&RecordRow>,
     ) -> Result<(Option<CommitId>, Option<serde_json::Value>)> {
@@ -454,14 +455,14 @@ impl Draft {
             return Ok((None, None));
         };
         if self.rows_of(id).any(|y| !y.deleted) {
-            return Ok(earlier.map_or((None, None), |y| (y.base_commit_id, y.base_json.clone())));
+            return Ok(earlier.map_or((None, None), |y| base_of(y, at)));
         }
         let committed = DB::visible(tx, self.worktree_id, Scope::Chain, Filter::KeyId(id)).await?;
         let Some(live) = committed.into_iter().find(|r| !r.deleted) else {
             return Ok((None, None));
         };
         Ok(match earlier {
-            Some(y) => (y.base_commit_id, y.base_json.clone()),
+            Some(y) => base_of(y, at),
             None => (live.commit_id, Some(live.json)),
         })
     }
@@ -487,7 +488,7 @@ impl Draft {
         // before `other` goes: it may be the record's live row
         let (base, base_json) = match edit {
             true => {
-                self.edit_base(tx, record, prior.as_ref().or(other.as_ref()))
+                self.edit_base(tx, at, record, prior.as_ref().or(other.as_ref()))
                     .await?
             }
             false => (None, None),
@@ -1011,6 +1012,15 @@ impl AtKey {
             }
             None => None,
         }
+    }
+}
+
+/// The base of an edit at `at` replacing draft row `y`: its value when it
+/// was taken in from the file there, else its own base.
+fn base_of(y: &RecordRow, at: At<'_>) -> (Option<CommitId>, Option<serde_json::Value>) {
+    match y.is_edit() || y.deleted || y.at() != at {
+        true => (y.base_commit_id, y.base_json.clone()),
+        false => (None, Some(y.json.clone())),
     }
 }
 

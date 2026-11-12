@@ -166,8 +166,8 @@ fn keys_of(file: Key) -> std::ops::Range<Key> {
 /// What a client's edit knows beyond its value.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Edit {
-    /// The committed value it was made over (`base_commit_id`); `None`
-    /// for a create, or an edit of an uncommitted row.
+    /// The value it was made over: committed (`base_commit_id`), or taken
+    /// in from the file at its key; `None` for a create.
     base: Option<Ver>,
     /// For a delete, the value it removes (a tombstone's json).
     gone: Option<Ver>,

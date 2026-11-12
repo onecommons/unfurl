@@ -96,8 +96,9 @@ pub struct SyncedRepo {
 struct SyncedRepoInner {
     db: Db,
     repo_path: PathBuf,
-    /// How far the repository's own config is trusted.
-    opener: git::Opener,
+    /// How far the repository's own config is trusted; `None` without a
+    /// repository.
+    opener: Option<git::Opener>,
     /// Shared with [`SyncedRepo::sibling`]'s handles.
     formats: Arc<FormatRegistry>,
     worktree_id: i64,
@@ -222,6 +223,7 @@ fn log_validation(rel_path: &str, format: &str, validation: &crate::Validation) 
 }
 
 /// What a scan's committed side found at HEAD.
+#[derive(Default)]
 pub(crate) struct HeadSide {
     /// Every blob in HEAD's tree, by path.
     blobs: std::collections::HashMap<String, gix::ObjectId>,
@@ -323,12 +325,12 @@ fn disk_files_of<'a>(
 ) -> Vec<DiskFile<'a>> {
     docs.iter()
         .map(|(c, doc, resolves_version)| {
-            let record_commit_id = c.last_commit(last_commits);
+            let last_commit = c.last_commit(last_commits);
             DiskFile {
                 file: ScannedFile {
                     rel_path: &c.tf.rel_path,
-                    record_commit_id,
-                    file_commit_id: if c.clean { record_commit_id } else { None },
+                    record_commit_id: Some(last_commit.unwrap_or(CommitId::UNCOMMITTED)),
+                    file_commit_id: if c.clean { last_commit } else { None },
                     source_oid: &c.disk_blob,
                     value: &doc.value,
                     format: doc.format,
@@ -344,7 +346,8 @@ fn disk_files_of<'a>(
 
 /// What a scan's first pass reads each tracked file against.
 struct FirstPass<'a> {
-    repo: &'a gix::Repository,
+    /// How blobs are hashed.
+    object_hash: gix::hash::Kind,
     options: &'a ScanOptions,
     /// HEAD is where the last scan walked history.
     head_unmoved: bool,
@@ -388,6 +391,49 @@ impl Candidate<'_> {
             None if !self.needs_history => self.db_commit,
             None => None,
         }
+    }
+}
+
+/// The worktree of the repository at `repo_path`, found or forked.
+async fn open_worktree(
+    db: &Db,
+    formats: &FormatRegistry,
+    opener: &git::Opener,
+    repo_path: &Path,
+    options: &OpenOptions,
+) -> Result<i64> {
+    // Inspect the repo once at open time to get origin/branch, and to
+    // place a new worktree in its family, which consumes it: we re-open
+    // per call to keep `Send` guarantees out of long-lived state.
+    let repo = opener.open(repo_path)?;
+    let meta = git::worktree_meta_preferring(&repo, options.remote.as_deref())?;
+    // gathered before awaiting: `repo` isn't `Sync`
+    let remotes = git::remote_origins(&repo, options.remote.as_deref());
+    adopt_renamed_origin(db, &remotes, &meta).await?;
+    let default_branch = git::remote_default_branch(&repo, "origin")?;
+    let worktree_id = crate::fork::open(
+        db,
+        Some(repo),
+        formats,
+        &meta.origin,
+        &meta.branch,
+        meta.head_oid,
+    )
+    .await?;
+    if let Some(branch) = default_branch {
+        record_default_branch(db, worktree_id, &meta.origin, &branch).await?;
+    }
+    Ok(worktree_id)
+}
+
+/// The worktree identity of `dir`, a directory in no repository: its
+/// normalized path, as a repository without remotes gets, and the branch
+/// `""`, which no git branch can be.
+fn gitless_meta(dir: &Path) -> git::WorktreeMeta {
+    git::WorktreeMeta {
+        origin: git::normalize_git_url_hard(&dir.to_string_lossy()),
+        branch: String::new(),
+        head_oid: None,
     }
 }
 
@@ -501,7 +547,8 @@ impl SyncedRepo {
     ///
     /// As [`Self::open`]; [`Error::InvalidPathspec`] for a pathspec that
     /// doesn't parse, uses attribute magic, or reaches outside the working
-    /// tree; [`Error::OutOfScope`] when the worktree already holds a file
+    /// tree, or for [`OpenOptions::untracked`] without pathspecs;
+    /// [`Error::OutOfScope`] when the worktree already holds a file
     /// the pathspecs don't match.
     pub async fn open_with(
         working_dir: impl AsRef<Path>,
@@ -535,31 +582,27 @@ impl SyncedRepo {
     ) -> Result<Self> {
         let repo_path = working_dir.as_ref().to_path_buf();
         let pathspecs: Vec<&str> = options.pathspecs.iter().map(String::as_str).collect();
-        let scope = crate::scope::Scope::new(&pathspecs, &repo_path)?.map(Arc::new);
-        let opener = git::Opener::new(&repo_path, trust)?;
-
-        // Inspect the repo once at open time to get origin/branch, and to
-        // place a new worktree in its family, which consumes it: we re-open
-        // per call to keep `Send` guarantees out of long-lived state.
-        let repo = opener.open(&repo_path)?;
-        let meta = git::worktree_meta_preferring(&repo, options.remote.as_deref())?;
-        // gathered before awaiting: `repo` isn't `Sync`
-        let remotes = git::remote_origins(&repo, options.remote.as_deref());
-        adopt_renamed_origin(&db, &remotes, &meta).await?;
-        let default_branch = git::remote_default_branch(&repo, "origin")?;
-        let worktree_id = crate::fork::open(
-            &db,
-            repo,
-            &formats,
-            &meta.origin,
-            &meta.branch,
-            meta.head_oid,
-        )
-        .await?;
-        let family_id = db::worktree::family_id(&db, worktree_id).await?;
-        if let Some(branch) = default_branch {
-            record_default_branch(&db, worktree_id, &meta.origin, &branch).await?;
+        let scope =
+            crate::scope::Scope::new(&pathspecs, &repo_path, options.untracked)?.map(Arc::new);
+        let gitless = options.without_repository && !git::in_repository(&repo_path)?;
+        if gitless && scope.is_none() {
+            return Err(Error::InvalidPathspec {
+                pathspec: String::new(),
+                message: "a directory with no repository is opened only with pathspecs".to_string(),
+            });
         }
+        let opener = match gitless {
+            true => None,
+            false => Some(git::Opener::new(&repo_path, trust)?),
+        };
+        let worktree_id = match &opener {
+            Some(opener) => open_worktree(&db, &formats, opener, &repo_path, &options).await?,
+            None => {
+                let meta = gitless_meta(&repo_path);
+                crate::fork::open(&db, None, &formats, &meta.origin, &meta.branch, None).await?
+            }
+        };
+        let family_id = db::worktree::family_id(&db, worktree_id).await?;
         if let Some(scope) = &scope {
             check_scope(&db, worktree_id, scope).await?;
         }
@@ -596,7 +639,46 @@ impl SyncedRepo {
     }
 
     pub(crate) fn repo(&self) -> Result<gix::Repository> {
-        self.inner.opener.open(&self.inner.repo_path)
+        self.inner
+            .opener
+            .as_ref()
+            .ok_or(Error::NoRepository)?
+            .open(&self.inner.repo_path)
+    }
+
+    /// The repository, `None` for a handle opened without one.
+    fn repo_if_any(&self) -> Result<Option<gix::Repository>> {
+        self.inner
+            .opener
+            .as_ref()
+            .map(|o| o.open(&self.inner.repo_path))
+            .transpose()
+    }
+
+    /// [`Error::NoRepository`] for a handle opened without a repository.
+    pub(crate) fn need_repository(&self) -> Result<()> {
+        match self.inner.opener {
+            Some(_) => Ok(()),
+            None => Err(Error::NoRepository),
+        }
+    }
+
+    /// What identifies the worktree and its `HEAD` now.
+    fn worktree_meta(&self) -> Result<git::WorktreeMeta> {
+        match self.repo_if_any()? {
+            Some(repo) => git::worktree_meta(&repo),
+            None => Ok(gitless_meta(&self.inner.repo_path)),
+        }
+    }
+
+    /// The blob OID of `bytes`, as the repository hashes, or SHA-1
+    /// without one.
+    fn blob_oid(&self, bytes: &[u8]) -> Result<gix::ObjectId> {
+        let kind = match self.repo_if_any()? {
+            Some(repo) => repo.object_hash(),
+            None => gix::hash::Kind::Sha1,
+        };
+        git::blob_oid(kind, bytes)
     }
 
     /// The id of the worktree this handle is bound to.
@@ -657,8 +739,7 @@ impl SyncedRepo {
     /// before issuing CRUD calls so that conflict tokens can be
     /// constructed later.
     pub async fn get_working_dir(&self) -> Result<crate::model::WorkingDir> {
-        let repo = self.repo()?;
-        let meta = git::worktree_meta(&repo)?;
+        let meta = self.worktree_meta()?;
         Ok(crate::model::WorkingDir {
             repo_path: self.inner.repo_path.clone(),
             branch: meta.branch,
@@ -744,7 +825,7 @@ impl SyncedRepo {
     async fn scan(&self, options: ScanOptions) -> Result<(SyncOutcome, Option<CommitId>)> {
         // HEAD is read once, so the commit stamped below is the one the
         // scan took in, and a rebuild recorded, even if it moves meanwhile.
-        let meta = git::worktree_meta(&self.repo()?)?;
+        let meta = self.worktree_meta()?;
         let stats = self.scan_files(&options, &meta).await?;
         *self.walked_head() = meta.head_oid;
         if let Some(oid) = meta.head_oid {
@@ -927,7 +1008,7 @@ impl SyncedRepo {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Classified::Vanished,
             Err(_) => return Classified::Skip,
         };
-        let blob = match git::blob_oid_for_bytes(pass.repo, &bytes) {
+        let blob = match git::blob_oid(pass.object_hash, &bytes) {
             Ok(blob) => blob,
             Err(error) => {
                 tracing::warn!(
@@ -987,9 +1068,11 @@ impl SyncedRepo {
         };
         // A walk at the same HEAD finds a clean file's last commit where
         // the last one did, so only the rest need one.
-        let needs_history = parsed_doc.is_some()
-            || head_changed
-            || !(pass.head_unmoved && clean && db_commit.is_some());
+        // no commit holds what the index doesn't
+        let needs_history = tf.indexed
+            && (parsed_doc.is_some()
+                || head_changed
+                || !(pass.head_unmoved && clean && db_commit.is_some()));
         Classified::Candidate(Candidate {
             tf,
             clean,
@@ -1016,13 +1099,10 @@ impl SyncedRepo {
         options: &ScanOptions,
         meta: &git::WorktreeMeta,
     ) -> Result<SyncOutcome> {
-        let repo = self.repo()?;
+        let repo = self.repo_if_any()?;
         let head = meta.head_oid;
         let recovered = self.follow_head(&meta.branch, head, options).await?;
-        let tracked: Vec<git::TrackedFile> = git::tracked_files(&repo)?
-            .into_iter()
-            .filter(|tf| self.in_scope(&tf.rel_path))
-            .collect();
+        let tracked = self.files_to_scan(repo.as_ref())?;
         // so a file outside the scope never reads as deleted
         let known_files: std::collections::HashMap<String, crate::model::File> =
             db::file::list(self.db(), self.worktree_id())
@@ -1041,7 +1121,10 @@ impl SyncedRepo {
             blobs: head_blobs,
             files: head_files,
             parsed: head_parsed,
-        } = self.head_files(&repo, head, &known_files, options.force)?;
+        } = match &repo {
+            Some(repo) => self.head_files(repo, head, &known_files, options.force)?,
+            None => HeadSide::default(),
+        };
         stats.files_parsed += head_parsed;
         let head_changed: BTreeSet<String> =
             head_files.iter().map(|f| f.rel_path.clone()).collect();
@@ -1050,7 +1133,9 @@ impl SyncedRepo {
             // `pass` borrows the repository, which isn't `Sync`, so it's
             // scoped to end before the next await
             let pass = FirstPass {
-                repo: &repo,
+                object_hash: repo
+                    .as_ref()
+                    .map_or(gix::hash::Kind::Sha1, |r| r.object_hash()),
                 options,
                 head_unmoved: meta.head_oid.is_some() && *self.walked_head() == meta.head_oid,
                 head_blobs: &head_blobs,
@@ -1064,8 +1149,12 @@ impl SyncedRepo {
 
         // Second pass: resolve the commit that last touched every
         // candidate path via a single backwards walk from HEAD.
-        let last_commits = git::last_commits_for_paths(&repo, meta.head_oid, &walked.walk_paths)?;
-        let parsed = self.parse_candidates(&repo, walked.candidates, &last_commits, &mut stats);
+        let last_commits = match &repo {
+            Some(repo) => git::last_commits_for_paths(repo, meta.head_oid, &walked.walk_paths)?,
+            None => Default::default(),
+        };
+        let parsed =
+            self.parse_candidates(repo.as_ref(), walked.candidates, &last_commits, &mut stats);
         for (path, commit) in &parsed.attributions {
             self.set_file_commit(path, *commit).await?;
         }
@@ -1096,6 +1185,42 @@ impl SyncedRepo {
             &mut stats,
         ).await)?;
         Ok(stats)
+    }
+
+    /// The index's files in scope, then, with [`OpenOptions::untracked`]
+    /// or without a repository, the files on disk the pathspecs match
+    /// that the index doesn't have.
+    fn files_to_scan(&self, repo: Option<&gix::Repository>) -> Result<Vec<git::TrackedFile>> {
+        let mut files: Vec<git::TrackedFile> = match repo {
+            Some(repo) => git::tracked_files(repo)?
+                .into_iter()
+                .filter(|tf| self.in_scope(&tf.rel_path))
+                .collect(),
+            None => Vec::new(),
+        };
+        let Some(scope) = self
+            .inner
+            .scope
+            .as_ref()
+            .filter(|s| s.untracked || repo.is_none())
+        else {
+            return Ok(files);
+        };
+        let work_dir = match repo {
+            Some(repo) => repo
+                .workdir()
+                .ok_or_else(|| Error::Git("repository has no working tree".to_string()))?
+                .to_path_buf(),
+            None => self.inner.repo_path.clone(),
+        };
+        let indexed: std::collections::HashSet<String> =
+            files.iter().map(|tf| tf.rel_path.clone()).collect();
+        for rel in scope.files_on_disk(&work_dir)? {
+            if !indexed.contains(&rel) {
+                files.push(git::TrackedFile::untracked(&work_dir, rel));
+            }
+        }
+        Ok(files)
     }
 
     /// The first pass over `tracked`: what each file is, and which are
@@ -1152,7 +1277,7 @@ impl SyncedRepo {
     /// holds but whose last commit moved.
     fn parse_candidates<'a>(
         &'a self,
-        repo: &gix::Repository,
+        repo: Option<&gix::Repository>,
         candidates: Vec<Candidate<'a>>,
         last_commits: &std::collections::HashMap<String, CommitId>,
         stats: &mut SyncOutcome,
@@ -1166,7 +1291,7 @@ impl SyncedRepo {
         for mut c in candidates {
             let record_commit_id = c.last_commit(last_commits);
             let file_commit_id: Option<CommitId> = if c.clean { record_commit_id } else { None };
-            let resolves_version = record_commit_id.and_then(|commit| {
+            let resolves_version = record_commit_id.zip(repo).and_then(|(commit, repo)| {
                 *resolves.entry(commit).or_insert_with(|| {
                     git::commit_message(repo, commit)
                         .as_deref()
@@ -2169,6 +2294,7 @@ impl SyncedRepo {
             return Ok(Render::Remove(Removal {
                 abs_path,
                 write_seq,
+                settle: self.settled_by_write(&pending),
             }));
         }
         let retract = deleted;
@@ -2179,6 +2305,7 @@ impl SyncedRepo {
                 retract,
                 commit_id: None,
                 ops: Vec::new(),
+                settle: Vec::new(),
                 outcome: WriteFileOutcome::default(),
             }));
         }
@@ -2220,11 +2347,13 @@ impl SyncedRepo {
             Some(text) => syntax.into_value(file_path, text.as_bytes())?,
             None => new_root(format),
         };
+        let mut settle = self.settled_by_write(&pending);
         let Applying {
             touched,
             conflicts,
             ops,
             applied,
+            on_disk,
         } = apply_pending_records(
             &mut root,
             file_path,
@@ -2235,6 +2364,7 @@ impl SyncedRepo {
             check.as_ref(),
         );
         let commit_id = file_row.as_ref().and_then(|f| f.commit_id);
+        settle.retain(|e| on_disk.iter().any(|(p, k)| *p == e.path && *k == e.key));
         if touched.is_empty() {
             // Conflict bookkeeping lands even when nothing is written: the
             // divergences it records are why there is nothing to write.
@@ -2243,6 +2373,7 @@ impl SyncedRepo {
                 retract,
                 commit_id,
                 ops,
+                settle,
                 outcome: WriteFileOutcome {
                     written: None,
                     deleted: false,
@@ -2264,8 +2395,25 @@ impl SyncedRepo {
             retract,
             commit_id,
             ops,
+            settle,
             conflicts,
         }))
+    }
+
+    /// Without a repository, the edits of `pending`, which a write that
+    /// puts them on disk settles; none with one, where a commit does.
+    fn settled_by_write(&self, pending: &[Record]) -> Vec<Settle> {
+        if self.inner.opener.is_some() {
+            return Vec::new();
+        }
+        pending
+            .iter()
+            .map(|r| Settle {
+                path: r.path.clone(),
+                key: r.key.clone(),
+                version: r.version,
+            })
+            .collect()
     }
 
     /// `pending`, edits of `file_path`, applied to `source`, its bytes at
@@ -2332,7 +2480,9 @@ impl SyncedRepo {
         bytes: Vec<u8>,
         render: impl Fn(Option<&str>, &mut serde_json::Value) -> Result<Vec<u8>>,
     ) -> Result<Vec<u8>> {
-        let repo = self.repo()?;
+        let Some(repo) = self.repo_if_any()? else {
+            return Ok(bytes);
+        };
         let Some(head) = git::worktree_meta(&repo)?.head_oid else {
             return Ok(bytes);
         };
@@ -2378,6 +2528,7 @@ impl SyncedRepo {
             retract,
             commit_id,
             ops,
+            settle,
             conflicts,
         } = rendered;
         let tmp = stage_write(&abs_path, &bytes)?;
@@ -2385,7 +2536,7 @@ impl SyncedRepo {
         // take the merge in
         let oid = match stale {
             true => None,
-            false => Some(git::blob_oid_for_bytes(&self.repo()?, &bytes)?.to_string()),
+            false => Some(self.blob_oid(&bytes)?.to_string()),
         };
         let write = RenderWrite {
             file_path,
@@ -2395,6 +2546,7 @@ impl SyncedRepo {
             retract,
             commit_id,
             ops: &ops,
+            settle: &settle,
         };
         let persist = || {
             tmp.persist(&abs_path)
@@ -2421,6 +2573,7 @@ impl SyncedRepo {
         let Removal {
             abs_path,
             write_seq,
+            settle,
         } = removal;
         let mut removed = false;
         // `remove_file` on an absent file is the already-done case, not a
@@ -2441,6 +2594,7 @@ impl SyncedRepo {
             retract: false,
             commit_id: None,
             ops: &[],
+            settle: &settle,
         };
         let won =
             on_pool!(self.db(), pool => commit_render_in_pool(self, pool, &write, unlink).await)?;
@@ -2463,6 +2617,7 @@ impl SyncedRepo {
             retract,
             commit_id,
             ops,
+            settle,
             outcome,
         } = bookkeeping;
         let write = RenderWrite {
@@ -2473,6 +2628,7 @@ impl SyncedRepo {
             retract,
             commit_id,
             ops: &ops,
+            settle: &settle,
         };
         let nothing = || Ok(());
         let won =
@@ -2495,7 +2651,7 @@ impl SyncedRepo {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
             Err(e) => return Err(Error::Io(e)),
         };
-        Ok(git::blob_oid_for_bytes(&self.repo()?, &bytes)? != expected)
+        Ok(self.blob_oid(&bytes)? != expected)
     }
 
     /// The file's side of every record this worktree is in conflict
@@ -2610,7 +2766,9 @@ impl SyncedRepo {
     ///
     /// Surfaces [`crate::Error::Git`] if gix can't construct the
     /// commit, [`crate::Error::Io`] for filesystem trouble during
-    /// `save_changes`, and any underlying database error.
+    /// `save_changes`, and any underlying database error;
+    /// [`crate::Error::NoRepository`], before anything is saved, for a
+    /// handle opened without a repository.
     pub async fn commit_repository(
         &self,
         message: &str,
@@ -2628,6 +2786,7 @@ impl SyncedRepo {
         options: CommitOptions,
         mut after_export: impl AsyncFnMut() -> Result<()>,
     ) -> Result<Committed> {
+        self.need_repository()?;
         // Take any outside edits in before saving: the writes below
         // then render over a current picture, and the fold can't
         // stamp a stale row with a commit that doesn't carry its json.
@@ -2959,6 +3118,7 @@ struct Bookkeeping {
     retract: bool,
     commit_id: Option<CommitId>,
     ops: Vec<ConflictOp>,
+    settle: Vec<Settle>,
     outcome: WriteFileOutcome,
 }
 
@@ -2966,6 +3126,7 @@ struct Bookkeeping {
 struct Removal {
     abs_path: PathBuf,
     write_seq: Option<i64>,
+    settle: Vec<Settle>,
 }
 
 /// A render waiting to be written, and what it was rendered over.
@@ -2984,6 +3145,7 @@ struct Rendered {
     retract: bool,
     commit_id: Option<CommitId>,
     ops: Vec<ConflictOp>,
+    settle: Vec<Settle>,
     conflicts: Vec<crate::model::RecordConflict>,
 }
 
@@ -3000,6 +3162,15 @@ struct RenderWrite<'a> {
     retract: bool,
     commit_id: Option<CommitId>,
     ops: &'a [ConflictOp],
+    /// The edits the write puts on disk, settled with it.
+    settle: &'a [Settle],
+}
+
+/// An edit a write puts on disk, at the version the render read.
+struct Settle {
+    path: String,
+    key: String,
+    version: i64,
 }
 
 /// Record a render, its conflict bookkeeping, and `persist`, the rename
@@ -3051,9 +3222,34 @@ async fn commit_render_in_pool<DB: crate::db::store::Store>(
         apply_conflict_ops_in_tx(&mut tx, sync, write.file_path, write.commit_id, write.ops)
             .await?;
     }
+    settle_in_tx(&mut tx, w, write.file_path, write.settle).await?;
     persist()?;
     tx.commit().await?;
     Ok(true)
+}
+
+/// Mark each of `settle`, edits of worktree `w`'s `file_path` still at the
+/// version a write rendered, as taken in from the file: no commit holds
+/// it.
+async fn settle_in_tx<DB: crate::db::store::Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    w: i64,
+    file_path: &str,
+    settle: &[Settle],
+) -> Result<()> {
+    if settle.is_empty() {
+        return Ok(());
+    }
+    let d = DB::segs(tx, w).await?.draft;
+    for row in DB::rows_in(tx, d, Some(file_path), false).await? {
+        let written = settle
+            .iter()
+            .any(|e| e.path == row.path && e.key == row.key && e.version == row.version);
+        if written && row.is_edit() {
+            DB::stamp(tx, row.id, d, CommitId::UNCOMMITTED).await?;
+        }
+    }
+    Ok(())
 }
 
 /// A recovery branch claimed at `base`, the commit the records it takes
@@ -4305,5 +4501,66 @@ mod scan_bench {
                 .expect("scan");
             println!("unchanged scan {n}: {:?} ({outcome:?})", start.elapsed());
         }
+    }
+}
+
+#[cfg(test)]
+mod gitless_tests {
+    use super::*;
+    use crate::{DbConfig, FormatRegistry};
+    use serde_json::json;
+
+    const FILE: &str = "cloudmap.yaml";
+    const REPOS: &str = "/repositories";
+
+    async fn edit(sync: &SyncedRepo, name: &str) {
+        sync.upsert_record(Some(FILE), REPOS, "a", json!({"name": name}), None, false)
+            .await
+            .expect("upsert");
+    }
+
+    /// An edit written while a save renders isn't what it puts on disk:
+    /// the save leaves it pending, and the next one writes it.
+    #[tokio::test]
+    async fn an_edit_during_a_save_stays_pending() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = DbConfig::Sqlite {
+            url: "sqlite::memory:".into(),
+        };
+        let options = OpenOptions::default()
+            .pathspecs([FILE])
+            .without_repository(true);
+        let sync = SyncedRepo::open_with(
+            dir.path(),
+            db,
+            FormatRegistry::with_builtins(),
+            git::Trust::Full,
+            options,
+        )
+        .await
+        .expect("open");
+        edit(&sync, "first").await;
+        sync.write_file_racing(FILE, async || {
+            edit(&sync, "second").await;
+            Ok(())
+        })
+        .await
+        .expect("write");
+        let on_disk = || std::fs::read_to_string(dir.path().join(FILE)).expect("read");
+        assert!(on_disk().contains("first"), "{}", on_disk());
+        let pending = || async {
+            db::record::render_inputs(sync.db(), sync.worktree_id(), FILE)
+                .await
+                .expect("inputs")
+                .pending
+                .into_iter()
+                .map(|r| r.json)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(pending().await, [json!({"name": "second"})]);
+
+        sync.save_changes().await.expect("save");
+        assert!(on_disk().contains("second"), "{}", on_disk());
+        assert!(pending().await.is_empty());
     }
 }

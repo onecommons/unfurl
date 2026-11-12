@@ -32,8 +32,8 @@ pub(crate) struct ScannedFile<'a> {
     /// Working-tree-relative path of the file.
     pub(crate) rel_path: &'a str,
     /// Commit that last touched the path — what scanned records are
-    /// stamped with, clean or dirty. `None` only for a path no commit
-    /// has ever carried.
+    /// stamped with, clean or dirty: [`CommitId::UNCOMMITTED`] for a path
+    /// no commit has carried. `None` takes the records in as edits.
     pub(crate) record_commit_id: Option<CommitId>,
     /// The same commit when the on-disk blob matches the index entry,
     /// `None` when the file is dirty — what the file row gets, so a
@@ -380,7 +380,7 @@ fn diverges(
     classify_conflict(
         &x.json,
         x.deleted,
-        x.base_commit_id.is_some(),
+        x.has_base(),
         x.base_json.as_ref(),
         theirs,
     )

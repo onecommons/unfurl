@@ -83,7 +83,9 @@ pub(crate) fn enforce_conflict(
                     file_path: file_path.to_string(),
                     path: path.to_string(),
                     expected: expected.clone(),
-                    actual: existing_record_commit.map(CommitId::to_string),
+                    actual: existing_record_commit
+                        .filter(|c| c.is_commit())
+                        .map(CommitId::to_string),
                 })
             }
         }
@@ -97,7 +99,7 @@ pub(crate) fn enforce_conflict(
                     file_path: file_path.to_string(),
                     path: path.to_string(),
                     expected: expected.clone(),
-                    actual: actual.map(CommitId::to_string),
+                    actual: actual.filter(|c| c.is_commit()).map(CommitId::to_string),
                 }),
             }
         }

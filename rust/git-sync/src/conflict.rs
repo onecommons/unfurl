@@ -210,6 +210,9 @@ pub(crate) struct Applying {
     /// logic *declined*, and writing one of those into a document is
     /// exactly what a conflict is supposed to prevent.
     pub(crate) applied: Vec<Applied>,
+    /// `(path, key)` of every record the document now holds as pending:
+    /// applied, or already there.
+    pub(crate) on_disk: Vec<(String, String)>,
 }
 
 /// Apply every pending record to `root` in order, leaving conflicted
@@ -243,6 +246,7 @@ pub(crate) fn apply_pending_records(
         conflicts: Vec::new(),
         ops: Vec::new(),
         applied: Vec::new(),
+        on_disk: Vec::new(),
     };
     for rec in pending {
         let section_name = rec.path.trim_start_matches('/').to_string();
@@ -255,6 +259,7 @@ pub(crate) fn apply_pending_records(
         let theirs =
             crate::document::record_in(root, section_kind, &section_name, &rec.key).cloned();
         let base_commit = bases.get(&at).cloned().flatten();
+        let has_base = bases.contains_key(&at);
         let report = |kind, base_commit: &Option<CommitId>, theirs: Option<&serde_json::Value>| {
             RecordConflict {
                 file_path: file_path.to_string(),
@@ -270,7 +275,7 @@ pub(crate) fn apply_pending_records(
             Some(ConflictState::Conflict) => {
                 let row = &conflict_rows[&at];
                 out.conflicts.push(report(
-                    conflict_kind(rec.deleted, row.deleted, base_commit.is_some()),
+                    conflict_kind(rec.deleted, row.deleted, has_base),
                     &base_commit,
                     theirs.as_ref(),
                 ));
@@ -291,7 +296,7 @@ pub(crate) fn apply_pending_records(
                 } else {
                     // The file changed under the resolution, so the
                     // decision was made about a value that is gone.
-                    let kind = conflict_kind(rec.deleted, theirs.is_none(), base_commit.is_some());
+                    let kind = conflict_kind(rec.deleted, theirs.is_none(), has_base);
                     tracing::warn!(
                         file = %file_path, path = %rec.path, key = %rec.key, kind = ?kind,
                         "file moved again since the conflict was resolved; re-opening it"
@@ -318,7 +323,7 @@ pub(crate) fn apply_pending_records(
                     if let Some(kind) = classify_conflict(
                         &rec.json,
                         rec.deleted,
-                        base_commit.is_some(),
+                        has_base,
                         base_value,
                         theirs.as_ref(),
                     ) {
@@ -351,6 +356,7 @@ pub(crate) fn apply_pending_records(
             Some(value) => !rec.deleted && *value == rec.json,
             None => rec.deleted,
         };
+        out.on_disk.push(at.clone());
         if holds {
             continue;
         }
@@ -560,7 +566,11 @@ pub(crate) async fn resolve_conflict_in_tx<DB: Store>(
                 // a commit that holds the file
                 let commit = match committed.as_ref().and_then(|r| r.commit_id) {
                     Some(c) => Some(c),
-                    None => DB::head_commit(tx, w).await?,
+                    None => Some(
+                        DB::head_commit(tx, w)
+                            .await?
+                            .unwrap_or(CommitId::UNCOMMITTED),
+                    ),
                 };
                 let written =
                     segments::write(tx, w, at, value, Origin::File(commit), record, version)

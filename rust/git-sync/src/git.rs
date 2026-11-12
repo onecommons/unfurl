@@ -326,7 +326,7 @@ pub fn tracked_files(repo: &gix::Repository) -> Result<Vec<TrackedFile>> {
         .workdir()
         .ok_or_else(|| Error::Git("repository has no working tree".to_string()))?
         .to_path_buf();
-    let index = repo.index_or_load_from_head().map_err(git_err)?;
+    let index = repo.index_or_load_from_head_or_empty().map_err(git_err)?;
 
     let mut out = Vec::new();
     for entry in index.entries() {
@@ -340,6 +340,7 @@ pub fn tracked_files(repo: &gix::Repository) -> Result<Vec<TrackedFile>> {
             rel_path: rel,
             abs_path: abs,
             head_blob_oid: entry.id,
+            indexed: true,
         });
     }
     Ok(out)
@@ -350,8 +351,23 @@ pub fn tracked_files(repo: &gix::Repository) -> Result<Vec<TrackedFile>> {
 pub struct TrackedFile {
     pub rel_path: String,
     pub abs_path: PathBuf,
-    /// OID recorded in the git index for this path.
+    /// OID recorded in the git index for this path; the null id when
+    /// it isn't [`Self::indexed`].
     pub head_blob_oid: gix::ObjectId,
+    /// The index has the path.
+    pub indexed: bool,
+}
+
+impl TrackedFile {
+    /// `rel_path` under `work_dir`, which the index doesn't have.
+    pub(crate) fn untracked(work_dir: &Path, rel_path: String) -> Self {
+        TrackedFile {
+            abs_path: work_dir.join(&rel_path),
+            rel_path,
+            head_blob_oid: gix::ObjectId::null(gix::hash::Kind::Sha1),
+            indexed: false,
+        }
+    }
 }
 
 /// The blob OID git would record for `bytes`.
@@ -368,7 +384,47 @@ pub struct TrackedFile {
 ///
 /// Fails on bytes crafted to collide under SHA-1.
 pub fn blob_oid_for_bytes(repo: &gix::Repository, bytes: &[u8]) -> Result<gix::ObjectId> {
-    gix::objs::compute_hash(repo.object_hash(), gix::object::Kind::Blob, bytes).map_err(git_err)
+    blob_oid(repo.object_hash(), bytes)
+}
+
+/// The blob OID of `bytes` hashed with `kind`, with or without a
+/// repository.
+pub(crate) fn blob_oid(kind: gix::hash::Kind, bytes: &[u8]) -> Result<gix::ObjectId> {
+    gix::objs::compute_hash(kind, gix::object::Kind::Blob, bytes).map_err(git_err)
+}
+
+/// Whether `path` is in a git repository, searching its parents too; an
+/// error where it or a parent has a `.git` that isn't a usable one.
+pub(crate) fn in_repository(path: &Path) -> Result<bool> {
+    use gix::discover::upwards::Error as Upwards;
+    let error = match gix::discover::upwards(path) {
+        Ok(_) => return Ok(true),
+        Err(e) => e,
+    };
+    let none_found = matches!(
+        error.downcast_any_ref::<Upwards>(),
+        Some(
+            Upwards::NoGitRepository { .. }
+                | Upwards::NoGitRepositoryWithinCeiling { .. }
+                | Upwards::NoGitRepositoryWithinFs { .. }
+        )
+    );
+    if !none_found {
+        return Err(git_err(error));
+    }
+    // discovery passes over a `.git` it can't use
+    let absolute = std::path::absolute(path)?;
+    match absolute
+        .ancestors()
+        .map(|a| a.join(".git"))
+        .find(|g| g.exists())
+    {
+        Some(dot_git) => Err(Error::Git(format!(
+            "{} isn't a usable git repository",
+            dot_git.display()
+        ))),
+        None => Ok(false),
+    }
 }
 
 /// Stage `paths` (relative to the work dir) and create a commit on HEAD

@@ -705,8 +705,9 @@ pub struct FacetRows {
 
 /// Records sit at `obj[path][key]` inside their owning file, where
 /// `path` is the JSON-pointer to the parent map (e.g. `/repositories`)
-/// and `key` is the literal map key. `commit_id == None` indicates an
-/// in-flight edit that hasn't been committed yet.
+/// and `key` is the literal map key. `commit_id == None` means no commit
+/// holds the value: an in-flight edit, or one taken in from a file no
+/// commit holds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
     /// The record's id, the same for every version of it.
@@ -721,8 +722,9 @@ pub struct Record {
     /// Unescaped key under [`Record::path`]; stored verbatim — no
     /// JSON-pointer escaping.
     pub key: String,
-    /// Last commit oid that committed this record's value, or `None`
-    /// when the record is in-flight (uncommitted).
+    /// Last commit oid that committed this record's value; `None` when no
+    /// commit holds this value: an in-flight edit, or a value taken in from
+    /// a file no commit holds.
     pub commit_id: Option<CommitId>,
     /// The record's JSON payload.
     pub json: serde_json::Value,
@@ -826,9 +828,30 @@ pub struct OpenOptions {
     /// before `origin` and then the other remotes by name. A database
     /// keyed under another of its remotes is carried over on open.
     pub remote: Option<String>,
+    /// Scans also take in the files the pathspecs match that are on disk
+    /// but not in the index. Only with [`Self::pathspecs`].
+    pub untracked: bool,
+    /// A directory in no git working tree opens with no repository: its
+    /// files under it that [`Self::pathspecs`] match, which are required,
+    /// are taken in and written, and what needs history fails with
+    /// [`crate::Error::NoRepository`]. A directory in a working tree
+    /// opens as without it.
+    pub without_repository: bool,
 }
 
 impl OpenOptions {
+    /// With [`Self::without_repository`] set to `without`.
+    pub fn without_repository(mut self, without: bool) -> Self {
+        self.without_repository = without;
+        self
+    }
+
+    /// With [`Self::untracked`] set to `untracked`.
+    pub fn untracked(mut self, untracked: bool) -> Self {
+        self.untracked = untracked;
+        self
+    }
+
     /// With [`Self::remote`] set to `name`.
     pub fn remote(mut self, name: impl Into<String>) -> Self {
         self.remote = Some(name.into());

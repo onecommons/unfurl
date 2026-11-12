@@ -13,6 +13,15 @@ use crate::error::{Error, Result};
 pub struct CommitId(gix::ObjectId);
 
 impl CommitId {
+    /// The null object id: what a record taken in from a file no commit
+    /// holds carries in place of a commit, so it doesn't read as an edit.
+    pub(crate) const UNCOMMITTED: CommitId = CommitId(gix::ObjectId::null(gix::hash::Kind::Sha1));
+
+    /// Whether this is a commit, not [`CommitId::UNCOMMITTED`].
+    pub(crate) fn is_commit(&self) -> bool {
+        *self != Self::UNCOMMITTED
+    }
+
     /// The id as gix takes it.
     pub fn oid(&self) -> gix::ObjectId {
         self.0
@@ -129,6 +138,13 @@ mod tests {
         let back: CommitId = serde_json::from_str(&format!("\"{HEX}\"")).expect("json");
         assert_eq!(back, c);
         assert_eq!(c.short(7), &HEX[..7]);
+    }
+
+    #[test]
+    fn uncommitted_is_the_null_id() {
+        assert_eq!(CommitId::UNCOMMITTED.to_string(), "0".repeat(40));
+        assert!(!CommitId::UNCOMMITTED.is_commit());
+        assert!(HEX.parse::<CommitId>().expect("hex").is_commit());
     }
 
     #[test]

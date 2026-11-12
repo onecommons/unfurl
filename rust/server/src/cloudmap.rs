@@ -3188,6 +3188,48 @@ mod tests {
         partition_copies, retry_if_head_moved,
     };
 
+    /// A record of a file no commit holds is served with a null commit.
+    #[tokio::test]
+    async fn a_staged_files_record_has_no_commit() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(tmp.path())
+                .output()
+                .expect("git");
+            assert!(out.status.success(), "{out:?}");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        std::fs::write(
+            tmp.path().join("cloudmap.yaml"),
+            "apiVersion: unfurl/v1.0.0\nkind: CloudMap\nrepositories:\n  git://e.com/a.git:\n    path: a\n",
+        )
+        .expect("write");
+        git(&["add", "cloudmap.yaml"]);
+        let sync = unfurl_git_sync::SyncedRepo::open(
+            tmp.path(),
+            unfurl_git_sync::DbConfig::Sqlite {
+                url: "sqlite::memory:".into(),
+            },
+            unfurl_git_sync::FormatRegistry::with_builtins(),
+        )
+        .await
+        .expect("open");
+        sync.update_from_working_dir(Default::default())
+            .await
+            .expect("scan");
+        let records = sync.find_records(&Default::default()).await.expect("find");
+        let document = super::records_to_document(records, None);
+        let record = &document["repositories"]["git://e.com/a.git"];
+        assert_eq!(
+            record["unfurl.server.commit"],
+            serde_json::Value::Null,
+            "{document}"
+        );
+        assert_eq!(record["path"], "a");
+    }
+
     fn row(worktree_id: i64, file: &str, version: i64, deleted: bool) -> unfurl_git_sync::Record {
         unfurl_git_sync::Record {
             id: 7,
