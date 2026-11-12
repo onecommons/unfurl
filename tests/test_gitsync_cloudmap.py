@@ -1210,6 +1210,40 @@ def test_records_added_on_two_branches_merge(tmp_path: Path) -> None:
     assert {"delta", "hotel"} <= {r.path for r in merged.repositories.values()}
 
 
+def test_reload_follows_a_checkout_of_another_branch(tmp_path: Path) -> None:
+    """As a host sync does: records saved and committed on the host's branch,
+    the source branch checked out and the host's merged into it with git, with
+    a reload after each, then a save and commit on the source branch."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    repo = git.Repo.init(root, initial_branch="main")
+    path = root / FILE
+    path.write_text(VERSIONED)
+    (root / ".gitignore").write_text("local/\n")
+    repo.index.add([FILE, ".gitignore"])
+    repo.index.commit("base")
+    repo.git.checkout("-q", "-b", "hosts/a")
+    db = open_cloudmap_db(str(path), None, LOGGER)
+    assert isinstance(db, GitSyncCloudMapDB)
+    db.add_record(Repository(url="git://e.com/host.git", path="host"))
+    assert db.save()
+    assert db.commit(GitRepo(repo), "from the host")
+
+    repo.git.checkout("-q", "main")
+    db.reload()
+    assert not db.get_repository("git://e.com/host.git")
+    repo.git.merge("-q", "hosts/a", m="merge")
+    db.reload()
+    assert db.get_repository("git://e.com/host.git")
+    db.add_record(Repository(url="git://e.com/main.git", path="main"))
+    assert db.save()
+    assert db.commit(GitRepo(repo), "on main")
+    assert repo.active_branch.name == "main"
+    assert not repo.is_dirty()
+    assert "e.com/main.git" in repo.git.show(f"main:{FILE}")
+    assert "e.com/main.git" not in repo.git.show(f"hosts/a:{FILE}")
+
+
 def _file_url_project(tmp_path: Path, url: str, source: str, keys: str = "") -> Path:
     """A project whose cloudmap ``cloudmap`` has ``url``, given in
     ``cloudmaps.repositories`` or, for ``source`` "repositories", in the

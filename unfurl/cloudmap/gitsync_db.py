@@ -61,7 +61,8 @@ class GitSyncCloudMapDB(CloudMapDB):
         from .._rust import GitSyncDB
 
         self._file = os.path.join(repo_root, file_path)
-        self._git_sync = GitSyncDB.open(repo_root, sqlite_url(db_path), file_path)
+        self._opened = (repo_root, sqlite_url(db_path), file_path)
+        self._git_sync = GitSyncDB.open(*self._opened)
         self._scan()
         self._load_records()
 
@@ -155,6 +156,10 @@ class GitSyncCloudMapDB(CloudMapDB):
         return self._git_sync.commit(msg) is not None
 
     def reload(self) -> None:
+        from .._rust import GitSyncDB
+
+        # a handle is for the branch it was opened on, and a sync checks out another
+        self._git_sync = GitSyncDB.open(*self._opened)
         self._scan()
         self._load_records()
 
