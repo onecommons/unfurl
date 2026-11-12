@@ -32,8 +32,9 @@ environments:
 ```
 
 A relative path in a cloudmap's repository configuration (a ``url`` that is a
-file path, ``clone_root``, ``local_cloudmap``, ``db_dir``), or in a ``local``
-host's ``clone_root``, is relative to the project's root, and ``~`` is expanded.
+file path or a ``file:`` url, also from the environment's ``repositories``,
+``clone_root``, ``local_cloudmap``, ``db_dir``), or in a ``local`` host's
+``clone_root``, is relative to the project's root, and ``~`` is expanded.
 
 then projects found on staging.unfurl.cloud will be saved in the cloudmap as belonging to unfurl.cloud.
 So following commands will push all the projects in "onecommons/blueprints" namespace from the staging instance to the production instance at unfurl.cloud:
@@ -1249,6 +1250,9 @@ class CloudMap:
             )
         else:
             url, path, revision = split_git_url(cloudmap_url)
+            if url.startswith("file:") and not url.startswith("file://"):
+                # a relative file: url is relative to the project, as a path is
+                url = "file:" + cls._configured_path(local_env, url[len("file:") :])
             return CloudMapConfig(
                 normalize_git_url(url),
                 path,

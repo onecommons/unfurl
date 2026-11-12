@@ -97,7 +97,7 @@ Each clone gets a repository record (see the {ref}`schema <CloudMap Schema>`):
 
 ## Configuration
 
-You can configure the cloud map location and repository hosts used for synchronize in the environments section of `unfurl.yaml`.  This configuration sample illustrates the available options. A relative path in a cloud map's repository configuration (a `url` that is a file path, `clone_root`, `local_cloudmap` and `db_dir`), or in a `local` host's `clone_root`, is relative to the project's root, the directory holding `unfurl.yaml`, and `~` is expanded:
+You can configure the cloud map location and repository hosts used for synchronize in the environments section of `unfurl.yaml`.  This configuration sample illustrates the available options. A relative path in a cloud map's repository configuration (a `url` that is a file path or a `file:` url, also when the `url` comes from the environment's `repositories`, `clone_root`, `local_cloudmap` and `db_dir`), or in a `local` host's `clone_root`, is relative to the project's root, the directory holding `unfurl.yaml`, and `~` is expanded:
 
 ```yaml
 environments:

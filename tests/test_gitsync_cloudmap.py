@@ -1208,3 +1208,96 @@ def test_records_added_on_two_branches_merge(tmp_path: Path) -> None:
     repo.git.merge("-q", "--no-edit", "hosts/b")
     merged = CloudMapDB(str(path))
     assert {"delta", "hotel"} <= {r.path for r in merged.repositories.values()}
+
+
+def _file_url_project(tmp_path: Path, url: str, source: str, keys: str = "") -> Path:
+    """A project whose cloudmap ``cloudmap`` has ``url``, given in
+    ``cloudmaps.repositories`` or, for ``source`` "repositories", in the
+    environment's ``repositories``; and a sibling directory ``elsewhere``."""
+    project = tmp_path / "project"
+    project.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "elsewhere").mkdir(exist_ok=True)
+    if source == "cloudmaps":
+        config = f"    cloudmaps:\n      repositories:\n        cloudmap:\n          url: {url}\n{keys}"
+    else:
+        config = (
+            f"    repositories:\n      cloudmap:\n        url: {url}\n"
+            f"    cloudmaps:\n      repositories:\n        cloudmap:\n{keys or '          {}' + chr(10)}"
+        )
+    (project / "unfurl.yaml").write_text(
+        "apiVersion: unfurl/v1.0.0\nkind: Project\nenvironments:\n  defaults:\n" + config
+    )
+    return project
+
+
+@pytest.mark.parametrize("source", ["cloudmaps", "repositories"])
+@pytest.mark.parametrize("fragment", ["", "#main:c.yaml"])
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        ("file:repos/cm", "{project}/repos/cm"),
+        ("file:../cm", "{tmp}/cm"),
+        ("file:~/cm", "{tmp}/home/cm"),
+        ("file:{tmp}/abs/cm", "{tmp}/abs/cm"),
+        ("file://{tmp}/abs/cm", "{tmp}/abs/cm"),
+    ],
+)
+def test_a_file_url_resolves_against_the_project(
+    tmp_path: Path, monkeypatch, source: str, fragment: str, url: str, expected: str
+) -> None:
+    """Run from outside the project, a relative ``file:`` cloudmap url names
+    a directory under it, from either source; absolute and ``~`` ones are
+    as written."""
+    from unfurl.cloudmap import CloudMap
+    from unfurl.util import change_cwd
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    project = _file_url_project(tmp_path, url.format(tmp=tmp_path) + fragment, source)
+    with change_cwd(str(tmp_path / "elsewhere")):
+        local_env = LocalEnv(str(project / "unfurl.yaml"), can_be_empty=True)
+        config = CloudMap.get_config(local_env, "cloudmap")
+    assert config.url == "file://" + expected.format(project=project, tmp=tmp_path)
+    assert config.path == ("c.yaml" if fragment else "")
+
+
+def _cloudmap_repository(path: Path) -> None:
+    path.mkdir(parents=True)
+    (path / "cloudmap.yaml").write_text(VERSIONED)
+    repo = git.Repo.init(path, initial_branch="main")
+    repo.index.add(["cloudmap.yaml"])
+    repo.index.commit("cloudmap")
+
+
+@pytest.mark.parametrize("source", ["cloudmaps", "repositories"])
+def test_from_name_opens_a_relative_file_url_under_the_project(
+    tmp_path: Path, monkeypatch, source: str
+) -> None:
+    from unfurl.cloudmap import CloudMap
+    from unfurl.util import change_cwd
+
+    project = _file_url_project(tmp_path, "file:repos/cm#main:cloudmap.yaml", source)
+    _cloudmap_repository(project / "repos" / "cm")
+    opened = _Opened(monkeypatch)
+    with change_cwd(str(tmp_path / "elsewhere")):
+        local_env = LocalEnv(str(project / "unfurl.yaml"), can_be_empty=True)
+        cloud_map = CloudMap.from_name(local_env, "cloudmap", None, "", True, False)
+    assert cloud_map.directory.store.artifacts
+    [(file, _)] = opened.calls
+    assert file == os.path.realpath(project / "repos" / "cm" / "cloudmap.yaml")
+
+
+@pytest.mark.parametrize("source", ["cloudmaps", "repositories"])
+def test_validate_from_elsewhere_matches_a_relative_file_url(
+    tmp_path: Path, monkeypatch, source: str
+) -> None:
+    from unfurl.util import change_cwd
+
+    project = _file_url_project(
+        tmp_path, "file:repos/cm#main:cloudmap.yaml", source, "          backend: python\n"
+    )
+    _cloudmap_repository(project / "repos" / "cm")
+    validated = _Validated(monkeypatch)
+    with change_cwd(str(tmp_path / "elsewhere")):
+        result = validated.run(project / "repos" / "cm" / "cloudmap.yaml")
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert validated.git_sync_stores == 0
