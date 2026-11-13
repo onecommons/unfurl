@@ -544,7 +544,15 @@ impl SyncedDir {
         }
     }
 
-    /// Whether this handle takes in and writes `path`.
+    /// Whether this handle saves and commits `path`: any file, or with
+    /// pathspecs, those they match. Another handle's files on the worktree
+    /// are its to save and commit.
+    pub(crate) fn writes(&self, path: &str) -> bool {
+        self.inner.scope.as_ref().is_none_or(|s| s.requests(path))
+    }
+
+    /// Whether this handle takes in `path`: [`Self::writes`] it, or its
+    /// worktree holds it.
     pub(crate) fn in_scope(&self, path: &str) -> bool {
         self.inner.scope.as_ref().is_none_or(|s| s.contains(path))
     }
@@ -2024,9 +2032,10 @@ impl SyncedDir {
     /// Persist every in-flight record edit to disk.
     ///
     /// For each dirty file — one with a record whose `commit_id IS
-    /// NULL`, or whose own content is not yet in git — calls
-    /// [`Self::write_file`]. Files whose bytes turn out to match what
-    /// is already on disk are skipped, which is also what happens for a
+    /// NULL`, or whose own content is not yet in git — that this handle
+    /// writes (any, or with pathspecs, those they match), calls
+    /// [`Self::write_file`]. Files whose bytes turn out to match what is
+    /// already on disk are skipped, which is also what happens for a
     /// hand-edited file the scan took in: nothing is pending for it, so
     /// there is nothing to write and it merely awaits commit.
     ///
@@ -2054,8 +2063,11 @@ impl SyncedDir {
     /// database being unreachable. A per-file failure is data, not an
     /// error.
     pub async fn save_changes(&self) -> Result<SyncOutcome> {
-        let dirty: Vec<String> =
-            db::record::list_dirty_files(self.db(), self.worktree_id()).await?;
+        let dirty: Vec<String> = db::record::list_dirty_files(self.db(), self.worktree_id())
+            .await?
+            .into_iter()
+            .filter(|fp| self.writes(fp))
+            .collect();
         let mut outcome = SyncOutcome::default();
         for fp in dirty {
             match self.write_file(&fp).await {

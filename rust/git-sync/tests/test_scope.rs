@@ -219,6 +219,79 @@ async fn a_file_taken_in_after_opening_survives_a_rebuild() {
     assert_eq!(keys_in(&other, OTHER).await, ["git://example.com/b.git"]);
 }
 
+/// Two handles on one worktree, each scoped to its own file, save and
+/// commit only their own: another's saved edits stay out of the commit, and
+/// another's conflict doesn't fail the save.
+#[tokio::test]
+async fn a_scoped_handle_saves_and_commits_only_its_files() {
+    let (tmp, db) = repo();
+    let scoped = open_scoped(tmp.path(), &db).await.expect("open");
+    let other = open_matching(tmp.path(), &db, &[OTHER])
+        .await
+        .expect("open other");
+    for sync in [&scoped, &other] {
+        sync.update_from_working_dir(ScanOptions::default())
+            .await
+            .expect("scan");
+    }
+    let upsert = |sync: &SyncedRepo, file: &'static str, key: &'static str| {
+        let sync = sync.clone();
+        async move {
+            sync.upsert_record(
+                Some(file),
+                "/repositories",
+                key,
+                serde_json::json!({"path": "q"}),
+                None,
+                false,
+            )
+            .await
+            .expect("upsert");
+        }
+    };
+    upsert(&other, OTHER, "git://example.com/saved.git").await;
+    other.save_changes().await.expect("save other");
+    upsert(&scoped, SCOPED, "git://example.com/committed.git").await;
+    let committed = scoped
+        .commit_repository("scoped", Default::default())
+        .await
+        .expect("commit")
+        .commit
+        .expect("a commit");
+    let out = std::process::Command::new("git")
+        .args(["show", "--name-only", "--format=", &committed.to_string()])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), SCOPED);
+
+    // a standing conflict in the other file
+    upsert(&other, OTHER, "git://example.com/contested.git").await;
+    other.save_changes().await.expect("save other");
+    let path = tmp.path().join(OTHER);
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(
+        &path,
+        text.replacen(
+            "contested.git:\n    path: q",
+            "contested.git:\n    path: by-hand",
+            1,
+        ),
+    )
+    .expect("write");
+    let scanned = other
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    assert!(!scanned.conflicts.is_empty(), "{scanned:?}");
+    upsert(&scoped, SCOPED, "git://example.com/after.git").await;
+    let saved = scoped.save_changes().await.expect("save");
+    assert!(
+        saved.conflicts.is_empty() && saved.failed.is_empty(),
+        "{saved:?}"
+    );
+}
+
 #[tokio::test]
 async fn writing_outside_the_scope_is_refused() {
     let (tmp, db) = repo();

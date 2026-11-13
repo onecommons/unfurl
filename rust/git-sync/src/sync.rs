@@ -315,8 +315,8 @@ impl SyncedRepo {
     /// Persist all pending edits and create a git commit.
     ///
     /// Equivalent to [`Self::save_changes`], followed by a gix commit
-    /// of the dirty paths under `message`, followed by rolling the
-    /// new commit oid into every affected `record` / `file` /
+    /// of the dirty paths this handle writes under `message`, followed by
+    /// rolling the new commit oid into every affected `record` / `file` /
     /// `worktree` row in a single transaction. Tombstones for the
     /// committed paths are purged at the same time.
     ///
@@ -419,6 +419,7 @@ impl SyncedRepo {
         // didn't actually change on disk.
         let mut dirty: Vec<String> =
             db::record::list_dirty_files(self.db(), self.worktree_id()).await?;
+        dirty.retain(|rel| self.writes(rel));
         if dirty.is_empty() {
             return Ok(None);
         }
