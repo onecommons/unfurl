@@ -410,16 +410,20 @@ class CloudMapDB(CloudMapStore):
         }
 
     @classmethod
-    def file_in(cls, path: str) -> str:
-        """The cloudmap file ``path`` names: ``path``, or for a directory,
-        :py:attr:`DEFAULT_NAME` in it."""
+    def resolve_file(cls, path: str, project_root: Optional[str] = None) -> str:
+        """The absolute path of the cloudmap file ``path`` names, relative to
+        ``project_root`` if given, else to the current directory: ``path``,
+        or for a directory, :py:attr:`DEFAULT_NAME` in it."""
+        if project_root and not os.path.isabs(path):
+            path = os.path.join(project_root, path)
+        path = os.path.abspath(path)
         if os.path.isdir(path):
             return os.path.join(path, cls.DEFAULT_NAME)
         return path
 
     def _load(self, path: str, contents=None, validate: bool = True) -> None:
         if contents is None:
-            path = self.file_in(path)
+            path = self.resolve_file(path)
             contents = self.make_empty_cloudmap()  # if path doesn't exist
             config_path = path
         else:

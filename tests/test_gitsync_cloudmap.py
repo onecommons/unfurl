@@ -257,6 +257,32 @@ def test_a_failure_with_a_new_database_falls_back(tmp_path: Path, monkeypatch, c
     assert "db_dir" not in message
 
 
+def test_resolve_file(tmp_path: Path) -> None:
+    from unfurl.util import change_cwd
+
+    project, elsewhere = tmp_path / "project", tmp_path / "elsewhere"
+    (project / "maps").mkdir(parents=True)
+    elsewhere.mkdir()
+    with change_cwd(str(elsewhere)):
+        resolve = CloudMapDB.resolve_file
+        assert resolve("maps/c.yaml", str(project)) == str(project / "maps" / "c.yaml")
+        assert resolve("maps/c.yaml") == str(elsewhere / "maps" / "c.yaml")
+        assert resolve(str(tmp_path / "c.yaml"), str(project)) == str(tmp_path / "c.yaml")
+        assert resolve("maps", str(project)) == str(project / "maps" / CloudMapDB.DEFAULT_NAME)
+
+
+def test_a_relative_cloudmap_opens_under_the_project(tmp_path: Path) -> None:
+    from unfurl.util import change_cwd
+
+    project = tmp_path / "project"
+    (project / "maps").mkdir(parents=True)
+    (project / "maps" / FILE).write_text(VERSIONED)
+    with change_cwd(str(tmp_path)):
+        db = open_cloudmap_db(os.path.join("maps", FILE), str(project), LOGGER)
+    assert db.file == str(project / "maps" / FILE)
+    assert db.artifacts
+
+
 def _two_cloudmaps(tmp_path: Path) -> Path:
     """A directory with no repository holding a.yaml and b.yaml."""
     plain = tmp_path / "plain"

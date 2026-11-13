@@ -2030,7 +2030,11 @@ def _validate_cloudmap(path: str, localEnv: Optional[LocalEnv]) -> None:
         backend = _backend(*configured)
     with tempfile.TemporaryDirectory() as db_dir:
         db = open_cloudmap_db(
-            path, project_root, getLogger("unfurl"), db_dir=db_dir, backend=backend
+            os.path.abspath(path),
+            project_root,
+            getLogger("unfurl"),
+            db_dir=db_dir,
+            backend=backend,
         )
         if isinstance(db, GitSyncCloudMapDB) and db.invalid:
             raise UnfurlValidationError(f"git-sync rejected records in {path}")
@@ -2348,6 +2352,9 @@ def cloudmap(
     # cloudmap server (see CloudMap.flush)
     flushing = commit and not add and not replace and not host_name
     importing = add or replace or sync or options.get("import")
+    if local_cloudmap:
+        # relative to where it's run, not the project
+        local_cloudmap = os.path.abspath(os.path.expanduser(local_cloudmap))
     if local_cloudmap is not None and not importing:
         # nothing to compare forks after: save the local clones now
         cloud_map = CloudMap.from_name(local_env, cloudmap, clone_root, "", True, False)
