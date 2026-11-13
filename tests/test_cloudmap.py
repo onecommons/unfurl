@@ -4060,6 +4060,28 @@ class TestAppliedOwnership:
         record = self._analyze(context, self.REPO, title="reanalyzed")
         assert record.metadata.title == "edited"
 
+    def test_an_untracked_record_stays_tracked_after_an_empty_write(self):
+        # writing nothing still starts tracking, or the writer, now a source,
+        # would own every field of an untracked record next time
+        db = self.memory_store({})
+        db.add_record(
+            Artifact(
+                url=self.KEY,
+                metadata=ArtifactMetadata(
+                    title="T", discovery=Discovery(sources=[self.REPO])
+                ),
+            )
+        )
+        from unfurl.cloudmap.provenance import ProvenanceTrackingContext
+
+        context = ProvenanceTrackingContext(db)
+        other = "https://api.example.com/a"
+        record = self._analyze(context, other, title="T")
+        assert record.metadata.discovery.applied == {other: []}
+        record = self._analyze(context, other, title="T2")
+        assert record.metadata.title == "T"
+        assert record.metadata.discovery.applied == {other: []}
+
     def test_an_extension_survives_reanalysis(self):
         context = self._context()
         record = self._analyze(context, self.REPO, title="analyzed")

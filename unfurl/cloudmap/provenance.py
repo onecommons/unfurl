@@ -251,6 +251,14 @@ def _ownership(
     return (set(pointers) if produced_before else set()), set()
 
 
+def _claims(previous: Dict[str, Any], source: str, written: List[str]) -> bool:
+    """Whether ``source`` gets an ``applied`` entry for writing ``written``:
+    an empty one only if it had one, or keeps ``previous`` from reading as
+    never tracked."""
+    applied = _applied(previous)
+    return bool(written) or source in applied or not applied
+
+
 def _take_over(
     previous: Dict[str, Any],
     record: Dict[str, Any],
@@ -268,7 +276,9 @@ def _take_over(
         for s, keys in _applied(previous).items()
         if s != source
     }
-    applied[source] = sorted((owned & new.keys()) | (changed & new.keys()))
+    written = sorted((owned & new.keys()) | (changed & new.keys()))
+    if _claims(previous, source, written):
+        applied[source] = written
     return applied
 
 
@@ -607,7 +617,8 @@ class ProvenanceTrackingContext(AnalyzerContext):
                         for s, fields in _applied(previous).items()
                         if s != source
                     }
-                    applied[source] = written
+                    if _claims(previous, source, written):
+                        applied[source] = written
             record_discovery_source(
                 record,
                 self._sources,

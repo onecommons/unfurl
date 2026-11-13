@@ -2348,6 +2348,23 @@ def test_analyze_url_replace_does_not_oscillate(tmp_path):
         assert "pkg:generic/a" in db.artifacts, f"deleted on run {run + 1}"
 
 
+def test_a_source_that_writes_nothing_gets_no_applied_entry(tmp_path):
+    """A second source producing the record exactly as it is adds itself to
+    the record's sources but has no fields to claim in ``applied``."""
+
+    def produced():
+        return Artifact(url="pkg:generic/a", metadata=ArtifactMetadata(title="T"))
+
+    cm = _stub_cloudmap(tmp_path, {"stub:one": [produced()]})
+    cm.analyze_url("stub:one")
+    _StubURLAnalyzer.emits["stub:two"] = [produced()]
+    cm.analyze_url("stub:two")
+
+    record = cm.directory.store.artifacts["pkg:generic/a"]
+    assert _sources(record) == ["stub:one", "stub:two"]
+    assert record.metadata.discovery.applied == {"stub:one": ["metadata/title"]}
+
+
 def test_analyze_url_replace_skips_sweep_when_analysis_fails(tmp_path):
     """A failed analysis mustn't be read as 'the source produces nothing'."""
 
