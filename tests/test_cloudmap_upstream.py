@@ -819,8 +819,9 @@ def test_the_local_cloudmap_loads_through_git_sync(work_clone, tmp_path, monkeyp
         *,
         db_dir: Optional[str] = None,
         backend: Backend = "git-sync",
+        on: Optional[CloudMapDB] = None,
     ) -> CloudMapDB:
-        db = real(filepath, project_root, logger, db_dir=db_dir, backend=backend)
+        db = real(filepath, project_root, logger, db_dir=db_dir, backend=backend, on=on)
         opened.append(db)
         return db
 

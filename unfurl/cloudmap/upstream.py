@@ -465,6 +465,7 @@ def save_local_clones(
     project_root: Optional[str] = None,
     db_dir: Optional[str] = None,
     backend: "Backend" = "git-sync",
+    on: Optional[CloudMapDB] = None,
 ) -> None:
     """Record in the cloudmap file at ``path`` each local clone with
     uncommitted changes or refs out of step with its remotes', removing the
@@ -476,11 +477,28 @@ def save_local_clones(
     ``remote_record`` finds a remote repository's record in the main cloudmap,
     which lists at most ``max_refs`` of each ref. ``project_root`` is the
     Unfurl project's, which may hold the file and its git-sync database;
-    ``db_dir`` puts that database there instead, and ``backend`` picks the
-    store, as :func:`.gitsync_db.open_cloudmap_db` takes them."""
+    ``db_dir`` puts that database there instead, ``backend`` picks the
+    store, and ``on`` is a store whose database connections to share, as
+    :func:`.gitsync_db.open_cloudmap_db` takes them."""
     from .gitsync_db import open_cloudmap_db
 
-    db = open_cloudmap_db(path, project_root, logger, db_dir=db_dir, backend=backend)
+    db = open_cloudmap_db(
+        path, project_root, logger, db_dir=db_dir, backend=backend, on=on
+    )
+    try:
+        _save_local_clones(db, loaded, repos_root, remote_record, max_refs, logger)
+    finally:
+        db.close()
+
+
+def _save_local_clones(
+    db: CloudMapDB,
+    loaded: Iterable[GitRepo],
+    repos_root: str,
+    remote_record: RecordLookup,
+    max_refs: int,
+    logger: "UnfurlLogger",
+) -> None:
     changed = False
     # each clone to check, with the path its record has if it's one the
     # file records that this directory didn't load

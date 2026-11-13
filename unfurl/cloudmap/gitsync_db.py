@@ -5,7 +5,6 @@
 
 import atexit
 import gc
-import hashlib
 import os
 import re
 import weakref
@@ -21,6 +20,7 @@ from ..util import UnfurlError, is_relative_to
 from .db import CloudMapDB
 
 if TYPE_CHECKING:
+    from .._rust import GitSyncDB
     from ..logs import UnfurlLogger
 
 Backend = Literal["git-sync", "python"]
@@ -54,10 +54,15 @@ def sqlite_url(path: str) -> str:
     return "sqlite://" + quote(os.path.abspath(path)) + "?mode=rwc"
 
 
+class NewToGitSync(Exception):
+    """git-sync failed to load a cloudmap, leaving its database without it."""
+
+
 class GitSyncCloudMapDB(CloudMapDB):
     """The records of the cloudmap at ``file_path`` under ``repo_root``, a git
     working tree's root or a directory in no repository, loaded from the
-    git-sync database at ``db_path`` and saved back through it.
+    git-sync database at ``db_path`` and saved back through it, opened on
+    ``on``'s connections if given, a handle on the same database.
 
     Every record is loaded into the same section dicts :py:class:`CloudMapDB`
     keeps, so its methods work unchanged; :py:meth:`save` writes back the
@@ -66,18 +71,39 @@ class GitSyncCloudMapDB(CloudMapDB):
     warning.
     """
 
-    def __init__(self, repo_root: str, file_path: str, db_path: str) -> None:
+    def __init__(
+        self,
+        repo_root: str,
+        file_path: str,
+        db_path: str,
+        on: Optional["GitSyncCloudMapDB"] = None,
+    ) -> None:
         from .._rust import GitSyncDB
 
         self._file = os.path.join(repo_root, file_path)
-        self._opened = (repo_root, sqlite_url(db_path), file_path)
-        self._git_sync = GitSyncDB.open(*self._opened)
+        self.db_path = db_path
+        self._opened = (repo_root, file_path)
+        self._git_sync: "GitSyncDB"
+        if on is not None:
+            self._git_sync = on._git_sync.open_on(*self._opened)
+        else:
+            self._git_sync = GitSyncDB.open(repo_root, sqlite_url(db_path), file_path)
         _open.add(self)
-        self._scan()
-        self._load_records()
+        held = self._git_sync.has_file()
+        try:
+            self._scan()
+            self._load_records()
+        except Exception as e:
+            # once recorded it can't be forgotten, so every later load fails alike
+            recorded = held or self._git_sync.has_file()
+            self.close()
+            if recorded:
+                raise
+            raise NewToGitSync(str(e)) from e
 
     def close(self) -> None:
-        """Close the git-sync database's connections."""
+        """Close the handle, and the git-sync database's connections if no
+        other handle has them open."""
         _open.discard(self)
         self._git_sync.close()
 
@@ -93,14 +119,20 @@ class GitSyncCloudMapDB(CloudMapDB):
         except CommitMissing:
             # the database is a cache of the file: rebuild it from HEAD
             outcome = self._git_sync.scan(rebuild_missing=True)
+        # the scan also takes in the other cloudmaps the worktree holds
+        mine = self._opened[1]
         # the files git-sync's format rejected records of
-        self.invalid: List[str] = outcome["invalid"]
-        if outcome["unparsed"] or outcome["failed"]:
-            raise UnfurlError(
-                f"git-sync couldn't read {self._file}: "
-                f"{outcome['unparsed'] or outcome['failed']}"
-            )
-        for _, section, key in outcome["conflicts"]:
+        self.invalid: List[str] = [f for f in outcome["invalid"] if f == mine]
+        unread = [
+            (f, message)
+            for f, message in outcome["unparsed"] + outcome["failed"]
+            if f == mine
+        ]
+        if unread:
+            raise UnfurlError(f"git-sync couldn't read {self._file}: {unread}")
+        # not just what this scan found: another cloudmap's handle on the
+        # worktree may have taken in this file's change first
+        for section, key in self._git_sync.conflicts():
             self._git_sync.resolve(section, key)
             logger.warning(
                 "%s: %s %s was changed in the file after Unfurl saved it; the "
@@ -167,26 +199,24 @@ class GitSyncCloudMapDB(CloudMapDB):
         return self._git_sync.commit(msg) is not None
 
     def reload(self) -> None:
-        from .._rust import GitSyncDB
-
         # a handle is for the branch it was opened on, and a sync checks out another
-        self._git_sync.close()
-        self._git_sync = GitSyncDB.open(*self._opened)
+        previous = self._git_sync
+        self._git_sync = previous.open_on(*self._opened)
+        previous.close()
         self._scan()
         self._load_records()
 
 
 def _db_path(filepath: str, project_root: Optional[str], db_dir: Optional[str]) -> str:
-    """Where the git-sync database for the cloudmap at ``filepath`` lives:
-    in ``db_dir`` if given, else the project's ``local/``, else ``local/``
-    beside the cloudmap, named for the cloudmap's file name without
-    its extension and a hash of its path."""
-    path = os.path.abspath(filepath)
-    directory, name = os.path.split(path)
+    """The git-sync database the cloudmap at ``filepath`` shares with every
+    other in its directory: ``db_dir`` if given, else the project's
+    ``local/``, else ``local/`` beside the cloudmap."""
+    directory = os.path.dirname(os.path.abspath(filepath))
     location = db_dir or os.path.join(project_root or directory, "local")
-    digest = hashlib.sha1(path.encode()).hexdigest()[:3]
-    stem = os.path.splitext(name)[0]
-    return os.path.join(location, f".{stem}-{digest}.sqlite")
+    return os.path.join(location, DB_NAME)
+
+
+DB_NAME = ".cloudmap.sqlite"
 
 
 def _python_reason(filepath: str, backend: Backend) -> str:
@@ -239,13 +269,14 @@ def _makedirs(path: str) -> List[str]:
     return missing
 
 
-def _remove_created(db_path: str, directories: List[str]) -> None:
-    """Remove the database at ``db_path`` with its SQLite side files, then
-    ``directories`` where they're empty, innermost first."""
+def _remove_created(db_path: Optional[str], directories: List[str]) -> None:
+    """Remove the database at ``db_path``, if given, with its SQLite side
+    files, then ``directories`` where they're empty, innermost first."""
     gc.collect()  # drop the failed handle's connections
-    for suffix in ("", "-wal", "-shm", "-journal"):
+    files = [db_path + s for s in ("", "-wal", "-shm", "-journal")] if db_path else []
+    for file in files:
         try:
-            os.remove(db_path + suffix)
+            os.remove(file)
         except FileNotFoundError:
             pass
     for directory in reversed(directories):
@@ -262,17 +293,21 @@ def open_cloudmap_db(
     *,
     db_dir: Optional[str] = None,
     backend: Backend = "git-sync",
+    on: Optional[CloudMapDB] = None,
 ) -> CloudMapDB:
     """The store for the cloudmap at ``filepath``, or in it for a directory: a
     :py:class:`GitSyncCloudMapDB`, or a :py:class:`CloudMapDB` where git-sync
     can't be used or ``backend`` is ``python``. git-sync opens the innermost
     working tree holding the file, creating the file's directory if it's
     missing. ``db_dir`` puts the
-    git-sync database there instead of under ``local/``.
+    git-sync database there instead of under ``local/``. Where ``on`` is a
+    :py:class:`GitSyncCloudMapDB` on the same database, the store shares its
+    connections.
 
     If git-sync fails to open or load the file and its database didn't exist
-    before, the database and directories this call created are removed and a
-    YAML cloudmap loads with :py:class:`CloudMapDB`, with a warning.
+    before, or the failure left the database without the file, what this
+    call created is removed (the database only if it created it) and a YAML
+    cloudmap loads with :py:class:`CloudMapDB`, with a warning.
     Otherwise the failure raises :py:class:`UnfurlError`, as does a markdown
     cloudmap git-sync can't load. Either names ``db_dir`` when the database
     couldn't be created."""
@@ -292,16 +327,24 @@ def open_cloudmap_db(
         created += _makedirs(root)
         if not existed:
             logger.verbose("creating the git-sync database %s", db_path)
-        return GitSyncCloudMapDB(root, os.path.relpath(os.path.realpath(filepath), root), db_path)
+        shared = (
+            on
+            if on is not None
+            and isinstance(on, GitSyncCloudMapDB)
+            and os.path.realpath(on.db_path) == os.path.realpath(db_path)
+            else None
+        )
+        relative = os.path.relpath(os.path.realpath(filepath), root)
+        return GitSyncCloudMapDB(root, relative, db_path, shared)
     except Exception as e:
         failure = f"git-sync couldn't load {filepath} with its database {db_path}: {e}"
         if not os.path.exists(db_path):
             failure += f"; {DB_DIR_HINT}"
         markdown = filepath.endswith(".md")
-        if existed or markdown:
+        if (existed and not isinstance(e, NewToGitSync)) or markdown:
             # CloudMapDB can't read markdown, so the backend can't help it
             hint = "" if markdown else f"; {FALLBACK_HINT}"
             raise UnfurlError(failure + hint) from e
-    _remove_created(db_path, created)
+    _remove_created(None if existed else db_path, created)
     logger.warning("%s; loading it with CloudMapDB instead", failure)
     return CloudMapDB(filepath)

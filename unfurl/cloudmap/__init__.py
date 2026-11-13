@@ -610,6 +610,7 @@ class Directory(_LocalGitRepos):
             project_root=project_root,
             db_dir=self.cloudmap.db_dir,
             backend=self.cloudmap.backend,
+            on=self.store if isinstance(self.store, CloudMapDB) else None,
         )
 
     def compare_upstreams(self, repo_info: Repository) -> None:

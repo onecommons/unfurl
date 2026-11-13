@@ -525,6 +525,9 @@ class CloudMapDB(CloudMapStore):
             return True
         return False
 
+    def close(self) -> None:
+        """Release what the store holds open: nothing here."""
+
     def reload(self):
         assert self.config.path
         self._load(self.config.path)

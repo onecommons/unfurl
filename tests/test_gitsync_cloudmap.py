@@ -2,7 +2,6 @@
 same records, and the same changes save to the same document."""
 
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -194,7 +193,7 @@ def test_a_tracked_cloudmap_uses_git_sync(tmp_path: Path) -> None:
     path = str(tmp_path / "repo" / FILE)
     [made] = [p for p in (project / "local").iterdir() if p.suffix == ".sqlite"]
     assert str(made) == _db_path(path, str(project), None)
-    assert re.fullmatch(r"\.cloudmap-[0-9a-f]{3}\.sqlite", made.name)
+    assert made.name == ".cloudmap.sqlite"
     # without a project: local/ beside the cloudmap
     db = open_cloudmap_db(str(tmp_path / "repo" / FILE), None, LOGGER)
     assert isinstance(db, GitSyncCloudMapDB)
@@ -256,6 +255,89 @@ def test_a_failure_with_a_new_database_falls_back(tmp_path: Path, monkeypatch, c
     assert str(path) in message and _db_path(str(path), None, None) in message and "broken" in message
     # the database was created, so where it goes isn't why
     assert "db_dir" not in message
+
+
+def _two_cloudmaps(tmp_path: Path) -> Path:
+    """A directory with no repository holding a.yaml and b.yaml."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    for name, url in (("a.yaml", "git://e.com/a.git"), ("b.yaml", "git://e.com/b.git")):
+        (plain / name).write_text(
+            f"apiVersion: unfurl/v1.0.0\nkind: CloudMap\nrepositories:\n  {url}:\n    path: x\n"
+        )
+    return plain
+
+
+def _broken_for_b(monkeypatch: pytest.MonkeyPatch, method: str) -> None:
+    """``GitSyncCloudMapDB.<method>`` raising for b.yaml."""
+    real = getattr(GitSyncCloudMapDB, method)
+
+    def broken(self: GitSyncCloudMapDB) -> None:
+        if self.file and self.file.endswith("b.yaml"):
+            raise RuntimeError("broken")
+        real(self)
+
+    monkeypatch.setattr(GitSyncCloudMapDB, method, broken)
+
+
+@pytest.mark.parametrize("method", ["_scan", "_load_records"])
+def test_a_new_cloudmap_failing_in_a_shared_database(tmp_path: Path, monkeypatch, method: str) -> None:
+    """A cloudmap the shared database doesn't hold falls back if the failure
+    leaves it that way, every time; once a scan has recorded it, the failure
+    raises, every time. Either way the database stays for the others."""
+    plain = _two_cloudmaps(tmp_path)
+    assert isinstance(open_cloudmap_db(str(plain / "a.yaml"), None, LOGGER), GitSyncCloudMapDB)
+    _broken_for_b(monkeypatch, method)
+    for _ in range(2):
+        if method == "_scan":
+            db = open_cloudmap_db(str(plain / "b.yaml"), None, LOGGER)
+            assert type(db) is CloudMapDB
+            assert list(db.repositories) == ["git://e.com/b.git"]
+        else:
+            with pytest.raises(UnfurlError, match="broken.*backend: python"):
+                open_cloudmap_db(str(plain / "b.yaml"), None, LOGGER)
+    again = open_cloudmap_db(str(plain / "a.yaml"), None, LOGGER)
+    assert isinstance(again, GitSyncCloudMapDB)
+    assert list(again.repositories) == ["git://e.com/a.git"]
+
+
+def test_a_broken_sibling_cloudmap_doesnt_stop_a_load(tmp_path: Path) -> None:
+    """Opening one cloudmap scans the others its worktree holds, but only
+    its own problems stop it loading."""
+    plain = _two_cloudmaps(tmp_path)
+    for name in ("a.yaml", "b.yaml"):
+        assert isinstance(open_cloudmap_db(str(plain / name), None, LOGGER), GitSyncCloudMapDB)
+    (plain / "b.yaml").write_text(VERSIONED + "repositories: [unclosed\n")
+    db = open_cloudmap_db(str(plain / "a.yaml"), None, LOGGER)
+    assert isinstance(db, GitSyncCloudMapDB)
+    assert list(db.repositories) == ["git://e.com/a.git"]
+
+
+def test_a_conflict_another_cloudmap_scanned_in_is_resolved(tmp_path: Path) -> None:
+    """A hand edit that collides with a saved change is resolved by the
+    cloudmap it's in, though another cloudmap's scan took it in first."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    repo = git.Repo.init(root, initial_branch="main")
+    for name in ("a.yaml", "b.yaml"):
+        CloudMapDB(str(root / name)).save()
+    (root / ".gitignore").write_text("local/\n")
+    repo.index.add(["a.yaml", "b.yaml", ".gitignore"])
+    repo.index.commit("base")
+    a = open_cloudmap_db(str(root / "a.yaml"), None, LOGGER)
+    b = open_cloudmap_db(str(root / "b.yaml"), None, LOGGER, on=a)
+    assert isinstance(b, GitSyncCloudMapDB)
+    url = "git://e.com/contested.git"
+    b.add_record(Repository(url=url, path="saved"))
+    b.save()
+    text = (root / "b.yaml").read_text()
+    (root / "b.yaml").write_text(text.replace("path: saved", "path: by-hand"))
+    a.reload()
+    b.reload()
+    contested = b.get_repository(url)
+    assert contested and contested.path == "by-hand"
+    b.add_record(Repository(url="git://e.com/next.git", path="next"))
+    assert b.save()
 
 
 def _edit_and_reload(db: CloudMapDB, path: Path) -> None:
@@ -514,7 +596,7 @@ def test_a_cloudmap_in_a_new_directory(tmp_path: Path, case: str) -> None:
 
 
 def test_a_yaml_and_a_markdown_cloudmap_side_by_side(tmp_path: Path) -> None:
-    """Each has its own database."""
+    """They share a database."""
     plain = tmp_path / "plain"
     plain.mkdir()
     (plain / FILE).write_text(VERSIONED)
@@ -523,9 +605,9 @@ def test_a_yaml_and_a_markdown_cloudmap_side_by_side(tmp_path: Path) -> None:
         db = open_cloudmap_db(str(plain / name), None, LOGGER)
         assert isinstance(db, GitSyncCloudMapDB), name
         assert db.file == str(plain / name)
-    assert sorted(str(p) for p in (plain / "local").glob("*.sqlite")) == sorted(
-        _db_path(str(plain / name), None, None) for name in ("cloudmap.md", FILE)
-    )
+    assert [str(p) for p in (plain / "local").glob("*.sqlite")] == [
+        _db_path(str(plain / FILE), None, None)
+    ]
 
 
 def test_only_front_matter_makes_a_literate_cloudmap(tmp_path: Path) -> None:
@@ -625,10 +707,10 @@ def test_db_dir_with_a_read_only_cloudmap_directory(tmp_path: Path) -> None:
         assert sorted(p.name for p in plain.iterdir()) == ["cloudmap.md", FILE]
     finally:
         plain.chmod(0o755)
-    assert len(list(db_dir.glob("*.sqlite"))) == 2
+    assert len(list(db_dir.glob("*.sqlite"))) == 1
 
 
-def test_two_cloudmaps_in_one_db_dir_have_their_own_databases(tmp_path: Path) -> None:
+def test_two_cloudmaps_in_one_db_dir_share_a_database(tmp_path: Path) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
     db_dir = tmp_path / "dbs"
@@ -641,12 +723,13 @@ def test_two_cloudmaps_in_one_db_dir_have_their_own_databases(tmp_path: Path) ->
         for name in ("a.yaml", "b.yaml")
     }
     assert loaded == {"a.yaml": ["git://e.com/a.git"], "b.yaml": ["git://e.com/b.git"]}
-    assert len(list(db_dir.glob("*.sqlite"))) == 2
+    assert len(list(db_dir.glob("*.sqlite"))) == 1
 
 
 def test_the_db_dir_key_places_both_databases(tmp_path: Path) -> None:
     """``cloudmaps.repositories.<name>.db_dir`` puts the cloudmap's and its
-    ``local_cloudmap``'s git-sync databases there, each its own."""
+    ``local_cloudmap``'s git-sync database there, one for both, whose
+    connections the local cloudmap shares and leaves open."""
     from unfurl.cloudmap import CloudMap
 
     maps, project, db_dir = tmp_path / "maps", tmp_path / "project", tmp_path / "dbs"
@@ -657,7 +740,10 @@ def test_the_db_dir_key_places_both_databases(tmp_path: Path) -> None:
     assert len(list(db_dir.glob("*.sqlite"))) == 1
 
     cloud_map.directory.save_local_repositories(str(maps / "local-cloudmap.yaml"))
-    assert len(list(db_dir.glob("*.sqlite"))) == 2
+    assert len(list(db_dir.glob("*.sqlite"))) == 1
+    store = cloud_map.directory.store
+    store.add_record(Repository(url="git://e.com/after.git", path="after"))
+    assert store.save()
     assert not (project / "local").exists() and not (maps / "local").exists()
 
 
@@ -701,8 +787,9 @@ def test_the_backend_key_keeps_both_cloudmaps_in_cloudmap_db(tmp_path: Path, mon
         *,
         db_dir: Optional[str] = None,
         backend: Backend = "git-sync",
+        on: Optional[CloudMapDB] = None,
     ) -> CloudMapDB:
-        db = real(filepath, project_root, logger, db_dir=db_dir, backend=backend)
+        db = real(filepath, project_root, logger, db_dir=db_dir, backend=backend, on=on)
         opened.append(db)
         return db
 
@@ -773,9 +860,15 @@ class _Validated:
             self.local_envs.append(local_env)
             validate(path, local_env)
 
-        def spy_init(db: GitSyncCloudMapDB, repo_root: str, file_path: str, db_path: str) -> None:
+        def spy_init(
+            db: GitSyncCloudMapDB,
+            repo_root: str,
+            file_path: str,
+            db_path: str,
+            on: Optional[GitSyncCloudMapDB] = None,
+        ) -> None:
             self.git_sync_stores += 1
-            init(db, repo_root, file_path, db_path)
+            init(db, repo_root, file_path, db_path, on)
 
         monkeypatch.setattr(main, "_validate_cloudmap", spy_validate)
         monkeypatch.setattr(GitSyncCloudMapDB, "__init__", spy_init)
@@ -1073,9 +1166,12 @@ class _Opened:
             *,
             db_dir: Optional[str] = None,
             backend: Backend = "git-sync",
+            on: Optional[CloudMapDB] = None,
         ) -> CloudMapDB:
             self.calls.append((os.path.realpath(filepath), os.path.realpath(db_dir or "")))
-            return real(filepath, project_root, logger, db_dir=db_dir, backend=backend)
+            return real(
+                filepath, project_root, logger, db_dir=db_dir, backend=backend, on=on
+            )
 
         monkeypatch.setattr(module, "open_cloudmap_db", spy)
 

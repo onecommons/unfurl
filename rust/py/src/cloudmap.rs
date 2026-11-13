@@ -5,6 +5,7 @@
 //! cloudmap schema stays on the Python side.
 
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use pyo3::create_exception;
@@ -12,8 +13,8 @@ use pyo3::exceptions::{PyException, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use unfurl_git_sync::{
-    git, CommitOptions, DbConfig, Error, FormatRegistry, OpenOptions, RecordQuery, Resolution,
-    ScanOptions, SyncOutcome, SyncedDir,
+    git, CommitOptions, ConflictState, DbConfig, Error, FormatRegistry, OpenOptions, RecordQuery,
+    Resolution, ScanOptions, SyncOutcome, SyncedDir,
 };
 
 create_exception!(
@@ -108,6 +109,43 @@ fn outcome_dict<'py>(py: Python<'py>, outcome: &SyncOutcome) -> PyResult<Bound<'
 pub struct GitSyncDB {
     sync: Arc<SyncedDir>,
     file_path: String,
+    /// The open handles on this one's database, which the last to close
+    /// closes.
+    handles: Arc<AtomicUsize>,
+    closed: AtomicBool,
+}
+
+impl GitSyncDB {
+    fn new(sync: SyncedDir, file_path: String, handles: Arc<AtomicUsize>) -> Self {
+        handles.fetch_add(1, Ordering::SeqCst);
+        Self {
+            sync: Arc::new(sync),
+            file_path,
+            handles,
+            closed: AtomicBool::new(false),
+        }
+    }
+
+    /// Whether this was the last open handle on the database; marks it
+    /// closed.
+    fn release(&self) -> bool {
+        !self.closed.swap(true, Ordering::SeqCst)
+            && self.handles.fetch_sub(1, Ordering::SeqCst) == 1
+    }
+}
+
+impl Drop for GitSyncDB {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+/// A handle's options: only `file_path`, committed or not.
+fn file_options(file_path: &str) -> OpenOptions {
+    let pathspec = format!(":(literal){file_path}");
+    OpenOptions::default()
+        .pathspecs([pathspec.as_str()])
+        .untracked(true)
 }
 
 #[pymethods]
@@ -130,10 +168,7 @@ impl GitSyncDB {
             )));
         }
         let db = DbConfig::Sqlite { url: db_url };
-        let pathspec = format!(":(literal){file_path}");
-        let options = OpenOptions::default()
-            .pathspecs([pathspec.as_str()])
-            .untracked(true);
+        let options = file_options(&file_path);
         let sync = run(py, async move {
             SyncedDir::open(
                 repo_path,
@@ -144,10 +179,35 @@ impl GitSyncDB {
             )
             .await
         })?;
-        Ok(Self {
-            sync: Arc::new(sync),
-            file_path,
-        })
+        Ok(Self::new(sync, file_path, Arc::default()))
+    }
+
+    /// [`Self::open`] the cloudmap at `file_path`, relative to `repo_path`,
+    /// on this handle's database, sharing its connections.
+    fn open_on(&self, py: Python<'_>, repo_path: String, file_path: String) -> PyResult<Self> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(PyValueError::new_err("the database is closed"));
+        }
+        let db = self.sync.db().clone();
+        let options = file_options(&file_path);
+        let sync = run(py, async move {
+            SyncedDir::open_on(
+                repo_path,
+                db,
+                FormatRegistry::with_builtins(),
+                git::Trust::Full,
+                options,
+            )
+            .await
+        })?;
+        Ok(Self::new(sync, file_path, self.handles.clone()))
+    }
+
+    /// Whether the database holds the file: a scan has taken it in.
+    fn has_file(&self, py: Python<'_>) -> PyResult<bool> {
+        let (sync, file_path) = (self.sync.clone(), self.file_path.clone());
+        let file = run(py, async move { sync.get_file(&file_path).await })?;
+        Ok(file.is_some_and(|f| !f.deleted))
     }
 
     /// Take in the file and the repository's history since the last scan.
@@ -225,6 +285,21 @@ impl GitSyncDB {
         Ok(())
     }
 
+    /// The `(section, key)` of each record in this cloudmap that's in
+    /// conflict, whichever handle's scan found it.
+    fn conflicts(&self, py: Python<'_>) -> PyResult<Vec<(String, String)>> {
+        let (sync, file_path) = (self.sync.clone(), self.file_path.clone());
+        let records = run(
+            py,
+            async move { sync.list_conflicts(Some(&file_path)).await },
+        )?;
+        Ok(records
+            .into_iter()
+            .filter(|r| r.conflict == Some(ConflictState::Conflict))
+            .map(|r| (r.path, r.key))
+            .collect())
+    }
+
     /// Settle the conflict at `key` under `section` with the file's value,
     /// withdrawing the pending change.
     fn resolve(&self, py: Python<'_>, section: String, key: String) -> PyResult<()> {
@@ -257,8 +332,12 @@ impl GitSyncDB {
         Ok(committed.commit.map(|c| c.to_string()))
     }
 
-    /// Close the database's connections; the handle can't be used after.
+    /// Close the handle, and the database's connections if it's the last
+    /// open handle on them; the handle can't be used after.
     fn close(&self, py: Python<'_>) -> PyResult<()> {
+        if !self.release() {
+            return Ok(());
+        }
         let sync = self.sync.clone();
         run(py, async move {
             sync.db().close().await;
