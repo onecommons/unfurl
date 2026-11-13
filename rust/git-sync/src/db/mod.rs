@@ -369,6 +369,16 @@ impl Db {
         }
     }
 
+    /// Close every connection, waiting for those in use to be returned;
+    /// the pool, and every handle sharing it, refuses further queries.
+    pub async fn close(&self) {
+        match self {
+            Db::Sqlite(pool) => pool.close().await,
+            #[cfg(feature = "postgres")]
+            Db::Postgres(pool) => pool.close().await,
+        }
+    }
+
     /// Every worktree in the database `filter` matches, by id.
     pub async fn worktrees(
         &self,

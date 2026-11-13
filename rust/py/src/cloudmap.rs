@@ -250,6 +250,15 @@ impl GitSyncDB {
         })?;
         Ok(committed.commit.map(|c| c.to_string()))
     }
+
+    /// Close the database's connections; the handle can't be used after.
+    fn close(&self, py: Python<'_>) -> PyResult<()> {
+        let sync = self.sync.clone();
+        run(py, async move {
+            sync.db().close().await;
+            Ok(())
+        })
+    }
 }
 
 /// Adds `GitSyncDB` and its exceptions to the module.

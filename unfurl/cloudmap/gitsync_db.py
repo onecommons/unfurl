@@ -3,11 +3,13 @@
 """A cloudmap kept in a git-sync database: see
 ``rust/git-sync/docs/cloudmapdb-on-git-sync.md``."""
 
+import atexit
 import gc
 import hashlib
 import json
 import os
 import re
+import weakref
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from typing_extensions import Literal
@@ -39,6 +41,15 @@ METADATA = ("/metadata", "metadata")
 
 Saved = Dict[str, Dict[str, Any]]
 
+_open: "weakref.WeakSet[GitSyncCloudMapDB]" = weakref.WeakSet()
+
+
+@atexit.register
+def _close_open() -> None:
+    """Close every git-sync database still open."""
+    for db in list(_open):
+        db.close()
+
 
 def sqlite_url(path: str) -> str:
     """An sqlx URL for the SQLite database at ``path``, created if missing."""
@@ -63,8 +74,14 @@ class GitSyncCloudMapDB(CloudMapDB):
         self._file = os.path.join(repo_root, file_path)
         self._opened = (repo_root, sqlite_url(db_path), file_path)
         self._git_sync = GitSyncDB.open(*self._opened)
+        _open.add(self)
         self._scan()
         self._load_records()
+
+    def close(self) -> None:
+        """Close the git-sync database's connections."""
+        _open.discard(self)
+        self._git_sync.close()
 
     @property
     def file(self) -> Optional[str]:
@@ -159,6 +176,7 @@ class GitSyncCloudMapDB(CloudMapDB):
         from .._rust import GitSyncDB
 
         # a handle is for the branch it was opened on, and a sync checks out another
+        self._git_sync.close()
         self._git_sync = GitSyncDB.open(*self._opened)
         self._scan()
         self._load_records()
