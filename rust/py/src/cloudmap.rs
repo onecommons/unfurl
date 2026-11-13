@@ -148,6 +148,22 @@ fn file_options(file_path: &str) -> OpenOptions {
         .untracked(true)
 }
 
+/// `record` as JSON: converted directly, or where a key isn't a `str` --
+/// YAML reads `80:` and `on:` as an int and a bool -- through `json.dumps`,
+/// which turns such keys into strings. A `ValueError` if it isn't JSON data;
+/// a float that isn't finite is converted to null.
+fn to_json(py: Python<'_>, record: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
+    if let Ok(json) = pythonize::depythonize(record) {
+        return Ok(json);
+    }
+    let text: String = py
+        .import("json")?
+        .call_method1("dumps", (record,))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?
+        .extract()?;
+    serde_json::from_str(&text).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
 #[pymethods]
 impl GitSyncDB {
     /// Open the cloudmap at `file_path`, relative to `repo_path`, a git
@@ -264,8 +280,7 @@ impl GitSyncDB {
         key: String,
         record: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
-        let json: serde_json::Value =
-            pythonize::depythonize(record).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let json = to_json(py, record)?;
         let (sync, file_path) = (self.sync.clone(), self.file_path.clone());
         run(py, async move {
             sync.upsert_record(Some(&file_path), &section, &key, json, None, false)

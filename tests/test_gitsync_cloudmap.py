@@ -15,7 +15,7 @@ import pytest
 from unfurl.cloudmap.db import CloudMapDB
 from tests.utils import cloudmap_document
 from unfurl.repo import GitRepo
-from unfurl.tosca_plugins.cloudmap_defs import Repository
+from unfurl.tosca_plugins.cloudmap_defs import Artifact, Repository
 
 _rust = pytest.importorskip("unfurl._rust")
 if not hasattr(_rust, "GitSyncDB"):
@@ -139,6 +139,17 @@ def test_a_save_keeps_the_fields_analysis_claims(both, tmp_path: Path) -> None:
         assert "metadata/title" in claimed.metadata.discovery.applied[source], type(db).__name__
     assert "keep_applied" not in Path(both[1].file).read_text()
     assert _records(_open(tmp_path)) == _records(both[1])
+
+
+def test_a_key_that_isnt_a_string_saves_as_one(both, tmp_path: Path) -> None:
+    """YAML reads `80:` and `on:` as an int and a bool; they save as strings."""
+    _, git_sync = both
+    artifact = Artifact(url="pkg:generic/ports")
+    artifact.extensions["org.example.ports"] = {80: "http", True: "on"}
+    git_sync.add_record(artifact)
+    assert git_sync.save()
+    saved = _open(tmp_path).get_artifact("pkg:generic/ports")
+    assert saved and saved.extensions["org.example.ports"] == {"80": "http", "true": "on"}
 
 
 def test_metadata_round_trips(both, tmp_path: Path) -> None:
