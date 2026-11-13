@@ -445,11 +445,11 @@ def record_discovery_source(
         record: The record to stamp. Its ``metadata`` is always present (each
             record's ``__post_init__`` coerces it to the right subclass), but
             ``metadata.discovery`` may be ``None``.
-        sources: The URLs being analyzed, outermost first. Analysis nests -- a
+        sources: The URLs of the analysis in progress, outermost first. A
             repository's files are analyzed as part of analyzing the
-            repository -- and every enclosing URL is recorded, so a record can
-            be collected by replacing either the file it came from or the
-            repository that file is in. Each must be a valid URL:
+            repository, and both are recorded, so a record can be collected
+            by replacing either the file it came from or the repository that
+            file is in. Each must be a valid URL:
             :py:meth:`Discovery.__post_init__` validates them.
         previous: The record being replaced, if any. Its sources are merged in
             so provenance survives a rebuild -- analyzers that construct a
@@ -618,6 +618,8 @@ class ProvenanceTrackingContext(AnalyzerContext):
         # can't tell what a write changes -- this can.
         self._snapshots: Dict[Tuple[str, str], Dict[str, Any]] = {}
         self._bookkeeping_writes = False
+        # where in `_sources` each analysis in progress starts
+        self._analysis_starts: List[int] = []
 
     # --- Tracking ---
 
@@ -631,17 +633,22 @@ class ProvenanceTrackingContext(AnalyzerContext):
             self._bookkeeping_writes = previous
 
     @contextmanager
-    def _tracking_provenance(self, source: str) -> Generator[Provenance, None, None]:
+    def _tracking_provenance(
+        self, source: str, new_analysis: bool = False
+    ) -> Generator[Provenance, None, None]:
         """Also attribute records added within this block to ``source``.
 
         Analysis nests -- analyzing a repository analyzes its files, and an
         analyzer can analyze another URL -- so sources are kept on a stack and
-        :py:meth:`add_record` stamps *all* of them. A record produced while
-        analyzing a repository's file is discovered from that file and from the
-        repository, so replacing either one can collect it.
+        :py:meth:`add_record` stamps those of the analysis in progress. A record
+        produced while analyzing a repository's file is discovered from that
+        file and from the repository, so replacing either one can collect it.
+        A record another analysis only reached isn't attributed to it.
 
         Args:
             source: The URL being analyzed.
+            new_analysis: ``source`` starts an analysis of its own rather than
+                one more step of the analysis in progress.
 
         Yields:
             The :py:class:`Provenance` for the analysis in progress. A fresh
@@ -651,11 +658,15 @@ class ProvenanceTrackingContext(AnalyzerContext):
         """
         if not self._sources:
             self.provenance = Provenance()
+        if new_analysis:
+            self._analysis_starts.append(len(self._sources))
         self._sources.append(source)
         try:
             yield self.provenance
         finally:
             self._sources.pop()
+            if new_analysis:
+                self._analysis_starts.pop()
 
     def _mark_seen(self, record: Optional[CloudMapRecord]) -> None:
         """Note that ``record`` is still in use by the analysis in progress."""
@@ -682,7 +693,7 @@ class ProvenanceTrackingContext(AnalyzerContext):
     # --- AnalyzerContext methods: ---
 
     def add_record(self, record: CloudMapRecord) -> None:
-        """Add ``record``, attributing it to every URL being analyzed.
+        """Add ``record``, attributing it to the URLs of the analysis in progress.
 
         During analysis the record is merged with the one it replaces by field
         ownership (see ``metadata.discovery.applied``): the innermost source
@@ -738,7 +749,7 @@ class ProvenanceTrackingContext(AnalyzerContext):
                         applied[source] = written
             record_discovery_source(
                 record,
-                self._sources,
+                self._sources[self._analysis_starts[-1] if self._analysis_starts else 0 :],
                 # Analyzers may rebuild a record from scratch; merge the
                 # sources of the one being replaced so other analyzers'
                 # provenance isn't dropped.

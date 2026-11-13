@@ -1543,7 +1543,7 @@ class CloudMap:
             analyze = "yes"
         source = self._canonical_source(url)
         tracked = self.directory.context
-        with tracked._tracking_provenance(source) as provenance:
+        with tracked._tracking_provenance(source, new_analysis=True) as provenance:
             record = self._analyze_url(tracked, url, analyze, is_local_path)
         if replace:
             tracked.replace_from_source(source, provenance)
@@ -1577,7 +1577,7 @@ class CloudMap:
         repo_info.revision = "" if branch == default_branch else branch
         try:
             source = repo_info.source_url()
-            with context._tracking_provenance(source) as provenance:
+            with context._tracking_provenance(source, new_analysis=True) as provenance:
                 if paths and all(
                     context.get_artifact(repo_info.artifact_url(path)) for path in paths
                 ):

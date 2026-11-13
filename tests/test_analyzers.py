@@ -2234,14 +2234,10 @@ def test_analyze_url_records_discovery_source(tmp_path):
         assert _sources(record) == ["stub:one"], record
 
 
-def test_analyze_url_attributes_nested_analysis_to_every_enclosing_url(tmp_path):
-    """A record is discovered from every url whose analysis led to it.
-
-    Analysis nests: an analyzer can analyze another url, which runs more
-    analyzers. The inner records carry the inner url *and* the outer one, so
-    either can collect them -- if the outer url stops leading here, what it
-    caused is reachable from it.
-    """
+def test_analyze_url_attributes_a_nested_analysis_to_its_own_url(tmp_path):
+    """A record a nested analysis produces is discovered from the url that
+    analysis is of, not from the analysis that reached it, so a record many
+    analyses reach doesn't collect a source from each."""
     cm = _stub_cloudmap(
         tmp_path,
         {
@@ -2258,13 +2254,9 @@ def test_analyze_url_attributes_nested_analysis_to_every_enclosing_url(tmp_path)
 
     assert _sources(db.artifacts["pkg:generic/outer"]) == ["stub:outer"]
     for record in (db.artifacts["pkg:generic/inner"], db.types["inner.Type"]):
-        assert _sources(record) == ["stub:outer", "stub:inner"], (
-            f"{record} should be attributed to the url that produced it and "
-            "to the one that led to it, outermost first"
-        )
+        assert _sources(record) == ["stub:inner"], record
 
-    # the outer url no longer leads here, but `stub:inner` still claims them,
-    # so they survive with that source alone
+    # the outer url no longer leads here; that doesn't touch them
     _StubURLAnalyzer.recurses = {}
     cm.analyze_url("stub:outer", replace=True)
     assert _sources(db.artifacts["pkg:generic/inner"]) == ["stub:inner"]
