@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 
 use gix::pathspec::{Defaults, Search};
 
@@ -21,9 +21,10 @@ pub(crate) struct Scope {
     /// The paths pathspecs name without a wildcard, which `.gitignore`
     /// doesn't keep out.
     literal: Vec<String>,
-    /// Files the worktree already held that the pathspecs don't match:
-    /// scanned, so a rebuild keeps their records, but not written.
-    recorded: Vec<String>,
+    /// Files the worktree holds that the pathspecs don't match: scanned, so
+    /// a rebuild keeps their records, but not written. Refreshed while the
+    /// handle is open, as other handles on the worktree take in files.
+    recorded: RwLock<Vec<String>>,
 }
 
 impl Scope {
@@ -59,31 +60,33 @@ impl Scope {
             search: Mutex::new(search),
             untracked,
             literal,
-            recorded: Vec::new(),
+            recorded: RwLock::new(Vec::new()),
         }))
     }
 
-    /// With `recorded`, files the worktree holds that the pathspecs don't
-    /// match, scanned as if a pathspec named each.
-    pub(crate) fn with_recorded(mut self, recorded: Vec<String>) -> Self {
-        self.literal.extend(recorded.iter().cloned());
-        self.recorded = recorded;
-        self
+    /// Sets `recorded`, the files the worktree holds that the pathspecs
+    /// don't match, scanned as if a pathspec named each.
+    pub(crate) fn set_recorded(&self, recorded: Vec<String>) {
+        *self.recorded.write().unwrap_or_else(|e| e.into_inner()) = recorded;
+    }
+
+    fn recorded(&self) -> std::sync::RwLockReadGuard<'_, Vec<String>> {
+        self.recorded.read().unwrap_or_else(|e| e.into_inner())
     }
 
     fn search(&self) -> std::sync::MutexGuard<'_, Search> {
         self.search.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Whether a pathspec names `path` without a wildcard.
+    /// Whether a pathspec names `path` without a wildcard, or it's recorded.
     pub(crate) fn names(&self, path: &str) -> bool {
-        self.literal.iter().any(|l| l == path)
+        self.literal.iter().any(|l| l == path) || self.recorded().iter().any(|r| r == path)
     }
 
     /// Whether the handle scans the working-tree-relative file `path`: the
-    /// pathspecs match it, or the worktree held it when the handle opened.
+    /// pathspecs match it, or the worktree holds it.
     pub(crate) fn contains(&self, path: &str) -> bool {
-        self.recorded.iter().any(|r| r == path) || self.requests(path)
+        self.recorded().iter().any(|r| r == path) || self.requests(path)
     }
 
     /// Whether the pathspecs match the working-tree-relative file `path`,
@@ -109,7 +112,8 @@ impl Scope {
         while let Some((dir, ignore)) = dirs.pop() {
             self.visit(root, &dir, ignore, &mut dirs, &mut found)?;
         }
-        for rel in &self.literal {
+        let recorded = self.recorded().clone();
+        for rel in self.literal.iter().chain(&recorded) {
             if listed(&root.join(rel)) && self.contains(rel) {
                 found.insert(rel.clone());
             }

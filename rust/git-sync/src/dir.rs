@@ -72,16 +72,18 @@ pub(crate) struct SyncedDirInner {
 /// would bury everything else the scan reported.
 const MAX_LOGGED_FINDINGS: usize = 10;
 
-/// `scope` for worktree `w`, widened to each file it already holds outside
-/// it, whose records a scoped rebuild would otherwise drop.
-async fn widen_scope(db: &Db, w: i64, scope: crate::scope::Scope) -> Result<crate::scope::Scope> {
+/// Sets `scope`'s recorded files to those worktree `w` holds that its
+/// pathspecs don't match, whose records a scoped rebuild would otherwise
+/// drop.
+async fn refresh_recorded(db: &Db, w: i64, scope: &crate::scope::Scope) -> Result<()> {
     let outside = db::file::list(db, w)
         .await?
         .into_iter()
-        .filter(|f| !f.deleted && !scope.contains(&f.path))
+        .filter(|f| !f.deleted && !scope.requests(&f.path))
         .map(|f| f.path)
         .collect();
-    Ok(scope.with_recorded(outside))
+    scope.set_recorded(outside);
+    Ok(())
 }
 
 /// Emits one event per validation finding, plus a summary line.
@@ -513,10 +515,10 @@ impl SyncedDir {
             }
         };
         let family_id = db::worktree::family_id(&db, worktree_id).await?;
-        let scope = match scope {
-            Some(scope) => Some(Arc::new(widen_scope(&db, worktree_id, scope).await?)),
-            None => None,
-        };
+        if let Some(scope) = &scope {
+            refresh_recorded(&db, worktree_id, scope).await?;
+        }
+        let scope = scope.map(Arc::new);
 
         Ok(Self {
             inner: Arc::new(SyncedDirInner {
@@ -531,6 +533,15 @@ impl SyncedDir {
                 walked_head: Default::default(),
             }),
         })
+    }
+
+    /// Bring a scoped handle's recorded files up to date with its worktree,
+    /// which other handles may have taken files into since it opened.
+    pub(crate) async fn refresh_scope(&self) -> Result<()> {
+        match &self.inner.scope {
+            Some(scope) => refresh_recorded(self.db(), self.worktree_id(), scope).await,
+            None => Ok(()),
+        }
     }
 
     /// Whether this handle takes in and writes `path`.
@@ -718,6 +729,7 @@ impl SyncedDir {
         &self,
         options: ScanOptions,
     ) -> Result<(SyncOutcome, Option<CommitId>)> {
+        self.refresh_scope().await?;
         // HEAD is read once, so the commit stamped below is the one the
         // scan took in, and a rebuild recorded, even if it moves meanwhile.
         let meta = self.worktree_meta()?;

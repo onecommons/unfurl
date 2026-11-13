@@ -85,6 +85,7 @@ impl SyncedRepo {
     ///
     /// A failure reading git or the database.
     pub async fn rebase_onto(&self, upstream: CommitId) -> Result<Rebased> {
+        self.refresh_scope().await?;
         let repo = self.repo()?;
         let worktree = db::worktree::get(self.db(), self.worktree_id()).await?;
         let checked_out = git::worktree_meta(&repo)?.head_oid;

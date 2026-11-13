@@ -180,6 +180,45 @@ async fn opening_scoped_over_other_files_keeps_them() {
     );
 }
 
+/// A file another handle takes in after a scoped handle opened is in the
+/// scoped handle's scope by its next scan, so a rebuild from a rewritten
+/// HEAD keeps that file's records.
+#[tokio::test]
+async fn a_file_taken_in_after_opening_survives_a_rebuild() {
+    let (tmp, db) = repo();
+    let scoped = open_scoped(tmp.path(), &db).await.expect("open");
+    scoped
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let other = open_matching(tmp.path(), &db, &[OTHER])
+        .await
+        .expect("open other");
+    other
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    assert_eq!(keys_in(&other, OTHER).await, ["git://example.com/b.git"]);
+
+    let out = std::process::Command::new("git")
+        .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+        .args(["commit", "-q", "--amend", "-m", "amended"])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git");
+    assert!(out.status.success(), "{out:?}");
+    // the rebuild
+    scoped
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    other
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    assert_eq!(keys_in(&other, OTHER).await, ["git://example.com/b.git"]);
+}
+
 #[tokio::test]
 async fn writing_outside_the_scope_is_refused() {
     let (tmp, db) = repo();
