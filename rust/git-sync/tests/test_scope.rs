@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
-//! A handle opened with pathspecs takes in and writes only the files they
-//! match, as if the repository held nothing else.
+//! A handle opened with pathspecs takes in only the files they match and
+//! the ones its worktree already holds, and writes only the files they
+//! match.
 
 use std::path::Path;
 
@@ -120,8 +121,11 @@ async fn deleting_the_scoped_file_is_taken_in() {
     assert!(keys_in(&sync, SCOPED).await.is_empty());
 }
 
+/// A handle opened narrower than what the worktree holds scans the other
+/// files too, so a rebuild from a rewritten HEAD keeps their records, but
+/// still doesn't write them.
 #[tokio::test]
-async fn opening_scoped_over_other_files_is_refused() {
+async fn opening_scoped_over_other_files_keeps_them() {
     let (tmp, db) = repo();
     let unscoped = SyncedRepo::open(
         tmp.path(),
@@ -137,11 +141,42 @@ async fn opening_scoped_over_other_files_is_refused() {
     assert_eq!(keys_in(&unscoped, OTHER).await, ["git://example.com/b.git"]);
     drop(unscoped);
 
-    let refused = open_scoped(tmp.path(), &db).await;
+    // a HEAD the recorded commit doesn't lead to, so the scan rebuilds
+    std::fs::write(tmp.path().join(SCOPED), cloudmap("git://example.com/c.git")).expect("write");
+    for args in [
+        &["add", SCOPED][..],
+        &["commit", "-q", "--amend", "-m", "amended"],
+    ] {
+        let out = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .current_dir(tmp.path())
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    }
+
+    let scoped = open_scoped(tmp.path(), &db).await.expect("open scoped");
+    scoped
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    assert_eq!(keys_in(&scoped, SCOPED).await, ["git://example.com/c.git"]);
+    assert_eq!(keys_in(&scoped, OTHER).await, ["git://example.com/b.git"]);
+    let write = scoped
+        .upsert_record(
+            Some(OTHER),
+            "/repositories",
+            "git://example.com/d.git",
+            serde_json::json!({"path": "q"}),
+            None,
+            false,
+        )
+        .await;
     assert!(
-        matches!(&refused, Err(Error::OutOfScope { file_path }) if file_path == OTHER),
+        matches!(&write, Err(Error::OutOfScope { file_path }) if file_path == OTHER),
         "{:?}",
-        refused.err()
+        write.err()
     );
 }
 

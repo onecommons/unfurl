@@ -821,8 +821,9 @@ pub struct OpenOptions {
     /// Git pathspecs limiting the handle to the files they match, relative
     /// to the working tree, such as `cloudmap.yaml`, `cloudmaps/`, `*.yaml`
     /// or `:!vendor/`, parsed with git's defaults whatever the environment
-    /// says. Scans read and hash only those files, as if the repository held
-    /// only them. If empty, every file is scanned.
+    /// says. Scans read and hash only those files, and the ones the worktree
+    /// already holds, as if the repository held only them; writes go only
+    /// to the files they match. If empty, every file is scanned.
     pub pathspecs: Vec<String>,
     /// The remote whose url identifies the repository, if it has one,
     /// before `origin` and then the other remotes by name. A database

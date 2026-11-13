@@ -72,17 +72,16 @@ pub(crate) struct SyncedDirInner {
 /// would bury everything else the scan reported.
 const MAX_LOGGED_FINDINGS: usize = 10;
 
-/// Refuse `scope` for worktree `w` when it already holds a file outside
-/// it, whose records a scoped rebuild would drop.
-async fn check_scope(db: &Db, w: i64, scope: &crate::scope::Scope) -> Result<()> {
+/// `scope` for worktree `w`, widened to each file it already holds outside
+/// it, whose records a scoped rebuild would otherwise drop.
+async fn widen_scope(db: &Db, w: i64, scope: crate::scope::Scope) -> Result<crate::scope::Scope> {
     let outside = db::file::list(db, w)
         .await?
         .into_iter()
-        .find(|f| !f.deleted && !scope.contains(&f.path));
-    match outside {
-        Some(f) => Err(Error::OutOfScope { file_path: f.path }),
-        None => Ok(()),
-    }
+        .filter(|f| !f.deleted && !scope.contains(&f.path))
+        .map(|f| f.path)
+        .collect();
+    Ok(scope.with_recorded(outside))
 }
 
 /// Emits one event per validation finding, plus a summary line.
@@ -494,8 +493,7 @@ impl SyncedDir {
     ) -> Result<Self> {
         let repo_path = working_dir.as_ref().to_path_buf();
         let pathspecs: Vec<&str> = options.pathspecs.iter().map(String::as_str).collect();
-        let scope =
-            crate::scope::Scope::new(&pathspecs, &repo_path, options.untracked)?.map(Arc::new);
+        let scope = crate::scope::Scope::new(&pathspecs, &repo_path, options.untracked)?;
         let gitless = gitless && !git::in_repository(&repo_path)?;
         if gitless && scope.is_none() {
             return Err(Error::InvalidPathspec {
@@ -515,9 +513,10 @@ impl SyncedDir {
             }
         };
         let family_id = db::worktree::family_id(&db, worktree_id).await?;
-        if let Some(scope) = &scope {
-            check_scope(&db, worktree_id, scope).await?;
-        }
+        let scope = match scope {
+            Some(scope) => Some(Arc::new(widen_scope(&db, worktree_id, scope).await?)),
+            None => None,
+        };
 
         Ok(Self {
             inner: Arc::new(SyncedDirInner {

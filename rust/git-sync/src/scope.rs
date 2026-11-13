@@ -21,6 +21,9 @@ pub(crate) struct Scope {
     /// The paths pathspecs name without a wildcard, which `.gitignore`
     /// doesn't keep out.
     literal: Vec<String>,
+    /// Files the worktree already held that the pathspecs don't match:
+    /// scanned, so a rebuild keeps their records, but not written.
+    recorded: Vec<String>,
 }
 
 impl Scope {
@@ -56,7 +59,16 @@ impl Scope {
             search: Mutex::new(search),
             untracked,
             literal,
+            recorded: Vec::new(),
         }))
+    }
+
+    /// With `recorded`, files the worktree holds that the pathspecs don't
+    /// match, scanned as if a pathspec named each.
+    pub(crate) fn with_recorded(mut self, recorded: Vec<String>) -> Self {
+        self.literal.extend(recorded.iter().cloned());
+        self.recorded = recorded;
+        self
     }
 
     fn search(&self) -> std::sync::MutexGuard<'_, Search> {
@@ -68,8 +80,15 @@ impl Scope {
         self.literal.iter().any(|l| l == path)
     }
 
-    /// Whether the pathspecs match the working-tree-relative file `path`.
+    /// Whether the handle scans the working-tree-relative file `path`: the
+    /// pathspecs match it, or the worktree held it when the handle opened.
     pub(crate) fn contains(&self, path: &str) -> bool {
+        self.recorded.iter().any(|r| r == path) || self.requests(path)
+    }
+
+    /// Whether the pathspecs match the working-tree-relative file `path`,
+    /// which the handle may then write.
+    pub(crate) fn requests(&self, path: &str) -> bool {
         self.search()
             .pattern_matching_relative_path(
                 gix::bstr::BStr::new(path),

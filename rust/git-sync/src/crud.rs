@@ -33,7 +33,7 @@ impl Writer<'_> {
     /// Refuse a write to `file_path` when it's outside the scope.
     fn check_scope(&self, file_path: &str) -> Result<()> {
         match self.scope {
-            Some(scope) if !scope.contains(file_path) => Err(Error::OutOfScope {
+            Some(scope) if !scope.requests(file_path) => Err(Error::OutOfScope {
                 file_path: file_path.to_string(),
             }),
             _ => Ok(()),

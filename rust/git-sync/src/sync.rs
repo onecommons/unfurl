@@ -148,12 +148,11 @@ impl SyncedRepo {
     /// with [`git::Trust::Reduced`], all git config settings are ignored except for remote urls
     /// and its user's name and email (see [`git::Opener`]), and `options`.
     ///
-    /// A database used through a handle opened with
-    /// [`OpenOptions::pathspecs`] should always be opened with the same ones: a rebuild from HEAD sees only what they match,
-    /// and would drop records of any other file. The check for that runs
-    /// once the worktree is found or forked, so a refused open leaves a new
-    /// worktree in place. Handles on other worktrees of the family that this
-    /// one reaches, an upstream's for a rebase, see the same files.
+    /// A handle opened with [`OpenOptions::pathspecs`] also scans each file
+    /// the worktree already holds that they don't match, so a rebuild from
+    /// HEAD keeps its records, but writes only what they match. Handles on
+    /// other worktrees of the family that this one reaches, an upstream's
+    /// for a rebase, see the same files.
     /// [`Self::rebase_onto`] and [`Self::merge_upstream`] still need the
     /// whole working tree clean: they rewrite commits, whatever it matches.
     ///
@@ -161,9 +160,7 @@ impl SyncedRepo {
     ///
     /// As [`Self::open`]; [`Error::InvalidPathspec`] for a pathspec that
     /// doesn't parse, uses attribute magic, or reaches outside the working
-    /// tree, or for [`OpenOptions::untracked`] without pathspecs;
-    /// [`Error::OutOfScope`] when the worktree already holds a file
-    /// the pathspecs don't match.
+    /// tree, or for [`OpenOptions::untracked`] without pathspecs.
     pub async fn open_with(
         working_dir: impl AsRef<Path>,
         db: DbConfig,

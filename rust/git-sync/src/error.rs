@@ -220,8 +220,7 @@ pub enum Error {
         since: Option<i64>,
     },
     /// A handle opened with pathspecs (see [`crate::SyncedRepo::open_with`])
-    /// was asked to take in or write `file_path`, which they don't match: a
-    /// record write to it, or, at open, a worktree already holding it.
+    /// was asked to write `file_path`, which they don't match.
     #[error("{file_path} is outside the pathspecs this handle was opened with")]
     OutOfScope {
         /// Working-tree-relative path of the file.
