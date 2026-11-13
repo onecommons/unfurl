@@ -2311,6 +2311,115 @@ def test_analyze_url_replace_keeps_records_with_other_sources(tmp_path):
     assert _sources(db.types["shared.Type"]) == ["stub:two"]
 
 
+def _created_by(record):
+    discovery = record.metadata.discovery
+    return discovery.created_by if discovery else ""
+
+
+def test_replace_deletes_only_what_analysis_created(tmp_path):
+    """A record asked for by name, added outside analysis or edited since keeps
+    when the analysis that went on to produce it stops; one it created goes."""
+    still = Artifact(url="pkg:generic/still")
+    cm = _stub_cloudmap(
+        tmp_path,
+        {
+            "stub:asked": [Service(url="stub:asked")],
+            "stub:one": [
+                still,
+                Service(url="stub:asked"),
+                Artifact(url="pkg:generic/made"),
+                Artifact(url="pkg:generic/edited"),
+                Service(url="https://added.example.com"),
+            ],
+        },
+    )
+    db = cm.directory.store
+    context = cm.directory.context
+    # outside any analysis, as a host import is
+    context.add_record(Service(url="https://added.example.com"))
+    cm.analyze_url("stub:asked")
+    cm.analyze_url("stub:one")
+    edited = db.artifacts["pkg:generic/edited"]
+    edited.metadata.title = "by hand"
+    context.add_record(edited)
+    assert _created_by(db.artifacts["pkg:generic/made"]) == "stub:one"
+    for record in (db.services["stub:asked"], edited, db.services["https://added.example.com"]):
+        assert _created_by(record) == "", record
+        assert _sources(record) == ["stub:one"], record
+
+    _StubURLAnalyzer.emits["stub:one"] = [still]
+    cm.analyze_url("stub:one", replace=True)
+
+    assert "pkg:generic/made" not in db.artifacts
+    for record in (db.services["stub:asked"], edited, db.services["https://added.example.com"]):
+        assert _sources(record) == [], record
+    assert db.artifacts["pkg:generic/edited"] is edited
+
+
+def test_created_by_is_the_context_s(tmp_path):
+    """``created_by`` is the innermost url whose analysis created the record,
+    whatever an analyzer writes there; it survives a rebuild, and an analysis
+    of the record's own url clears it."""
+
+    def forged(url):
+        return Artifact(
+            url=url,
+            metadata=ArtifactMetadata(discovery=Discovery(created_by="https://forged.example.com")),
+        )
+
+    cm = _stub_cloudmap(
+        tmp_path,
+        {
+            "stub:outer": [forged("pkg:generic/outer"), forged("pkg:generic/person")],
+            "stub:inner": [forged("pkg:generic/inner")],
+        },
+        recurses={"stub:outer": ["stub:inner"]},
+    )
+    db = cm.directory.store
+    context = cm.directory.context
+    context.add_record(Artifact(url="pkg:generic/person"))
+    for _ in range(2):
+        # every record rebuilt from scratch, with its forgery, the second time
+        _StubURLAnalyzer.emits = {
+            "stub:outer": [forged("pkg:generic/outer"), forged("pkg:generic/person")],
+            "stub:inner": [forged("pkg:generic/inner")],
+        }
+        cm.analyze_url("stub:outer")
+        assert _created_by(db.artifacts["pkg:generic/outer"]) == "stub:outer"
+        assert _created_by(db.artifacts["pkg:generic/inner"]) == "stub:inner"
+        assert _created_by(db.artifacts["pkg:generic/person"]) == ""
+
+    # updated in place by an analysis of its own url, so nothing rebuilds it
+    with context._tracking_provenance("pkg:generic/outer"):
+        outer = context.get_artifact("pkg:generic/outer")
+        assert outer
+        outer.metadata.title = "asked for"
+        context.add_record(outer)
+    assert _created_by(db.artifacts["pkg:generic/outer"]) == ""
+
+
+def test_comparing_forks_keeps_created_by(tmp_path):
+    """Setting a fork's ``upstream_refs`` is bookkeeping; a host's write isn't."""
+    upstream = "git://example.com/upstream.git"
+    fork = "git://example.com/fork.git"
+    cm = _stub_cloudmap(
+        tmp_path,
+        {
+            "stub:forks": [
+                Repository(url=upstream, path="upstream", branches={"main": "a" * 40}),
+                Repository(url=fork, path="fork", fork_of=upstream, branches={"main": "b" * 40}),
+            ]
+        },
+    )
+    cm.analyze_url("stub:forks")
+    db = cm.directory.store
+    cm.directory.compare_upstreams(db.repositories[fork])
+    assert db.repositories[fork].upstream_refs
+    assert _created_by(db.repositories[fork]) == "stub:forks"
+    cm.directory.context.add_record(db.repositories[fork])
+    assert _created_by(db.repositories[fork]) == ""
+
+
 def test_analyze_url_replace_does_not_oscillate(tmp_path):
     """Re-analyzing an unchanged source must not delete anything.
 

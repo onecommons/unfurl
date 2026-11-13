@@ -877,6 +877,9 @@ class Discovery:
     applied: Dict[str, List[str]] = field(default_factory=dict)
     """For each source analysis wrote this record from, the keys it last wrote,
     as JSON pointers to the record's leaves without the leading "/"."""
+    created_by: str = ""
+    """The URL whose analysis created this record; cleared by a write through
+    Unfurl that isn't from analysis."""
 
     def __post_init__(self):
         if isinstance(self.sources, list):
@@ -893,6 +896,8 @@ class Discovery:
                 validate_url(url, "Discovery.applied"): list(fields)
                 for url, fields in self.applied.items()
             }
+        if self.created_by:
+            self.created_by = validate_url(self.created_by, "Discovery.created_by")
 
     def asdict(self) -> Dict[str, Any]:
         # exclude empty values

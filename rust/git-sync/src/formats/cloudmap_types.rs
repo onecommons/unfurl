@@ -1298,6 +1298,10 @@ impl<'de> ::serde::Deserialize<'de> for ComponentVersionsKey {
 #[doc = "        }"]
 #[doc = "      }"]
 #[doc = "    },"]
+#[doc = "    \"created_by\": {"]
+#[doc = "      \"description\": \"The URL whose analysis created this record. A write through Unfurl that isn't from analysis clears it (an edit to the file itself doesn't), after which a re-analysis that no longer produces the record keeps it rather than deleting it.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
 #[doc = "    \"last_checked\": {"]
 #[doc = "      \"description\": \"Date and time of the last metadata check, conforming to RFC 3339.\","]
 #[doc = "      \"type\": \"string\","]
@@ -1321,6 +1325,9 @@ pub struct Discovery {
     )]
     pub applied:
         ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>>,
+    #[doc = "The URL whose analysis created this record. A write through Unfurl that isn't from analysis clears it (an edit to the file itself doesn't), after which a re-analysis that no longer produces the record keeps it rather than deleting it."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub created_by: ::std::option::Option<::std::string::String>,
     #[doc = "Date and time of the last metadata check, conforming to RFC 3339."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub last_checked: ::std::option::Option<::chrono::DateTime<::chrono::offset::Utc>>,
@@ -1332,6 +1339,7 @@ impl ::std::default::Default for Discovery {
     fn default() -> Self {
         Self {
             applied: Default::default(),
+            created_by: Default::default(),
             last_checked: Default::default(),
             sources: Default::default(),
         }

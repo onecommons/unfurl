@@ -224,8 +224,9 @@ impl DataFormat for CloudMapFormat {
 
     /// A write that changes a field listed in the record's
     /// `metadata.discovery.applied` takes it over from the analysis that
-    /// wrote it, so it's removed from there -- unless the writer maintains
-    /// `applied` itself, as it says with `unfurl.server.keep_applied`.
+    /// wrote it, so it's removed from there, and the marks only analysis sets
+    /// (`created_by`) are dropped -- unless the writer maintains them itself,
+    /// as it says with `unfurl.server.keep_applied`.
     fn prepare_write(
         &self,
         _path: &str,
@@ -239,8 +240,11 @@ impl DataFormat for CloudMapFormat {
             ),
             _ => return,
         };
-        if let (false, Some(previous)) = (keep, previous) {
-            strip_applied(previous, json);
+        if !keep {
+            if let Some(previous) = previous {
+                strip_applied(previous, json);
+            }
+            strip_analysis_marks(json);
         }
     }
 
@@ -648,6 +652,39 @@ fn strip_applied(previous: &serde_json::Value, record: &mut serde_json::Value) {
         if let Some(fields) = fields.as_array_mut() {
             fields.retain(|p| p.as_str().is_none_or(|p| !changed.contains(p)));
         }
+    }
+}
+
+/// What only analysis sets in `metadata.discovery`. Must match
+/// `strip_analysis_marks` in `unfurl/cloudmap/provenance.py`.
+const ANALYSIS_MARKS: [&str; 1] = ["created_by"];
+
+/// Removes [`ANALYSIS_MARKS`] from `record`, and `metadata.discovery` and
+/// `metadata` if that leaves them empty.
+fn strip_analysis_marks(record: &mut serde_json::Value) {
+    let Some(record) = record.as_object_mut() else {
+        return;
+    };
+    let Some(metadata) = record
+        .get_mut("metadata")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    let Some(discovery) = metadata
+        .get_mut("discovery")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    for mark in ANALYSIS_MARKS {
+        discovery.remove(mark);
+    }
+    if discovery.is_empty() {
+        metadata.remove("discovery");
+    }
+    if metadata.is_empty() {
+        record.remove("metadata");
     }
 }
 
@@ -1151,6 +1188,42 @@ mod tests {
         assert_eq!(
             created["metadata"]["discovery"],
             previous["metadata"]["discovery"]
+        );
+    }
+
+    #[test]
+    fn writes_clear_what_only_analysis_sets() {
+        let previous = json!({
+            "path": "p",
+            "metadata": {"discovery": {"created_by": "git://x/a.git"}},
+        });
+        let edited = || {
+            let mut next = previous.clone();
+            next["path"] = json!("q");
+            next
+        };
+
+        // a person's or the host's write
+        let mut next = edited();
+        CloudMapFormat.prepare_write("/repositories", Some(&previous), &mut next);
+        assert!(next.get("metadata").is_none(), "nothing left empty: {next}");
+
+        // analysis keeps it
+        let mut kept = edited();
+        kept[KEEP_APPLIED] = json!(true);
+        CloudMapFormat.prepare_write("/repositories", Some(&previous), &mut kept);
+        assert_eq!(
+            kept["metadata"]["discovery"]["created_by"],
+            json!("git://x/a.git")
+        );
+
+        // a new record can't arrive claiming analysis created it
+        let mut created = edited();
+        created["metadata"]["discovery"]["sources"] = json!({"git://x/b.git": null});
+        CloudMapFormat.prepare_write("/repositories", None, &mut created);
+        assert_eq!(
+            created["metadata"]["discovery"],
+            json!({"sources": {"git://x/b.git": null}})
         );
     }
 

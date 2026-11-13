@@ -330,6 +330,44 @@ def _merge_owned(
     return _assemble(merged), sorted(written)
 
 
+def _created_by(record: Optional[Dict[str, Any]]) -> str:
+    """The ``metadata.discovery.created_by`` of the serialized ``record``."""
+    discovery = ((record or {}).get("metadata") or {}).get("discovery") or {}
+    return discovery.get("created_by") or ""
+
+
+def _set_created_by(record: "CloudMapRecord", created_by: str) -> None:
+    metadata = getattr(record, "metadata", None)
+    if not isinstance(metadata, CommonMetadata):
+        return
+    if metadata.discovery is None:
+        if not created_by:
+            return
+        metadata.discovery = Discovery()
+    metadata.discovery.created_by = created_by
+
+
+def strip_analysis_marks(record: Dict[str, Any]) -> Dict[str, Any]:
+    """``record`` without the marks only analysis sets,
+    ``metadata.discovery.created_by``, nor the objects that leaves empty. The
+    objects on the path are copied rather than modified."""
+    if "created_by" not in ((record.get("metadata") or {}).get("discovery") or {}):
+        return record
+    record = dict(record)
+    metadata = dict(record["metadata"])
+    discovery = dict(metadata["discovery"])
+    del discovery["created_by"]
+    if discovery:
+        metadata["discovery"] = discovery
+    else:
+        del metadata["discovery"]
+    if metadata:
+        record["metadata"] = metadata
+    else:
+        del record["metadata"]
+    return record
+
+
 def _set_applied(record: "CloudMapRecord", applied: Dict[str, List[str]]) -> None:
     metadata = getattr(record, "metadata", None)
     if not isinstance(metadata, CommonMetadata):
@@ -359,23 +397,25 @@ def _transplant(record: "CloudMapRecord", data: Dict[str, Any]) -> None:
     record.extensions = rebuilt.extensions
 
 
+def _canonical(url: str) -> Tuple[str, str]:
+    """``url``'s repository, in the form a repository record is keyed by, and
+    its path in the repository."""
+    repo_url, file_path, revision, commit = split_git_url_with_commit(url)
+    repo = get_repository_url(repo_url)
+    if repo.startswith("git://") and not repo.endswith(".git"):
+        # repository keys carry the suffix but references often omit it
+        repo += ".git"
+    return repo, file_path
+
+
 def _source_matches_key(source: str, record: "CloudMapRecord") -> bool:
     if source == record.key:
         return True
-
-    def canonical(url: str) -> Tuple[str, str]:
-        repo_url, file_path, revision, commit = split_git_url_with_commit(url)
-        repo = get_repository_url(repo_url)
-        if repo.startswith("git://") and not repo.endswith(".git"):
-            # repository keys carry the suffix but references often omit it
-            repo += ".git"
-        return repo, file_path
-
     # Comparing the strings isn't enough: a record is keyed by the canonical
     # form of its URL, so analyzing ``https://host/repo.git#:f`` yields an
     # artifact keyed ``git://host/repo.git#:f``.
-    source_parts = canonical(source)
-    record_parts = canonical(record.key)
+    source_parts = _canonical(source)
+    record_parts = _canonical(record.key)
     if source_parts == record_parts:
         return True
     # the record key is the repository that the source is in
@@ -436,6 +476,61 @@ def record_discovery_source(
         metadata.discovery = Discovery()
     for url in new:
         metadata.discovery.sources[("", url)] = TypeRefs()
+
+
+def backfill_created_by(store: CloudMapStore) -> int:
+    """Give each record analysis tracks (one with ``applied``) a ``created_by``
+    if it has none: the first source with fields in its ``applied`` that
+    doesn't name the record itself, unless the record is a file in a
+    repository. And drop its ``git:`` sources from repositories none of its
+    ``applied`` keys are in.
+
+    Writes to ``store`` directly, not through a
+    :py:class:`ProvenanceTrackingContext`.
+
+    Returns:
+        How many records changed.
+    """
+    records = [
+        record
+        for found in (
+            store.find_repositories(),
+            store.find_artifacts(),
+            store.find_components(),
+            store.find_services(),
+            store.find_instantiations(),
+            store.find_types(),
+        )
+        for record in found
+        if not getattr(record, "_parent", None)
+    ]
+    changed = 0
+    for record in records:
+        discovery = getattr(getattr(record, "metadata", None), "discovery", None)
+        if discovery is None or not discovery.applied:
+            continue
+        before = discovery.asdict()
+        if not discovery.created_by:
+            # as add_record does for a URL asked for by name
+            is_file = bool(_canonical(record.key)[1])
+            discovery.created_by = next(
+                (
+                    source
+                    for source, fields in discovery.applied.items()
+                    if fields and (is_file or not _source_matches_key(source, record))
+                ),
+                "",
+            )
+        own = {_canonical(s)[0] for s in discovery.applied if s.startswith("git:")}
+        discovery.sources = {
+            key: refs
+            for key, refs in discovery.sources.items()
+            if not key[1].startswith("git:") or _canonical(key[1])[0] in own
+        }
+        if discovery.asdict() != before:
+            store.add_record(record)
+            changed += 1
+    return changed
 
 
 class Provenance:
@@ -522,8 +617,18 @@ class ProvenanceTrackingContext(AnalyzerContext):
         # modify the records they read before adding them back, so the store
         # can't tell what a write changes -- this can.
         self._snapshots: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        self._bookkeeping_writes = False
 
     # --- Tracking ---
+
+    @contextmanager
+    def _bookkeeping(self) -> Generator[None, None, None]:
+        """Records added within keep their ``created_by``, as analysis writes do."""
+        previous, self._bookkeeping_writes = self._bookkeeping_writes, True
+        try:
+            yield
+        finally:
+            self._bookkeeping_writes = previous
 
     @contextmanager
     def _tracking_provenance(self, source: str) -> Generator[Provenance, None, None]:
@@ -584,6 +689,12 @@ class ProvenanceTrackingContext(AnalyzerContext):
         being analyzed only overwrites the fields it wrote last time, unless
         ``record`` is the stored record itself, retrieved and updated. Any other
         write gives up the ownership of the fields it changes.
+
+        ``metadata.discovery.created_by`` is set here, whatever ``record``
+        carries: to the innermost source when analysis creates the record, kept
+        by any other analysis write or :py:meth:`_bookkeeping` write, and
+        cleared by every other write and by an analysis of the record's own URL
+        that no other analysis led to.
         """
         identity = record_identity(record)
         stored = self.__context.get_record(section_of(record), record.key)
@@ -639,6 +750,17 @@ class ProvenanceTrackingContext(AnalyzerContext):
             stripped = strip_applied(previous, data)
             if stripped is not data:
                 _set_applied(record, _applied(stripped))
+        if self._sources and _source_matches_key(self._sources[0], record):
+            # what a person or the host asked to analyze by name
+            created_by = ""
+        elif self._sources:
+            created_by = self._sources[-1] if previous is None else _created_by(previous)
+        elif self._bookkeeping_writes:
+            created_by = _created_by(previous)
+        else:
+            # a person or the host speaks for the record now
+            created_by = ""
+        _set_created_by(record, created_by)
         self._mark_seen(record)
         self._snapshots[identity] = record.asdict()
         self.__context.add_record(record)
@@ -797,7 +919,9 @@ class ProvenanceTrackingContext(AnalyzerContext):
 
         A record is deleted only once *every* source has stopped producing it,
         so records that other URLs still contribute to survive with their
-        remaining sources.
+        remaining sources -- and only if analysis created it
+        (``metadata.discovery.created_by``): one a person or the host added, or
+        wrote to since, is kept without sources.
 
         The sweep is skipped when the analysis didn't complete: analyzer errors
         are logged rather than raised, so a failed run looks the same as one
@@ -832,7 +956,7 @@ class ProvenanceTrackingContext(AnalyzerContext):
                     self.matches_source(source, url) or self.matches_source(url, source)
                 )
             ]
-            if remaining:
+            if remaining or not _created_by(record.asdict()):
                 _replace_discovery_sources(record, remaining)
                 self.logger.verbose(
                     "%s %s is no longer discovered from %s",

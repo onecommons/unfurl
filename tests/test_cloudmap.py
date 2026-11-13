@@ -1801,6 +1801,90 @@ def test_uri_template_artifact_urls():
     assert is_label("v1.0")
 
 
+def test_backfill_created_by(memory_store: MemoryStore):
+    """A record from before ``created_by`` gets it from the first source with
+    fields in its ``applied``, and loses the sources of analyses in other
+    repositories that only reached it, so sweeping one of those keeps it."""
+    from unfurl.cloudmap.provenance import (
+        Provenance,
+        ProvenanceTrackingContext,
+        backfill_created_by,
+        discovery_sources,
+    )
+
+    std = "git://e.com/std.git"
+    revision = "git://e.com/std#v1.0:."
+    blueprint = "git://e.com/blueprint.git"
+    template = blueprint + "#:t.yaml"
+    registry = "https://registry.example.com/v2/img"
+
+    def discovery(sources, applied=None):
+        found: Dict[str, object] = {"sources": {s: None for s in sources}}
+        if applied is not None:
+            found["applied"] = applied
+        return {"discovery": found}
+
+    db = memory_store(
+        {
+            **CloudMapDB.make_empty_cloudmap(),
+            "repositories": {
+                std: {
+                    "path": "std",
+                    "metadata": discovery([blueprint, template], {revision: [], std: ["path"]}),
+                }
+            },
+            "artifacts": {
+                std + "#:f.yaml": {
+                    "metadata": discovery([blueprint, revision], {std + "#:f.yaml": ["type"]})
+                },
+                "pkg:generic/readded": {
+                    "metadata": {"title": "readded", **discovery([blueprint], {blueprint: []})}
+                },
+                "pkg:generic/untracked": {
+                    "metadata": {"title": "untracked", **discovery([blueprint])}
+                },
+                "pkg:oci/img": {
+                    "metadata": discovery([registry, blueprint], {"pkg:oci/img": ["type"]})
+                },
+            },
+            "types": {
+                "Blueprint": {
+                    "kind": "component",
+                    "metadata": discovery([blueprint, template], {template: ["kind"]}),
+                }
+            },
+        }
+    )
+    assert backfill_created_by(db) == 4
+    assert backfill_created_by(db) == 0
+    if isinstance(db, GitSyncCloudMapDB):
+        db.save()
+        db.reload()
+
+    def found(record):
+        assert record
+        discovery = record.metadata.discovery
+        return discovery.created_by if discovery else "", discovery_sources(record)
+
+    # named by its own entries only: asked for by name, or reached
+    assert found(db.get_repository(std)) == ("", [])
+    assert found(db.get_artifact(std + "#:f.yaml")) == (std + "#:f.yaml", [revision])
+    # its own url's entry: asked for by name, as live analysis leaves it
+    assert found(db.get_artifact("pkg:oci/img")) == ("", [registry])
+    assert found(db.get_artifact("pkg:generic/untracked")) == ("", [blueprint])
+    assert found(db.get_artifact("pkg:generic/readded")) == ("", [blueprint])
+    assert found(db.get_type("Blueprint")) == (template, [blueprint, template])
+
+    # the blueprint no longer produces anything here
+    db.logger = getLogger("unfurl")
+    provenance = Provenance()
+    provenance.touched.add(("Artifact", "pkg:generic/elsewhere"))
+    ProvenanceTrackingContext(db).replace_from_source(blueprint, provenance)
+    assert db.get_repository(std), "only reached by the blueprint"
+    assert db.get_artifact("pkg:generic/untracked") and db.get_artifact("pkg:generic/readded")
+    assert not db.get_type("Blueprint"), "created by the blueprint"
+
+
 def test_uri_template_record_keys(memory_store: MemoryStore):
     """URI templates are usable as record keys, including as version keys."""
     doc = {

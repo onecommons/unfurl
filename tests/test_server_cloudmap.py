@@ -1088,6 +1088,27 @@ def test_server_cloudmap(server_env):
                 owned_key: ["metadata/description", "path"]
             }
 
+            # 8c. ...and drops `created_by`, which only analysis sets
+            def created_by(**markers):
+                record = {
+                    "path": "owned",
+                    "metadata": {"discovery": {"created_by": owned_key}},
+                    **markers,
+                }
+                res = requests.post(
+                    cloudmap_url,
+                    json={"commit": True, "repositories": {owned_key: record}},
+                )
+                assert res.status_code == 200, res.text
+                res = requests.get(
+                    cloudmap_url, params={"kind": "repositories", "key": owned_key}
+                )
+                assert res.status_code == 200, res.text
+                return res.json()["result"]["repositories"][owned_key]
+
+            assert created_by(**keep)["metadata"]["discovery"]["created_by"] == owned_key
+            assert "metadata" not in created_by(), "nothing left empty"
+
             # 9. POST /cloudmap/analyze mirrors `unfurl cloudmap --add`; a
             #    service url produces a record without touching the network.
             analyze_url = f"http://{HOST}:{port}/cloudmap/analyze"

@@ -26,6 +26,10 @@
               "type": "string"
             }
           }
+        },
+        "created_by": {
+          "type": "string",
+          "description": "The URL whose analysis created this record. A write through Unfurl that isn't from analysis clears it (an edit to the file itself doesn't), after which a re-analysis that no longer produces the record keeps it rather than deleting it."
         }
       }
     },

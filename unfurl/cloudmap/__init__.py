@@ -639,7 +639,8 @@ class Directory(_LocalGitRepos):
                     url,
                     exc_info=True,
                 )
-        self.context.add_record(repo_info)
+        with self.context._bookkeeping():
+            self.context.add_record(repo_info)
 
     def analyze(
         self,

@@ -27,7 +27,7 @@ from flask import Response, abort, current_app, jsonify, request
 from flask.typing import ResponseReturnValue
 
 from ..cloudmap.db import CloudMapDB, CloudMapStore, extends_children, subtype_closure
-from ..cloudmap.provenance import strip_applied
+from ..cloudmap.provenance import strip_analysis_marks, strip_applied
 from ..localenv import LocalEnv
 from ..logs import getLogger
 from ..repo import GitRepo
@@ -1318,9 +1318,11 @@ def _write_cloudmap_sections(
                     payload = _merge_record(existing, payload)
                 for tokens in deletes:
                     payload = _without_field(payload, tokens)
-                if not keep and isinstance(existing, dict):
-                    # whoever changes a field analysis wrote takes it over
-                    payload = strip_applied(existing, payload)
+                if not keep:
+                    if isinstance(existing, dict):
+                        # whoever changes a field analysis wrote takes it over
+                        payload = strip_applied(existing, payload)
+                    payload = strip_analysis_marks(payload)
                 if section_doc.get(key) != payload:
                     section_doc[key] = payload
                     applied.append({"section": section, "key": key, "version": 0})
