@@ -367,7 +367,7 @@ class Directory(_LocalGitRepos):
         super()._set_repos("" if self.repo_locator else root)
         self.repos_root = root
         if self.cloudmap.local_env:
-            for repo in self.cloudmap.local_env._get_repos():
+            for repo in self.cloudmap.local_env._get_repos(True):
                 if isinstance(repo, GitRepo):
                     self._add_repo(repo)
 

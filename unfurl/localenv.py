@@ -1686,11 +1686,14 @@ class LocalEnv:
 
     # NOTE returns repos outside of this LocalEnv
     # (every repo found in localRepositories)
-    def _get_repos(self) -> List[Repo]:
-        if self.project:
-            repos = self.project._get_repos()
-        else:
-            repos = []
+    def _get_repos(self, include_parents=False) -> List[Repo]:
+        repos = []
+        project = self.project
+        while project:
+            repos.extend(project._get_repos())
+            if not include_parents:
+                break
+            project = project.parentProject
         if (
             self.instance_repoview
             and self.instance_repoview.repo
