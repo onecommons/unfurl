@@ -1533,7 +1533,7 @@ class CloudMap:
             If analyze != "yes" return None if the URL is already in the database,
             otherwise, return the Repository, Artifact, or Service that was added (or None if there was an error).
         """
-        url, from_local_path = self._normalize_analyzed_url(url)
+        url, is_local_path = self._normalize_analyzed_url(url)
         if replace:
             # Several paths below short-circuit when a record already exists
             # (the dedupe check here, and the one in `_add_repository_record`).
@@ -1543,7 +1543,7 @@ class CloudMap:
         source = self._canonical_source(url)
         tracked = self.directory.context
         with tracked._tracking_provenance(source) as provenance:
-            record = self._analyze_url(tracked, url, analyze, from_local_path)
+            record = self._analyze_url(tracked, url, analyze, is_local_path)
         if replace:
             tracked.replace_from_source(source, provenance)
         return record
@@ -1692,7 +1692,7 @@ class CloudMap:
         context: ProvenanceTrackingContext,
         url: str,
         analyze: Analyze_Options,
-        from_local_path: bool = False,
+        is_local_path: bool = False,
     ) -> Optional[CloudMapRecord]:
         """Dispatch an already-normalized URL to the record type it names.
 
@@ -1701,8 +1701,9 @@ class CloudMap:
         """
         parts = urlparse(url)
 
-        if from_local_path:
-            # a local path is known to be a repository, so skip the URL analyzers
+        if is_local_path:
+            # url is a a local path, assume its repository and skip the URL analyzers
+            self.logger.verbose("Analysis is adding a local git repository: %s", url)
             return self._add_repository_record(context, url, analyze)
 
         if analyze != "yes":
@@ -1725,12 +1726,18 @@ class CloudMap:
             if analyzer is None:
                 continue
             self.configure_analyzer(analyzer)
+            self.logger.trace(
+                "Analyzing %s with %s", sanitize_url(url), analyzer_cls.__name__
+            )
             record = analyzer.analyze_url(context)
             if record is not None:
                 context.add_record(record)
                 return record
 
         if self._is_git_url(url):
+            self.logger.verbose(
+                "Analysis is adding a git repository: %s", sanitize_url(url)
+            )
             return self._add_repository_record(context, url, analyze)
 
         # Everything else → Service record
