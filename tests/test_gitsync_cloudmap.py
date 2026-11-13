@@ -2,6 +2,7 @@
 same records, and the same changes save to the same document."""
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -155,7 +156,7 @@ def test_versions_save_inside_their_parent(tmp_path: Path) -> None:
     assert list(document["artifacts"]) == ["pkg:npm/example"]
 
 
-from unfurl.cloudmap.gitsync_db import Backend, open_cloudmap_db  # noqa: E402
+from unfurl.cloudmap.gitsync_db import Backend, _db_path, open_cloudmap_db  # noqa: E402
 from unfurl.localenv import LocalEnv  # noqa: E402
 from unfurl.logs import UnfurlLogger, getLogger  # noqa: E402
 from unfurl.util import UnfurlError  # noqa: E402
@@ -179,12 +180,15 @@ def test_a_tracked_cloudmap_uses_git_sync(tmp_path: Path) -> None:
     db = open_cloudmap_db(str(tmp_path / "repo" / FILE), str(project), LOGGER)
     assert isinstance(db, GitSyncCloudMapDB)
     # with SQLite's -wal and -shm beside it
+    path = str(tmp_path / "repo" / FILE)
     [made] = [p for p in (project / "local").iterdir() if p.suffix == ".sqlite"]
-    assert made.name.startswith(".cloudmap-")
+    assert str(made) == _db_path(path, str(project), None)
+    assert re.fullmatch(r"\.cloudmap-[0-9a-f]{3}\.sqlite", made.name)
     # without a project: local/ beside the cloudmap
     db = open_cloudmap_db(str(tmp_path / "repo" / FILE), None, LOGGER)
     assert isinstance(db, GitSyncCloudMapDB)
-    assert (tmp_path / "repo" / "local" / ".cloudmap.yaml.sqlite").exists()
+    assert os.path.exists(_db_path(path, None, None))
+    assert os.path.dirname(_db_path(path, None, None)) == str(tmp_path / "repo" / "local")
 
 
 @pytest.mark.parametrize("case", ["backend", "no extension", "notable"])
@@ -238,7 +242,7 @@ def test_a_failure_with_a_new_database_falls_back(tmp_path: Path, monkeypatch, c
     assert sorted(p.name for p in path.parent.iterdir()) == before
     [warning] = [r for r in caplog.records if r.levelname == "WARNING"]
     message = warning.getMessage()
-    assert str(path) in message and ".cloudmap.yaml.sqlite" in message and "broken" in message
+    assert str(path) in message and _db_path(str(path), None, None) in message and "broken" in message
     # the database was created, so where it goes isn't why
     assert "db_dir" not in message
 
@@ -381,7 +385,7 @@ def test_a_load_git_sync_can_t_make(tmp_path: Path, case: str, caplog) -> None:
     if case == "read-only directory":
         plain.chmod(0o555)
     elif case == "locked database":
-        db_path = plain / "local" / ".cloudmap.yaml.sqlite"
+        db_path = Path(_db_path(str(path), None, None))
         db_path.parent.mkdir()
         # another process's: SQLite's locks don't conflict within one
         lock = subprocess.Popen(
@@ -508,10 +512,9 @@ def test_a_yaml_and_a_markdown_cloudmap_side_by_side(tmp_path: Path) -> None:
         db = open_cloudmap_db(str(plain / name), None, LOGGER)
         assert isinstance(db, GitSyncCloudMapDB), name
         assert db.file == str(plain / name)
-    assert sorted(p.name for p in (plain / "local").glob("*.sqlite")) == [
-        ".cloudmap.md.sqlite",
-        ".cloudmap.yaml.sqlite",
-    ]
+    assert sorted(str(p) for p in (plain / "local").glob("*.sqlite")) == sorted(
+        _db_path(str(plain / name), None, None) for name in ("cloudmap.md", FILE)
+    )
 
 
 def test_only_front_matter_makes_a_literate_cloudmap(tmp_path: Path) -> None:
@@ -611,7 +614,7 @@ def test_db_dir_with_a_read_only_cloudmap_directory(tmp_path: Path) -> None:
         assert sorted(p.name for p in plain.iterdir()) == ["cloudmap.md", FILE]
     finally:
         plain.chmod(0o755)
-    assert len(list(db_dir.glob(".cloudmap-*.sqlite"))) == 2
+    assert len(list(db_dir.glob("*.sqlite"))) == 2
 
 
 def test_two_cloudmaps_in_one_db_dir_have_their_own_databases(tmp_path: Path) -> None:
@@ -627,7 +630,7 @@ def test_two_cloudmaps_in_one_db_dir_have_their_own_databases(tmp_path: Path) ->
         for name in ("a.yaml", "b.yaml")
     }
     assert loaded == {"a.yaml": ["git://e.com/a.git"], "b.yaml": ["git://e.com/b.git"]}
-    assert len(list(db_dir.glob(".cloudmap-*.sqlite"))) == 2
+    assert len(list(db_dir.glob("*.sqlite"))) == 2
 
 
 def test_the_db_dir_key_places_both_databases(tmp_path: Path) -> None:
@@ -640,10 +643,10 @@ def test_the_db_dir_key_places_both_databases(tmp_path: Path) -> None:
     cloud_map = CloudMap.from_name(local_env, "cloudmap", None, "", True, False)
     assert isinstance(cloud_map.directory.store, GitSyncCloudMapDB)
     assert cloud_map.directory.store.artifacts
-    assert len(list(db_dir.glob(".cloudmap-*.sqlite"))) == 1
+    assert len(list(db_dir.glob("*.sqlite"))) == 1
 
     cloud_map.directory.save_local_repositories(str(maps / "local-cloudmap.yaml"))
-    assert len(list(db_dir.glob(".cloudmap-*.sqlite"))) == 2
+    assert len(list(db_dir.glob("*.sqlite"))) == 2
     assert not (project / "local").exists() and not (maps / "local").exists()
 
 

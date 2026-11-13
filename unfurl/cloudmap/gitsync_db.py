@@ -184,15 +184,15 @@ class GitSyncCloudMapDB(CloudMapDB):
 
 def _db_path(filepath: str, project_root: Optional[str], db_dir: Optional[str]) -> str:
     """Where the git-sync database for the cloudmap at ``filepath`` lives:
-    ``db_dir`` if given, else the project's ``local/``, either named for the
-    cloudmap's path (one directory can hold several), or without a project,
-    ``local/`` beside the cloudmap."""
-    shared = db_dir or (project_root and os.path.join(project_root, "local"))
-    if shared:
-        digest = hashlib.sha1(os.path.abspath(filepath).encode()).hexdigest()[:12]
-        return os.path.join(shared, f".cloudmap-{digest}.sqlite")
-    directory, name = os.path.split(filepath)
-    return os.path.join(directory, "local", f".{name}.sqlite")
+    in ``db_dir`` if given, else the project's ``local/``, else ``local/``
+    beside the cloudmap, named for the cloudmap's file name without
+    its extension and a hash of its path."""
+    path = os.path.abspath(filepath)
+    directory, name = os.path.split(path)
+    location = db_dir or os.path.join(project_root or directory, "local")
+    digest = hashlib.sha1(path.encode()).hexdigest()[:3]
+    stem = os.path.splitext(name)[0]
+    return os.path.join(location, f".{stem}-{digest}.sqlite")
 
 
 def _python_reason(filepath: str, backend: Backend) -> str:
