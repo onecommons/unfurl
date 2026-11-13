@@ -92,6 +92,17 @@ def test_an_unchanged_load_saves_nothing(both) -> None:
     assert Path(git_sync.file).read_bytes() == before
 
 
+def test_a_change_made_in_place_saves(both) -> None:
+    # a list the record was loaded with, edited without replacing the record
+    python, git_sync = both
+    for db in (python, git_sync):
+        repo = db.repositories["git://unfurl.cloud/feb20a/dashboard.git"]
+        repo.protocols.append("ftp")
+        assert db.save()
+    assert "ftp" in Path(git_sync.file).read_text()
+    assert cloudmap_document(git_sync.file) == cloudmap_document(python.file)
+
+
 def test_saved_changes_commit_and_reload(both, tmp_path: Path) -> None:
     _, git_sync = both
     git_sync.add_record(Repository(url="git://example.com/x.git", path="x"))

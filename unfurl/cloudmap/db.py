@@ -37,7 +37,7 @@ from typing_extensions import Literal
 from urllib.parse import urljoin, urlparse, unquote
 
 from ..logs import getLogger
-from ..merge import _json_pointer_unescape
+from ..merge import _json_pointer_unescape, copy_dict
 from ..support import ContainerImage
 from ..tosca_plugins.cloudmap_defs import (
     CloudMapWriter,
@@ -443,11 +443,14 @@ class CloudMapDB(CloudMapStore):
         self._load_document(cast(Dict[str, Any], db))
 
     def _load_document(self, db: Dict[str, Any]) -> None:
-        """Build the records of each section from the cloudmap document ``db``."""
-        self.metadata = cast(Dict[str, Any], db.get("metadata") or {})
+        """Build the records of each section from the cloudmap document ``db``,
+        which is kept unchanged as :py:attr:`db`."""
+        # records mustn't share containers with `db`: `save` compares against it
+        source = copy_dict(db)
+        self.metadata = cast(Dict[str, Any], source.get("metadata") or {})
 
         # Load types first (may be augmented during notable migration)
-        types = cast(Dict, db.get("types") or {})
+        types = cast(Dict, source.get("types") or {})
         self.types: CloudTypeDict = {
             name: (
                 t
@@ -458,11 +461,11 @@ class CloudMapDB(CloudMapStore):
         }
 
         # Load artifacts (may be augmented during notable migration)
-        artifacts = cast(Dict, db.get("artifacts") or {})
+        artifacts = cast(Dict, source.get("artifacts") or {})
         self.artifacts: ArtifactDict = self._load_resource(artifacts, Artifact)
 
         # Load repositories and migrate old notable format
-        repositories = cast(Dict, db.get("repositories") or {})
+        repositories = cast(Dict, source.get("repositories") or {})
         self.repositories: RepositoryDict = {}
         for url, r in repositories.items():
             # Backwards compatibility: migrate the deprecated `notable` key to `contains`
@@ -475,15 +478,15 @@ class CloudMapDB(CloudMapStore):
             self.add_record(repo)
 
         # Load services
-        services = cast(Dict, db.get("services") or {})
+        services = cast(Dict, source.get("services") or {})
         self.services: ServiceDict = self._load_resource(services, Service)
 
         # Load components
-        components = cast(Dict, db.get("components") or {})
+        components = cast(Dict, source.get("components") or {})
         self.components: ComponentDict = self._load_resource(components, Component)
 
         # Load instantiations
-        instantiations = cast(Dict, db.get("instantiations") or {})
+        instantiations = cast(Dict, source.get("instantiations") or {})
         self.instantiations: Dict[str, Instantiation] = self._load_resource(
             instantiations, Instantiation
         )
@@ -535,7 +538,7 @@ class CloudMapDB(CloudMapStore):
         changed = False
         old_metadata = self.db.pop("metadata", None)
         if self.metadata:
-            new_metadata = {k: self.metadata[k] for k in sorted(self.metadata)}
+            new_metadata = copy_dict(dict(sorted(self.metadata.items())))
             if new_metadata != old_metadata:
                 changed = True
             self.db["metadata"] = new_metadata

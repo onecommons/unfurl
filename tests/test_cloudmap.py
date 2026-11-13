@@ -29,7 +29,7 @@ from unfurl.tosca_plugins.cloudmap_defs import (
     UpstreamRef,
 )
 from unfurl.util import change_cwd, API_VERSION
-from unfurl.cloudmap.gitsync_db import GitSyncCloudMapDB, open_cloudmap_db
+from unfurl.cloudmap.gitsync_db import SECTIONS, GitSyncCloudMapDB, open_cloudmap_db
 from unfurl.logs import getLogger
 from ruamel.yaml import YAML
 from tests.utils import cloudmap_document
@@ -123,14 +123,21 @@ def _text_difference(want: str, got: str) -> str:
     return "".join(diff)
 
 
+def _saved_document(db: GitSyncCloudMapDB) -> Dict[str, object]:
+    """``db``'s records and metadata as CloudMapDB would write them."""
+    document: Dict[str, object] = {s: db._records_to_save(s) for s in SECTIONS}
+    document["metadata"] = db.metadata
+    return document
+
+
 def _round_trip_failure(db: GitSyncCloudMapDB, path: str, db_dir: Path) -> str:
     """How ``db``'s records, saved and reopened from the same database, or the
     file git-sync saved, differ from them as CloudMapDB would write them, in
     value or, empty sections aside, in text."""
     db.save()
-    want: Dict[str, object] = {**db._saved_records(), "metadata": db.metadata}
+    want = _saved_document(db)
     reopened = _open_git_sync(path, db_dir)
-    got: Dict[str, object] = {**reopened._saved_records(), "metadata": reopened.metadata}
+    got = _saved_document(reopened)
     found = _first_difference(want, got)
     if found:
         return f"the reopened store differs at {found}"

@@ -16,6 +16,7 @@ from typing_extensions import Literal
 from urllib.parse import quote
 
 from ..logs import getLogger
+from ..merge import copy_dict
 from ..repo import GitRepo, Repo
 from ..util import UnfurlError, is_relative_to
 from .db import CloudMapDB
@@ -38,8 +39,6 @@ SECTIONS = (
 )
 # the document's top-level `metadata`, a singleton record in git-sync
 METADATA = ("/metadata", "metadata")
-
-Saved = Dict[str, Dict[str, Any]]
 
 _open: "weakref.WeakSet[GitSyncCloudMapDB]" = weakref.WeakSet()
 
@@ -122,30 +121,26 @@ class GitSyncCloudMapDB(CloudMapDB):
             document[section] = {key: json.loads(value) for _, key, value in records}
         self._load_document(document)
         self.path = self._file
-        self._saved = self._saved_records()
-        self._saved_metadata = dict(self.metadata)
 
-    def _saved_records(self) -> Saved:
-        """Each section's records as :py:meth:`CloudMapDB.save` writes them:
+    def _records_to_save(self, section: str) -> Dict[str, Any]:
+        """``section``'s records as :py:meth:`CloudMapDB.save` writes them:
         versions are written inside their parent record."""
-        saved: Saved = {}
-        for section in SECTIONS:
-            records: Dict[str, Any] = getattr(self, section)
-            saved[section] = {
-                key: record.asdict() if hasattr(record, "asdict") else record
-                for key, record in records.items()
-                if not getattr(record, "_parent", None)
-            }
-        return saved
+        records: Dict[str, Any] = getattr(self, section)
+        return {
+            key: record.asdict() if hasattr(record, "asdict") else record
+            for key, record in records.items()
+            if not getattr(record, "_parent", None)
+        }
 
     def save(self, msg: str = "", commit: bool = True) -> bool:
         """Write the records changed since they were loaded or last saved into
         the file; whether anything changed. ``msg`` and ``commit`` are unused,
         as for :py:meth:`CloudMapDB.save`."""
-        current = self._saved_records()
+        saved: Dict[str, Any] = {}
         changed = False
         for section in SECTIONS:
-            old, new = self._saved[section], current[section]
+            old = self.db.get(section) or {}
+            saved[section] = new = self._records_to_save(section)
             for key, value in new.items():
                 if old.get(key) != value:
                     self._git_sync.upsert("/" + section, key, json.dumps(value))
@@ -153,7 +148,7 @@ class GitSyncCloudMapDB(CloudMapDB):
             for key in old.keys() - new.keys():
                 self._git_sync.delete("/" + section, key)
                 changed = True
-        if self.metadata != self._saved_metadata:
+        if self.metadata != (self.db.get("metadata") or {}):
             if self.metadata:
                 self._git_sync.upsert(*METADATA, json.dumps(self.metadata))
             else:
@@ -165,8 +160,8 @@ class GitSyncCloudMapDB(CloudMapDB):
                 f"couldn't save {self._file}: conflicts {outcome['conflicts']}, "
                 f"failures {outcome['failed']}"
             )
-        self._saved = current
-        self._saved_metadata = dict(self.metadata)
+        saved["metadata"] = copy_dict(self.metadata)
+        self.db.update(saved)
         return changed
 
     def commit(self, repo: GitRepo, msg: str) -> bool:
