@@ -228,6 +228,7 @@ class GitlabManager(RepositoryHost):
         previous = directory.context.get_repository(fields["url"])
         r = self.reported_record(fields, metadata, previous)
         self._record_move(r, directory)
+        directory.before_analysis(r)
         directory.context.add_record(r)
         directory.note_fork(r)
         if download:

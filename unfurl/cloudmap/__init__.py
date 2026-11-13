@@ -67,6 +67,7 @@ from typing import (
     Any,
     Callable,
     Iterator,
+    Mapping,
     NamedTuple,
     Optional,
     List,
@@ -77,7 +78,7 @@ from typing import (
     Type,
     cast,
 )
-from typing_extensions import Required, Literal, Protocol, TypedDict
+from typing_extensions import Required, Literal, Protocol, TypedDict, get_args
 
 if TYPE_CHECKING:
     from .gitsync_db import Backend
@@ -110,7 +111,7 @@ from ..tosca_plugins.cloudmap_defs import (
 )
 from ..support import ContainerImageParts
 from ..configurator import Configurator, TaskView
-from ..util import load_class_from_file, split_url_fragment
+from ..util import JsonValue, load_class_from_file, split_url_fragment
 
 from ..repo import (
     GitRepo,
@@ -135,6 +136,60 @@ from .host import LocalRepositoryHost, RepositoryHost, _LocalGitRepos
 logger = getLogger("unfurl")
 
 DEFAULT_CLOUDMAP_REPO = "https://github.com/onecommons/cloudmap.git"
+
+
+AnalyzerLifecycle = Literal["analysis", "before-analysis"]
+"""When a ``RepositoryAnalyzer`` runs: ``analysis``, on the files it matches
+in a cloned repository, or ``before-analysis``, on each repository record as
+it's made, before its files are analyzed."""
+ANALYZER_LIFECYCLES = get_args(AnalyzerLifecycle)
+
+
+@dataclass
+class LoadedAnalyzer:
+    """An analyzer class loaded from an entry in ``cloudmaps.analyzers``."""
+
+    cls: Type[Analyzer]
+    lifecycle: AnalyzerLifecycle
+    options: Mapping[str, JsonValue]
+
+    @staticmethod
+    def load(entry: object, base_dir: str, logger) -> Optional["LoadedAnalyzer"]:
+        """The analyzer config ``entry`` names, or None (with a warning or
+        error logged) if it's invalid or the class fails to load."""
+        if not isinstance(entry, dict) or not entry.get("path"):
+            logger.warning(
+                f"Analyzer config entry must be a mapping with a 'path' key, got: {entry!r}"
+            )
+            return None
+        lifecycle = entry.get("lifecycle", "analysis")
+        options = entry.get("options") or {}
+        if lifecycle not in ANALYZER_LIFECYCLES:
+            logger.warning(
+                f"Skipping analyzer config entry {entry!r}: lifecycle must be one of {ANALYZER_LIFECYCLES}"
+            )
+            return None
+        if not isinstance(options, dict):
+            logger.warning(
+                f"Skipping analyzer config entry {entry!r}: options must be a mapping"
+            )
+            return None
+        path = entry["path"]
+        try:
+            cls = load_class_from_file(path, base_dir, "Analyzer class")
+        except Exception as e:
+            logger.error(f"Failed to load custom Analyzer from {path}: {e}")
+            return None
+        if not (cls and issubclass(cls, Analyzer)):
+            logger.warning(f"Class loaded from {path} is not a subclass of Analyzer")
+            return None
+        if lifecycle != "analysis" and not issubclass(cls, RepositoryAnalyzer):
+            logger.warning(
+                f"Skipping analyzer config entry {entry!r}: lifecycle {lifecycle} needs a RepositoryAnalyzer"
+            )
+            return None
+        logger.debug(f"Loaded custom {cls.__name__} from {path}")
+        return LoadedAnalyzer(cls, lifecycle, options)
 
 
 class AnalyzerRegistry:
@@ -358,6 +413,7 @@ class Directory(_LocalGitRepos):
             cls
             for cls in cloudmap.custom_analyzers
             if issubclass(cls, RepositoryAnalyzer)
+            and cloudmap.lifecycle_of(cls) == "analysis"
         )
 
         self.analyzer = AnalyzerRegistry(notable_classes, self.logger)
@@ -492,6 +548,26 @@ class Directory(_LocalGitRepos):
         repo_info.contains = previous_contains
         return None
 
+    def before_analysis(self, repo_info: Repository) -> None:
+        """Run the ``before-analysis`` analyzers, which update ``repo_info``
+        in place."""
+        for cls in self.cloudmap.custom_analyzers:
+            if not issubclass(cls, RepositoryAnalyzer) or (
+                self.cloudmap.lifecycle_of(cls) != "before-analysis"
+            ):
+                continue
+            analyzer = cls.init("", "")
+            if analyzer is None:
+                continue
+            self.cloudmap.configure_analyzer(analyzer)
+            try:
+                analyzer.analyze(self.context, repo_info, "")
+            except Exception:
+                self.context._mark_failed()
+                self.logger.error(
+                    "%s failed for %s", cls.__name__, repo_info.url, exc_info=True
+                )
+
     def note_fork(self, repo_info: Repository) -> None:
         """Have :py:meth:`compare_forks` compare ``repo_info`` with its upstreams,
         if it has any: after the import, which may import or update them too."""
@@ -615,6 +691,7 @@ class Directory(_LocalGitRepos):
             try:
                 # so a record is discovered from the file that produced it as
                 # well as from the repository the file is in
+                self.cloudmap.configure_analyzer(n)
                 with context._tracking_provenance(repo_info.artifact_url(n.path)):
                     artifact = n.analyze(context, repo_info, repo.working_dir)
                 # looking an existing record up marks it as still in use
@@ -745,9 +822,11 @@ class CloudMap:
         else:
             filepath = str(Path(project_path) / (path or "cloudmap.yaml"))
         # Load custom analyzers after repo is available
-        self.custom_analyzers = self._load_custom_analyzers(
-            local_env, project_path, logger
-        )
+        loaded = self._load_custom_analyzers(local_env, project_path, logger)
+        self.custom_analyzers: List[Type[Analyzer]] = [a.cls for a in loaded]
+        self.analyzer_config: Dict[Type[Analyzer], LoadedAnalyzer] = {
+            a.cls: a for a in loaded
+        }
         self.repo = repo
         self.commit = commit
         self.db_dir = db_dir
@@ -1110,57 +1189,36 @@ class CloudMap:
         local_env: Optional["LocalEnv"],
         base_dir: str,
         logger,
-    ) -> List[Type[Analyzer]]:
-        """
-        Load custom Notable analyzer classes from cloudmaps config.
-
-        Args:
-            local_env: LocalEnv instance to get cloudmaps config from
-            base_dir: Base directory for resolving relative paths
-            logger: Logger instance for debug/warning/error messages
-
-        Returns:
-            List of loaded Notable analyzer classes
-        """
-        custom_analyzers: List[Type[Analyzer]] = []
+    ) -> List["LoadedAnalyzer"]:
+        """The analyzers the ``cloudmaps.analyzers`` config lists, skipping
+        (with a warning) entries that are invalid or repeat a class."""
+        loaded: List[LoadedAnalyzer] = []
         if not local_env:
-            return custom_analyzers
-
+            return loaded
         cloudmaps_config = local_env.get_context().get("cloudmaps", {})
-        analyzer_entries = cloudmaps_config.get("analyzers", [])
-        for entry in analyzer_entries:
-            if not isinstance(entry, dict):
+        for entry in cloudmaps_config.get("analyzers", []):
+            analyzer = LoadedAnalyzer.load(entry, base_dir, logger)
+            if analyzer is None:
+                continue
+            if any(a.cls is analyzer.cls for a in loaded):
                 logger.warning(
-                    f"Analyzer config entry must be a mapping with a 'path' key, got: {entry!r}"
+                    f"Skipping analyzer config entry {entry!r}: "
+                    f"{analyzer.cls.__name__} is already configured"
                 )
                 continue
-            analyzer_path = entry.get("path")
-            if not analyzer_path:
-                logger.warning(f"Analyzer config entry missing 'path' key: {entry!r}")
-                continue
-            try:
-                analyzer_class = load_class_from_file(
-                    analyzer_path,
-                    base_dir,
-                    "Analyzer class",
-                )
-                if analyzer_class and issubclass(analyzer_class, Analyzer):
-                    # Both RepositoryAnalyzer and URLAnalyzer subclasses are
-                    # accepted; CloudMap dispatches them to the right registry.
-                    custom_analyzers.append(analyzer_class)
-                    logger.debug(
-                        f"Loaded custom {analyzer_class.__name__} from {analyzer_path}"
-                    )
-                else:
-                    logger.warning(
-                        f"Class loaded from {analyzer_path} is not a subclass of Analyzer"
-                    )
-            except Exception as e:
-                logger.error(
-                    f"Failed to load custom Analyzer from {analyzer_path}: {e}"
-                )
+            loaded.append(analyzer)
+        return loaded
 
-        return custom_analyzers
+    def lifecycle_of(self, cls: Type[Analyzer]) -> AnalyzerLifecycle:
+        """The ``lifecycle`` of ``cls``'s config entry, ``analysis`` if it has
+        none."""
+        entry = self.analyzer_config.get(cls)
+        return entry.lifecycle if entry else "analysis"
+
+    def configure_analyzer(self, analyzer: Analyzer) -> None:
+        """Give ``analyzer`` the options its config entry has."""
+        entry = self.analyzer_config.get(type(analyzer))
+        analyzer.set_options(entry.options if entry else {})
 
     @staticmethod
     def _configured_path(local_env: "LocalEnv", value: Optional[str]) -> str:
@@ -1665,6 +1723,7 @@ class CloudMap:
             analyzer = analyzer_cls.init_from_url(url, parts)
             if analyzer is None:
                 continue
+            self.configure_analyzer(analyzer)
             record = analyzer.analyze_url(context)
             if record is not None:
                 context.add_record(record)
@@ -1795,6 +1854,8 @@ class CloudMap:
                     name=name,
                     protocols=protocols,
                 )
+                self.directory.before_analysis(repo_info)
+                self.directory.note_fork(repo_info)
 
             # A repository host adds the record itself while importing, so
             # re-add it here to attribute it to the url being analyzed the same

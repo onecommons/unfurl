@@ -301,6 +301,7 @@ else:
             previous = directory.context.get_repository(fields["url"])
             repo_info = self.reported_record(fields, metadata, previous)
             self._record_move(repo_info, directory)
+            directory.before_analysis(repo_info)
             directory.context.add_record(repo_info)
             directory.note_fork(repo_info)
             if download:

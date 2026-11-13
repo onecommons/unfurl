@@ -536,7 +536,9 @@ class RepositoryHost:
             # Instantiation it is enriching is: pipeline runs are only fetched
             # while analyzing a url (CloudMap._add_repository_record), so `db`
             # is the tracking context here.
-            analyzer_cls().analyze_pipeline_run(
+            analyzer = analyzer_cls()
+            directory.cloudmap.configure_analyzer(analyzer)
+            analyzer.analyze_pipeline_run(
                 directory.context, repo_info, instantiation, obj, root_path
             )
         except Exception:
@@ -598,7 +600,8 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                     if not previous.initial_revision:
                         previous.initial_revision = repository.initial_revision
                     repository = previous
-                else:
+                directory.before_analysis(repository)
+                if not previous:
                     directory.context.add_record(repository)
                 directory.note_fork(repository)
                 directory.maybe_analyze(

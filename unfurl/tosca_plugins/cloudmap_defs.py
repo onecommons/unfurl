@@ -58,6 +58,7 @@ from urllib.parse import (
 
 from unfurl.repo import normalize_git_url, split_git_url, git_url_join
 from unfurl.util import (
+    JsonValue,
     UnfurlError,
     URI_TEMPLATE_EXPRESSION,
     has_uri_template,
@@ -2043,6 +2044,10 @@ class AnalyzerContext(CloudMapWriter):
 
 class Analyzer:
     """Common base for cloudmap analyzers."""
+
+    def set_options(self, options: Mapping[str, JsonValue]) -> None:
+        """Receive the ``options`` of this analyzer's ``cloudmaps.analyzers``
+        entry, before it analyzes anything. Does nothing by default."""
 
 
 class RepositoryAnalyzer(Analyzer):

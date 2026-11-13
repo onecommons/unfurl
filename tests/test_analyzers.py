@@ -1126,6 +1126,7 @@ class TestPipelineRunAnalyzer:
 
         cm = CloudMap.__new__(CloudMap)
         cm.custom_analyzers = [cls]
+        cm.analyzer_config = {}
         cm.directory = MagicMock()
         cm.directory.context.get_repository.return_value = None
 
@@ -1156,6 +1157,7 @@ class TestPipelineRunAnalyzer:
 
         cm = CloudMap.__new__(CloudMap)
         cm.custom_analyzers = [cls]
+        cm.analyzer_config = {}
         cm.directory = MagicMock()
         cm.directory.context.get_repository.return_value = None
 
@@ -1807,6 +1809,114 @@ environments:
             == "CustomTestAnalyzer"
         )
 
+
+
+MIRROR_ANALYZER = """
+from urllib.parse import urlparse
+from unfurl.tosca_plugins.cloudmap_defs import RepositoryAnalyzer
+
+class MirrorAnalyzer(RepositoryAnalyzer):
+    mirrors = {}
+
+    def set_options(self, options):
+        self.mirrors = options.get("mirrors", {})
+
+    def analyze(self, context, repo_info, root_path):
+        host = urlparse(repo_info.url).netloc
+        if host in self.mirrors and repo_info.path:
+            url = f"git://{self.mirrors[host]}/{repo_info.path}.git"
+            if context.get_record("repositories", url):
+                repo_info.mirror_of = url
+        return None
+"""
+
+
+def test_before_analysis_analyzer_gets_its_options(tmp_path, monkeypatch):
+    """A ``before-analysis`` analyzer updates a repository record as it's made,
+    with the options its config entry gives it."""
+    cloudmap_repo = tmp_path / "cloudmap"
+    cloudmap_repo.mkdir()
+    (cloudmap_repo / "cloudmap.yaml").write_text(
+        f"apiVersion: {API_VERSION}\nkind: CloudMap\nrepositories: {{}}\n"
+    )
+    import git
+
+    repo = git.Repo.init(cloudmap_repo)
+    repo.index.add(["cloudmap.yaml"])
+    repo.index.commit("Initial commit")
+    project = tmp_path / "project"
+    (project / "analyzers").mkdir(parents=True)
+    (project / "analyzers" / "mirrors.py").write_text(MIRROR_ANALYZER)
+    (project / "unfurl.yaml").write_text(
+        f"""apiVersion: {API_VERSION}
+kind: Project
+environments:
+  defaults:
+    cloudmaps:
+      analyzers:
+        - path: analyzers/mirrors.py#MirrorAnalyzer
+          lifecycle: before-analysis
+          options:
+            mirrors:
+              example.com: github.com
+      repositories:
+        cloudmap:
+          url: {cloudmap_repo}
+"""
+    )
+    monkeypatch.chdir(project)
+    saved = global_state.safe_mode
+    global_state.safe_mode = True
+    try:
+        cloudmap = CloudMap.from_name(
+            LocalEnv(str(project), can_be_empty=True), "cloudmap", None, "", False, False
+        )
+    finally:
+        global_state.safe_mode = saved
+    # not matched against files
+    assert "MirrorAnalyzer" not in {
+        c.__name__ for c in cloudmap.directory.analyzer.generic
+    }
+
+    original = "git://github.com/team/repo.git"
+    # github.com urls go to its repository host, so add the record directly
+    cloudmap.directory.context.add_record(Repository(url=original, path="team/repo"))
+    cloudmap.analyze_url("git://example.com/team/repo.git", "no")
+    cloudmap.analyze_url("git://example.com/team/other.git", "no")
+    cloudmap.directory.compare_forks()
+    mirror = cloudmap.directory.context.get_repository("git://example.com/team/repo.git")
+    assert mirror and mirror.mirror_of == original
+    assert original in mirror.upstream_refs
+    other = cloudmap.directory.context.get_repository("git://example.com/team/other.git")
+    assert other and other.mirror_of is None
+
+
+def test_analyzer_config_lifecycle(tmp_path):
+    from unfurl.cloudmap import LoadedAnalyzer
+
+    (tmp_path / "kinds.py").write_text(
+        "from unfurl.tosca_plugins.cloudmap_defs import RepositoryAnalyzer, URLAnalyzer\n"
+        "class Files(RepositoryAnalyzer):\n    files = ['x.yaml']\n"
+        "class Urls(URLAnalyzer):\n    url_schemes = ['x:']\n"
+    )
+    log = MagicMock()
+
+    def load(**entry):
+        return LoadedAnalyzer.load(entry, str(tmp_path), log)
+
+    loaded = load(path="kinds.py#Files")
+    assert loaded and loaded.lifecycle == "analysis" and loaded.options == {}
+    loaded = load(path="kinds.py#Files", lifecycle="before-analysis", options={"a": 1})
+    assert loaded and loaded.lifecycle == "before-analysis" and loaded.options == {"a": 1}
+    assert load(path="kinds.py#Urls")
+    log.warning.assert_not_called()
+
+    assert load(path="kinds.py#Files", lifecycle="after-analysis") is None
+    assert "lifecycle must be one of" in log.warning.call_args[0][0]
+    assert load(path="kinds.py#Urls", lifecycle="before-analysis") is None
+    assert "needs a RepositoryAnalyzer" in log.warning.call_args[0][0]
+    assert load(path="kinds.py#Files", options=["a"]) is None
+    assert "options must be a mapping" in log.warning.call_args[0][0]
 
 
 def test_safe_mode_analyzer_constructs_records(tmp_path):

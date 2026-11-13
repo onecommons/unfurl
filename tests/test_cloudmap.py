@@ -3383,6 +3383,19 @@ def test_sync_records_moved_repository(manager_cls, memory_store: MemoryStore):
 
 
 @pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
+def test_sync_runs_before_analysis_analyzers(manager_cls, memory_store: MemoryStore):
+    url = "git://example.com/team/repo.git"
+    db = memory_store({})
+    sync = _SyncSession(manager_cls, db)
+    sync.directory.before_analysis = Mock(
+        side_effect=lambda r: setattr(r, "mirror_of", "git://github.com/team/repo.git")
+    )
+    sync.import_repo(_host_repo(url))
+    repo = db.get_repository(url)
+    assert repo and repo.mirror_of == "git://github.com/team/repo.git"
+
+
+@pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
 def test_resync_keeps_fields_the_host_doesnt_supply(manager_cls, memory_store: MemoryStore):
     url = "git://example.com/team/repo.git"
     analyzed = url + "#main:ensemble.yaml"
