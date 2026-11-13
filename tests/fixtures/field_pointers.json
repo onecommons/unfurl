@@ -14,9 +14,9 @@
         "b"
       ],
       "discovery": {
-        "sources": [
-          "git://example.com/group/project.git"
-        ]
+        "sources": {
+          "git://example.com/group/project.git": null
+        }
       }
     },
     "contains": {

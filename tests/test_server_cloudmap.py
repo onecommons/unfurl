@@ -327,7 +327,7 @@ def test_server_cloudmap(server_env):
             # expected records come from the fixture, which happens to carry
             # every JSON type: a boolean (`private`), a float
             # (`metadata/version`), nulls (typeRef values), arrays
-            # (`discovery/sources`) and objects (`branches`).
+            # (`topics`) and objects (`branches`).
             def cloudmap_filter(expr):
                 res = requests.get(cloudmap_url, params={"filter": expr})
                 assert res.status_code == 200, res.text
@@ -346,19 +346,12 @@ def test_server_cloudmap(server_env):
             assert cloudmap_filter("/metadata/homepage_url=https://nope.example.com") == {}
 
             # an array *contains* the value
-            hit = cloudmap_filter(
-                "/metadata/discovery/sources="
-                "https://hub.docker.com/v2/repositories/bitnami/odoo/"
-            )
-            assert list(hit) == ["artifacts"], hit
-            assert next(iter(hit["artifacts"])).startswith("pkg:oci/odoo"), hit
-            assert (
-                cloudmap_filter(
-                    "/metadata/discovery/sources="
-                    "https://hub.docker.com/v2/repositories/other/"
-                )
-                == {}
-            )
+            hit = cloudmap_filter("/metadata/topics=documentation")
+            assert list(hit) == ["repositories"], hit
+            assert list(hit["repositories"]) == [
+                "git://unfurl.cloud/onecommons/std.git"
+            ], hit
+            assert cloudmap_filter("/metadata/topics=nope") == {}
 
             # a member of an object is addressed by its key in the path;
             # searching the object's values isn't supported (postgres can't

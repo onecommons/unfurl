@@ -45,6 +45,7 @@ from ..tosca_plugins.cloudmap_defs import (
     CloudType,
     Component,
     Discovery,
+    TypeRefs,
     Instantiation,
     Repository,
     Service,
@@ -81,7 +82,9 @@ def discovery_sources(record: "CloudMapRecord") -> List[str]:
         The record's discovery sources, empty when it has none.
     """
     metadata = cast(CommonMetadata, record.metadata)  # type: ignore[attr-defined]
-    return metadata.discovery.sources if metadata.discovery else []
+    if not metadata.discovery:
+        return []
+    return [url for _, url in metadata.discovery.sources if url]
 
 
 def _replace_discovery_sources(record: "CloudMapRecord", sources: List[str]) -> None:
@@ -95,7 +98,9 @@ def _replace_discovery_sources(record: "CloudMapRecord", sources: List[str]) -> 
     discovery = getattr(metadata, "discovery", None)
     metadata = cast(CommonMetadata, record.metadata)  # type: ignore[attr-defined]
     if discovery is not None:
-        discovery.sources = sources
+        discovery.sources = {
+            key: refs for key, refs in discovery.sources.items() if key[1] in sources
+        }
         discovery.applied = {
             source: fields
             for source, fields in discovery.applied.items()
@@ -388,7 +393,7 @@ def record_discovery_source(
 ) -> None:
     """Record ``sources`` as URLs this record was discovered from.
 
-    Appends to ``record.metadata.discovery.sources``, creating the
+    Adds to ``record.metadata.discovery.sources``, creating the
     :class:`Discovery` when the record has none. Existing sources are preserved:
     a record can be discovered from several places, and
     :py:meth:`unfurl.cloudmap.CloudMap.analyze_url` only garbage-collects a
@@ -414,10 +419,7 @@ def record_discovery_source(
     """
     if isinstance(sources, str):
         sources = [sources]
-    # copy: `discovery_sources` returns the record's own list, and `previous`
-    # is usually the record being re-added -- extending it in place would
-    # duplicate its sources
-    incoming = list(discovery_sources(previous)) if previous is not None else []
+    incoming = discovery_sources(previous) if previous is not None else []
     # only add a source if its different from the record's key
     incoming.extend(s for s in sources if not _source_matches_key(s, record))
     existing = discovery_sources(record)
@@ -432,7 +434,8 @@ def record_discovery_source(
     metadata = record.metadata  # type: ignore[attr-defined]
     if metadata.discovery is None:
         metadata.discovery = Discovery()
-    metadata.discovery.sources.extend(new)
+    for url in new:
+        metadata.discovery.sources[("", url)] = TypeRefs()
 
 
 class Provenance:
@@ -597,7 +600,10 @@ class ProvenanceTrackingContext(AnalyzerContext):
                 discovery = (previous.get("metadata") or {}).get("discovery") or {}
                 produced_before = _source_matches_key(
                     source, record
-                ) or source in discovery.get("sources", [])
+                ) or any(
+                    url == source
+                    for _, url in TypeRefs.urls_fromdict(discovery.get("sources") or {})
+                )
                 if record is stored:
                     # the analyzer updated the record it retrieved rather than
                     # producing a new one, so its changes are deliberate

@@ -351,6 +351,16 @@ def _schema_properties(node: dict, defs: dict) -> list:
     return names
 
 
+def test_old_list_form_sources_say_how_to_convert():
+    # what a server still holding them sends a proxy, which loads unvalidated
+    doc = CloudMapDB.make_empty_cloudmap()
+    doc["artifacts"] = {
+        "pkg:generic/x": {"metadata": {"discovery": {"sources": ["https://e.com/api"]}}}
+    }
+    with pytest.raises(ValueError, match="make each URL a key"):
+        CloudMapDB("", contents=doc, validate=False)
+
+
 def test_record_discovery_source():
     """Stamping is idempotent, additive, and merges the record it replaces."""
     from unfurl.cloudmap.provenance import (
@@ -376,7 +386,7 @@ def test_record_discovery_source():
     rebuilt = Artifact(
         url="pkg:oci/x",
         metadata=ArtifactMetadata(
-            discovery=Discovery(sources=["https://registry.example.com/v2/x"])
+            discovery=Discovery(sources={"https://registry.example.com/v2/x": None})
         ),
     )
     record_discovery_source(rebuilt, "https://example.com/a", previous=artifact)
@@ -393,7 +403,7 @@ def test_record_discovery_source():
     readded = Artifact(
         url="pkg:oci/x",
         metadata=ArtifactMetadata(
-            discovery=Discovery(sources=["https://registry.example.com/v2/x"])
+            discovery=Discovery(sources={"https://registry.example.com/v2/x": None})
         ),
     )
     record_discovery_source(readded, "pkg:oci/x", previous=artifact)
@@ -417,7 +427,7 @@ def test_record_discovery_source():
     record_discovery_source(repository, "https://example.com/api/r")
     assert isinstance(repository.metadata, RepositoryMetadata)
     assert repository.asdict()["metadata"] == {
-        "discovery": {"sources": ["https://example.com/api/r"]}
+        "discovery": {"sources": {"https://example.com/api/r": None}}
     }
 
 
@@ -1871,8 +1881,8 @@ artifacts:
       discovery:
         last_checked: "2023-09-24T15:30:00Z"
         sources:
-        - https://ghcr.io/v2/nginx/manifests/latest
-        - https://github.com/nginx/nginx/releases
+          https://ghcr.io/v2/nginx/manifests/latest:
+          https://github.com/nginx/nginx/releases:
     versions:
       "@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49":
         digest: sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49
@@ -1908,7 +1918,7 @@ services:
       discovery:
         last_checked: "2023-09-24T15:30:00Z"
         sources:
-        - https://unfurl.cloud/api/v1/metadata
+          https://unfurl.cloud/api/v1/metadata:
     policies:
       terms_of_service: https://unfurl.cloud/terms
       privacy_policy: https://unfurl.cloud/privacy
@@ -3417,7 +3427,7 @@ def test_resync_keeps_fields_the_host_doesnt_supply(manager_cls, memory_store: M
             title="Repo",
             documentation_url="https://example.com/docs",
             discovery=Discovery(
-                sources=[analyzed], applied={analyzed: ["metadata/title"]}
+                sources={analyzed: None}, applied={analyzed: ["metadata/title"]}
             ),
         ),
     )
@@ -3438,7 +3448,7 @@ def test_resync_keeps_fields_the_host_doesnt_supply(manager_cls, memory_store: M
         "mirror_of": repo.mirror_of,
         "title": repo.metadata.title,
         "documentation_url": repo.metadata.documentation_url,
-        "sources": repo.metadata.discovery and repo.metadata.discovery.sources,
+        "sources": repo.metadata.discovery and list(repo.metadata.discovery.sources),
         "contains": list(repo.contains),
     }
     assert kept == {
@@ -3446,7 +3456,7 @@ def test_resync_keeps_fields_the_host_doesnt_supply(manager_cls, memory_store: M
         "mirror_of": "git://example.com/original/repo.git",
         "title": "Repo",
         "documentation_url": "https://example.com/docs",
-        "sources": [analyzed],
+        "sources": [("", analyzed)],
         "contains": [("", "ensemble.yaml")],
     }
 
@@ -4075,7 +4085,7 @@ class TestAppliedOwnership:
             Artifact(
                 url=self.KEY,
                 metadata=ArtifactMetadata(
-                    title="T", discovery=Discovery(sources=[self.REPO])
+                    title="T", discovery=Discovery(sources={self.REPO: None})
                 ),
             )
         )
@@ -4166,7 +4176,7 @@ class TestAppliedOwnership:
                 Artifact(
                     url=self.KEY,
                     metadata=ArtifactMetadata(
-                        title="untracked", discovery=Discovery(sources=sources)
+                        title="untracked", discovery=Discovery(sources={url: None for url in sources})
                     ),
                 )
             )
@@ -4242,7 +4252,7 @@ class TestAppliedOwnership:
             Artifact(
                 url=self.KEY,
                 metadata=ArtifactMetadata(
-                    title="T", description="D", discovery=Discovery(sources=[self.REPO])
+                    title="T", description="D", discovery=Discovery(sources={self.REPO: None})
                 ),
             )
         )

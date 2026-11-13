@@ -388,8 +388,8 @@ pub struct CloudmapDiscovery {
     pub applied: Option<std::collections::HashMap<String, Vec<String>>>,
     /// Date and time of the last metadata check, conforming to RFC 3339.
     pub last_checked: Option<chrono::DateTime<chrono::Utc>>,
-    /// List of URLs that were used for metadata discovery, such as API URLs or PR URLs for manual edits.
-    pub sources: Option<Vec<String>>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
+    pub sources: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
 }
 /// **(Deprecated)** Inline artifact
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]

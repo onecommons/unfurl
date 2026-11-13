@@ -2854,11 +2854,8 @@
             "type": "string"
           },
           "sources": {
-            "description": "List of URLs that were used for metadata discovery, such as API URLs or PR URLs for manual edits.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Map of URLs that were used for metadata discovery, such as API URLs or PR URLs for manual edits, with optional type references."
           }
         },
         "title": "Discovery",

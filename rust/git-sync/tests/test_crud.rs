@@ -2172,15 +2172,15 @@ async fn find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         }
     };
 
-    // An array: `metadata/discovery/sources` contains the url.
+    // An array: `metadata/topics` contains the value.
     let hits = find(
-        vec!["metadata", "discovery", "sources"],
-        serde_json::json!("https://hub.docker.com/v2/repositories/bitnami/odoo/"),
+        vec!["metadata", "topics"],
+        serde_json::json!("documentation"),
     )
     .await;
     assert_eq!(
         hits.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
-        vec!["pkg:oci/odoo?repository_url=docker.io/bitnami/odoo"],
+        vec!["git://unfurl.cloud/onecommons/std.git"],
         "array contains"
     );
 

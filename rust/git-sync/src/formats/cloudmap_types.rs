@@ -1304,11 +1304,8 @@ impl<'de> ::serde::Deserialize<'de> for ComponentVersionsKey {
 #[doc = "      \"format\": \"date-time\""]
 #[doc = "    },"]
 #[doc = "    \"sources\": {"]
-#[doc = "      \"description\": \"List of URLs that were used for metadata discovery, such as API URLs or PR URLs for manual edits.\","]
-#[doc = "      \"type\": \"array\","]
-#[doc = "      \"items\": {"]
-#[doc = "        \"type\": \"string\""]
-#[doc = "      }"]
+#[doc = "      \"description\": \"Map of URLs that were used for metadata discovery, such as API URLs or PR URLs for manual edits, with optional type references.\","]
+#[doc = "      \"$ref\": \"#/definitions/typedURLs\""]
 #[doc = "    }"]
 #[doc = "  },"]
 #[doc = "  \"$$target\": \"#/definitions/discovery\""]
@@ -1327,9 +1324,9 @@ pub struct Discovery {
     #[doc = "Date and time of the last metadata check, conforming to RFC 3339."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub last_checked: ::std::option::Option<::chrono::DateTime<::chrono::offset::Utc>>,
-    #[doc = "List of URLs that were used for metadata discovery, such as API URLs or PR URLs for manual edits."]
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub sources: ::std::vec::Vec<::std::string::String>,
+    #[doc = "Map of URLs that were used for metadata discovery, such as API URLs or PR URLs for manual edits, with optional type references."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub sources: ::std::option::Option<TypedUrLs>,
 }
 impl ::std::default::Default for Discovery {
     fn default() -> Self {

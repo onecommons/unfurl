@@ -573,33 +573,27 @@ async fn get_filter_searches_record_contents() {
     // covers arrays, objects and scalars: no record shape is assumed.
     let (cm, _tmp) = open_cloudmap_state().await;
 
-    // an array: `metadata/discovery/sources` contains the url
+    // an array: `metadata/topics` contains the value
     let app = router(make_state(cm.clone()));
     let (status, body) = get_json(
         app,
         &format!(
             "/cloudmap?filter={}",
-            urlencoding::encode(
-                "/metadata/discovery/sources=https://hub.docker.com/v2/repositories/bitnami/odoo/"
-            )
+            urlencoding::encode("/metadata/topics=documentation")
         ),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let artifacts = body["result"]["artifacts"]
+    let repositories = body["result"]["repositories"]
         .as_object()
-        .expect("artifacts matched");
-    assert_eq!(artifacts.len(), 1, "one artifact should match: {body:?}");
-    assert!(
-        artifacts
-            .keys()
-            .next()
-            .expect("key")
-            .starts_with("pkg:oci/odoo"),
+        .expect("repositories matched");
+    assert_eq!(
+        repositories.keys().collect::<Vec<_>>(),
+        vec!["git://unfurl.cloud/onecommons/std.git"],
         "unexpected match: {body:?}"
     );
     assert!(
-        body["result"].get("repositories").is_none(),
+        body["result"].get("artifacts").is_none(),
         "sections without a match are omitted: {body:?}"
     );
 

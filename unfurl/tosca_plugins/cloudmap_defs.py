@@ -872,17 +872,22 @@ class Discovery:
 
     last_checked: str = ""
     """Date and time of the last metadata check"""
-    sources: List[str] = field(default_factory=list)
-    """List of URLs that were used for metadata discovery"""
+    sources: TypedUrls = field(default_factory=dict)
+    """URLs that were used for metadata discovery, with optional type references"""
     applied: Dict[str, List[str]] = field(default_factory=dict)
     """For each source analysis wrote this record from, the keys it last wrote,
     as JSON pointers to the record's leaves without the leading "/"."""
 
     def __post_init__(self):
-        if self.sources:
-            self.sources = [
-                validate_url(url, "Discovery.sources") for url in self.sources
-            ]
+        if isinstance(self.sources, list):
+            raise ValueError(
+                "discovery.sources is a list, its form before it became a map of "
+                "URLs to type references: make each URL a key with no value"
+            )
+        self.sources = {
+            (label, validate_url(url, "Discovery.sources") if url else url): refs
+            for (label, url), refs in TypeRefs.urls_fromdict(self.sources).items()
+        }
         if self.applied:
             self.applied = {
                 validate_url(url, "Discovery.applied"): list(fields)
@@ -891,7 +896,10 @@ class Discovery:
 
     def asdict(self) -> Dict[str, Any]:
         # exclude empty values
-        return {k: v for k, v in asdict(self).items() if v}
+        result = {k: v for k, v in asdict(self).items() if v}
+        if "sources" in result:
+            result["sources"] = TypeRefs.urls_asdict(result["sources"])
+        return result
 
 
 _M = TypeVar("_M", bound=Mapping[str, Any])
@@ -912,6 +920,8 @@ def filter_metadata(d: Optional[_M]) -> Optional[_M]:
         return filtered
     result: Dict[str, Any] = dict(filtered)
     discovery = filter_dict(cast(Dict[str, Any], result["discovery"]))
+    if discovery and "sources" in discovery:
+        discovery["sources"] = TypeRefs.urls_asdict(discovery["sources"])
     if discovery:
         result["discovery"] = discovery
     else:

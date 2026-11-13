@@ -2018,7 +2018,7 @@ kind: Project
         # form, so the spelling used to request it doesn't matter.
         metadata=ArtifactMetadata(
             discovery=Discovery(
-                sources=["git://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"],
+                sources={"git://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile": None},
                 applied={
                     "git://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile": [
                         "type/cloudmap.artifacts.Containerfile"
@@ -2056,10 +2056,10 @@ kind: Project
                 {"architecture": "s390x", "os": "linux"},
             ],
             discovery=Discovery(
-                sources=[
-                    "https://registry-1.docker.io/v2/library/nginx/manifests/sha256:09369da6b10306312cd908661320086bf87fbae1b6b0c49a1f50ba531fef2eab",
-                    "https://hub.docker.com/v2/repositories/library/nginx/",
-                ],
+                sources={
+                    "https://registry-1.docker.io/v2/library/nginx/manifests/sha256:09369da6b10306312cd908661320086bf87fbae1b6b0c49a1f50ba531fef2eab": None,
+                    "https://hub.docker.com/v2/repositories/library/nginx/": None,
+                },
             ),
         ),
     ))

@@ -14,11 +14,8 @@
           "format": "date-time"
         },
         "sources": {
-          "type": "array",
-          "description": "List of URLs that were used for metadata discovery, such as API URLs or PR URLs for manual edits.",
-          "items": {
-            "type": "string"
-          }
+          "$ref": "#/definitions/typedURLs",
+          "description": "Map of URLs that were used for metadata discovery, such as API URLs or PR URLs for manual edits, with optional type references."
         },
         "applied": {
           "type": "object",
