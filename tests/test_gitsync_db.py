@@ -1,6 +1,5 @@
 """The git-sync binding for cloudmaps, ``unfurl._rust.GitSyncDB``."""
 
-import json
 from pathlib import Path
 from urllib.parse import quote
 
@@ -41,11 +40,11 @@ def test_read_write_save_and_commit(repo: git.Repo, tmp_path: Path) -> None:
     db = _open(repo, tmp_path)
     outcome = db.scan()
     assert outcome["files_seen"] == 1, outcome
-    assert [(s, k, json.loads(j)) for s, k, j in db.find("/repositories")] == [
+    assert db.find("/repositories") == [
         ("/repositories", KEPT, {"path": "kept"})
     ]
 
-    db.upsert("/repositories", ADDED, json.dumps({"path": "added"}))
+    db.upsert("/repositories", ADDED, {"path": "added"})
     db.delete("/repositories", KEPT)
     # reads see the pending changes
     assert [k for _, k, _ in db.find("/repositories")] == [ADDED]
@@ -71,7 +70,7 @@ def test_read_write_save_and_commit(repo: git.Repo, tmp_path: Path) -> None:
 def test_a_hand_commit_of_saved_changes_is_taken_in(repo: git.Repo, tmp_path: Path) -> None:
     db = _open(repo, tmp_path)
     db.scan()
-    db.upsert("/repositories", ADDED, json.dumps({"path": "added"}))
+    db.upsert("/repositories", ADDED, {"path": "added"})
     db.save()
     repo.index.add([CLOUDMAP])
     repo.index.commit("by hand")
@@ -85,7 +84,7 @@ def test_type_filters(repo: git.Repo, tmp_path: Path) -> None:
     db.upsert(
         "/artifacts",
         "git://example.com/a.git#:t.yaml",
-        json.dumps({"type": {"cloudmap.artifacts.tosca.ServiceTemplate": None}}),
+        {"type": {"cloudmap.artifacts.tosca.ServiceTemplate": None}},
     )
     found = db.find("/artifacts", type_names=["cloudmap.artifacts.tosca.ServiceTemplate"])
     assert [k for _, k, _ in found] == ["git://example.com/a.git#:t.yaml"]
@@ -96,7 +95,7 @@ def test_errors(repo: git.Repo, tmp_path: Path) -> None:
     db = _open(repo, tmp_path)
     db.scan()
     with pytest.raises(ValueError):
-        db.upsert("/repositories", ADDED, "{not json")
+        db.upsert("/repositories", ADDED, {"path": object()})
     # a pathspec outside the working tree
     with pytest.raises(GitSyncError):
         GitSyncDB.open(repo.working_dir, _url(tmp_path / "other.sqlite"), "../outside.yaml")
@@ -121,8 +120,8 @@ def _edit_save_rescan(db: GitSyncDB, path: Path) -> None:
     path.write_text(path.read_text().replace("path: kept", "path: hand-edited"))
     scanned = db.scan()
     assert scanned["conflicts"] == [], scanned
-    assert [json.loads(j) for _, _, j in db.find("/repositories")] == [{"path": "hand-edited"}]
-    db.upsert("/repositories", ADDED, json.dumps({"path": "added"}))
+    assert [r for _, _, r in db.find("/repositories")] == [{"path": "hand-edited"}]
+    db.upsert("/repositories", ADDED, {"path": "added"})
     saved = db.save()
     assert saved["conflicts"] == [] and saved["failed"] == [], saved
     assert ADDED in path.read_text()
@@ -180,14 +179,14 @@ def test_resolve_takes_the_files_value(repo: git.Repo, tmp_path: Path) -> None:
     with the file's value."""
     db = _open(repo, tmp_path)
     db.scan()
-    db.upsert("/repositories", KEPT, json.dumps({"path": "saved"}))
+    db.upsert("/repositories", KEPT, {"path": "saved"})
     assert db.save()["conflicts"] == []
     path = Path(repo.working_dir) / CLOUDMAP
     path.write_text(path.read_text().replace("path: saved", "path: by-hand"))
     assert db.scan()["conflicts"] == [(CLOUDMAP, "/repositories", KEPT)]
 
     db.resolve("/repositories", KEPT)
-    assert [json.loads(j) for _, _, j in db.find("/repositories")] == [{"path": "by-hand"}]
+    assert [r for _, _, r in db.find("/repositories")] == [{"path": "by-hand"}]
     saved = db.save()
     assert saved["conflicts"] == [] and saved["written"] == [], saved
     assert db.scan()["conflicts"] == []

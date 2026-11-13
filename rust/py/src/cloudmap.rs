@@ -163,19 +163,19 @@ impl GitSyncDB {
     }
 
     /// The records under `section` (a JSON pointer such as
-    /// `/repositories`), as `(section, key, json)`: all of them, the one at
+    /// `/repositories`), as `(section, key, record)`: all of them, the one at
     /// `key` (or one of its aliases, with `alias`), or those of one of
     /// `type_names` (or their subtypes, with `subtypes`).
     #[pyo3(signature = (section, key=None, type_names=None, subtypes=true, alias=true))]
-    fn find(
+    fn find<'py>(
         &self,
-        py: Python<'_>,
+        py: Python<'py>,
         section: &str,
         key: Option<&str>,
         type_names: Option<Vec<String>>,
         subtypes: bool,
         alias: bool,
-    ) -> PyResult<Vec<(String, String, String)>> {
+    ) -> PyResult<Vec<(String, String, Bound<'py, PyAny>)>> {
         let mut query = RecordQuery::default()
             .file_path(self.file_path.as_str())
             .path(section)
@@ -189,17 +189,23 @@ impl GitSyncDB {
         }
         let sync = self.sync.clone();
         let records = run(py, async move { sync.find_records(&query).await })?;
-        Ok(records
+        records
             .into_iter()
-            .map(|r| (r.path, r.key, r.json.to_string()))
-            .collect())
+            .map(|r| Ok((r.path, r.key, pythonize::pythonize(py, &r.json)?)))
+            .collect()
     }
 
-    /// Write the record at `key` under `section`, from the JSON `record`,
-    /// pending until [`Self::save`].
-    fn upsert(&self, py: Python<'_>, section: String, key: String, record: &str) -> PyResult<()> {
+    /// Write `record` at `key` under `section`, pending until
+    /// [`Self::save`]; a `ValueError` if it isn't JSON data.
+    fn upsert(
+        &self,
+        py: Python<'_>,
+        section: String,
+        key: String,
+        record: &Bound<'_, PyAny>,
+    ) -> PyResult<()> {
         let json: serde_json::Value =
-            serde_json::from_str(record).map_err(|e| PyValueError::new_err(e.to_string()))?;
+            pythonize::depythonize(record).map_err(|e| PyValueError::new_err(e.to_string()))?;
         let (sync, file_path) = (self.sync.clone(), self.file_path.clone());
         run(py, async move {
             sync.upsert_record(Some(&file_path), &section, &key, json, None, false)

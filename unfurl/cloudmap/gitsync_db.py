@@ -6,7 +6,6 @@
 import atexit
 import gc
 import hashlib
-import json
 import os
 import re
 import weakref
@@ -115,10 +114,10 @@ class GitSyncCloudMapDB(CloudMapDB):
         document: Dict[str, Any] = {}
         found = self._git_sync.find(METADATA[0], key=METADATA[1], alias=False)
         if found:
-            document["metadata"] = json.loads(found[0][2])
+            document["metadata"] = found[0][2]
         for section in SECTIONS:
             records = self._git_sync.find("/" + section, subtypes=False, alias=False)
-            document[section] = {key: json.loads(value) for _, key, value in records}
+            document[section] = {key: value for _, key, value in records}
         self._load_document(document)
         self.path = self._file
 
@@ -143,14 +142,14 @@ class GitSyncCloudMapDB(CloudMapDB):
             saved[section] = new = self._records_to_save(section)
             for key, value in new.items():
                 if old.get(key) != value:
-                    self._git_sync.upsert("/" + section, key, json.dumps(value))
+                    self._git_sync.upsert("/" + section, key, value)
                     changed = True
             for key in old.keys() - new.keys():
                 self._git_sync.delete("/" + section, key)
                 changed = True
         if self.metadata != (self.db.get("metadata") or {}):
             if self.metadata:
-                self._git_sync.upsert(*METADATA, json.dumps(self.metadata))
+                self._git_sync.upsert(*METADATA, self.metadata)
             else:
                 self._git_sync.delete(*METADATA)
             changed = True
