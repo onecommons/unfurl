@@ -1946,8 +1946,20 @@ class CloudMap:
 
         The user is responsible for pushing changes to cloudmap repository back upstream.
         """
+        self.check_sync()
         changed = self.from_host(host)
         return self.to_host(host, changed, force, True)
+
+    def check_sync(self) -> None:
+        """Raise :py:class:`UnfurlError` if importing then exporting would
+        need to commit and this cloudmap doesn't."""
+        if self.host_branch != self.source_branch and not self.commit:
+            # to_host checks out the source branch over what from_host saved
+            raise UnfurlError(
+                f"importing from and exporting to a host through the {self.host_branch} "
+                f"branch needs --commit, to commit the import there before "
+                f"{self.source_branch} is checked out"
+            )
 
     def to_host(
         self, host: RepositoryHost, merge_host: bool, force: bool, sync: bool

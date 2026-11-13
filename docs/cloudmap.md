@@ -59,6 +59,8 @@ For example, if a repository branch or tags was changed in both branches there w
 
 3. Update the repository host with any changes it needs to match the cloud map.
 
+Unless the host is configured to use the main branch itself, `--sync` (or `--import` with `--export`) needs `--commit`: the import is committed to the host branch before "main" is checked out.
+
 The user is responsible for pushing any changes to the upstream cloud map repository, for example:
 
 `cd cloudmap; git --push origin main`
@@ -71,10 +73,10 @@ You can use the cloudmap to synchronize their contents by setting the ``canonica
 
 ```bash
 # first sync latest on staging with the cloud map
-unfurl cloudmap --sync staging --namespace onecommons/blueprints
+unfurl cloudmap --sync staging --commit --namespace onecommons/blueprints
 
 # now sync the cloud map with production
-unfurl cloudmap --sync production --namespace onecommons/blueprints
+unfurl cloudmap --sync production --commit --namespace onecommons/blueprints
 ```
 
 In addition to updating those instances, the repository will have branches for each repository host recording their last known state and the main branch will have the latest from both staging and production. This way the main branch serves as the "source of truth".

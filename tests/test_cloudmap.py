@@ -28,7 +28,7 @@ from unfurl.tosca_plugins.cloudmap_defs import (
     Service,
     UpstreamRef,
 )
-from unfurl.util import change_cwd, API_VERSION
+from unfurl.util import UnfurlError, change_cwd, API_VERSION
 from unfurl.cloudmap.gitsync_db import SECTIONS, GitSyncCloudMapDB, open_cloudmap_db
 from unfurl.logs import getLogger
 from ruamel.yaml import YAML
@@ -196,7 +196,7 @@ def memory_store(
 
 # The cloudmap `test_create` expects after syncing with the test provider, and
 # the source the graph fixtures are derived from. Rebuild it by running
-# `test_create[]` with $UNFURL_TEST_TMPDIR set and passing the resulting
+# `test_create` with $UNFURL_TEST_TMPDIR set and passing the resulting
 # cloudmap.yaml to this file's __main__ block -- see its docstring.
 EXPECTED_CLOUDMAP_FIXTURE = (
     Path(__file__).parent / "fixtures" / "expected_cloudmap.yaml"
@@ -221,7 +221,7 @@ def main():
         python tests/test_cloudmap.py                  # regenerate expected graph outputs
         python tests/test_cloudmap.py cloudmap.yaml    # update expected_cloudmap.yaml from file contents
 
-    To rebuild "expected_cloudmap" run test_create[] with $UNFURL_TEST_TMPDIR set, the cloudmap.yaml path will look like:
+    To rebuild "expected_cloudmap" run test_create with $UNFURL_TEST_TMPDIR set, the cloudmap.yaml path will look like:
     $UNFURL_TEST_TMPDIR/tmpkjk37eir/project/cloudmap/cloudmap.yaml
     """
     import json
@@ -847,12 +847,11 @@ def runner():
 
 
 @skip_integration
-@pytest.mark.parametrize("commit", ["", "--commit"])
-def test_create(runner: CliRunner, caplog, commit: str):
+def test_create(runner: CliRunner, caplog):
     run_cmd(
         runner,
         ["--home", ""]
-        + f"cloudmap {commit} --sync testProvider --namespace feb20a".split(),
+        + "cloudmap --commit --sync testProvider --namespace feb20a".split(),
         print_result=True,
     )
     with change_cwd("cloudmap"):
@@ -864,12 +863,11 @@ def test_create(runner: CliRunner, caplog, commit: str):
     assert "importing group feb20a" in caplog.text
     assert "importing group feb20a/feb20b" in caplog.text
     assert "syncing to feb20a" in caplog.text
-    if commit:
-        assert (
-            "committed: Update hosts/testProvider with latest from testProvider/feb20a"
-            in caplog.text
-        )
-        assert 'nothing to commit for "synced to testProvider"' in caplog.text
+    assert (
+        "committed: Update hosts/testProvider with latest from testProvider/feb20a"
+        in caplog.text
+    )
+    assert 'nothing to commit for "synced to testProvider"' in caplog.text
 
 
 @skip_integration
@@ -889,6 +887,62 @@ def test_sync(runner, caplog):
         'nothing to commit for "synced to testProvider"',
     ]:
         assert msg in caplog.text
+
+
+def _cloudmap_on(host_branch: str, commit: bool) -> CloudMap:
+    """A cloudmap whose host branch is ``host_branch``, the source branch if
+    empty."""
+    db = CloudMapDB("", contents=CloudMapDB.make_empty_cloudmap())
+    return CloudMap(None, host_branch, commit=commit, db=db)
+
+
+@pytest.mark.parametrize(
+    "host_branch, commit, refused",
+    [("hosts/h", False, True), ("hosts/h", True, False), ("", False, False)],
+)
+def test_a_sync_through_a_host_branch_needs_commit(
+    host_branch: str, commit: bool, refused: bool
+):
+    cloud_map = _cloudmap_on(host_branch, commit)
+    with patch.object(CloudMap, "from_host", return_value=False) as from_host, patch.object(
+        CloudMap, "to_host", return_value=False
+    ) as to_host:
+        if refused:
+            with pytest.raises(UnfurlError, match="needs --commit"):
+                cloud_map.sync(Mock())
+            from_host.assert_not_called()
+        else:
+            cloud_map.sync(Mock())
+            to_host.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "args, refused",
+    [
+        (["--sync", "h"], True),
+        (["--import", "h", "--export", "h"], True),
+        (["--sync", "h", "--commit"], False),
+        (["--import", "h"], False),
+        (["--export", "h"], False),
+    ],
+)
+def test_the_cli_syncs_through_a_host_branch_only_with_commit(
+    tmp_path: Path, monkeypatch, args: List[str], refused: bool
+):
+    monkeypatch.chdir(tmp_path)
+    cloud_map = _cloudmap_on("hosts/h", "--commit" in args)
+    with patch.object(
+        CloudMap, "get_host", return_value=Mock(host_branch="hosts/h")
+    ), patch.object(CloudMap, "from_name", return_value=cloud_map), patch.object(
+        CloudMap, "from_host", return_value=False
+    ) as from_host, patch.object(CloudMap, "to_host", return_value=False):
+        result = CliRunner().invoke(cli, ["--home", "", "cloudmap", *args])
+    if refused:
+        assert result.exit_code != 0
+        assert "needs --commit" in str(result.exception)
+        from_host.assert_not_called()
+    else:
+        assert result.exit_code == 0, result.output
 
 
 @skip_integration

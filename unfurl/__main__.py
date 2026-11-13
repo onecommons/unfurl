@@ -2428,6 +2428,8 @@ def cloudmap(
         return
     assert host
     host.dryrun = dryrun
+    if (options.get("import") or sync) and (options.get("export") or sync):
+        cloud_map.check_sync()
     if options.get("import") or sync:
         changed = cloud_map.from_host(host)
     else:
