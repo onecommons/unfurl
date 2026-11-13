@@ -948,7 +948,7 @@ pub fn last_commits_for_paths(
 
         // Diff against first parent. Root commit has no parent → diff
         // against the empty tree (everything in `tree` is an addition).
-        let first_parent_tree = match commit.parent_ids().next() {
+        let first_parent_tree = match parents(repo, commit_id)?.first().copied() {
             Some(p) => Some(
                 repo.find_commit(p)
                     .map_err(git_err)?
@@ -1113,7 +1113,12 @@ fn present(repo: &gix::Repository, commit: CommitId) -> Result<Option<gix::Objec
         .map(|_| oid))
 }
 
+/// `oid`'s parents, none when a shallow clone cut its history there.
 pub(crate) fn parents(repo: &gix::Repository, oid: gix::ObjectId) -> Result<Vec<gix::ObjectId>> {
+    let shallow = repo.shallow_commits().map_err(git_err)?;
+    if shallow.is_some_and(|commits| commits.binary_search(&oid).is_ok()) {
+        return Ok(Vec::new());
+    }
     Ok(repo
         .find_commit(oid)
         .map_err(git_err)?
