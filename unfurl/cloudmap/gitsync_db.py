@@ -38,6 +38,8 @@ SECTIONS = (
 )
 # the document's top-level `metadata`, a singleton record in git-sync
 METADATA = ("/metadata", "metadata")
+# tells git-sync's write not to strip `applied`: ProvenanceTrackingContext keeps it
+KEEP_APPLIED = "unfurl.server.keep_applied"
 
 _open: "weakref.WeakSet[GitSyncCloudMapDB]" = weakref.WeakSet()
 
@@ -174,7 +176,8 @@ class GitSyncCloudMapDB(CloudMapDB):
             saved[section] = new = self._records_to_save(section)
             for key, value in new.items():
                 if old.get(key) != value:
-                    self._git_sync.upsert("/" + section, key, value)
+                    # a copy: `value` becomes the baseline the next save compares
+                    self._git_sync.upsert("/" + section, key, {**value, KEEP_APPLIED: True})
                     changed = True
             for key in old.keys() - new.keys():
                 self._git_sync.delete("/" + section, key)

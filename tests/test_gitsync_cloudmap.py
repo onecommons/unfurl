@@ -115,6 +115,32 @@ def test_saved_changes_commit_and_reload(both, tmp_path: Path) -> None:
     assert _records(_open(tmp_path)) == _records(git_sync)
 
 
+def test_a_save_keeps_the_fields_analysis_claims(both, tmp_path: Path) -> None:
+    """A field analysis changes stays in its `applied` claim through a save."""
+    from unfurl.cloudmap.provenance import ProvenanceTrackingContext
+    from unfurl.tosca_plugins.cloudmap_defs import RepositoryMetadata
+
+    source = "git://example.com/analyzed.git"
+    url = "git://example.com/claimed.git"
+    for db in both:
+        context = ProvenanceTrackingContext(db)
+        for title in ("first", "second"):
+            with context._tracking_provenance(source):
+                context.add_record(
+                    Repository(url=url, path="claimed", metadata=RepositoryMetadata(title=title))
+                )
+            assert db.save()
+            # nothing left over in the baseline
+            assert not db.save()
+        db.reload()
+        claimed = db.get_repository(url)
+        assert claimed and claimed.metadata.title == "second"
+        assert claimed.metadata.discovery
+        assert "metadata/title" in claimed.metadata.discovery.applied[source], type(db).__name__
+    assert "keep_applied" not in Path(both[1].file).read_text()
+    assert _records(_open(tmp_path)) == _records(both[1])
+
+
 def test_metadata_round_trips(both, tmp_path: Path) -> None:
     python, git_sync = both
     for db in both:
