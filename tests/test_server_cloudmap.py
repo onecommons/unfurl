@@ -1092,7 +1092,9 @@ def test_server_cloudmap(server_env):
             def created_by(**markers):
                 record = {
                     "path": "owned",
-                    "metadata": {"discovery": {"created_by": owned_key}},
+                    "metadata": {
+                        "discovery": {"created_by": owned_key, "dependent": True}
+                    },
                     **markers,
                 }
                 res = requests.post(
@@ -1106,7 +1108,10 @@ def test_server_cloudmap(server_env):
                 assert res.status_code == 200, res.text
                 return res.json()["result"]["repositories"][owned_key]
 
-            assert created_by(**keep)["metadata"]["discovery"]["created_by"] == owned_key
+            assert created_by(**keep)["metadata"]["discovery"] == {
+                "created_by": owned_key,
+                "dependent": True,
+            }
             assert "metadata" not in created_by(), "nothing left empty"
 
             # 8d. `exists` reads its path whole, so a key may contain "=",

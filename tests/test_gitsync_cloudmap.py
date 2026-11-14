@@ -141,6 +141,25 @@ def test_a_save_keeps_the_fields_analysis_claims(both, tmp_path: Path) -> None:
     assert _records(_open(tmp_path)) == _records(both[1])
 
 
+def test_what_analysis_marks_survives_a_save(both, tmp_path: Path) -> None:
+    """``created_by`` and ``dependent`` survive a save and reload, which a write
+    that isn't from analysis would clear."""
+    from unfurl.cloudmap.provenance import ProvenanceTrackingContext
+
+    url = "pkg:generic/reached"
+    for db in both:
+        context = ProvenanceTrackingContext(db)
+        with context._tracking_provenance("git://e.com/outer.git", new_analysis=True):
+            with context._tracking_provenance("git://e.com/inner.git", new_analysis=True):
+                context.add_record(Artifact(url=url))
+        assert db.save()
+        db.reload()
+        reached = db.get_artifact(url)
+        assert reached and reached.metadata.discovery, type(db).__name__
+        assert reached.metadata.discovery.created_by == "git://e.com/inner.git"
+        assert reached.metadata.discovery.dependent, type(db).__name__
+
+
 def test_a_key_that_isnt_a_string_saves_as_one(both, tmp_path: Path) -> None:
     """YAML reads `80:` and `on:` as an int and a bool; they save as strings."""
     _, git_sync = both

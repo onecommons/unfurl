@@ -388,6 +388,8 @@ pub struct CloudmapDiscovery {
     pub applied: Option<std::collections::HashMap<String, Vec<String>>>,
     /// The URL whose analysis created this record. A write through Unfurl that isn't from analysis clears it (an edit to the file itself doesn't), after which a re-analysis that no longer produces the record keeps it rather than deleting it.
     pub created_by: Option<String>,
+    /// Created by an analysis that another analysis led to, only because a record references it: `unfurl cloudmap --gc` removes it once nothing does. A write through Unfurl that isn't from such an analysis clears it.
+    pub dependent: Option<bool>,
     /// Date and time of the last metadata check, conforming to RFC 3339.
     pub last_checked: Option<chrono::DateTime<chrono::Utc>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.

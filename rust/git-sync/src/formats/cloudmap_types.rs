@@ -1302,6 +1302,10 @@ impl<'de> ::serde::Deserialize<'de> for ComponentVersionsKey {
 #[doc = "      \"description\": \"The URL whose analysis created this record. A write through Unfurl that isn't from analysis clears it (an edit to the file itself doesn't), after which a re-analysis that no longer produces the record keeps it rather than deleting it.\","]
 #[doc = "      \"type\": \"string\""]
 #[doc = "    },"]
+#[doc = "    \"dependent\": {"]
+#[doc = "      \"description\": \"Created by an analysis that another analysis led to, only because a record references it: `unfurl cloudmap --gc` removes it once nothing does. A write through Unfurl that isn't from such an analysis clears it.\","]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    },"]
 #[doc = "    \"last_checked\": {"]
 #[doc = "      \"description\": \"Date and time of the last metadata check, conforming to RFC 3339.\","]
 #[doc = "      \"type\": \"string\","]
@@ -1328,6 +1332,9 @@ pub struct Discovery {
     #[doc = "The URL whose analysis created this record. A write through Unfurl that isn't from analysis clears it (an edit to the file itself doesn't), after which a re-analysis that no longer produces the record keeps it rather than deleting it."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub created_by: ::std::option::Option<::std::string::String>,
+    #[doc = "Created by an analysis that another analysis led to, only because a record references it: `unfurl cloudmap --gc` removes it once nothing does. A write through Unfurl that isn't from such an analysis clears it."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub dependent: ::std::option::Option<bool>,
     #[doc = "Date and time of the last metadata check, conforming to RFC 3339."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub last_checked: ::std::option::Option<::chrono::DateTime<::chrono::offset::Utc>>,
@@ -1340,6 +1347,7 @@ impl ::std::default::Default for Discovery {
         Self {
             applied: Default::default(),
             created_by: Default::default(),
+            dependent: Default::default(),
             last_checked: Default::default(),
             sources: Default::default(),
         }

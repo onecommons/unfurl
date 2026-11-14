@@ -225,7 +225,7 @@ impl DataFormat for CloudMapFormat {
     /// A write that changes a field listed in the record's
     /// `metadata.discovery.applied` takes it over from the analysis that
     /// wrote it, so it's removed from there, and the marks only analysis sets
-    /// (`created_by`) are dropped -- unless the writer maintains them itself,
+    /// (`created_by`, `dependent`) are dropped -- unless the writer maintains them itself,
     /// as it says with `unfurl.server.keep_applied`.
     fn prepare_write(
         &self,
@@ -657,7 +657,7 @@ fn strip_applied(previous: &serde_json::Value, record: &mut serde_json::Value) {
 
 /// What only analysis sets in `metadata.discovery`. Must match
 /// `strip_analysis_marks` in `unfurl/cloudmap/provenance.py`.
-const ANALYSIS_MARKS: [&str; 1] = ["created_by"];
+const ANALYSIS_MARKS: [&str; 2] = ["created_by", "dependent"];
 
 /// Removes [`ANALYSIS_MARKS`] from `record`, and `metadata.discovery` and
 /// `metadata` if that leaves them empty.
@@ -1195,7 +1195,7 @@ mod tests {
     fn writes_clear_what_only_analysis_sets() {
         let previous = json!({
             "path": "p",
-            "metadata": {"discovery": {"created_by": "git://x/a.git"}},
+            "metadata": {"discovery": {"created_by": "git://x/a.git", "dependent": true}},
         });
         let edited = || {
             let mut next = previous.clone();
@@ -1213,8 +1213,8 @@ mod tests {
         kept[KEEP_APPLIED] = json!(true);
         CloudMapFormat.prepare_write("/repositories", Some(&previous), &mut kept);
         assert_eq!(
-            kept["metadata"]["discovery"]["created_by"],
-            json!("git://x/a.git")
+            kept["metadata"]["discovery"],
+            previous["metadata"]["discovery"]
         );
 
         // a new record can't arrive claiming analysis created it

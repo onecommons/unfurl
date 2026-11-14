@@ -880,6 +880,10 @@ class Discovery:
     created_by: str = ""
     """The URL whose analysis created this record; cleared by a write through
     Unfurl that isn't from analysis."""
+    dependent: bool = False
+    """Created by an analysis another analysis led to, only because a record
+    references it; cleared by a write through Unfurl that isn't from such an
+    analysis."""
 
     def __post_init__(self):
         if isinstance(self.sources, list):

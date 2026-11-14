@@ -336,27 +336,41 @@ def _created_by(record: Optional[Dict[str, Any]]) -> str:
     return discovery.get("created_by") or ""
 
 
-def _set_created_by(record: "CloudMapRecord", created_by: str) -> None:
+def _dependent(record: Optional[Dict[str, Any]]) -> bool:
+    """The ``metadata.discovery.dependent`` of the serialized ``record``."""
+    discovery = ((record or {}).get("metadata") or {}).get("discovery") or {}
+    return bool(discovery.get("dependent"))
+
+
+def _set_marks(record: "CloudMapRecord", created_by: str, dependent: bool) -> None:
     metadata = getattr(record, "metadata", None)
     if not isinstance(metadata, CommonMetadata):
         return
     if metadata.discovery is None:
-        if not created_by:
+        if not created_by and not dependent:
             return
         metadata.discovery = Discovery()
     metadata.discovery.created_by = created_by
+    metadata.discovery.dependent = dependent
+
+
+# what only analysis sets in `metadata.discovery`: must match ANALYSIS_MARKS in
+# rust/git-sync/src/formats/cloudmap.rs
+ANALYSIS_MARKS = ("created_by", "dependent")
 
 
 def strip_analysis_marks(record: Dict[str, Any]) -> Dict[str, Any]:
-    """``record`` without the marks only analysis sets,
-    ``metadata.discovery.created_by``, nor the objects that leaves empty. The
-    objects on the path are copied rather than modified."""
-    if "created_by" not in ((record.get("metadata") or {}).get("discovery") or {}):
+    """``record`` without the marks only analysis sets (:data:`ANALYSIS_MARKS`),
+    nor the objects that leaves empty. The objects on the path are copied
+    rather than modified."""
+    found = (record.get("metadata") or {}).get("discovery") or {}
+    if not any(mark in found for mark in ANALYSIS_MARKS):
         return record
     record = dict(record)
     metadata = dict(record["metadata"])
     discovery = dict(metadata["discovery"])
-    del discovery["created_by"]
+    for mark in ANALYSIS_MARKS:
+        discovery.pop(mark, None)
     if discovery:
         metadata["discovery"] = discovery
     else:
@@ -720,7 +734,9 @@ class ProvenanceTrackingContext(AnalyzerContext):
         carries: to the innermost source when analysis creates the record, kept
         by any other analysis write or :py:meth:`_bookkeeping` write, and
         cleared by every other write and by an analysis of the record's own URL
-        that no other analysis led to.
+        that no other analysis led to. ``dependent`` too: set when an analysis
+        another led to creates the record, kept by such an analysis's writes
+        and bookkeeping, and cleared by every other write.
         """
         identity = record_identity(record)
         stored = self.__context.get_record(section_of(record), record.key)
@@ -776,17 +792,21 @@ class ProvenanceTrackingContext(AnalyzerContext):
             stripped = strip_applied(previous, data)
             if stripped is not data:
                 _set_applied(record, _applied(stripped))
+        # an analysis another analysis led to, rather than one asked for
+        nested = bool(self._analysis_starts) and self._analysis_starts[-1] > 0
         if self._sources and _source_matches_key(self._sources[0], record):
             # what a person or the host asked to analyze by name
-            created_by = ""
+            created_by, dependent = "", False
+        elif self._sources and previous is None:
+            created_by, dependent = self._sources[-1], nested
         elif self._sources:
-            created_by = self._sources[-1] if previous is None else _created_by(previous)
+            created_by, dependent = _created_by(previous), nested and _dependent(previous)
         elif self._bookkeeping_writes:
-            created_by = _created_by(previous)
+            created_by, dependent = _created_by(previous), _dependent(previous)
         else:
             # a person or the host speaks for the record now
-            created_by = ""
-        _set_created_by(record, created_by)
+            created_by, dependent = "", False
+        _set_marks(record, created_by, dependent)
         self._mark_seen(record)
         self._snapshots[identity] = record.asdict()
         self.__context.add_record(record)

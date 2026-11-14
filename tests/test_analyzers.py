@@ -2412,6 +2412,55 @@ def test_comparing_forks_keeps_created_by(tmp_path):
     assert _created_by(db.repositories[fork]) == ""
 
 
+def _dependent(record):
+    discovery = record.metadata.discovery
+    return bool(discovery and discovery.dependent)
+
+
+def test_dependent_marks_what_an_analysis_another_led_to_creates(tmp_path):
+    """Kept by the writes of such an analysis and by bookkeeping, cleared by
+    every other write."""
+
+    def emits():
+        return {
+            "stub:outer": [Artifact(url="pkg:generic/outer")],
+            "stub:inner": [
+                Artifact(url="pkg:generic/inner"),
+                Artifact(url="pkg:generic/edited"),
+                Artifact(url="pkg:generic/person"),
+            ],
+        }
+
+    cm = _stub_cloudmap(tmp_path, emits(), recurses={"stub:outer": ["stub:inner"]})
+    db = cm.directory.store
+    context = cm.directory.context
+    context.add_record(Artifact(url="pkg:generic/person"))
+    for _ in range(2):
+        # every record rebuilt from scratch the second time
+        _StubURLAnalyzer.emits = emits()
+        cm.analyze_url("stub:outer")
+        assert _dependent(db.artifacts["pkg:generic/inner"])
+        assert not _dependent(db.artifacts["pkg:generic/outer"])
+        assert not _dependent(db.artifacts["pkg:generic/person"]), "it existed already"
+
+    inner = db.artifacts["pkg:generic/inner"]
+    with context._bookkeeping():
+        context.add_record(inner)
+    assert _dependent(inner)
+    # a person's or the host's write
+    edited = db.artifacts["pkg:generic/edited"]
+    edited.metadata.title = "by hand"
+    context.add_record(edited)
+    assert not _dependent(edited)
+    # an analysis asked for in its own right, updating the stored record in place
+    with context._tracking_provenance("stub:other", new_analysis=True):
+        stored = context.get_artifact("pkg:generic/inner")
+        assert stored
+        stored.metadata.title = "touched"
+        context.add_record(stored)
+    assert not _dependent(db.artifacts["pkg:generic/inner"])
+
+
 def test_analyze_url_replace_does_not_oscillate(tmp_path):
     """Re-analyzing an unchanged source must not delete anything.
 
