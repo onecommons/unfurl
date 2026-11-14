@@ -1938,7 +1938,6 @@ class LocalEnv:
             )
             if not locked and not (repoview.package and repoview.package.locked):
                 dirty = repo.is_dirty()
-                current = repo
                 if (revision and not exact) or checkout_args:
                     if dirty:
                         logger.warning(
@@ -1946,7 +1945,7 @@ class LocalEnv:
                         )
                     else:
                         if isinstance(repo, ProxiedRepo):
-                            gitrepo = repo.convert_to_git()
+                            gitrepo = repo._ensure_git()
                         else:
                             gitrepo = cast(GitRepo, repo)
                         missing = bool(revision) and not gitrepo.resolve_rev_spec(
@@ -1957,13 +1956,13 @@ class LocalEnv:
                             gitrepo.checkout(
                                 revision or "", fetch_first=missing, **checkout_args
                             )
-                        repoview.repo = current = gitrepo
+                        repoview.repo = repo = gitrepo
                 if (
                     not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
-                    and isinstance(current, GitRepo)
+                    and isinstance(repo, GitRepo)
                     and not dirty
                 ):
-                    self.pull_repo(current, revision)
+                    self.pull_repo(repo, revision)
         else:
             # url is the repoUrl (possibly rewritten) at this point
             # git-local repos must already exist locally

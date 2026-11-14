@@ -22,7 +22,7 @@ from unfurl.packages import (
     package_id_to_url,
     resolve_package,
 )
-from unfurl.repo import Repo, RepoView, get_remote_refs, get_remote_tags
+from unfurl.repo import GitRepo, Repo, RepoView, get_remote_refs, get_remote_tags
 from toscaparser.repositories import Repository
 from unfurl.util import UnfurlError, taketwo
 from unfurl.yamlmanifest import YamlManifest
@@ -1204,3 +1204,31 @@ def test_skipped_upstream_check_uses_the_local_tag(tag, revision):
     package = resolve_package(repo_view, packages, [], resolver.get_remote_tags)
     assert package, "an existing checkout is a package, versioned or not"
     assert package.revision == revision
+
+
+def test_switching_a_proxied_package_returns_the_converted_repo(
+    proxied_repo_with_origin: ProxiedRepo, tmp_path
+) -> None:
+    """A proxied package switched to a branch comes back as the git repo it
+    became, which the lock section records, and the ProxiedRepo still
+    answers for it."""
+    proxied = proxied_repo_with_origin
+    work = git.Repo(tmp_path / "work")
+    (tmp_path / "work" / "dummy.txt").write_text("changed on main")
+    work.index.add(["dummy.txt"])
+    main = work.index.commit("after the release").hexsha
+    work.remotes.origin.push("HEAD:refs/heads/main")
+    project = tmp_path / "project"
+    project.mkdir()
+    git.Repo.init(project)
+    (project / "unfurl.yaml").write_text("apiVersion: unfurl/v1.0.0\nkind: Project\n")
+    env = LocalEnv(str(project), homePath="", can_be_empty=True)
+    env.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
+    env.project.workingDirs[proxied.working_dir] = proxied.as_repo_view()
+
+    repo, revision, created = env.find_or_create_working_dir(proxied.url, "main")
+    assert isinstance(repo, GitRepo) and not created
+    assert repo.revision == revision == main
+    lock = repo.as_repo_view().lock()
+    assert (lock["commit"], lock.get("branch")) == (main, "main")
+    assert not proxied.is_dirty()
