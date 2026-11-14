@@ -1181,7 +1181,14 @@ fn push_filter_sql_pg(sql: &mut String, query: &RecordQuery, idx: &mut usize) {
         // jsonpath itself — still one bound parameter. SQL/JSON path in `lax`
         // mode (the default) unwraps arrays and wraps scalars, so `[*]` covers
         // both.
-        if jq.is_exact() {
+        if jq.indexed_key().is_some() {
+            // the key-existence `?` the sources index serves; the path is the
+            // constant the index was built over, or the planner won't use it
+            sql.push_str(&format!(
+                " AND r.json #> '{{metadata,discovery,sources}}' ? ${idx}"
+            ));
+            *idx += 1;
+        } else if jq.is_exact() {
             // Exact array match. `#>` equality is structural but can't use an
             // index, so it rides behind a containment pre-filter, which can:
             // every element of an equal array is contained, so the pre-filter
@@ -1221,7 +1228,9 @@ fn add_filter_args_pg(args: &mut sqlx::postgres::PgArguments, query: &RecordQuer
         args.add(ts).map_err(arg_err)?;
     }
     for jq in &query.json_queries {
-        if jq.is_exact() {
+        if let Some(key) = jq.indexed_key() {
+            args.add(key).map_err(arg_err)?;
+        } else if jq.is_exact() {
             args.add(jq.containment()).map_err(arg_err)?;
             args.add(jq.tokens.clone()).map_err(arg_err)?;
             args.add(jq.value.clone()).map_err(arg_err)?;

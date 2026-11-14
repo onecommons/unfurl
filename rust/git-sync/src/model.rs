@@ -572,6 +572,22 @@ impl JsonQuery {
         Ok(query)
     }
 
+    /// The key this existence test looks for in the discovery sources map,
+    /// which an index of the map's keys serves; `None` for any other query.
+    pub fn indexed_key(&self) -> Option<&str> {
+        match self.tokens.as_slice() {
+            [metadata, discovery, sources, key]
+                if self.op == QueryOp::Exists
+                    && metadata == "metadata"
+                    && discovery == "discovery"
+                    && sources == "sources" =>
+            {
+                Some(key)
+            }
+            _ => None,
+        }
+    }
+
     /// A prefix query: the value at the path is a string starting with
     /// `prefix`, or an array with an element that does.
     pub fn starts_with(tokens: Vec<String>, prefix: String) -> Result<Self> {

@@ -2349,6 +2349,29 @@ async fn find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         exists(vec!["metadata", "no_such_field"]).await.is_empty(),
         "a path that doesn't resolve"
     );
+    // a source: postgres serves it from the index over the sources map's
+    // keys, sqlite the same way as any other path
+    let source = "https://hub.docker.com/v2/repositories/bitnami/odoo/";
+    assert_eq!(
+        exists(vec!["metadata", "discovery", "sources", source])
+            .await
+            .iter()
+            .map(|r| r.key.as_str())
+            .collect::<Vec<_>>(),
+        vec!["pkg:oci/odoo?repository_url=docker.io/bitnami/odoo"],
+        "the record with that source"
+    );
+    assert!(
+        exists(vec![
+            "metadata",
+            "discovery",
+            "sources",
+            "https://elsewhere/"
+        ])
+        .await
+        .is_empty(),
+        "no record has that source"
+    );
 
     // An object literal is rejected: postgres compares objects structurally
     // and sqlite by rendered text, so the backends would disagree.
