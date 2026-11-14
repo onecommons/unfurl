@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! `unfurl-server create-database`'s refusals, before it connects; what it
 //! does to a database is `unfurl_git_sync::db::provision`'s, tested there.
+#![cfg(feature = "postgres")]
 
 use std::process::Command;
 
@@ -18,7 +19,6 @@ fn run(envs: &[(&str, &str)]) -> (bool, String) {
     )
 }
 
-#[cfg(feature = "postgres")]
 #[test]
 fn a_url_with_a_password_is_refused() {
     for url in [
@@ -39,7 +39,6 @@ fn a_url_with_a_password_is_refused() {
 
 /// Accepts one connection, asks it for a cleartext password, and returns
 /// the password sent.
-#[cfg(feature = "postgres")]
 fn password_sent_to(listener: std::net::TcpListener) -> String {
     use std::io::{Read, Write};
     fn message(stream: &mut std::net::TcpStream) -> Vec<u8> {
@@ -63,7 +62,6 @@ fn password_sent_to(listener: std::net::TcpListener) -> String {
 }
 
 /// PGPASSWORD is the app's: the admin sends its own password, or none.
-#[cfg(feature = "postgres")]
 #[test]
 fn the_admin_connection_sends_only_the_admin_password() {
     for (admin_password, expected) in [(Some("admin-secret"), "admin-secret"), (None, "")] {

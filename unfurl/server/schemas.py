@@ -257,8 +257,17 @@ class CloudMapSelectionQuery(CloudMapBaseQuery):
             "to match all of them."
         ),
     )
+    exists: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "A JSON Pointer path (RFC 6901) that has to exist in the record, "
+            "like a ``filter`` with no operator but read whole, so a key may "
+            "contain ``=``: ``/metadata/discovery/sources/pkg:oci~1x?a=b``. "
+            "Repeatable; combines with the other selection parameters."
+        ),
+    )
 
-    @field_validator("filter", mode="before")
+    @field_validator("filter", "exists", mode="before")
     @classmethod
     def _coerce_single_filter(cls, value: object) -> object:
         # APIFlask's pydantic adapter binds query params via

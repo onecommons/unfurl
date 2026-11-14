@@ -127,7 +127,6 @@ impl Drop for TestDb {
 /// runtime; this runs in the test's `Drop`, which blocks that runtime's one
 /// thread, so the task can't run until Postgres ends the session at
 /// `idle_in_transaction_session_timeout`, a minute later.
-#[cfg(feature = "postgres")]
 async fn end_sessions_in_a_transaction(pool: &sqlx::PgPool, application_name: &str) {
     sqlx::query(
         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
@@ -595,6 +594,28 @@ async fn get_filter_searches_record_contents() {
     assert!(
         body["result"].get("artifacts").is_none(),
         "sections without a match are omitted: {body:?}"
+    );
+
+    // `exists`: a path read whole, here a key under the sources map
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?exists={}",
+            urlencoding::encode(
+                "/metadata/discovery/sources/https:~1~1hub.docker.com~1v2~1repositories~1bitnami~1odoo~1"
+            )
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let artifacts = body["result"]["artifacts"]
+        .as_object()
+        .expect("artifacts matched");
+    assert_eq!(
+        artifacts.keys().collect::<Vec<_>>(),
+        vec!["pkg:oci/odoo?repository_url=docker.io/bitnami/odoo"],
+        "unexpected match: {body:?}"
     );
 
     // a scalar: `metadata/homepage_url` equals the url

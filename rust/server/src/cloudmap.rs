@@ -1232,6 +1232,7 @@ impl Selection {
         kind: Option<&str>,
         type_param: Option<&str>,
         filters: &[String],
+        exists: &[String],
         cloudmap_path: Option<&str>,
     ) -> Result<Self, LocalError> {
         // Scope the read to one cloudmap file when the request names one;
@@ -1253,11 +1254,18 @@ impl Selection {
         // pushed into the SQL WHERE clause so the database does the
         // filtering. Repeatable — every occurrence must match (the
         // clauses AND together); blank occurrences are dropped.
-        let json_filters: Vec<JsonQuery> = filters
+        let mut json_filters: Vec<JsonQuery> = filters
             .iter()
             .filter(|f| !f.trim().is_empty())
             .map(|f| parse_json_filter(f))
             .collect::<Result<_, _>>()?;
+        // `exists` is a path that has to exist in the record, read whole:
+        // unlike a `filter`, its keys may contain "="
+        for path in exists.iter().filter(|p| !p.trim().is_empty()) {
+            let query = JsonQuery::exists(pointer_tokens(path)?)
+                .map_err(|e| LocalError::BadRequest(format!("exists {path:?}: {e}")))?;
+            json_filters.push(query);
+        }
 
         Ok(Self {
             worktrees,
@@ -1555,6 +1563,7 @@ async fn build_response(
         kind,
         params.r#type.as_deref(),
         params.filter.as_deref().unwrap_or_default(),
+        params.exists.as_deref().unwrap_or_default(),
         params.cloudmap_path.as_deref(),
     )?;
 
@@ -1867,6 +1876,7 @@ async fn build_facets_response(
         params.kind.as_deref(),
         params.r#type.as_deref(),
         params.filter.as_deref().unwrap_or_default(),
+        params.exists.as_deref().unwrap_or_default(),
         params.cloudmap_path.as_deref(),
     )?;
 

@@ -1109,6 +1109,35 @@ def test_server_cloudmap(server_env):
             assert created_by(**keep)["metadata"]["discovery"]["created_by"] == owned_key
             assert "metadata" not in created_by(), "nothing left empty"
 
+            # 8d. `exists` reads its path whole, so a key may contain "=",
+            #     which a `filter` would split on
+            image = "pkg:oci/x?repository_url=docker.io/x"
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "commit": True,
+                    "repositories": {
+                        owned_key: {
+                            "path": "owned",
+                            "metadata": {"discovery": {"sources": {image: None}}},
+                        }
+                    },
+                },
+            )
+            assert res.status_code == 200, res.text
+
+            def exists(path):
+                res = requests.get(cloudmap_url, params={"exists": path})
+                assert res.status_code == 200, res.text
+                return res.json()["result"]
+
+            sources = "/metadata/discovery/sources/"
+            hit = exists(sources + image.replace("/", "~1"))
+            assert list(hit) == ["repositories"] and list(hit["repositories"]) == [
+                owned_key
+            ], hit
+            assert exists(sources + "pkg:oci~1x?repository_url=docker.io~1y") == {}
+
             # 9. POST /cloudmap/analyze mirrors `unfurl cloudmap --add`; a
             #    service url produces a record without touching the network.
             analyze_url = f"http://{HOST}:{port}/cloudmap/analyze"

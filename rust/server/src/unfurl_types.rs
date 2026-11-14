@@ -1399,6 +1399,8 @@ pub struct GetCloudmapFacetsRequestQuery {
     ///
     /// Values are read as JSON: ``true``, ``false``, ``null`` and numbers keep their type, an array has to be valid JSON (``["a","b"]``, not ``[a,b]``), and anything else is a string. Wrap a value in double quotes to force a string (``="42"``). Wildcards in the path aren't supported yet. Combines with the other selection parameters: a record has to match all of them.
     pub filter: Option<Vec<String>>,
+    /// A JSON Pointer path (RFC 6901) that has to exist in the record, like a ``filter`` with no operator but read whole, so a key may contain ``=``: ``/metadata/discovery/sources/pkg:oci~1x?a=b``. Repeatable; combines with the other selection parameters.
+    pub exists: Option<Vec<String>>,
     /// JSON Pointer path (RFC 6901) to group the selected records by; a path without a leading ``/`` gets one prepended. The value found at the path becomes the group: each element of an array, each key of an object, or the scalar itself. A record without the path lands in no group (but still counts toward ``total``).
     #[validate(length(min = 1u64))]
     pub group_by: String,
@@ -1465,6 +1467,8 @@ pub struct GetCloudmapRequestQuery {
     ///
     /// Values are read as JSON: ``true``, ``false``, ``null`` and numbers keep their type, an array has to be valid JSON (``["a","b"]``, not ``[a,b]``), and anything else is a string. Wrap a value in double quotes to force a string (``="42"``). Wildcards in the path aren't supported yet. Combines with the other selection parameters: a record has to match all of them.
     pub filter: Option<Vec<String>>,
+    /// A JSON Pointer path (RFC 6901) that has to exist in the record, like a ``filter`` with no operator but read whole, so a key may contain ``=``: ``/metadata/discovery/sources/pkg:oci~1x?a=b``. Repeatable; combines with the other selection parameters.
+    pub exists: Option<Vec<String>>,
     /// Record key (URL) within the selected ``kind`` section; ignored when ``kind`` is omitted.
     pub key: Option<String>,
     /// If > 0, walk the CloudMap graph outward from every record the query selected and return what it reaches under ``followed``. Records already in the result are never repeated under ``followed``, and the value caps how many are returned. Follow doesn't know about paging; a record reachable from two pages appears on both unless ``exclude`` rules it out.

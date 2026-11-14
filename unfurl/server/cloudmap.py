@@ -15,6 +15,7 @@ from typing import (
     Iterator,
     List,
     Optional,
+    Sequence,
     Set,
     Tuple,
     Union,
@@ -434,7 +435,10 @@ def _json_filter_matches(
 
 
 def _record_matcher(
-    doc: Dict[str, Any], type_name: Optional[str], filter_exprs: List[str]
+    doc: Dict[str, Any],
+    type_name: Optional[str],
+    filter_exprs: List[str],
+    exists_paths: Sequence[str] = (),
 ) -> Optional[Callable[[Any], bool]]:
     """Build the record predicate for the shared selection parameters.
 
@@ -443,9 +447,9 @@ def _record_matcher(
     can't drift between the endpoints. ``filter`` repeats: every
     expression must match, each independently (two filters may be
     satisfied by different elements of the same array) -- mirroring the
-    ANDed SQL clauses the rust fast-path emits. Returns ``None`` when
-    nothing filters, which callers can use to keep their unfiltered
-    fast paths.
+    ANDed SQL clauses the rust fast-path emits. Each of ``exists_paths`` is
+    a path that has to exist in the record. Returns ``None`` when nothing
+    filters, which callers can use to keep their unfiltered fast paths.
 
     Raises:
         ValueError: If a filter expression doesn't parse (callers
@@ -456,6 +460,9 @@ def _record_matcher(
         type_names = _subtype_names(doc.get("types") or {}, type_name)
     json_filters: List[Tuple[List[str], Any, str]] = [
         _parse_json_filter(expr) for expr in filter_exprs if expr.strip()
+    ]
+    json_filters += [
+        (_pointer_tokens(path), None, "exists") for path in exists_paths if path.strip()
     ]
     if type_names is None and not json_filters:
         return None
@@ -659,7 +666,9 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     # pydantic adapter binds only the first value of a repeated key.
     filter_params = request.args.getlist("filter")
     try:
-        matcher = _record_matcher(doc, query.type, filter_params)
+        matcher = _record_matcher(
+            doc, query.type, filter_params, request.args.getlist("exists")
+        )
     except ValueError as err:
         return create_error_response("BAD_REQUEST", str(err))
 
@@ -933,7 +942,9 @@ def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
 
     try:
         # `filter` repeats like `facet` does; getlist for the same reason.
-        matcher = _record_matcher(doc, query.type, request.args.getlist("filter"))
+        matcher = _record_matcher(
+            doc, query.type, request.args.getlist("filter"), request.args.getlist("exists")
+        )
     except ValueError as parse_err:
         return create_error_response("BAD_REQUEST", str(parse_err))
 
