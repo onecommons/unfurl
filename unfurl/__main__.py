@@ -2039,6 +2039,64 @@ def _validate_cloudmap(path: str, localEnv: Optional[LocalEnv]) -> None:
         if isinstance(db, GitSyncCloudMapDB) and db.invalid:
             raise UnfurlValidationError(f"git-sync rejected records in {path}")
 
+
+def _cloudmap_gc(
+    local_env: LocalEnv,
+    cloudmap: str,
+    clone_root: Optional[str],
+    commit: bool,
+    dryrun: bool,
+) -> None:
+    """``unfurl cloudmap --gc``."""
+    from .cloudmap import CloudMap
+    from .cloudmap.db import CloudMapDB
+    from .cloudmap.gc import collect, find_garbage
+    from .cloudmap.gitsync_db import GitSyncCloudMapDB
+
+    if not commit and not dryrun:
+        raise click.UsageError(
+            "--gc needs --commit, or --dryrun to list what it would remove"
+        )
+    if (
+        cloudmap == "cloudmap"
+        and not CloudMap.get_config(local_env, cloudmap).repository
+    ):
+        raise click.UsageError(
+            "no cloudmap repository is configured (cloudmaps.repositories.cloudmap)"
+        )
+    cloud_map = CloudMap.from_name(local_env, cloudmap, clone_root, "", True, commit)
+    store = cloud_map.directory.store
+    assert isinstance(store, CloudMapDB), "--gc needs a local clone of the cloudmap"
+    repo = cloud_map.repo
+    if repo:
+        # what refers to a record may have been committed upstream since
+        if repo.is_dirty():
+            raise click.ClickException(
+                f"{repo.working_dir} has uncommitted changes: commit or discard them"
+            )
+        if repo.repo.remotes and not local_env.pull_repo(repo, cloud_map.source_branch):
+            raise click.ClickException(
+                f"couldn't fast-forward {repo.working_dir} from its remote (the log "
+                "has git's output): it may have commits to push or merge first"
+            )
+        store.reload()
+    if isinstance(store, GitSyncCloudMapDB) and store.invalid:
+        raise UnfurlValidationError(
+            f"git-sync rejected records in {store.file}, so what they refer to "
+            "can't be seen: fix them first"
+        )
+    garbage = find_garbage(store) if dryrun else collect(store)
+    for record in garbage:
+        verb = "would remove" if dryrun else "removed"
+        click.echo(f"{verb} {type(record).__name__} {record.key}")
+    if not garbage:
+        click.echo("nothing to collect")
+    elif not dryrun:
+        keys = ", ".join(record.key for record in garbage[:10])
+        more = f" and {len(garbage) - 10} more" if len(garbage) > 10 else ""
+        cloud_map.save(f"Collect {len(garbage)} orphaned dependencies: {keys}{more}")
+
+
 def _get_local_env(path, options, overrides):
     localEnv = LocalEnv(
         path, options.get("home"), overrides=overrides, can_be_empty=True
@@ -2278,6 +2336,13 @@ def serve(
     "that it no longer produces. Repeatable.",
 )
 @click.option(
+    "--gc",
+    default=False,
+    is_flag=True,
+    help="Remove the records analysis created only because another record "
+    "referred to them, once none does. With --dryrun, list them instead.",
+)
+@click.option(
     "--graph",
     default=None,
     metavar="URL",
@@ -2318,6 +2383,7 @@ def cloudmap(
     analyze: Literal["yes", "no", "save-only", "default", "metadata"] = "default",
     graph: Optional[str] = None,
     graph_format: str = "text",
+    gc: bool = False,
     local_cloudmap: Optional[str] = None,
     **options,
 ):
@@ -2336,6 +2402,26 @@ def cloudmap(
         readonly=True,
         create_if_missing=True,
     )
+    if gc:
+        others = dict(
+            add=add,
+            replace=replace,
+            sync=sync,
+            graph=graph is not None,
+            local_cloudmap=local_cloudmap is not None,
+            repository=repository,
+            namespace=namespace,
+            visibility=visibility,
+            force=force,
+            analyze=analyze != "default",
+            skip_analysis=skip_analysis,
+            **{name: options.get(name) for name in ("import", "export")},
+        )
+        combined = [f"--{n.replace('_', '-')}" for n, value in others.items() if value]
+        if combined:
+            raise click.UsageError(f"--gc can't be combined with {', '.join(combined)}")
+        _cloudmap_gc(local_env, cloudmap, clone_root, commit, dryrun)
+        return
     if graph is not None:
         cloud_map = CloudMap.from_name(local_env, cloudmap, clone_root, "", True, False)
         from .reporting import cloudmap_graph_json, cloudmap_graph_console
@@ -2370,7 +2456,7 @@ def cloudmap(
     if not add and not replace and not host_name and not flushing:
         click.echo(
             "nothing to do (use one of --export, --import, --add, --replace, --graph,"
-            " --local-cloudmap, --commit, or --sync)"
+            " --gc, --local-cloudmap, --commit, or --sync)"
         )
         return
     # get the host first so we know branch to use in the cloud map repository

@@ -1,10 +1,11 @@
+import json
 import os
 from pathlib import Path
 import difflib
 import io
 from pprint import pformat
 import re
-from typing import Callable, Dict, Iterator, List, Protocol, Tuple
+from typing import Callable, Dict, Iterator, List, Protocol, Set, Tuple
 import traceback
 from click.testing import CliRunner
 import pytest
@@ -1883,6 +1884,341 @@ def test_backfill_created_by(memory_store: MemoryStore):
     assert db.get_repository(std), "only reached by the blueprint"
     assert db.get_artifact("pkg:generic/untracked") and db.get_artifact("pkg:generic/readded")
     assert not db.get_type("Blueprint"), "created by the blueprint"
+
+
+class TestGarbageCollection:
+    """``find_garbage`` and ``collect``: the records marked dependent that no
+    unmarked record leads to."""
+
+    @pytest.fixture(autouse=True)
+    def _memory_store(self, memory_store: MemoryStore) -> None:
+        self.memory_store = memory_store
+
+    DEP = "git://e.com/dep.git"
+    FILE = "git://e.com/dep.git#:f.yaml"
+    C = "https://c.example.com"
+    INST = "https://e.com/inst"
+    NAMED = "Named.Type@e.com/lib"
+    BARE = "Bare.Type@e.com/lib"
+
+    def _db(self) -> CloudMapDB:
+        def dependent(title: str = "", **discovery: object) -> Dict[str, object]:
+            title_ = {"title": title} if title else {}
+            return {"metadata": {**title_, "discovery": {**discovery, "dependent": True}}}
+
+        return self.memory_store(
+            {
+                **CloudMapDB.make_empty_cloudmap(),
+                "repositories": {
+                    self.DEP: {"path": "dep", **dependent(), "contains": {"f.yaml": None}}
+                },
+                "artifacts": {
+                    # reached only through the repository's `contains`
+                    self.FILE: {
+                        "instantiated_by": {self.INST: None},
+                        **dependent(title="f"),
+                    },
+                    "pkg:generic/alone": {"metadata": {"title": "alone"}},
+                    "pkg:generic/root": {
+                        "references": {self.DEP + "#v1:.": None},
+                        # types reached only by name
+                        "instantiates": {"app": {self.NAMED: None}},
+                        "dependencies": {"cloud": {"Bare.Type": None}},
+                        "metadata": {"title": "root"},
+                        # the only reference to it
+                        "versions": {"v2": {"references": {self.C: None}}},
+                    },
+                },
+                "services": {
+                    "https://a.example.com": {
+                        "connections": {"https://b.example.com": None},
+                        **dependent(),
+                    },
+                    "https://b.example.com": {
+                        "connections": {"https://a.example.com": None},
+                        **dependent(),
+                    },
+                    self.C: dependent(title="c"),
+                },
+                "instantiations": {self.INST: {"source": self.FILE, **dependent()}},
+                "types": {
+                    self.BARE: {"name": self.BARE, "kind": "component", **dependent()},
+                    # reached only through the file that produced it
+                    "Dep.Type": {
+                        "name": "Dep.Type",
+                        "kind": "component",
+                        **dependent(sources={self.FILE: None}),
+                    },
+                    self.NAMED: {"name": self.NAMED, "kind": "component", **dependent()},
+                },
+            }
+        )
+
+    def _garbage(self, db: CloudMapDB) -> Set[str]:
+        from unfurl.cloudmap.gc import find_garbage
+
+        return {record.key for record in find_garbage(db)}
+
+    CYCLE = {"https://a.example.com", "https://b.example.com"}
+
+    def test_what_a_root_leads_to_stays(self) -> None:
+        # the repository through a reference, its file through `contains`, and
+        # the type through the file that produced it
+        assert self._garbage(self._db()) == self.CYCLE
+
+    def test_a_dependency_nothing_refers_to_goes(self) -> None:
+        from unfurl.cloudmap.gc import collect
+
+        db = self._db()
+        root = db.get_artifact("pkg:generic/root")
+        assert root
+        root.references = {}
+        db.add_record(root)
+        garbage = {self.DEP, self.FILE, self.INST, "Dep.Type"} | self.CYCLE
+        assert self._garbage(db) == garbage
+        assert {record.key for record in collect(db)} == garbage
+        assert self._garbage(db) == set()
+        assert {record.key for record in db.records()} == {
+            "pkg:generic/alone",
+            "pkg:generic/root",
+            self.C,
+            self.NAMED,
+            self.BARE,
+        }
+
+    def test_a_type_name_leads_to_its_type(self) -> None:
+        db = self._db()
+        root = db.get_artifact("pkg:generic/root")
+        assert root
+        root.instantiates = {}
+        root.dependencies = {}
+        db.add_record(root)
+        assert self._garbage(db) == {self.NAMED, self.BARE} | self.CYCLE
+
+    def test_an_edited_file_keeps_its_repository(self) -> None:
+        db = self._db()
+        root = db.get_artifact("pkg:generic/root")
+        assert root
+        root.references = {}
+        db.add_record(root)
+        edited = db.get_artifact(self.FILE)
+        assert edited and edited.metadata.discovery
+        edited.metadata.discovery.dependent = False
+        db.add_record(edited)
+        assert self._garbage(db) == self.CYCLE
+
+    def test_a_version_belongs_to_its_record(self) -> None:
+        lib = "git://e.com/lib.git#:lib.yaml"
+        def dependent(title: str) -> Dict[str, object]:
+            return {"metadata": {"title": title, "discovery": {"dependent": True}}}
+
+        db = self.memory_store(
+            {
+                **CloudMapDB.make_empty_cloudmap(),
+                "artifacts": {
+                    lib: {
+                        **dependent("lib"),
+                        "versions": {"v1": {"references": {self.C: None}}},
+                    },
+                },
+                "services": {self.C: dependent("c")},
+            }
+        )
+        from unfurl.cloudmap.gc import collect
+
+        found = db.get_artifact(lib)
+        assert found
+        version = next(iter(found.versions.values())).url
+        user = Artifact(url="pkg:generic/user", references={("", version): None})
+        db.add_record(user)
+        # a reference to the version keeps it
+        assert self._garbage(db) == set()
+        db.delete_record(user)
+        # what its version refers to goes with it
+        assert {record.key for record in collect(db)} == {lib, self.C}
+        assert list(db.records()) == []
+
+
+def test_what_a_record_leads_to() -> None:
+    """Each dependent here is reached from the root one way only, but
+    ``control``, which nothing refers to, and ``producer``, which only the
+    root's provenance names."""
+    from unfurl.cloudmap.gc import find_garbage
+
+    def dependent(**record: object) -> Dict[str, object]:
+        sources = record.pop("sources", None)
+        discovery = {"dependent": True, **({"sources": sources} if sources else {})}
+        return {**record, "metadata": {"discovery": discovery}}
+
+    def a_type(name: str) -> Dict[str, object]:
+        return dependent(name=name, kind="component")
+
+    db = CloudMapDB(
+        "",
+        contents={
+            **CloudMapDB.make_empty_cloudmap(),
+            "repositories": {
+                "git://e.com/dep.git": dependent(path="dep"),
+                # kept by nothing but their own keys
+                "git://e.com/file-repo.git": dependent(path="file-repo"),
+                "git://e.com/producer.git": {"path": "producer"},
+            },
+            "artifacts": {
+                "pkg:generic/root": {
+                    "type": {"Stored.Bare@e.com/lib": None},
+                    "references": {
+                        "https://slash.example.com/": None,
+                        "type:Pseudo.Type": None,
+                        "#/types/Pointer.Type": None,
+                        "stub:renamed": None,
+                        "git://e.com/dep#v1:.": None,
+                        "http://[::1": None,
+                    },
+                    "dependencies": {"cloud": {"Ns.Type": None}},
+                    "release_schedule": [{"url": "https://schedule.example.com"}],
+                    "metadata": {
+                        "title": "root",
+                        "fork_of": "pkg:generic/forked",
+                        # where it came from, which it doesn't keep
+                        "discovery": {"sources": {"pkg:generic/producer": None}},
+                    },
+                    "org.example.uses": "pkg:generic/extension",
+                },
+                "git://e.com/file-repo.git#:f.yaml": {"metadata": {"title": "f"}},
+                "pkg:generic/forked": dependent(),
+                "pkg:generic/extension": dependent(),
+                # analyzing what the root refers to produced it
+                "pkg:generic/renamed": dependent(sources={"stub:renamed": None}),
+                "pkg:generic/control": dependent(),
+                "pkg:generic/producer": dependent(),
+            },
+            "services": {
+                "https://slash.example.com": dependent(),
+                "https://schedule.example.com": dependent(),
+            },
+            "types": {
+                name: a_type(name)
+                for name in (
+                    "Pseudo.Type",
+                    "Pointer.Type",
+                    "Stored.Bare",
+                    "Ns.Type@e.com/lib",
+                )
+            }
+            | {
+                "Produced.Type": dependent(
+                    name="Produced.Type",
+                    kind="component",
+                    sources={"git://e.com/producer.git": None},
+                )
+            },
+        },
+        validate=False,
+    )
+    assert {record.key for record in find_garbage(db)} == {
+        "pkg:generic/control",
+        "pkg:generic/producer",
+    }
+
+
+def test_collect_returns_only_what_it_removed(caplog: pytest.LogCaptureFixture) -> None:
+    from unfurl.cloudmap.gc import collect
+
+    dependent = {"metadata": {"discovery": {"dependent": True}}}
+    db = CloudMapDB(
+        "",
+        contents={
+            **CloudMapDB.make_empty_cloudmap(),
+            # stored under a key other than the record's own
+            "artifacts": {"docker.io/library/nginx": dependent},
+            "types": {"K": {"name": "N", "kind": "component", **dependent}},
+        },
+        validate=False,
+    )
+    assert collect(db) == []
+    assert "couldn't remove CloudType N" in caplog.text
+
+
+def test_gc_on_the_command_line(tmp_path: Path) -> None:
+    """``--gc`` on a configured cloudmap repository, and what it refuses."""
+    runner = CliRunner()
+
+    def gc(*args: str) -> Tuple[int, str]:
+        result = runner.invoke(cli, ["--home", "", "cloudmap", "--gc", *args])
+        if isinstance(result.exception, SystemExit) or not result.exception:
+            return result.exit_code, result.output
+        return result.exit_code, result.output + repr(result.exception)
+
+    with change_cwd(str(tmp_path)):
+        code, output = gc("--dryrun")
+        assert code == 2 and "no cloudmap repository is configured" in output, output
+
+        upstream = git.Repo.init("cloudmap", initial_branch="main")
+        orphan = {"metadata": {"discovery": {"dependent": True}}}
+        artifacts = {"pkg:generic/kept": {"metadata": {"title": "kept"}}}
+
+        def commit_upstream(**more: Dict[str, object]) -> None:
+            artifacts.update(more)
+            doc = {**CloudMapDB.make_empty_cloudmap(), "artifacts": artifacts}
+            with open(tmp_path / "cloudmap" / "cloudmap.yaml", "w") as f:
+                json.dump(doc, f)
+            upstream.index.add(["cloudmap.yaml"])
+            upstream.index.commit("a cloudmap")
+
+        commit_upstream(**{"pkg:generic/orphan": orphan})
+        init_project(
+            runner,
+            args=["init", "--mono", "--var", "vaultid", "", "project"],
+            env=dict(UNFURL_HOME=""),
+        )
+        with change_cwd("project"):
+            with open("unfurl.yaml", "w") as f:
+                f.write(GC_PROJECT)
+            code, output = gc()
+            assert code == 2 and "--gc needs --commit" in output
+            code, output = gc("--commit", "--add", "pkg:generic/x")
+            assert code == 2 and "can't be combined with --add" in output
+
+            code, output = gc("--dryrun")
+            assert code == 0 and "would remove Artifact pkg:generic/orphan" in output
+            if _has_git_sync():
+                commit_upstream(**{"pkg:generic/invalid": {"type": "not a map"}})
+                code, output = gc("--dryrun")
+                assert code == 1 and "git-sync rejected" in output, output
+                del artifacts["pkg:generic/invalid"]
+            # the clone pulls it
+            commit_upstream(**{"pkg:generic/orphan2": orphan})
+            code, output = gc("--commit")
+            assert code == 0 and "removed Artifact pkg:generic/orphan2" in output, output
+            clone = git.Repo("cloudmap")
+            assert clone.remotes.origin.url.endswith("/cloudmap")
+            message = str(clone.head.commit.message)
+            assert message.startswith("Collect 2 orphaned dependencies: "), message
+            with open("cloudmap/cloudmap.yaml") as f:
+                assert "pkg:generic/orphan" not in f.read()
+            code, output = gc("--dryrun")
+            assert code == 0 and "nothing to collect" in output
+            # the clone's commit isn't pushed, so it can't fast-forward to this
+            commit_upstream(**{"pkg:generic/orphan3": orphan})
+            code, output = gc("--dryrun")
+            assert code == 1 and "fast-forward" in output, output
+
+            with open("cloudmap/cloudmap.yaml", "a") as f:
+                f.write("\n")
+            code, output = gc("--dryrun")
+            assert code == 1 and "uncommitted" in output, output
+
+
+GC_PROJECT = """
+apiVersion: unfurl/v1alpha1
+kind: Project
+environments:
+  defaults:
+    cloudmaps:
+      repositories:
+        cloudmap:
+          url: file:../cloudmap
+"""
 
 
 def test_uri_template_record_keys(memory_store: MemoryStore):

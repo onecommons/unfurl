@@ -2058,6 +2058,10 @@ class AnalyzerContext(CloudMapWriter):
 
         ``replace`` also removes records previously discovered from this URL
         that it no longer produces.
+
+        The records the analysis creates are marked ``dependent``, and
+        ``unfurl cloudmap --gc`` removes them once no record refers to them:
+        record ``url`` in the record that uses it.
         """
 
 

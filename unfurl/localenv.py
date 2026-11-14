@@ -1913,6 +1913,12 @@ class LocalEnv:
             return contextlib.nullcontext()
         return repo.with_credentials(url, *credentials)
 
+    def pull_repo(self, repo: GitRepo, revision: Optional[str] = None) -> bool:
+        """Fast-forward ``repo`` from its remote, as working dirs found here are."""
+        self._keep_out_symlinks(repo)
+        with self._upstream_credentials(repo):
+            return repo.pull(revision=revision)
+
     def find_or_create_working_dir(
         self,
         repoURL: str,
@@ -1953,9 +1959,7 @@ class LocalEnv:
                     and isinstance(repo, GitRepo)
                     and not dirty
                 ):
-                    self._keep_out_symlinks(repo)
-                    with self._upstream_credentials(repo):
-                        repo.pull(revision=revision)
+                    self.pull_repo(repo, revision)
         else:
             # url is the repoUrl (possibly rewritten) at this point
             # git-local repos must already exist locally

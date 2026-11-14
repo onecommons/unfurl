@@ -520,19 +520,7 @@ def backfill_created_by(store: CloudMapStore) -> int:
     Returns:
         How many records changed.
     """
-    records = [
-        record
-        for found in (
-            store.find_repositories(),
-            store.find_artifacts(),
-            store.find_components(),
-            store.find_services(),
-            store.find_instantiations(),
-            store.find_types(),
-        )
-        for record in found
-        if not getattr(record, "_parent", None)
-    ]
+    records = list(store.records())
     changed = 0
     for record in records:
         discovery = getattr(getattr(record, "metadata", None), "discovery", None)

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Any, Dict
 import tempfile
 from datetime import datetime, timezone
@@ -2459,6 +2460,40 @@ def test_dependent_marks_what_an_analysis_another_led_to_creates(tmp_path):
         stored.metadata.title = "touched"
         context.add_record(stored)
     assert not _dependent(db.artifacts["pkg:generic/inner"])
+
+
+def test_gc_removes_what_a_nested_analysis_created_once_nothing_refers_to_it(
+    tmp_path: Path,
+) -> None:
+    def emits(refers: bool) -> Dict[str, list]:
+        outer = Artifact(url="pkg:generic/outer")
+        if refers:
+            outer.references = {("", "stub:inner"): None}
+        return {
+            "stub:outer": [outer],
+            # keyed unlike the URL analyzed
+            "stub:inner": [
+                Service(url="https://inner.example.com"),
+                CloudType(name="inner.Type", kind="component"),
+            ],
+        }
+
+    from unfurl.cloudmap.gc import find_garbage
+
+    cm = _stub_cloudmap(tmp_path, emits(True), recurses={"stub:outer": ["stub:inner"]})
+    db = cm.directory.store
+    cm.analyze_url("stub:outer")
+    # through the reference to the URL whose analysis produced them
+    assert find_garbage(db) == []
+
+    _StubURLAnalyzer.emits = emits(False)
+    _StubURLAnalyzer.recurses = {}
+    cm.analyze_url("stub:outer")
+    assert {record.key for record in find_garbage(db)} == {
+        "stub:inner",
+        "https://inner.example.com",
+        "inner.Type",
+    }
 
 
 def test_analyze_url_replace_does_not_oscillate(tmp_path):

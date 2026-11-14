@@ -97,6 +97,18 @@ Each clone gets a repository record (see the {ref}`schema <CloudMap Schema>`):
 - A branch is compared with the branch it tracks, otherwise with the same-named branch, as last fetched or as the remote repository's record in the main cloud map names it, whichever is later. Commits the clone doesn't have are looked for in other local clones of the same repository.
 - Its tags are compared with those of the remote repository's record in the main cloud map, as of its last import, if it has one.
 
+### Remove orphaned dependencies
+
+When analyzing a repository leads to analyzing another, such as a blueprint's dependency on a type library, the records the second analysis creates are marked `dependent: true` in their `metadata.discovery`. Re-analyzing doesn't remove them, since other records may still refer to them. To remove the ones nothing refers to any more:
+
+`unfurl cloudmap --gc --commit`
+
+A marked record is kept while an unmarked record leads to it: any value in a record that names another, or a URL whose analysis produced it, leads to that record. `--dryrun` lists what would be removed instead.
+
+It works on the local clone of the cloud map's repository, which it first fast-forwards from its remote, and refuses to run if the clone has uncommitted changes, can't be fast-forwarded, or has records git-sync rejected. The commit isn't pushed: push it yourself, and a cloud map server picks it up when it next pulls. Records written to a server without `--commit` aren't in the repository yet, so a record they refer to can be removed: commit them first with `unfurl cloudmap --commit`.
+
+To keep a record, delete its `dependent` mark; any change Unfurl writes to it, other than from such an analysis, also clears it.
+
 ## Configuration
 
 You can configure the cloud map location and repository hosts used for synchronize in the environments section of `unfurl.yaml`.  This configuration sample illustrates the available options. A relative path in a cloud map's repository configuration (a `url` that is a file path or a `file:` url, also when the `url` comes from the environment's `repositories`, `clone_root`, `local_cloudmap` and `db_dir`), or in a `local` host's `clone_root`, is relative to the project's root, the directory holding `unfurl.yaml`, and `~` is expanded:
