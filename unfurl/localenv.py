@@ -1938,6 +1938,7 @@ class LocalEnv:
             )
             if not locked and not (repoview.package and repoview.package.locked):
                 dirty = repo.is_dirty()
+                current = repo
                 if (revision and not exact) or checkout_args:
                     if dirty:
                         logger.warning(
@@ -1956,13 +1957,13 @@ class LocalEnv:
                             gitrepo.checkout(
                                 revision or "", fetch_first=missing, **checkout_args
                             )
-                        repoview.repo = gitrepo
-                elif (
+                        repoview.repo = current = gitrepo
+                if (
                     not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
-                    and isinstance(repo, GitRepo)
+                    and isinstance(current, GitRepo)
                     and not dirty
                 ):
-                    self.pull_repo(repo, revision)
+                    self.pull_repo(current, revision)
         else:
             # url is the repoUrl (possibly rewritten) at this point
             # git-local repos must already exist locally

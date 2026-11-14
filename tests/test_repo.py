@@ -1960,3 +1960,23 @@ def test_checkout_fetches_a_branch_no_refspec_maps(tmp_path: Path) -> None:
     assert (repo.active_branch, repo.revision) == ("feature", expected)
     with pytest.raises(UnfurlError, match='couldn\'t fetch "missing"'):
         repo.checkout("missing", fetch_first=True)
+
+
+@pytest.mark.parametrize("skip_upstream_check", [True, False])
+def test_switching_to_a_branch_pulls_it_with_upstream_checks(
+    tmp_path: Path, skip_upstream_check: bool
+) -> None:
+    """A clone switched to a branch it has fast-forwards it, as a clone
+    already on it does, unless upstream checks are skipped."""
+    upstream = _upstream(tmp_path)
+    url = f"file://{upstream}"
+    env = _project_env(tmp_path, "cli")
+    env.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = skip_upstream_check
+    repo, _, _ = env.find_or_create_working_dir(url)
+    assert repo
+    cloned = repo.revision
+    env.find_or_create_working_dir(url, "v1.0")
+    latest = _commit(upstream, "later")
+    repo, _, _ = env.find_or_create_working_dir(url, "main")
+    assert isinstance(repo, GitRepo) and repo.active_branch == "main"
+    assert repo.revision == (cloned if skip_upstream_check else latest)
