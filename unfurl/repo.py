@@ -1481,12 +1481,35 @@ class GitRepo(Repo):
             commitId + ":" + path, stdout_as_string=stdout_as_string
         )
 
+    def _fetch(self, revision: str) -> bool:
+        """Fetch ``revision`` and every tag from the remote, or return False
+        if there is no remote."""
+        remote = self.remote
+        if not remote:
+            return False
+        args = ["fetch", remote.name, revision or "HEAD", "--tags", "--update-shallow"]
+        code, out, err = self.run_cmd(args)
+        if code:
+            logger.debug("%s failed in %s: %s %s", args, self.working_dir, out, err)
+            raise UnfurlError(
+                f'couldn\'t fetch "{revision or "HEAD"}" from {sanitize_url(self.url)}'
+            )
+        return True
+
     def checkout(self, revision="", fetch_first=False, **kw):
+        """Check out ``revision``, fetching it from the remote first if
+        ``fetch_first``; ``kw`` are ``git checkout`` options."""
         # if revision isn't specified and repo is not pinned:
         #  save the ref of current head
-        if fetch_first and self.repo.remotes:
-            self.run_cmd(["fetch", revision or "HEAD", "--tags", "--update-shallow"])
-        self.repo.git.checkout(revision, **kw)
+        fetched = fetch_first and self._fetch(revision)
+        try:
+            self.repo.git.checkout(revision, **kw)
+        except git.exc.GitCommandError:
+            if not (fetched and revision):
+                raise
+            # a branch that no fetch refspec maps (a single-branch clone, a
+            # converted ProxiedRepo) is only in FETCH_HEAD
+            self.repo.git.checkout("FETCH_HEAD", **{"b": revision, **kw})
         logger.info(
             "checking out '%s' at %s to %s",
             self.url,

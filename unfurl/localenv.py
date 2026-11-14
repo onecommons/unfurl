@@ -1948,10 +1948,13 @@ class LocalEnv:
                             gitrepo = repo.convert_to_git()
                         else:
                             gitrepo = cast(GitRepo, repo)
+                        missing = bool(revision) and not gitrepo.resolve_rev_spec(
+                            revision
+                        )
                         self._keep_out_symlinks(gitrepo)
                         with self._upstream_credentials(gitrepo):
                             gitrepo.checkout(
-                                revision or "", fetch_first=True, **checkout_args
+                                revision or "", fetch_first=missing, **checkout_args
                             )
                         repoview.repo = gitrepo
                 elif (

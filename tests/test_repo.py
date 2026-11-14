@@ -2,6 +2,7 @@ import unittest
 import os
 import traceback
 import pytest
+from pathlib import Path
 from urllib.parse import quote
 from click.testing import CliRunner
 from unfurl.__main__ import cli, _latestJobs
@@ -1895,3 +1896,67 @@ def test_the_server_under_gunicorn_isolates_git(tmp_path):
         check=True,
     )
     assert out.stdout.split()[-3:] == ["https:ssh", os.devnull, "True"], out.stderr[-2000:]
+
+
+def _commit(repo: Path, message: str) -> str:
+    (repo / "file").write_text(message)
+    _git("add", "file", cwd=repo)
+    _git("commit", "-q", "-m", message, cwd=repo)
+    return Repo(repo).head.commit.hexsha
+
+
+def _upstream(tmp_path: Path) -> Path:
+    """A repository with a tag on ``main`` and a commit after it."""
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    _git("init", "-q", "-b", "main", cwd=upstream)
+    _commit(upstream, "first")
+    _git("tag", "v1.0", cwd=upstream)
+    _commit(upstream, "second")
+    return upstream
+
+
+def test_an_existing_clone_fetches_a_revision_it_lacks(tmp_path: Path) -> None:
+    """A clone asked for a tag, branch or commit made after it was cloned
+    fetches it, upstream checks or not; one it has needs no remote."""
+    upstream = _upstream(tmp_path)
+    url = f"file://{upstream}"  # not a path, so the clone is shallow
+    env = _project_env(tmp_path, "cli")
+    env.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
+    _, _, created = env.find_or_create_working_dir(url)
+    assert created
+    _commit(upstream, "tagged later")
+    _git("tag", "v1.1", cwd=upstream)
+    _git("checkout", "-q", "-b", "feature", cwd=upstream)
+    _commit(upstream, "on a new branch")
+    _git("checkout", "-q", "main", cwd=upstream)
+    commit = _commit(upstream, "untagged")
+    revisions = ["v1.1", "feature", commit, "v1.0"]
+    expected = {
+        revision: Repo(upstream).commit(revision).hexsha for revision in revisions
+    }
+    for revision in revisions:
+        if revision == "v1.0":
+            upstream.rename(tmp_path / "moved")
+        repo, _, created = env.find_or_create_working_dir(url, revision)
+        assert repo and not created
+        assert repo.revision == expected[revision], revision
+
+
+def test_checkout_fetches_a_branch_no_refspec_maps(tmp_path: Path) -> None:
+    """A single-branch clone checks out a branch it has no remote-tracking
+    ref for from what the fetch got, and says when the fetch fails."""
+    from unfurl.util import UnfurlError
+
+    upstream = _upstream(tmp_path)
+    clone = tmp_path / "clone"
+    _git(
+        "clone", "-q", "--single-branch", f"file://{upstream}", str(clone), cwd=tmp_path
+    )
+    _git("checkout", "-q", "-b", "feature", cwd=upstream)
+    expected = _commit(upstream, "on a new branch")
+    repo = GitRepo(Repo(clone))
+    repo.checkout("feature", fetch_first=True)
+    assert (repo.active_branch, repo.revision) == ("feature", expected)
+    with pytest.raises(UnfurlError, match='couldn\'t fetch "missing"'):
+        repo.checkout("missing", fetch_first=True)

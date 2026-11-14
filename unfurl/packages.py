@@ -982,21 +982,8 @@ class ProxiedRepo(Repo):
 
         Clones origin as a bare repo into ``.git/``, flips to
         non-bare, and overwrites the working tree with HEAD (origin's
-        default branch) so index and working tree both match HEAD.
-
-        We deliberately *don't* park HEAD on the proxied snapshot's
-        pinned commit, even though that's where the working tree
-        files came from.  The only caller of this method
-        (``LocalEnv.find_or_create_working_dir``) is converting
-        precisely because it's about to switch the checkout to a
-        different ref via ``repo.pull(revision=…)``.  If the pinned
-        commit isn't an ancestor of the target ref (e.g. v1.1.1 was
-        tagged on a release branch that diverged from main), a
-        subsequent ``pull --ff-only`` would fail and HEAD would be
-        stranded on a ref nobody asked for.  Landing on origin's
-        default avoids that — pull can then advance to any branch
-        reachable from there, and the proxied snapshot's contents
-        are discarded along with ``.proxied/``.
+        default branch) so index and working tree both match HEAD,
+        discarding the proxied snapshot along with ``.proxied/``.
         """
         git_dir = os.path.join(self._working_dir, ".git")
         git.Repo.clone_from(self.url, git_dir, bare=True)
@@ -1010,7 +997,7 @@ class ProxiedRepo(Repo):
         # overwrite the proxied snapshot in the working tree.  `-f`
         # forces overwrite of the existing files.  After this, index
         # and working tree both match HEAD → `is_dirty()` returns
-        # False and `pull(revision=…)` runs cleanly.
+        # False and a checkout of another revision runs cleanly.
         g.execute(["git", "checkout", "-f", "HEAD", "--", "."])
 
         # Clean up proxied metadata.
