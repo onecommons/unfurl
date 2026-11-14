@@ -426,6 +426,17 @@ def _source_matches_key(source: str, record: "CloudMapRecord") -> bool:
     )
 
 
+def _repository_of(source: str) -> List[str]:
+    """The repository ``source`` names a file in, as the URL an analysis of the
+    repository records -- ``repo`` for ``repo#:path``, ``repo#branch`` for
+    ``repo#branch:path`` -- or none."""
+    base, sep, fragment = source.partition("#")
+    revision, colon, path = fragment.partition(":")
+    if not source.startswith("git:") or not sep or not colon or not path:
+        return []
+    return [f"{base}#{revision}" if revision else base]
+
+
 def record_discovery_source(
     record: "CloudMapRecord",
     sources: Union[str, Sequence[str]],
@@ -456,9 +467,13 @@ def record_discovery_source(
             record from scratch (e.g. :py:func:`unfurl.cloudmap.oci.create_oci_artifact`,
             which assigns a fresh ``Discovery``) would otherwise drop the URLs
             that other analyzers had contributed.
+
+    A file in a repository is recorded with its repository, as an analysis
+    of the repository records it, so replacing either URL finds the record.
     """
     if isinstance(sources, str):
         sources = [sources]
+    sources = [s for source in sources for s in (*_repository_of(source), source)]
     incoming = discovery_sources(previous) if previous is not None else []
     # only add a source if its different from the record's key
     incoming.extend(s for s in sources if not _source_matches_key(s, record))
@@ -899,31 +914,7 @@ class ProvenanceTrackingContext(AnalyzerContext):
         return bool(revision) and ":" not in revision and source.startswith(url + ":")
 
     def find_by_source(self, url: str) -> Dict[Tuple[str, str], CloudMapRecord]:
-        """Every record attributed to ``url``, keyed by ``record_identity``.
-
-        Walks each section: records are indexed by key only, so there is no way
-        to look them up by their discovery metadata. Version variants are
-        skipped -- they're stored under their parent, which is what gets added
-        and removed.
-        """
-        found: Dict[Tuple[str, str], CloudMapRecord] = {}
-        for records in (
-            self.find_repositories(),
-            self.find_artifacts(),
-            self.find_components(),
-            self.find_services(),
-            self.find_instantiations(),
-            self.find_types(),
-        ):
-            for record in records:
-                if getattr(record, "_parent", None):
-                    continue
-                if any(
-                    self.matches_source(source, url)
-                    for source in discovery_sources(record)
-                ):
-                    found[record_identity(record)] = record
-        return found
+        return self.__context.find_by_source(url)
 
     def replace_from_source(self, url: str, provenance: Provenance) -> None:
         """Drop ``url`` from records it used to produce but no longer does.
@@ -958,7 +949,7 @@ class ProvenanceTrackingContext(AnalyzerContext):
             remaining = [
                 source
                 for source in discovery_sources(record)
-                # Symmetric, unlike the search above: a record analyzing
+                # Symmetric, unlike find_by_source's exact match: a record analyzing
                 # `repo#:file.yaml` produced carries `repo` too, and that
                 # claim was made by this same analysis, so replacing the file
                 # drops it as well. A record another file also produces keeps

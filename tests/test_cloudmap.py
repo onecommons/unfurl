@@ -4027,6 +4027,24 @@ class TestAnalyzeCheckout:
         self._analyze(db, repo, "main", ["Dockerfile", "notes.txt"])
         assert db.get_artifact(f"{self.URL}#:.gitlab-ci.yml")
 
+    def test_what_an_analysis_produced_carries_its_url(self, tmp_path):
+        # a sweep finds what it replaces by matching the URL exactly
+        db = self._db()
+        repo = self._checkout(tmp_path)
+        self._analyze(db, repo, "main", [])
+        files = {f"{self.URL}#:Dockerfile", f"{self.URL}#:.gitlab-ci.yml"}
+        assert {key for _, key in db.find_by_source(self.URL)} == files
+        # re-analyzing one file still attributes its records to the repository
+        self._analyze(db, repo, "main", ["Dockerfile"])
+        assert {key for _, key in db.find_by_source(self.URL)} == files
+        # off the default branch, the branch is in the URL
+        repo.git.checkout("-q", "-b", "feature")
+        self._analyze(db, repo, "feature", [])
+        assert {key for _, key in db.find_by_source(f"{self.URL}#feature")} == {
+            f"{self.URL}#feature:Dockerfile",
+            f"{self.URL}#feature:.gitlab-ci.yml",
+        }
+
     def test_replace_collects_deleted_files(self, tmp_path):
         db = self._db()
         repo = self._checkout(tmp_path)

@@ -23,6 +23,7 @@ from unfurl.cloudmap.proxy import (
 from unfurl.tosca_plugins.cloudmap_defs import (
     Artifact,
     ArtifactMetadata,
+    Discovery,
 )
 
 
@@ -105,6 +106,51 @@ def _make_proxy(
 # ---------------------------------------------------------------------------
 # Tests — reads
 # ---------------------------------------------------------------------------
+
+
+def test_find_by_source_asks_once_and_keeps_what_is_staged() -> None:
+    source = "pkg:oci/x?repository_url=docker.io/x"
+
+    def produced(title: str) -> Dict[str, Any]:
+        return {"metadata": {"title": title, "discovery": {"sources": {source: None}}}}
+
+    def staged(url: str) -> Artifact:
+        return Artifact(
+            url=url,
+            metadata=ArtifactMetadata(
+                title="staged", discovery=Discovery(sources={source: None})
+            ),
+        )
+
+    server = _response(
+        {
+            "artifacts": {
+                "pkg:generic/a": produced("server"),
+                "pkg:generic/edited": produced("server"),
+                "pkg:generic/deleted": produced("server"),
+            }
+        }
+    )
+    proxy, session = _make_proxy(get_returns=[_make_response(server)])
+    proxy.add_record(staged("pkg:generic/edited"))
+    deleted = staged("pkg:generic/deleted")
+    proxy.add_record(deleted)
+    proxy.delete_record(deleted)
+    proxy.add_record(staged("pkg:generic/new"))
+
+    found = proxy.find_by_source(source)
+
+    assert session.get.call_count == 1
+    assert (
+        "exists",
+        "/metadata/discovery/sources/pkg:oci~1x?repository_url=docker.io~1x",
+    ) in session.get.call_args.kwargs["params"]
+    assert {key for _, key in found} == {
+        "pkg:generic/a",
+        "pkg:generic/edited",
+        "pkg:generic/new",
+    }
+    assert found[("Artifact", "pkg:generic/edited")].metadata.title == "staged"
 
 
 def test_get_artifact_fetches_then_caches() -> None:

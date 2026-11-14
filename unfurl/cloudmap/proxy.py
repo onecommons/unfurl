@@ -909,6 +909,37 @@ class CloudMapProxy(CloudMapStore):
                 continue
             yield record
 
+    def find_by_source(self, url: str) -> Dict[Tuple[str, str], CloudMapRecord]:
+        """:py:meth:`CloudMapStore.find_by_source`, asking the server for just
+        those records (``exists=``) rather than walking every section, then
+        answering from the cache, where what's staged here stands."""
+        pointer = "/metadata/discovery/sources/" + url.replace("~", "~0").replace("/", "~1")
+        token: Optional[str] = None
+        while True:
+            params = self._query_params(
+                exists=pointer, limit=self._page_size or None, page_token=token
+            )
+            body = self._get(params)
+            self._drop_staged(body)
+            _, next_token = self._cache.ingest_response(body)
+            if not next_token or next_token == token:
+                break
+            token = next_token
+        return self._cache.find_by_source(url)
+
+    def _drop_staged(self, body: Any) -> None:
+        """Leave the records with a write or delete staged here out of
+        ``body``, a ``GET /cloudmap`` response, so merging it doesn't
+        overwrite them in the cache."""
+        result = body.get("result") if isinstance(body, dict) else None
+        if not isinstance(result, dict):
+            return
+        for section, staged in self._pending_writes.items():
+            entries = result.get(section)
+            if isinstance(entries, dict):
+                for key in staged:
+                    entries.pop(key, None)
+
     def find_artifacts(self, type: str = "") -> Iterator[Artifact]:
         return self._iter_section("artifacts", type)
 

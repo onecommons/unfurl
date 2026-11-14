@@ -2489,10 +2489,11 @@ def test_analyze_url_replace_skips_sweep_when_analysis_fails(tmp_path):
 def test_analyze_url_replace_matches_repository_file_sources(tmp_path):
     """A repository url collects the records of its own files.
 
-    Records produced by analyzing files inside a repository are attributed to
-    ``<repo url>#:<path>``, not the bare repository url, so replacing a
-    repository has to match that prefix -- otherwise deleting a file from the
-    repository would never collect the records it had produced.
+    Records produced by analyzing a file inside a repository are attributed to
+    ``<repo url>#:<path>`` and to the repository, as an analysis of the
+    repository attributes them, so replacing the repository finds them --
+    otherwise deleting a file from it would never collect the records the file
+    had produced.
     """
     cm = _stub_cloudmap(tmp_path, {})
     db = cm.directory.store

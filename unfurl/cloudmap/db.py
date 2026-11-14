@@ -153,6 +153,27 @@ class CloudMapStore(CloudMapWriter):
             )
         return self.__cloudmap.analyze_url(url, analyze, replace)
 
+    def find_by_source(self, url: str) -> Dict[Tuple[str, str], CloudMapRecord]:
+        """Every record with ``url`` among its ``metadata.discovery.sources``,
+        by ``(record type, key)``. Version variants are left out: they're
+        stored under their parent, which is what gets added and removed."""
+        found: Dict[Tuple[str, str], CloudMapRecord] = {}
+        for records in (
+            self.find_repositories(),
+            self.find_artifacts(),
+            self.find_components(),
+            self.find_services(),
+            self.find_instantiations(),
+            self.find_types(),
+        ):
+            for record in records:
+                if getattr(record, "_parent", None):
+                    continue
+                discovery = getattr(getattr(record, "metadata", None), "discovery", None)
+                if discovery and any(source == url for _, source in discovery.sources):
+                    found[(type(record).__name__, record.key)] = record
+        return found
+
     @abstractmethod
     def save(self, msg: str = "", commit: bool = True) -> Any:
         """Persist the records added so far, describing them with ``msg``.
