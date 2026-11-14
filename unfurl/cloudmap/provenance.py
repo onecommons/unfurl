@@ -960,6 +960,10 @@ class ProvenanceTrackingContext(AnalyzerContext):
             ]
             if remaining or not _created_by(record.asdict()):
                 _replace_discovery_sources(record, remaining)
+                # straight to the store: a store that sends only what's written
+                # to it (CloudMapProxy) would miss the change made in place, and
+                # this context's add_record would read it as a person's write
+                self.__context.add_record(record)
                 self.logger.verbose(
                     "%s %s is no longer discovered from %s",
                     identity[0],

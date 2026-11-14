@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from unfurl.cloudmap.provenance import ProvenanceTrackingContext
+from unfurl.cloudmap.provenance import Provenance, ProvenanceTrackingContext
 from unfurl.cloudmap.proxy import (
     CloudMapProxy,
     CloudMapProxyConflict,
@@ -151,6 +151,40 @@ def test_find_by_source_asks_once_and_keeps_what_is_staged() -> None:
         "pkg:generic/new",
     }
     assert found[("Artifact", "pkg:generic/edited")].metadata.title == "staged"
+
+
+def test_a_sweep_sends_what_it_changes() -> None:
+    """A sweep through the proxy sends the sources it drops from the records
+    it keeps, not just its deletions."""
+    gone, other = "git://e.com/gone.git", "git://e.com/other.git"
+
+    def record(sources: List[str], created_by: str = "") -> Dict[str, Any]:
+        discovery: Dict[str, Any] = {"sources": {s: None for s in sources}}
+        if created_by:
+            discovery["created_by"] = created_by
+        return {"metadata": {"discovery": discovery}}
+
+    server = _response(
+        {
+            "artifacts": {
+                "pkg:generic/shared": record([gone, other], gone),
+                "pkg:generic/added": record([gone]),
+                "pkg:generic/created": record([gone], gone),
+            }
+        }
+    )
+    proxy, _ = _make_proxy(get_returns=[_make_response(server)])
+    proxy.logger = MagicMock()
+    provenance = Provenance()
+    provenance.touched.add(("Artifact", "pkg:generic/elsewhere"))
+    ProvenanceTrackingContext(proxy).replace_from_source(gone, provenance)
+
+    staged = proxy._pending_writes["artifacts"]
+    shared = staged["pkg:generic/shared"]["metadata"]["discovery"]
+    assert shared["sources"] == {other: None}
+    assert shared["created_by"] == gone, "a sweep isn't a person's write"
+    assert "sources" not in staged["pkg:generic/added"].get("metadata", {}).get("discovery", {})
+    assert staged["pkg:generic/created"].get("unfurl.server.deleted")
 
 
 def test_get_artifact_fetches_then_caches() -> None:
