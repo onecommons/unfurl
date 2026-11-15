@@ -999,6 +999,30 @@ async fn post_schema_violation_returns_422() {
 }
 
 #[tokio::test]
+async fn post_another_kinds_metadata_key_returns_422() {
+    // `license_url` is repository metadata, so a component can't carry it,
+    // and Python would refuse to load a cloudmap file that held this record.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "components": {
+            "label@example.com": {
+                "status": "production",
+                "metadata": { "license_url": "https://example.com/LICENSE" }
+            }
+        }
+    });
+    let (status, body) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+    assert_eq!(body["code"], "VALIDATION_ERROR", "{body:?}");
+    let message = body["message"].as_str().unwrap_or_default();
+    assert!(message.contains("license_url"), "{body:?}");
+    let app = router(make_state(cm));
+    let (s, _) = get_json(app, "/cloudmap?kind=components&key=label@example.com").await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "the component was written");
+}
+
+#[tokio::test]
 async fn post_unprefixed_custom_property_returns_422() {
     // A record property the schema doesn't declare needs an authority
     // prefix. git-sync's `validate_record` checks it, and an invalid record

@@ -162,8 +162,9 @@ fn write_if_changed(path: &Path, contents: &str, label: &str) {
 /// dataclasses in `unfurl/tosca_plugins/cloudmap_defs.py` emit.
 ///
 /// Also renders `EXTENSION_PATTERNS`: for each section whose definition
-/// closes its properties with `additionalProperties: false`, the
-/// `patternProperties` pattern an undeclared property name must match.
+/// closes its properties, the `patternProperties` pattern an undeclared
+/// property name must match; and `METADATA_FIELDS`: for each section whose
+/// records' `metadata` is closed, the keys it declares and that pattern.
 fn field_order_source(schema_text: &str) -> String {
     let root: serde_json::Value =
         serde_json::from_str(schema_text).expect("parse cloudmap-schema.json as json");
@@ -175,16 +176,13 @@ fn field_order_source(schema_text: &str) -> String {
 
     let mut entries = String::new();
     let mut patterns = String::new();
+    let mut metadata = String::new();
     let sections = root
         .get("properties")
         .and_then(|v| v.as_object())
         .expect("cloudmap-schema.json has top-level properties");
     // The root's own entry, under "": the order of the sections.
-    let root_fields = sections
-        .keys()
-        .map(|f| format!("{f:?}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let root_fields = quoted(sections.keys().cloned());
     entries.push_str(&format!("    (\"\", &[{root_fields}]),\n"));
     for (section, node) in sections {
         // A section is either a map of records -- `additionalProperties`
@@ -201,18 +199,13 @@ fn field_order_source(schema_text: &str) -> String {
         let Some(definition) = defs.get(name) else {
             continue;
         };
-        let fields = schema_properties(definition, defs)
-            .into_iter()
-            .map(|f| format!("{f:?}"))
-            .collect::<Vec<_>>()
-            .join(", ");
+        let fields = quoted(schema_properties(definition, defs));
         entries.push_str(&format!("    ({section:?}, &[{fields}]),\n"));
-        // the document's own `metadata` isn't checked here
-        if record_ref.is_none() {
-            continue;
-        }
-        if let Some(pattern) = extension_pattern(definition) {
+        if let Some(pattern) = extension_pattern(definition, defs) {
             patterns.push_str(&format!("    ({section:?}, {pattern:?}),\n"));
+        }
+        if record_ref.is_some() {
+            metadata.push_str(&metadata_entry(section, definition, defs));
         }
     }
 
@@ -230,23 +223,83 @@ fn field_order_source(schema_text: &str) -> String {
          \n\
          /// Per section of closed records, the pattern a property name not in\n\
          /// `FIELD_ORDER` must match.\n\
-         pub const EXTENSION_PATTERNS: &[(&str, &str)] = &[\n{patterns}];\n"
+         pub const EXTENSION_PATTERNS: &[(&str, &str)] = &[\n{patterns}];\n\
+         \n\
+         /// Per section whose records' `metadata` is closed, the keys it\n\
+         /// declares and the pattern any other key must match.\n\
+         pub const METADATA_FIELDS: &[(&str, &[&str], &str)] = &[\n{metadata}];\n"
     )
 }
 
-/// The single `patternProperties` pattern of a definition that disallows
-/// other additional properties, or `None` if it allows any.
-fn extension_pattern(definition: &serde_json::Value) -> Option<String> {
-    if definition.get("additionalProperties") != Some(&serde_json::Value::Bool(false)) {
+/// `names` as a comma-separated list of Rust string literals.
+fn quoted(names: impl IntoIterator<Item = String>) -> String {
+    names
+        .into_iter()
+        .map(|name| format!("{name:?}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The `METADATA_FIELDS` entry for the records of `section`, or "" if
+/// their `metadata` allows any key.
+fn metadata_entry(
+    section: &str,
+    definition: &serde_json::Value,
+    defs: &serde_json::Map<String, serde_json::Value>,
+) -> String {
+    let Some(node) = definition.get("properties").and_then(|p| p.get("metadata")) else {
+        return String::new();
+    };
+    let node = resolved(node, defs);
+    let Some(pattern) = extension_pattern(node, defs) else {
+        return String::new();
+    };
+    let fields = quoted(schema_properties(node, defs));
+    format!("    ({section:?}, &[{fields}], {pattern:?}),\n")
+}
+
+/// The definition `node` names by `$ref`, or `node` itself if it has none.
+fn resolved<'a>(
+    node: &'a serde_json::Value,
+    defs: &'a serde_json::Map<String, serde_json::Value>,
+) -> &'a serde_json::Value {
+    node.get("$ref")
+        .and_then(|v| v.as_str())
+        .and_then(|r| r.rsplit('/').next())
+        .and_then(|name| defs.get(name))
+        .unwrap_or(node)
+}
+
+/// The single `patternProperties` pattern of a node that disallows other
+/// properties, by `additionalProperties: false` or `unevaluatedProperties:
+/// false`, found on the node or on the `allOf` branches it builds on; `None`
+/// if the node allows any property.
+fn extension_pattern(
+    node: &serde_json::Value,
+    defs: &serde_json::Map<String, serde_json::Value>,
+) -> Option<String> {
+    let closed = ["additionalProperties", "unevaluatedProperties"]
+        .iter()
+        .any(|keyword| node.get(*keyword) == Some(&serde_json::Value::Bool(false)));
+    if !closed {
         return None;
     }
-    let patterns = definition.get("patternProperties")?.as_object()?;
+    let branches = node
+        .get("allOf")
+        .and_then(|v| v.as_array())
+        .map(|v| v.as_slice())
+        .unwrap_or_default();
+    let patterns: Vec<&String> = std::iter::once(node)
+        .chain(branches.iter().map(|branch| resolved(branch, defs)))
+        .filter_map(|n| n.get("patternProperties").and_then(|v| v.as_object()))
+        .flat_map(|o| o.keys())
+        .collect();
     assert_eq!(
         patterns.len(),
         1,
-        "a closed record definition has exactly one patternProperties pattern"
+        "a closed definition has exactly one patternProperties pattern"
     );
-    patterns.keys().next().cloned()
+    Some(patterns[0].clone())
 }
 
 /// Replaces `patternProperties` and `unevaluatedProperties` with

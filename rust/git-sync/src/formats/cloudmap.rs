@@ -148,10 +148,23 @@ static EXTENSION_PATTERNS: LazyLock<Vec<(&str, regress::Regex)>> = LazyLock::new
         .collect()
 });
 
+/// The compiled [`METADATA_FIELDS`](crate::formats::cloudmap_field_order::METADATA_FIELDS).
+static METADATA_NAMES: LazyLock<Vec<(&str, &[&str], regress::Regex)>> = LazyLock::new(|| {
+    crate::formats::cloudmap_field_order::METADATA_FIELDS
+        .iter()
+        .map(|(section, fields, pattern)| {
+            let regex = regress::Regex::new(pattern)
+                .unwrap_or_else(|e| panic!("{section} metadata pattern {pattern:?}: {e}"));
+            (*section, *fields, regex)
+        })
+        .collect()
+});
+
 /// Names the first property of a record of `section`, or of one of its
-/// `versions`, that the schema neither declares nor allows by its
-/// extension pattern. The generated types accept any property, so this is
-/// what enforces the schema's `additionalProperties: false`.
+/// `versions`, or of their `metadata`, that the schema neither declares
+/// nor allows by its extension pattern. The generated types accept any
+/// property, so this is what enforces the schema's `additionalProperties:
+/// false` and `unevaluatedProperties: false`.
 fn check_property_names(section: &str, json: &serde_json::Value) -> Option<ValidationError> {
     let (_, pattern) = EXTENSION_PATTERNS.iter().find(|(s, _)| *s == section)?;
     let fields = CloudMapFormat.field_order(section);
@@ -170,6 +183,11 @@ fn check_property_names(section: &str, json: &serde_json::Value) -> Option<Valid
                     .into(),
                 );
             }
+            if name == "metadata" {
+                if let Some(err) = check_metadata_names(section, &at, value) {
+                    return Some(err);
+                }
+            }
             if name == "versions" {
                 if let Some(versions) = value.as_object() {
                     pending.extend(
@@ -182,6 +200,28 @@ fn check_property_names(section: &str, json: &serde_json::Value) -> Option<Valid
         }
     }
     None
+}
+
+/// Names the first key of the `metadata` of a record of `section` that the
+/// schema neither declares for that kind of record nor allows by its
+/// extension pattern.
+fn check_metadata_names(
+    section: &str,
+    at: &str,
+    metadata: &serde_json::Value,
+) -> Option<ValidationError> {
+    let (_, fields, pattern) = METADATA_NAMES.iter().find(|(s, _, _)| *s == section)?;
+    let name = metadata
+        .as_object()?
+        .keys()
+        .find(|name| !fields.contains(&name.as_str()) && pattern.find(name).is_none())?;
+    Some(
+        format!(
+            "{at}metadata.{name:?}: undeclared metadata property needs an authority \
+             prefix, e.g. \"org.example.{name}\""
+        )
+        .into(),
+    )
 }
 
 /// Checks a section key against the pattern its schema declares for it.
@@ -1671,6 +1711,71 @@ mod tests {
             let v = validate_one(section, key, record);
             assert!(v.fatal.is_empty(), "{section}: {:?}", v.fatal);
             assert!(v.errors.is_empty(), "{section}: {:?}", v.errors);
+        }
+    }
+
+    /// Asserts `v` accepted the record if `accepted`, else that it rejected
+    /// it naming `name`.
+    fn assert_judged(v: &Validation, accepted: bool, name: &str, what: &str) {
+        assert!(v.fatal.is_empty(), "{what}: {:?}", v.fatal);
+        if accepted {
+            assert!(v.errors.is_empty(), "{what}: {:?}", v.errors);
+        } else {
+            let errors = format!("{:?}", v.errors);
+            assert!(errors.contains(name), "{what} accepted {name:?}: {errors}");
+        }
+    }
+
+    #[test]
+    fn metadata_takes_only_its_own_kinds_keys() {
+        let every: &[&str] = &[
+            "repositories",
+            "artifacts",
+            "components",
+            "services",
+            "instantiations",
+            "types",
+        ];
+        let cases: [(&str, serde_json::Value, &[&str]); 5] = [
+            ("title", json!("t"), every),
+            ("org.foo.custom-property", json!(1), every),
+            ("bogus", json!(1), &[]),
+            ("license_url", json!("u"), &["repositories"]),
+            ("platforms", json!([{"os": "linux"}]), &["artifacts"]),
+        ];
+        for (name, value, accepted_by) in &cases {
+            for (section, key, mut record) in minimal_records() {
+                record["metadata"] = json!({});
+                record["metadata"][*name] = value.clone();
+                let v = validate_one(section, key, record);
+                assert_judged(&v, accepted_by.contains(&section), name, section);
+            }
+        }
+    }
+
+    #[test]
+    fn a_versions_metadata_is_checked() {
+        let record = json!({
+            "status": "production",
+            "versions": {"v1": {"metadata": {"license_url": "u"}}}
+        });
+        let v = validate_one("components", "label@example.com", record);
+        assert_judged(&v, false, "license_url", "components");
+    }
+
+    #[test]
+    fn the_documents_metadata_takes_only_shared_keys() {
+        for (name, accepted) in [
+            ("title", true),
+            ("org.foo.custom-property", true),
+            ("bogus", false),
+            ("license_url", false),
+        ] {
+            let mut doc = CloudMapFormat.new_document();
+            doc["metadata"] = json!({});
+            doc["metadata"][name] = json!("x");
+            let v = CloudMapFormat.validate_document(&doc);
+            assert_judged(&v, accepted, name, "the document");
         }
     }
 

@@ -1160,21 +1160,21 @@ def test_a_record_unfurl_deleted_and_hand_restored_is_kept(tmp_path: Path, caplo
 
 
 def test_hand_edited_metadata_wins(tmp_path: Path, caplog) -> None:
-    db, path = _tracked_store(tmp_path, TWO_REPOSITORIES + "metadata:\n  owner: committed\n")
-    db.metadata["owner"] = "saved"
+    db, path = _tracked_store(tmp_path, TWO_REPOSITORIES + "metadata:\n  title: committed\n")
+    db.metadata["title"] = "saved"
     assert db.save()
-    path.write_text(path.read_text().replace("owner: saved", "owner: by-hand"))
+    path.write_text(path.read_text().replace("title: saved", "title: by-hand"))
 
     db.reload()
-    assert db.metadata["owner"] == "by-hand"
+    assert db.metadata["title"] == "by-hand"
     [warning] = _ours(caplog)
     assert "metadata" in warning, warning
     db.add_record(Repository(url="git://e.com/b.git", path="b"))
     assert db.save()
-    assert "owner: by-hand" in path.read_text()
+    assert "title: by-hand" in path.read_text()
     caplog.clear()
     db.reload()
-    assert _ours(caplog) == [] and db.metadata["owner"] == "by-hand"
+    assert _ours(caplog) == [] and db.metadata["title"] == "by-hand"
 
 
 def test_a_hand_edit_of_another_record_isnt_a_conflict(tmp_path: Path, caplog) -> None:
