@@ -1010,15 +1010,30 @@ class CloudMapResult(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+_EXTRA_PROPERTY_LIMITS = ("patternProperties", "unevaluatedProperties")
+
+
 def _open_for_openapi(definition: Dict[str, JsonValue]) -> Dict[str, JsonValue]:
-    """Return ``definition`` with ``patternProperties`` replaced by
-    ``additionalProperties: true``, as oas3-gen ignores ``patternProperties``.
-    Request bodies are still validated against the canonical schema."""
-    if "patternProperties" not in definition:
-        return definition
-    opened = {k: v for k, v in definition.items() if k != "patternProperties"}
-    opened["additionalProperties"] = True
+    """Return ``definition`` with ``patternProperties`` and
+    ``unevaluatedProperties`` replaced by ``additionalProperties: true``, here
+    and in its subschemas, as oas3-gen ignores both. Request bodies are still
+    validated against the canonical schema."""
+    opened: Dict[str, JsonValue] = {
+        k: _opened_value(v)
+        for k, v in definition.items()
+        if k not in _EXTRA_PROPERTY_LIMITS
+    }
+    if len(opened) != len(definition):
+        opened["additionalProperties"] = True
     return opened
+
+
+def _opened_value(value: JsonValue) -> JsonValue:
+    if isinstance(value, dict):
+        return _open_for_openapi(value)
+    if isinstance(value, list):
+        return [_opened_value(v) for v in value]
+    return value
 
 
 def _rewrite_refs_to_components(node: Any, prefix: str = "cloudmap_") -> Any:

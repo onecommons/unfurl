@@ -528,6 +528,14 @@ def test_post_cloudmap_declares_its_conflict_body():
     assert "FailedRecord" in schemas and "AppliedRecord" not in schemas
 
 
+def test_spec_leaves_extension_properties_open():
+    """The spec has no keyword limiting extra properties that oas3-gen ignores."""
+    with server.app.app_context():
+        spec = json.dumps(server.app._get_spec("json", force_update=True))
+    for keyword in ("patternProperties", "unevaluatedProperties"):
+        assert keyword not in spec, keyword
+
+
 def test_get_project_id_does_not_abort(monkeypatch):
     """The plain getter stays a plain getter -- only the `_or_abort` variant rejects."""
     from werkzeug.test import EnvironBuilder

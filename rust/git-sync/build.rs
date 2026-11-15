@@ -98,7 +98,7 @@ fn main() {
         serde_json::from_str(&schema_text).expect("parse cloudmap-schema.json as json");
     open_record_definitions(&mut schema_json);
     let schema: schemars::schema::RootSchema =
-        serde_json::from_value(schema_json).expect("parse cloudmap-schema.json as draft-07 schema");
+        serde_json::from_value(schema_json).expect("parse cloudmap-schema.json as a JSON schema");
 
     let settings = typify::TypeSpaceSettings::default();
     let mut type_space = typify::TypeSpace::new(&settings);
@@ -249,28 +249,30 @@ fn extension_pattern(definition: &serde_json::Value) -> Option<String> {
     patterns.keys().next().cloned()
 }
 
-/// Rewrites every definition that disallows additional properties but
-/// allows `patternProperties` to allow any additional property. typify
-/// ignores `patternProperties`, so it would otherwise emit
-/// `deny_unknown_fields` and reject them; `validate_record` enforces a
-/// record's pattern instead.
+/// Replaces `patternProperties` and `unevaluatedProperties` with
+/// `additionalProperties: true` in every definition and its subschemas.
+/// typify ignores both, emits `deny_unknown_fields` for a closed record
+/// that allows extension properties, and can't merge an `allOf` branch with
+/// `patternProperties`; `validate_record` enforces a record's pattern
+/// instead.
 fn open_record_definitions(schema: &mut serde_json::Value) {
-    let Some(defs) = schema
-        .get_mut("definitions")
-        .and_then(|v| v.as_object_mut())
-    else {
-        return;
-    };
-    for definition in defs.values_mut() {
-        if definition.get("additionalProperties") != Some(&serde_json::Value::Bool(false))
-            || definition.get("patternProperties").is_none()
-        {
-            continue;
+    if let Some(defs) = schema.get_mut("definitions") {
+        open_extra_properties(defs);
+    }
+}
+
+fn open_extra_properties(node: &mut serde_json::Value) {
+    match node {
+        serde_json::Value::Object(obj) => {
+            let pattern = obj.remove("patternProperties");
+            let unevaluated = obj.remove("unevaluatedProperties");
+            if pattern.is_some() || unevaluated.is_some() {
+                obj.insert("additionalProperties".into(), serde_json::Value::Bool(true));
+            }
+            obj.values_mut().for_each(open_extra_properties);
         }
-        if let Some(obj) = definition.as_object_mut() {
-            obj.remove("patternProperties");
-            obj.insert("additionalProperties".into(), serde_json::Value::Bool(true));
-        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(open_extra_properties),
+        _ => {}
     }
 }
 

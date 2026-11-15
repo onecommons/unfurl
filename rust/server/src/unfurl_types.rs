@@ -167,7 +167,7 @@ pub struct CloudMapDocument {
     pub instantiations: Option<std::collections::HashMap<String, Box<CloudmapInstantiation>>>,
     #[default("CloudMap".to_string())]
     pub kind: String,
-    /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
+    /// Metadata of components, services, instantiations, types and the CloudMap itself.
     pub metadata: Option<CloudmapMetadata>,
     /// Git repositories. Keys are URLs that start with git://
     pub repositories: Option<std::collections::HashMap<String, CloudmapRepository>>,
@@ -364,7 +364,7 @@ pub struct CloudmapComponent {
     pub instantiated_by: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub instantiates: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
-    /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
+    /// Metadata of components, services, instantiations, types and the CloudMap itself.
     pub metadata: Option<CloudmapMetadata>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub references: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
@@ -409,7 +409,7 @@ pub struct CloudmapInstantiation {
     pub inputs: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub instantiated: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
-    /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
+    /// Metadata of components, services, instantiations, types and the CloudMap itself.
     pub metadata: Option<CloudmapMetadata>,
     /// If instantiation URL references a repository, source control revision of that repository.
     pub revision: Option<String>,
@@ -498,7 +498,7 @@ impl core::str::FromStr for CloudmapLifecycleStatus {
         }
     }
 }
-/// Common metadata fields shared across artifacts, services, instantiations, and repositories.
+/// Metadata of components, services, instantiations, types and the CloudMap itself.
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudmapMetadata {
@@ -533,18 +533,10 @@ pub struct CloudmapMetadata {
     /// Name of the distributing entity, organization, or individual.
     pub vendor: Option<String>,
     /// Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.
-    pub version: Option<CloudmapMetadataVersion>,
+    pub version: Option<CloudmapSharedMetadataVersion>,
     /// Additional properties not defined in the schema.
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
-}
-/// Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
-#[serde(untagged)]
-pub enum CloudmapMetadataVersion {
-    #[default]
-    String(String),
-    Number(f64),
 }
 /// Common relationships used by artifacts and components to describe how they relate to other records and types. Each field is a typedURLs map whose key is a URL or label and whose value is an optional type reference.
 #[serde_with::skip_serializing_none]
@@ -680,7 +672,7 @@ pub struct CloudmapService {
     pub endpoints: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub instantiated_by: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
-    /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
+    /// Metadata of components, services, instantiations, types and the CloudMap itself.
     pub metadata: Option<CloudmapMetadata>,
     /// Service policies and legal information.
     pub policies: Option<CloudmapServicePolicies>,
@@ -739,14 +731,62 @@ pub struct CloudmapServicePolicies {
     /// URL to the terms of service.
     pub terms_of_service: Option<String>,
 }
+/// Metadata fields shared by every kind of record. Artifact and repository metadata add their own.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct CloudmapSharedMetadata {
+    /// Date and time on which the resource was created, conforming to RFC 3339.
+    pub created: Option<chrono::DateTime<chrono::Utc>>,
+    /// Human-readable description.
+    pub description: Option<String>,
+    /// Metadata discovery information.
+    pub discovery: Option<CloudmapDiscovery>,
+    /// Link to issue, PR/MR, or discussion about this definition.
+    pub discussion_url: Option<String>,
+    /// URL to get documentation.
+    pub documentation_url: Option<String>,
+    /// URL to the entity this is a fork of.
+    pub fork_of: Option<String>,
+    /// URL to find more information.
+    pub homepage_url: Option<String>,
+    /// Informal pointer to source ref (branch or tag name).
+    pub source_ref: Option<String>,
+    /// Informal pointer to source code revision. Use when deployment information is not available.
+    pub source_revision: Option<String>,
+    /// Informal pointer to source code. Use when deployment information is not available.
+    pub source_url: Option<String>,
+    /// License(s) as an SPDX License Expression.
+    pub spdx_licenses: Option<String>,
+    /// Icon or thumbnail URL.
+    pub thumbnail_url: Option<String>,
+    /// Human-readable title.
+    pub title: Option<String>,
+    /// List of topic or categories associated with the resource.
+    pub topics: Option<Vec<String>>,
+    /// Name of the distributing entity, organization, or individual.
+    pub vendor: Option<String>,
+    /// Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.
+    pub version: Option<CloudmapSharedMetadataVersion>,
+    /// Additional properties not defined in the schema.
+    #[serde(flatten)]
+    pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
+}
+/// Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+#[serde(untagged)]
+pub enum CloudmapSharedMetadataVersion {
+    #[default]
+    String(String),
+    Number(f64),
+}
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudmapType {
     /// List of fully-qualified type names that this type extends.
     pub extends: Option<Vec<String>>,
     /// The kind of the type. One of: component, artifact, capability, or facet.
-    pub kind: Option<CloudmapTypeKind>,
-    /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
+    pub kind: CloudmapTypeKind,
+    /// Metadata of components, services, instantiations, types and the CloudMap itself.
     pub metadata: Option<CloudmapMetadata>,
     /// URL of artifact or service to use a model for instances of this type.
     pub model: Option<String>,

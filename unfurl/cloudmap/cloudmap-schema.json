@@ -1,5 +1,5 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "CloudMap Schema",
   "definitions": {
     "discovery": {
@@ -37,10 +37,10 @@
         }
       }
     },
-    "metadata": {
-      "description": "Common metadata fields shared across artifacts, services, instantiations, and repositories.",
-      "title": "Common Metadata",
-      "$$target": "#/definitions/metadata",
+    "sharedMetadata": {
+      "description": "Metadata fields shared by every kind of record. Artifact and repository metadata add their own.",
+      "title": "Shared Metadata",
+      "$$target": "#/definitions/sharedMetadata",
       "type": "object",
       "properties": {
         "title": {
@@ -120,10 +120,20 @@
         }
       },
       "patternProperties": {
-        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$": {},
-        "^(license_url|issues_url|ci_variables|lastupdate_time|lastupdate_digest|project_status|platforms)$": {}
-      },
-      "additionalProperties": false
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$": {}
+      }
+    },
+    "metadata": {
+      "description": "Metadata of components, services, instantiations, types and the CloudMap itself.",
+      "title": "Common Metadata",
+      "$$target": "#/definitions/metadata",
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/sharedMetadata"
+        }
+      ],
+      "unevaluatedProperties": false
     },
     "typeRef": {
       "type": "object",
@@ -356,9 +366,10 @@
         },
         "metadata": {
           "description": "Human-readable metadata about the artifact.",
+          "unevaluatedProperties": false,
           "allOf": [
             {
-              "$ref": "#/definitions/metadata"
+              "$ref": "#/definitions/sharedMetadata"
             },
             {
               "type": "object",
@@ -759,9 +770,10 @@
         },
         "metadata": {
           "description": "Metadata about the repository that isn't stored in the git repository itself but might be provided by the host (e.g., metadata found on the repository's GitHub or GitLab project page).",
+          "unevaluatedProperties": false,
           "allOf": [
             {
-              "$ref": "#/definitions/metadata"
+              "$ref": "#/definitions/sharedMetadata"
             },
             {
               "type": "object",
@@ -900,6 +912,9 @@
     "type": {
       "$$target": "#/definitions/type",
       "type": "object",
+      "required": [
+        "kind"
+      ],
       "properties": {
         "name": {
           "type": "string",

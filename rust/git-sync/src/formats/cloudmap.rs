@@ -1650,7 +1650,11 @@ mod tests {
                 "https://ci.example.com/run/1",
                 json!({"revision": "abc"}),
             ),
-            ("types", "Thing@example.com", json!({"name": "Thing"})),
+            (
+                "types",
+                "Thing@example.com",
+                json!({"name": "Thing@example.com", "kind": "component"}),
+            ),
         ]
     }
 

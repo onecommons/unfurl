@@ -762,7 +762,11 @@ async fn post_and_get_every_section() {
             "https://ci.example.com/runs/42",
             serde_json::json!({ "revision": "abc123" }),
         ),
-        ("types", "NewType@example.org", serde_json::json!({})),
+        (
+            "types",
+            "NewType@example.org",
+            serde_json::json!({ "kind": "component" }),
+        ),
     ];
 
     let (cm, _tmp) = open_cloudmap_state().await;
@@ -3291,8 +3295,9 @@ async fn a_rewritten_head_resets_a_stale_since_version() {
 async fn seed_facet_records(cm: CloudMapState) {
     let body = serde_json::json!({
         "types": {
-            "FacetBase": {"name": "FacetBase", "extends": ["FacetBase"]},
-            "FacetDerived": {"name": "FacetDerived",
+            "FacetBase": {"name": "FacetBase", "kind": "artifact",
+                          "extends": ["FacetBase"]},
+            "FacetDerived": {"name": "FacetDerived", "kind": "artifact",
                              "extends": ["FacetDerived", "FacetBase"]},
         },
         "artifacts": {
@@ -3305,7 +3310,7 @@ async fn seed_facet_records(cm: CloudMapState) {
             "facet:a3": {"type": {"FacetDerived": {}},
                 "metadata": {"topics": ["web"],
                 "platforms": [{"architecture": "amd64", "os": "linux"}]}},
-            "facet:a4": {"metadata": {"name": "quiet"}},
+            "facet:a4": {"metadata": {"title": "quiet"}},
         }
     });
     let app = router(make_state(cm));

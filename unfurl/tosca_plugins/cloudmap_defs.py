@@ -301,8 +301,78 @@ ArtifactMappings = {
 }
 
 
-@dataclass
-class CommonMetadata:
+# The cloudmap schema's `patternProperties` on each record definition and on
+# `sharedMetadata`.
+EXTENSION_PROPERTY_PATTERN = re.compile(
+    r"^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*){2,}$"
+)
+
+
+class Extensible:
+    extensions: Dict[str, Any]
+    """Properties the schema doesn't declare, whose names start with an authority
+    (e.g. ``org.example.notes``)."""
+
+
+_E = TypeVar("_E", bound=Extensible)
+_P = ParamSpec("_P")
+
+
+@dataclass_transform()
+def extensible_dataclass(cls: Type[_E]) -> Type[_E]:
+    """``@dataclass``, plus extension properties (named per
+    :py:data:`EXTENSION_PROPERTY_PATTERN`) taken as keyword arguments, kept in
+    :py:attr:`Extensible.extensions` and compared by ``==``."""
+    cls = dataclass(cls)
+    assert is_dataclass(cls), cls
+    # `_parent` is an InitVar, which `fields()` leaves out
+    declared = {f.name for f in fields(cls)} | {"_parent"}
+    setattr(cls, "__init__", _with_extensions(cls.__init__, cls.__name__, declared))
+    setattr(cls, "__eq__", _with_extension_equality(cls.__eq__))
+    return cls
+
+
+def _with_extensions(
+    init: Callable[Concatenate[_E, _P], None],
+    class_name: str,
+    declared: Set[str],
+) -> Callable[Concatenate[_E, _P], None]:
+    def __init__(self: _E, *args: _P.args, **kwargs: _P.kwargs) -> None:
+        extensions: Dict[str, Any] = {}
+        for name in [name for name in kwargs if name not in declared]:
+            if not EXTENSION_PROPERTY_PATTERN.fullmatch(name):
+                raise TypeError(
+                    f"{class_name} has no property {name!r}; an undeclared property "
+                    f'needs an authority prefix, e.g. "org.example.{name}"'
+                )
+            extensions[name] = kwargs.pop(name)
+        # set first: `__post_init__` builds the versions, which inherit them
+        self.extensions = extensions
+        init(self, *args, **kwargs)
+
+    return __init__
+
+
+def _with_extension_equality(
+    eq: Callable[[_E, object], bool],
+) -> Callable[[_E, object], bool]:
+    def __eq__(self: _E, other: object) -> bool:
+        # the dataclass's `__eq__` returns NotImplemented for another class
+        result = eq(self, other)
+        if result is True and isinstance(other, Extensible):
+            return self.extensions == other.extensions
+        return result
+
+    return __eq__
+
+
+def metadata_asdict(metadata: "CommonMetadata") -> Dict[str, Any]:
+    """``metadata``'s non-empty fields, then its extensions."""
+    return {**(filter_metadata(asdict(metadata)) or {}), **metadata.extensions}
+
+
+@extensible_dataclass
+class CommonMetadata(Extensible):
     """Common metadata fields shared across artifacts, services, and repositories."""
 
     title: str = ""
@@ -339,8 +409,7 @@ class CommonMetadata:
     """How this metadata was discovered (last_checked, sources)"""
 
     def asdict(self) -> Dict[str, Any]:
-        # exclude empty values
-        return filter_metadata({k: v for k, v in asdict(self).items()}) or {}
+        return metadata_asdict(self)
 
     def __post_init__(self):
         if self.discovery is not None and not isinstance(self.discovery, Discovery):
@@ -371,7 +440,7 @@ class CommonMetadata:
             )
 
 
-@dataclass
+@extensible_dataclass
 class ArtifactMetadata(CommonMetadata):
     """
     Metadata about the repository that isn't stored in the git repository itself but might be provided by the host
@@ -677,11 +746,7 @@ def _keys_are_urls(value: "Mapping[str, Any]") -> bool:
 TypedUrls = Dict[Tuple[str, str], Optional[TypeRefs]]
 
 
-class CloudMapRecord:
-    extensions: Dict[str, Any]
-    """Properties the schema doesn't declare, whose names start with an authority
-    (e.g. ``org.example.notes``)."""
-
+class CloudMapRecord(Extensible):
     @property
     def key(self) -> str:
         """The unique key for this record."""
@@ -700,63 +765,6 @@ class CloudMapRecord:
             for name, value in self.extensions.items()
             if name not in parent.extensions or parent.extensions[name] != value
         }
-
-
-# The cloudmap schema's `patternProperties` on each record definition.
-EXTENSION_PROPERTY_PATTERN = re.compile(
-    r"^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z][A-Za-z0-9_-]*){2,}$"
-)
-
-_R = TypeVar("_R", bound=CloudMapRecord)
-_P = ParamSpec("_P")
-
-
-@dataclass_transform()
-def extensible_dataclass(cls: Type[_R]) -> Type[_R]:
-    """``@dataclass``, plus extension properties (named per
-    :py:data:`EXTENSION_PROPERTY_PATTERN`) taken as keyword arguments, kept in
-    :py:attr:`CloudMapRecord.extensions` and compared by ``==``."""
-    cls = dataclass(cls)
-    assert is_dataclass(cls), cls
-    # `_parent` is an InitVar, which `fields()` leaves out
-    declared = {f.name for f in fields(cls)} | {"_parent"}
-    setattr(cls, "__init__", _with_extensions(cls.__init__, cls.__name__, declared))
-    setattr(cls, "__eq__", _with_extension_equality(cls.__eq__))
-    return cls
-
-
-def _with_extensions(
-    init: Callable[Concatenate[_R, _P], None],
-    class_name: str,
-    declared: Set[str],
-) -> Callable[Concatenate[_R, _P], None]:
-    def __init__(self: _R, *args: _P.args, **kwargs: _P.kwargs) -> None:
-        extensions: Dict[str, Any] = {}
-        for name in [name for name in kwargs if name not in declared]:
-            if not EXTENSION_PROPERTY_PATTERN.fullmatch(name):
-                raise TypeError(
-                    f"{class_name} has no property {name!r}; an undeclared property "
-                    f'needs an authority prefix, e.g. "org.example.{name}"'
-                )
-            extensions[name] = kwargs.pop(name)
-        # set first: `__post_init__` builds the versions, which inherit them
-        self.extensions = extensions
-        init(self, *args, **kwargs)
-
-    return __init__
-
-
-def _with_extension_equality(
-    eq: Callable[[_R, object], bool],
-) -> Callable[[_R, object], bool]:
-    def __eq__(self: _R, other: object) -> bool:
-        # the dataclass's `__eq__` returns NotImplemented for another class
-        result = eq(self, other)
-        if result is True and isinstance(other, CloudMapRecord):
-            return self.extensions == other.extensions
-        return result
-
-    return __eq__
 
 
 class VersionedRecord(CloudMapRecord):
@@ -849,7 +857,7 @@ class Instantiation(VersionedRecord):
             if k == "type" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
             elif k == "metadata":
-                v = filter_metadata(v)
+                v = metadata_asdict(self.metadata)
             elif k == "inputs":
                 v = TypeRefs.urls_asdict(v)
             elif k == "instantiated":
@@ -1076,7 +1084,7 @@ class Artifact(VersionedRecord):
             if k == "url":
                 continue  # skip url, save as the key instead
             if k == "metadata":
-                v = filter_metadata(v)
+                v = metadata_asdict(self.metadata)
             elif k == "contains":
                 v = TypeRefs.urls_asdict(v)
             elif k == "references":
@@ -1155,7 +1163,7 @@ class Component(VersionedRecord):
             if k == "url":
                 continue  # skip url, save as the key instead
             if k == "metadata":
-                v = filter_metadata(v)
+                v = metadata_asdict(self.metadata)
             elif k == "type" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
             elif k == "contains":
@@ -1321,7 +1329,7 @@ ProjectStatus = Literal[
 ]
 
 
-@dataclass
+@extensible_dataclass
 class RepositoryMetadata(CommonMetadata):
     """
     Metadata about the repository that isn't stored in the git repository itself but might be provided by the host
@@ -1348,7 +1356,7 @@ class RepositoryMetadata(CommonMetadata):
 
     def asdict(self):
         # exclude empty values
-        return {k: v for k, v in asdict(self).items() if v}
+        return {**{k: v for k, v in asdict(self).items() if v}, **self.extensions}
 
     # def get_digest(self) -> str:
     #     keys = sorted([k in asdict(self) if not k.startswith("lastupdate")]
@@ -1446,7 +1454,7 @@ class Repository(CloudMapRecord):
             if k == "url":
                 continue
             if k == "metadata":
-                v = filter_metadata(v)
+                v = metadata_asdict(self.metadata)
             elif k == "contains":
                 v = TypeRefs.urls_asdict(v)
             elif k == "upstream_refs":
@@ -1563,7 +1571,7 @@ class Repository(CloudMapRecord):
 ArtifactDict = Dict[str, Artifact]
 
 
-@dataclass
+@extensible_dataclass
 class ServiceMetadata(CommonMetadata):
     """Human-readable metadata about a service."""
 
@@ -1647,7 +1655,7 @@ class Service(VersionedRecord):
             if k == "url":
                 continue  # skip url, save as the key instead
             if k == "metadata":
-                v = filter_metadata(v)
+                v = metadata_asdict(self.metadata)
             elif k == "policies":
                 v = filter_dict(v)
             elif k == "type" and v:
@@ -1711,7 +1719,7 @@ class CloudType(CloudMapRecord):
         result = {}
         for k, v in asdict(self).items():
             if k == "metadata":
-                v = filter_metadata(v)
+                v = metadata_asdict(self.metadata)
             if v:  # exclude empty values
                 result[k] = v
         result.update(self.own_extensions())

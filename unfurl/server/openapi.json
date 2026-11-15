@@ -2716,9 +2716,10 @@
             "description": "Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints."
           },
           "metadata": {
+            "additionalProperties": true,
             "allOf": [
               {
-                "$ref": "#/components/schemas/cloudmap_metadata"
+                "$ref": "#/components/schemas/cloudmap_sharedMetadata"
               },
               {
                 "properties": {
@@ -3022,84 +3023,12 @@
       "cloudmap_metadata": {
         "$$target": "#/definitions/metadata",
         "additionalProperties": true,
-        "description": "Common metadata fields shared across artifacts, services, instantiations, and repositories.",
-        "properties": {
-          "created": {
-            "description": "Date and time on which the resource was created, conforming to RFC 3339.",
-            "format": "date-time",
-            "type": "string"
-          },
-          "description": {
-            "description": "Human-readable description.",
-            "type": "string"
-          },
-          "discovery": {
-            "$ref": "#/components/schemas/cloudmap_discovery",
-            "description": "How this metadata was discovered."
-          },
-          "discussion_url": {
-            "description": "Link to issue, PR/MR, or discussion about this definition.",
-            "type": "string"
-          },
-          "documentation_url": {
-            "description": "URL to get documentation.",
-            "type": "string"
-          },
-          "fork_of": {
-            "description": "URL to the entity this is a fork of.",
-            "type": "string"
-          },
-          "homepage_url": {
-            "description": "URL to find more information.",
-            "type": "string"
-          },
-          "source_ref": {
-            "description": "Informal pointer to source ref (branch or tag name).",
-            "type": "string"
-          },
-          "source_revision": {
-            "description": "Informal pointer to source code revision. Use when deployment information is not available.",
-            "type": "string"
-          },
-          "source_url": {
-            "description": "Informal pointer to source code. Use when deployment information is not available.",
-            "type": "string"
-          },
-          "spdx_licenses": {
-            "description": "License(s) as an SPDX License Expression.",
-            "type": "string"
-          },
-          "thumbnail_url": {
-            "description": "Icon or thumbnail URL.",
-            "type": "string"
-          },
-          "title": {
-            "description": "Human-readable title.",
-            "type": "string"
-          },
-          "topics": {
-            "description": "List of topic or categories associated with the resource.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "vendor": {
-            "description": "Name of the distributing entity, organization, or individual.",
-            "type": "string"
-          },
-          "version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "number"
-              }
-            ],
-            "description": "Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible."
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/cloudmap_sharedMetadata"
           }
-        },
+        ],
+        "description": "Metadata of components, services, instantiations, types and the CloudMap itself.",
         "title": "Common Metadata",
         "type": "object"
       },
@@ -3205,9 +3134,10 @@
             "type": "string"
           },
           "metadata": {
+            "additionalProperties": true,
             "allOf": [
               {
-                "$ref": "#/components/schemas/cloudmap_metadata"
+                "$ref": "#/components/schemas/cloudmap_sharedMetadata"
               },
               {
                 "properties": {
@@ -3408,6 +3338,90 @@
         "title": "Service",
         "type": "object"
       },
+      "cloudmap_sharedMetadata": {
+        "$$target": "#/definitions/sharedMetadata",
+        "additionalProperties": true,
+        "description": "Metadata fields shared by every kind of record. Artifact and repository metadata add their own.",
+        "properties": {
+          "created": {
+            "description": "Date and time on which the resource was created, conforming to RFC 3339.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "description": "Human-readable description.",
+            "type": "string"
+          },
+          "discovery": {
+            "$ref": "#/components/schemas/cloudmap_discovery",
+            "description": "How this metadata was discovered."
+          },
+          "discussion_url": {
+            "description": "Link to issue, PR/MR, or discussion about this definition.",
+            "type": "string"
+          },
+          "documentation_url": {
+            "description": "URL to get documentation.",
+            "type": "string"
+          },
+          "fork_of": {
+            "description": "URL to the entity this is a fork of.",
+            "type": "string"
+          },
+          "homepage_url": {
+            "description": "URL to find more information.",
+            "type": "string"
+          },
+          "source_ref": {
+            "description": "Informal pointer to source ref (branch or tag name).",
+            "type": "string"
+          },
+          "source_revision": {
+            "description": "Informal pointer to source code revision. Use when deployment information is not available.",
+            "type": "string"
+          },
+          "source_url": {
+            "description": "Informal pointer to source code. Use when deployment information is not available.",
+            "type": "string"
+          },
+          "spdx_licenses": {
+            "description": "License(s) as an SPDX License Expression.",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "Icon or thumbnail URL.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Human-readable title.",
+            "type": "string"
+          },
+          "topics": {
+            "description": "List of topic or categories associated with the resource.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "vendor": {
+            "description": "Name of the distributing entity, organization, or individual.",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible."
+          }
+        },
+        "title": "Shared Metadata",
+        "type": "object"
+      },
       "cloudmap_type": {
         "$$target": "#/definitions/type",
         "additionalProperties": true,
@@ -3462,6 +3476,9 @@
             "type": "string"
           }
         },
+        "required": [
+          "kind"
+        ],
         "type": "object"
       },
       "cloudmap_typeRef": {

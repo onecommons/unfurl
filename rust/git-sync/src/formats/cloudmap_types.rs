@@ -68,7 +68,7 @@ pub mod error {
 #[doc = "      \"description\": \"Human-readable metadata about the artifact.\","]
 #[doc = "      \"allOf\": ["]
 #[doc = "        {"]
-#[doc = "          \"$ref\": \"#/definitions/metadata\""]
+#[doc = "          \"$ref\": \"#/definitions/sharedMetadata\""]
 #[doc = "        },"]
 #[doc = "        {"]
 #[doc = "          \"type\": \"object\","]
@@ -92,7 +92,8 @@ pub mod error {
 #[doc = "            }"]
 #[doc = "          }"]
 #[doc = "        }"]
-#[doc = "      ]"]
+#[doc = "      ],"]
+#[doc = "      \"additionalProperties\": true"]
 #[doc = "    },"]
 #[doc = "    \"references\": {"]
 #[doc = "      \"description\": \"(Build-time or run-time) Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated.\","]
@@ -206,7 +207,7 @@ impl ::std::default::Default for Artifact {
 #[doc = "  \"description\": \"Human-readable metadata about the artifact.\","]
 #[doc = "  \"allOf\": ["]
 #[doc = "    {"]
-#[doc = "      \"$ref\": \"#/definitions/metadata\""]
+#[doc = "      \"$ref\": \"#/definitions/sharedMetadata\""]
 #[doc = "    },"]
 #[doc = "    {"]
 #[doc = "      \"type\": \"object\","]
@@ -230,7 +231,8 @@ impl ::std::default::Default for Artifact {
 #[doc = "        }"]
 #[doc = "      }"]
 #[doc = "    }"]
-#[doc = "  ]"]
+#[doc = "  ],"]
+#[doc = "  \"additionalProperties\": true"]
 #[doc = "}"]
 #[doc = r" ```"]
 #[doc = r" </details>"]
@@ -1953,205 +1955,42 @@ impl ::std::convert::TryFrom<::std::string::String> for LifecycleStatus {
         value.parse()
     }
 }
-#[doc = "Common metadata fields shared across artifacts, services, instantiations, and repositories."]
+#[doc = "`Metadata`"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
 #[doc = r""]
 #[doc = r" ```json"]
 #[doc = "{"]
 #[doc = "  \"title\": \"Common Metadata\","]
-#[doc = "  \"description\": \"Common metadata fields shared across artifacts, services, instantiations, and repositories.\","]
+#[doc = "  \"description\": \"Metadata of components, services, instantiations, types and the CloudMap itself.\","]
 #[doc = "  \"type\": \"object\","]
-#[doc = "  \"properties\": {"]
-#[doc = "    \"created\": {"]
-#[doc = "      \"description\": \"Date and time on which the resource was created, conforming to RFC 3339.\","]
-#[doc = "      \"type\": \"string\","]
-#[doc = "      \"format\": \"date-time\""]
-#[doc = "    },"]
-#[doc = "    \"description\": {"]
-#[doc = "      \"description\": \"Human-readable description.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"discovery\": {"]
-#[doc = "      \"description\": \"How this metadata was discovered.\","]
-#[doc = "      \"$ref\": \"#/definitions/discovery\""]
-#[doc = "    },"]
-#[doc = "    \"discussion_url\": {"]
-#[doc = "      \"description\": \"Link to issue, PR/MR, or discussion about this definition.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"documentation_url\": {"]
-#[doc = "      \"description\": \"URL to get documentation.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"fork_of\": {"]
-#[doc = "      \"description\": \"URL to the entity this is a fork of.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"homepage_url\": {"]
-#[doc = "      \"description\": \"URL to find more information.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"source_ref\": {"]
-#[doc = "      \"description\": \"Informal pointer to source ref (branch or tag name).\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"source_revision\": {"]
-#[doc = "      \"description\": \"Informal pointer to source code revision. Use when deployment information is not available.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"source_url\": {"]
-#[doc = "      \"description\": \"Informal pointer to source code. Use when deployment information is not available.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"spdx_licenses\": {"]
-#[doc = "      \"description\": \"License(s) as an SPDX License Expression.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"thumbnail_url\": {"]
-#[doc = "      \"description\": \"Icon or thumbnail URL.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"title\": {"]
-#[doc = "      \"description\": \"Human-readable title.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"topics\": {"]
-#[doc = "      \"description\": \"List of topic or categories associated with the resource.\","]
-#[doc = "      \"type\": \"array\","]
-#[doc = "      \"items\": {"]
-#[doc = "        \"type\": \"string\""]
-#[doc = "      }"]
-#[doc = "    },"]
-#[doc = "    \"vendor\": {"]
-#[doc = "      \"description\": \"Name of the distributing entity, organization, or individual.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    \"version\": {"]
-#[doc = "      \"description\": \"Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.\","]
-#[doc = "      \"anyOf\": ["]
-#[doc = "        {"]
-#[doc = "          \"type\": \"string\""]
-#[doc = "        },"]
-#[doc = "        {"]
-#[doc = "          \"type\": \"number\""]
-#[doc = "        }"]
-#[doc = "      ]"]
+#[doc = "  \"allOf\": ["]
+#[doc = "    {"]
+#[doc = "      \"$ref\": \"#/definitions/sharedMetadata\""]
 #[doc = "    }"]
-#[doc = "  },"]
+#[doc = "  ],"]
 #[doc = "  \"additionalProperties\": true,"]
 #[doc = "  \"$$target\": \"#/definitions/metadata\""]
 #[doc = "}"]
 #[doc = r" ```"]
 #[doc = r" </details>"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-pub struct Metadata {
-    #[doc = "Date and time on which the resource was created, conforming to RFC 3339."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub created: ::std::option::Option<::chrono::DateTime<::chrono::offset::Utc>>,
-    #[doc = "Human-readable description."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub description: ::std::option::Option<::std::string::String>,
-    #[doc = "How this metadata was discovered."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub discovery: ::std::option::Option<Discovery>,
-    #[doc = "Link to issue, PR/MR, or discussion about this definition."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub discussion_url: ::std::option::Option<::std::string::String>,
-    #[doc = "URL to get documentation."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub documentation_url: ::std::option::Option<::std::string::String>,
-    #[doc = "URL to the entity this is a fork of."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub fork_of: ::std::option::Option<::std::string::String>,
-    #[doc = "URL to find more information."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub homepage_url: ::std::option::Option<::std::string::String>,
-    #[doc = "Informal pointer to source ref (branch or tag name)."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub source_ref: ::std::option::Option<::std::string::String>,
-    #[doc = "Informal pointer to source code revision. Use when deployment information is not available."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub source_revision: ::std::option::Option<::std::string::String>,
-    #[doc = "Informal pointer to source code. Use when deployment information is not available."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub source_url: ::std::option::Option<::std::string::String>,
-    #[doc = "License(s) as an SPDX License Expression."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub spdx_licenses: ::std::option::Option<::std::string::String>,
-    #[doc = "Icon or thumbnail URL."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub thumbnail_url: ::std::option::Option<::std::string::String>,
-    #[doc = "Human-readable title."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub title: ::std::option::Option<::std::string::String>,
-    #[doc = "List of topic or categories associated with the resource."]
-    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
-    pub topics: ::std::vec::Vec<::std::string::String>,
-    #[doc = "Name of the distributing entity, organization, or individual."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub vendor: ::std::option::Option<::std::string::String>,
-    #[doc = "Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub version: ::std::option::Option<MetadataVersion>,
-}
-impl ::std::default::Default for Metadata {
-    fn default() -> Self {
-        Self {
-            created: Default::default(),
-            description: Default::default(),
-            discovery: Default::default(),
-            discussion_url: Default::default(),
-            documentation_url: Default::default(),
-            fork_of: Default::default(),
-            homepage_url: Default::default(),
-            source_ref: Default::default(),
-            source_revision: Default::default(),
-            source_url: Default::default(),
-            spdx_licenses: Default::default(),
-            thumbnail_url: Default::default(),
-            title: Default::default(),
-            topics: Default::default(),
-            vendor: Default::default(),
-            version: Default::default(),
-        }
+#[serde(transparent)]
+pub struct Metadata(pub SharedMetadata);
+impl ::std::ops::Deref for Metadata {
+    type Target = SharedMetadata;
+    fn deref(&self) -> &SharedMetadata {
+        &self.0
     }
 }
-#[doc = "Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible."]
-#[doc = r""]
-#[doc = r" <details><summary>JSON schema</summary>"]
-#[doc = r""]
-#[doc = r" ```json"]
-#[doc = "{"]
-#[doc = "  \"description\": \"Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.\","]
-#[doc = "  \"anyOf\": ["]
-#[doc = "    {"]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
-#[doc = "    {"]
-#[doc = "      \"type\": \"number\""]
-#[doc = "    }"]
-#[doc = "  ]"]
-#[doc = "}"]
-#[doc = r" ```"]
-#[doc = r" </details>"]
-#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum MetadataVersion {
-    String(::std::string::String),
-    Number(f64),
-}
-impl ::std::fmt::Display for MetadataVersion {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match self {
-            Self::String(x) => x.fmt(f),
-            Self::Number(x) => x.fmt(f),
-        }
+impl ::std::convert::From<Metadata> for SharedMetadata {
+    fn from(value: Metadata) -> Self {
+        value.0
     }
 }
-impl ::std::convert::From<f64> for MetadataVersion {
-    fn from(value: f64) -> Self {
-        Self::Number(value)
+impl ::std::convert::From<SharedMetadata> for Metadata {
+    fn from(value: SharedMetadata) -> Self {
+        Self(value)
     }
 }
 #[doc = "Common relationships used by artifacts and components to describe how they relate to other records and types. Each field is a typedURLs map whose key is a URL or label and whose value is an optional type reference."]
@@ -2424,7 +2263,7 @@ impl ::std::convert::From<f64> for ReleaseScheduleItemVersion {
 #[doc = "      \"description\": \"Metadata about the repository that isn't stored in the git repository itself but might be provided by the host (e.g., metadata found on the repository's GitHub or GitLab project page).\","]
 #[doc = "      \"allOf\": ["]
 #[doc = "        {"]
-#[doc = "          \"$ref\": \"#/definitions/metadata\""]
+#[doc = "          \"$ref\": \"#/definitions/sharedMetadata\""]
 #[doc = "        },"]
 #[doc = "        {"]
 #[doc = "          \"type\": \"object\","]
@@ -2465,7 +2304,8 @@ impl ::std::convert::From<f64> for ReleaseScheduleItemVersion {
 #[doc = "            }"]
 #[doc = "          }"]
 #[doc = "        }"]
-#[doc = "      ]"]
+#[doc = "      ],"]
+#[doc = "      \"additionalProperties\": true"]
 #[doc = "    },"]
 #[doc = "    \"mirror_of\": {"]
 #[doc = "      \"description\": \"URL of the repository that this repository is a mirror of.\","]
@@ -2671,7 +2511,7 @@ impl ::std::default::Default for Repository {
 #[doc = "  \"description\": \"Metadata about the repository that isn't stored in the git repository itself but might be provided by the host (e.g., metadata found on the repository's GitHub or GitLab project page).\","]
 #[doc = "  \"allOf\": ["]
 #[doc = "    {"]
-#[doc = "      \"$ref\": \"#/definitions/metadata\""]
+#[doc = "      \"$ref\": \"#/definitions/sharedMetadata\""]
 #[doc = "    },"]
 #[doc = "    {"]
 #[doc = "      \"type\": \"object\","]
@@ -2712,7 +2552,8 @@ impl ::std::default::Default for Repository {
 #[doc = "        }"]
 #[doc = "      }"]
 #[doc = "    }"]
-#[doc = "  ]"]
+#[doc = "  ],"]
+#[doc = "  \"additionalProperties\": true"]
 #[doc = "}"]
 #[doc = r" ```"]
 #[doc = r" </details>"]
@@ -3404,6 +3245,207 @@ impl<'de> ::serde::Deserialize<'de> for ServiceVersionsKey {
             })
     }
 }
+#[doc = "Metadata fields shared by every kind of record. Artifact and repository metadata add their own."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"Shared Metadata\","]
+#[doc = "  \"description\": \"Metadata fields shared by every kind of record. Artifact and repository metadata add their own.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"created\": {"]
+#[doc = "      \"description\": \"Date and time on which the resource was created, conforming to RFC 3339.\","]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"format\": \"date-time\""]
+#[doc = "    },"]
+#[doc = "    \"description\": {"]
+#[doc = "      \"description\": \"Human-readable description.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"discovery\": {"]
+#[doc = "      \"description\": \"How this metadata was discovered.\","]
+#[doc = "      \"$ref\": \"#/definitions/discovery\""]
+#[doc = "    },"]
+#[doc = "    \"discussion_url\": {"]
+#[doc = "      \"description\": \"Link to issue, PR/MR, or discussion about this definition.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"documentation_url\": {"]
+#[doc = "      \"description\": \"URL to get documentation.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"fork_of\": {"]
+#[doc = "      \"description\": \"URL to the entity this is a fork of.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"homepage_url\": {"]
+#[doc = "      \"description\": \"URL to find more information.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"source_ref\": {"]
+#[doc = "      \"description\": \"Informal pointer to source ref (branch or tag name).\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"source_revision\": {"]
+#[doc = "      \"description\": \"Informal pointer to source code revision. Use when deployment information is not available.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"source_url\": {"]
+#[doc = "      \"description\": \"Informal pointer to source code. Use when deployment information is not available.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"spdx_licenses\": {"]
+#[doc = "      \"description\": \"License(s) as an SPDX License Expression.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"thumbnail_url\": {"]
+#[doc = "      \"description\": \"Icon or thumbnail URL.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"title\": {"]
+#[doc = "      \"description\": \"Human-readable title.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"topics\": {"]
+#[doc = "      \"description\": \"List of topic or categories associated with the resource.\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"type\": \"string\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"vendor\": {"]
+#[doc = "      \"description\": \"Name of the distributing entity, organization, or individual.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"version\": {"]
+#[doc = "      \"description\": \"Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"number\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    }"]
+#[doc = "  },"]
+#[doc = "  \"additionalProperties\": true,"]
+#[doc = "  \"$$target\": \"#/definitions/sharedMetadata\""]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+pub struct SharedMetadata {
+    #[doc = "Date and time on which the resource was created, conforming to RFC 3339."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub created: ::std::option::Option<::chrono::DateTime<::chrono::offset::Utc>>,
+    #[doc = "Human-readable description."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub description: ::std::option::Option<::std::string::String>,
+    #[doc = "How this metadata was discovered."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub discovery: ::std::option::Option<Discovery>,
+    #[doc = "Link to issue, PR/MR, or discussion about this definition."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub discussion_url: ::std::option::Option<::std::string::String>,
+    #[doc = "URL to get documentation."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub documentation_url: ::std::option::Option<::std::string::String>,
+    #[doc = "URL to the entity this is a fork of."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub fork_of: ::std::option::Option<::std::string::String>,
+    #[doc = "URL to find more information."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub homepage_url: ::std::option::Option<::std::string::String>,
+    #[doc = "Informal pointer to source ref (branch or tag name)."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub source_ref: ::std::option::Option<::std::string::String>,
+    #[doc = "Informal pointer to source code revision. Use when deployment information is not available."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub source_revision: ::std::option::Option<::std::string::String>,
+    #[doc = "Informal pointer to source code. Use when deployment information is not available."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub source_url: ::std::option::Option<::std::string::String>,
+    #[doc = "License(s) as an SPDX License Expression."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub spdx_licenses: ::std::option::Option<::std::string::String>,
+    #[doc = "Icon or thumbnail URL."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub thumbnail_url: ::std::option::Option<::std::string::String>,
+    #[doc = "Human-readable title."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub title: ::std::option::Option<::std::string::String>,
+    #[doc = "List of topic or categories associated with the resource."]
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub topics: ::std::vec::Vec<::std::string::String>,
+    #[doc = "Name of the distributing entity, organization, or individual."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub vendor: ::std::option::Option<::std::string::String>,
+    #[doc = "Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub version: ::std::option::Option<SharedMetadataVersion>,
+}
+impl ::std::default::Default for SharedMetadata {
+    fn default() -> Self {
+        Self {
+            created: Default::default(),
+            description: Default::default(),
+            discovery: Default::default(),
+            discussion_url: Default::default(),
+            documentation_url: Default::default(),
+            fork_of: Default::default(),
+            homepage_url: Default::default(),
+            source_ref: Default::default(),
+            source_revision: Default::default(),
+            source_url: Default::default(),
+            spdx_licenses: Default::default(),
+            thumbnail_url: Default::default(),
+            title: Default::default(),
+            topics: Default::default(),
+            vendor: Default::default(),
+            version: Default::default(),
+        }
+    }
+}
+#[doc = "Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"description\": \"Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.\","]
+#[doc = "  \"anyOf\": ["]
+#[doc = "    {"]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    {"]
+#[doc = "      \"type\": \"number\""]
+#[doc = "    }"]
+#[doc = "  ]"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum SharedMetadataVersion {
+    String(::std::string::String),
+    Number(f64),
+}
+impl ::std::fmt::Display for SharedMetadataVersion {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match self {
+            Self::String(x) => x.fmt(f),
+            Self::Number(x) => x.fmt(f),
+        }
+    }
+}
+impl ::std::convert::From<f64> for SharedMetadataVersion {
+    fn from(value: f64) -> Self {
+        Self::Number(value)
+    }
+}
 #[doc = "`Type`"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -3411,6 +3453,9 @@ impl<'de> ::serde::Deserialize<'de> for ServiceVersionsKey {
 #[doc = r" ```json"]
 #[doc = "{"]
 #[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"kind\""]
+#[doc = "  ],"]
 #[doc = "  \"properties\": {"]
 #[doc = "    \"extends\": {"]
 #[doc = "      \"description\": \"List of fully-qualified type names that this type extends.\","]
@@ -3473,8 +3518,7 @@ pub struct Type {
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
     pub extends: ::std::vec::Vec<::std::string::String>,
     #[doc = "The kind of the type. One of: component, artifact, capability, or facet."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub kind: ::std::option::Option<TypeKind>,
+    pub kind: TypeKind,
     #[doc = "Additional metadata about the type."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub metadata: ::std::option::Option<Metadata>,
@@ -3493,20 +3537,6 @@ pub struct Type {
     #[doc = "Maturity level of the type definition."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub status: ::std::option::Option<TypeStatus>,
-}
-impl ::std::default::Default for Type {
-    fn default() -> Self {
-        Self {
-            extends: Default::default(),
-            kind: Default::default(),
-            metadata: Default::default(),
-            model: Default::default(),
-            name: Default::default(),
-            properties: Default::default(),
-            source: Default::default(),
-            status: Default::default(),
-        }
-    }
 }
 #[doc = "The kind of the type. One of: component, artifact, capability, or facet."]
 #[doc = r""]

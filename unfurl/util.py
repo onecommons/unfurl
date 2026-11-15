@@ -39,8 +39,9 @@ import shlex
 from collections.abc import Mapping, MutableSequence
 import os.path
 from jsonschema import Draft7Validator
+from jsonschema.validators import validator_for
 import jsonschema.exceptions
-from referencing import Registry
+from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT7
 from referencing.exceptions import NoSuchResource, Unretrievable
 from urllib.parse import urljoin, urlparse
@@ -764,25 +765,28 @@ def find_schema_errors(
                     )
                 with open(file_path, "r") as f:
                     schema_data = json.load(f)
-                return DRAFT7.create_resource(schema_data)
+                return Resource.from_contents(
+                    schema_data, default_specification=DRAFT7
+                )
             else:
                 # For non-file URIs, raise an error
                 raise NoSuchResource(uri)
 
         # Create a registry with the schema registered at the base URI
         # and a custom retrieve function for external references
-        resource = DRAFT7.create_resource(schema)
+        resource = Resource.from_contents(schema, default_specification=DRAFT7)
         registry = Registry(retrieve=retrieve_schema).with_resource(  # type: ignore[call-arg]
             uri=schema_uri, resource=resource
         )
     else:
         registry = Registry()
 
+    validator_class = validator_for(schema, default=Draft7Validator)
     if schema_path not in _checked_schema_paths:
-        Draft7Validator.check_schema(schema)
+        validator_class.check_schema(schema)
         if schema_path is not None:
             _checked_schema_paths.add(schema_path)
-    validator = Draft7Validator(schema, registry=registry)
+    validator = validator_class(schema, registry=registry)
     errors = list(validator.iter_errors(obj))
     error = jsonschema.exceptions.best_match(errors)
     if not error:

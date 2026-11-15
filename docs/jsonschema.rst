@@ -132,6 +132,8 @@ Cloudmap definitions
 
 .. jsonschema:: cloudmap-schema.json#/definitions/metadata
 
+.. jsonschema:: cloudmap-schema.json#/definitions/sharedMetadata
+
 .. jsonschema:: cloudmap-schema.json#/definitions/discovery
 
 .. jsonschema:: cloudmap-schema.json#/definitions/relationships

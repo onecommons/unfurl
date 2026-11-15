@@ -4862,8 +4862,22 @@ _MINIMAL_RECORDS = {
     "components": ("label@example.com", {"status": "production"}),
     "services": ("https://svc.example.com", {"access": "public"}),
     "instantiations": ("https://ci.example.com/run/1", {"revision": "abc"}),
-    "types": ("Thing@example.com", {"name": "Thing"}),
+    "types": ("Thing@example.com", {"name": "Thing@example.com", "kind": "component"}),
 }
+
+
+def _load_records(route: str, records: dict, tmp_path: Path) -> None:
+    """Validates ``records`` as a ``POST /cloudmap`` body or loads them from a
+    cloudmap file, as ``route`` says."""
+    from unfurl.server.schemas import PostCloudmapRequest
+
+    if route == "post":
+        PostCloudmapRequest(**records)
+    else:
+        path = tmp_path / "cloudmap.yaml"
+        document = {"apiVersion": API_VERSION, "kind": "CloudMap", **records}
+        path.write_text(json.dumps(document))
+        CloudMapDB(str(path))
 
 
 @pytest.mark.parametrize("section", sorted(_MINIMAL_RECORDS))
@@ -4882,6 +4896,88 @@ def test_custom_record_properties_need_an_authority(section: str) -> None:
     for unqualified in ("custom-property", "foo.custom-property", "1org.foo.bar"):
         with pytest.raises(ValidationError, match="does not match any of the regexes"):
             post({unqualified: 1})
+
+
+_METADATA_KEYS = [
+    # metadata, and the sections whose records may carry it
+    ({"title": "t"}, set(_MINIMAL_RECORDS)),
+    ({"org.foo.custom-property": 1}, set(_MINIMAL_RECORDS)),
+    ({"bogus": 1}, set()),
+    ({"license_url": "u"}, {"repositories"}),
+    ({"license_url": 5}, set()),
+    ({"platforms": [{"os": "linux"}]}, {"artifacts"}),
+    ({"platforms": "x"}, set()),
+]
+
+
+@pytest.mark.parametrize("route", ["post", "file"])
+@pytest.mark.parametrize("metadata, accepted_by", _METADATA_KEYS)
+@pytest.mark.parametrize("section", sorted(_MINIMAL_RECORDS))
+def test_metadata_takes_only_its_own_kinds_keys(
+    section: str, metadata: dict, accepted_by: Set[str], route: str, tmp_path: Path
+) -> None:
+    from pydantic import ValidationError
+    from unfurl.util import UnfurlSchemaError
+
+    key, record = _MINIMAL_RECORDS[section]
+    records = {section: {key: dict(record, metadata=metadata)}}
+    if section in accepted_by:
+        _load_records(route, records, tmp_path)
+    else:
+        with pytest.raises(
+            (ValidationError, UnfurlSchemaError), match=re.escape(next(iter(metadata)))
+        ):
+            _load_records(route, records, tmp_path)
+
+
+@pytest.mark.parametrize("route", ["post", "file"])
+def test_a_type_needs_a_kind(route: str, tmp_path: Path) -> None:
+    from pydantic import ValidationError
+    from unfurl.util import UnfurlSchemaError
+
+    records = {"types": {"Thing@example.com": {"name": "Thing@example.com"}}}
+    with pytest.raises(
+        (ValidationError, UnfurlSchemaError), match="'kind' is a required property"
+    ):
+        _load_records(route, records, tmp_path)
+
+
+_METADATA_EXTENSIONS = {
+    "org.foo.custom-property": "x",
+    "org.foo.nested": {"a": [1, {"b": None}]},
+    "org.foo.zero": 0,
+}
+
+
+def test_metadata_extensions_round_trip(tmp_path: Path, open_store: OpenStore) -> None:
+    from ruamel.yaml import YAML
+
+    metadata = {"title": "t", **_METADATA_EXTENSIONS}
+    document = {
+        "apiVersion": API_VERSION,
+        "kind": "CloudMap",
+        **{
+            section: {key: dict(record, metadata=metadata)}
+            for section, (key, record) in _MINIMAL_RECORDS.items()
+        },
+    }
+    cloudmap_path = tmp_path / "cloudmap.yaml"
+    # block style: saved back in flow style, a url key is left unquoted,
+    # which libyaml (ruamel's C parser) can't read
+    yaml = YAML(typ="safe")
+    yaml.default_flow_style = False
+    yaml.dump(document, cloudmap_path)
+    db = open_store(str(cloudmap_path))
+    for section, (key, _) in _MINIMAL_RECORDS.items():
+        record = getattr(db, section)[key]
+        assert record.metadata.extensions == _METADATA_EXTENSIONS, section
+    db.save()
+
+    saved = YAML(typ="safe").load(cloudmap_path.read_text())
+    reloaded = open_store(str(cloudmap_path))
+    for section, (key, _) in _MINIMAL_RECORDS.items():
+        assert saved[section][key]["metadata"] == metadata, section
+        assert getattr(reloaded, section)[key] == getattr(db, section)[key], section
 
 
 _EXTENSIONS = {"org.foo.custom-property": "x", "org.foo.nested": {"a": [1, {"b": None}]}}
@@ -5042,7 +5138,15 @@ def test_extension_pattern_matches_the_schema() -> None:
     from unfurl.util import load_cloudmap_schema
 
     definitions = load_cloudmap_schema()["definitions"]
-    for name in ("repository", "artifact", "component", "service", "instantiation", "type"):
+    for name in (
+        "repository",
+        "artifact",
+        "component",
+        "service",
+        "instantiation",
+        "type",
+        "sharedMetadata",
+    ):
         patterns = list(definitions[name]["patternProperties"])
         assert patterns == [EXTENSION_PROPERTY_PATTERN.pattern], name
 
