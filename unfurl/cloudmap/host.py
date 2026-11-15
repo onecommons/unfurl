@@ -404,9 +404,16 @@ class RepositoryHost:
             repo, cloned = self.fetch_repo(remote_url, r, directory)
             assert repo
             remote_branch = f"{self.name or 'origin'}/{r.default_branch}"
-            if remote_branch in repo.repo.references and not repo.is_dirty():
-                # reset local main to remote's main
-                repo.repo.git.checkout(r.default_branch, remote_branch, B=True)
+            if remote_branch in repo.repo.references:
+                local = r.default_branch
+                if local not in repo.repo.heads or repo.repo.is_ancestor(
+                    repo.repo.heads[local].commit, repo.repo.commit(remote_branch)
+                ):
+                    # fast-forward
+                    repo.repo.git.checkout(local, remote_branch, B=True)
+                else:
+                    # local has commits the remote doesn't: leave it, detach
+                    repo.repo.git.checkout(remote_branch)
         except Exception:
             self.logger.error("Error retrieving content for %s", r.url, exc_info=True)
         else:

@@ -34,7 +34,7 @@ from unfurl.cloudmap.gitsync_db import SECTIONS, GitSyncCloudMapDB, open_cloudma
 from unfurl.logs import getLogger
 from ruamel.yaml import YAML
 from tests.utils import cloudmap_document
-from unfurl.repo import sanitize_url
+from unfurl.repo import GitRepo, sanitize_url
 from unfurl.testing import init_project, run_cmd, run_job_cmd
 from functools import partial
 from unittest.mock import Mock, patch
@@ -3920,6 +3920,44 @@ def test_sync_runs_before_analysis_analyzers(manager_cls, memory_store: MemorySt
     sync.import_repo(_host_repo(url))
     repo = db.get_repository(url)
     assert repo and repo.mirror_of == "git://github.com/team/repo.git"
+
+
+@pytest.mark.parametrize("local_commit", [False, True])
+def test_downloading_a_repository_only_fast_forwards_its_branch(
+    tmp_path: Path, local_commit: bool
+):
+    """A host's newer default branch fast-forwards the local one; a local
+    branch with commits the host lacks is kept, and the host's is checked
+    out detached."""
+
+    def commit(repo: git.Repo, message: str) -> str:
+        path = Path(repo.working_dir) / message
+        path.write_text(message)
+        repo.index.add([str(path)])
+        return repo.index.commit(message).hexsha
+
+    upstream = git.Repo.init(tmp_path / "upstream", initial_branch="main")
+    commit(upstream, "first")
+    clone = git.Repo.clone_from(upstream.working_dir, tmp_path / "clone")
+    local = commit(clone, "local") if local_commit else ""
+    host_head = commit(upstream, "second")
+
+    manager = GitlabManager.__new__(GitlabManager)
+    manager.logger = Mock()
+    directory = Mock()
+    directory.find_repo.return_value = GitRepo(clone)
+    record = _host_repo("git://example.com/team/repo.git", default_branch="main")
+    manager._fetch_and_analyze_repo(record, directory, None, upstream.working_dir)
+
+    manager.logger.error.assert_not_called()
+    directory.maybe_analyze.assert_called_once()
+    assert clone.head.commit.hexsha == host_head
+    if local_commit:
+        assert clone.head.is_detached
+        assert clone.heads.main.commit.hexsha == local
+    else:
+        assert clone.active_branch.name == "main"
+        assert clone.heads.main.commit.hexsha == host_head
 
 
 @pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
