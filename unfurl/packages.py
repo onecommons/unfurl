@@ -119,6 +119,27 @@ def is_pre_release(revision: str) -> bool:
     return bool(match and match.group("pre_release"))
 
 
+def _version_tag_base(prefix: str) -> str:
+    """What precedes the version in a tag for ``prefix``: ``prefix`` without
+    a trailing major version."""
+    return prefix.rstrip("0123456789")
+
+
+def version_from_tag(tag: str, prefix: str) -> str:
+    """The semver ``tag`` names, if it's a version tag for ``prefix`` (see
+    :meth:`Package.version_tag_prefix`), otherwise "". A prefix that ends
+    in a major version, like ``foo/v2``, takes only that major version's
+    tags, like ``foo/v2.1.0``."""
+    base = _version_tag_base(prefix)
+    major = prefix[len(base) :]
+    if not tag.startswith(prefix):
+        return ""
+    version = tag[len(base) :]
+    if not is_semver(version, True) or (major and version.split(".")[0] != major):
+        return ""
+    return version
+
+
 def is_semver_compatible_with(expected: str, test: str) -> bool:
     """
     Return true if ``expected`` and ``test``'s major versions are equal and ``expected``'s minor version is less than or equal to ``test``'s minor version.
@@ -413,6 +434,8 @@ def package_id_to_url(package_id: str, minimum_version: Optional[str] = ""):
     if match:
         version = match.group(1)[1:]  # strip leading "/"
         package_id = package_id[: -len(match.group(1))]  # strip "/vN"
+    if package_id.endswith(".git"):  # e.g. from example.org/repo.git/v2
+        package_id = package_id[: -len(".git")]
 
     # github.com, bitbucket.org, git.openstack.org (org/repo) git.apache.org (repo)
     repoloc, sep, repopath = package_id.partition(".git/")
@@ -492,6 +515,11 @@ class Package:
 
     def version_tag_prefix(self, major_version: str = "") -> str:
         # see https://go.dev/ref/mod#vcs-version
+        if not major_version:
+            # example.org/pkg/v2 takes only v2.x tags
+            match = re.match(r".*/v(\d+)$", self.package_id)
+            if match:
+                major_version = match.group(1)
         if self.url:
             url, repopath, urlrevision = split_git_url(self.url)
             # return tag prefix to match version tags with
@@ -516,9 +544,8 @@ class Package:
         logger.debug(
             f"Package {self.package_id} searched for {order} remote tags {prefix}* on {self.safe_url}"
         )
-        vtags = [tag[len(prefix) :] for tag in remote_tags]
         # semver tags, 0.x included; pre-releases only if there are no others
-        tags = [vtag for vtag in vtags if is_semver(vtag, True)]
+        tags = [v for v in (version_from_tag(tag, prefix) for tag in remote_tags) if v]
         tags = [vtag for vtag in tags if not is_pre_release(vtag)] or tags
         if tags:
             if self.missing:
@@ -548,7 +575,7 @@ class Package:
             if default_tag:
                 prefix = self.version_tag_prefix()
                 if default_tag.startswith(prefix):
-                    revision = default_tag[len(prefix) :]
+                    revision = default_tag[len(_version_tag_base(prefix)) :]
             if revision is None:
                 return None
         # remember the result of the search even if we don't set the revision
@@ -571,12 +598,9 @@ class Package:
         if not self.has_semver(True):
             return self.revision
         else:
-            prefix = self.version_tag_prefix()
-            while prefix[-1:].isdigit():
-                # remove trailing digit from prefix
-                prefix = prefix[:-1]
+            prefix = _version_tag_base(self.version_tag_prefix())
             # since "^v" is in the semver regex, make sure don't end up with "vv"
-            return self.version_tag_prefix() + self.revision.lstrip("v")
+            return prefix + self.revision.lstrip("v")
 
     @property
     def local_path(self) -> str:

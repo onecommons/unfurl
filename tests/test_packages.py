@@ -202,6 +202,11 @@ def test_package_id_from_url():
             "github.com/aws/aws-sdk-go-v2/service/amp",
             "https://github.com/aws/aws-sdk-go-v2.git#:service/amp",
         ),
+        (
+            "gitlab.com/onecommons/unfurl-types.git/v2",
+            "https://gitlab.com/onecommons/unfurl-types.git#v2",
+        ),
+        ("github.com/labstack/echo.git/v4", "https://github.com/labstack/echo.git#v4"),
     ]
     for package_id, expected_url in test_cases:
         url = package_id_to_url(package_id)
@@ -260,6 +265,52 @@ def test_latest_semver_prefers_releases(tmp_path, tags, latest, earliest):
     assert package.find_latest_semver_from_repo(get_remote_tags) == latest
     package.missing = True
     assert package.find_latest_semver_from_repo(get_remote_tags) == earliest
+
+
+@pytest.mark.parametrize(
+    "fragment, prefix", [("", "v"), ("#:foo", "foo/v"), ("#:foo/v2", "foo/v2")]
+)
+def test_version_tag_prefix(fragment, prefix):
+    package = Package("", "https://example.com/repo.git" + fragment, None)
+    assert package.version_tag_prefix() == prefix
+
+
+def test_a_major_version_path_takes_its_own_tags(tmp_path):
+    """A repository path ending in a major version, as Go lays out a module's
+    later major versions, takes only that major version's tags and names its
+    revision's tag the same way."""
+    tags = ["foo/v1.0.0", "foo/v2.0.0", "foo/v2.1.0", "foo/v20.0.0", "v3.0.0"]
+    package = Package("", _tagged_repo(tmp_path / "repo", tags) + "#:foo/v2", None)
+    assert package.find_latest_semver_from_repo(get_remote_tags) == "2.1.0"
+    package.revision = "2.1.0"
+    assert package.revision_tag == "foo/v2.1.0"
+    # unchecked remote: the checkout's tag stands in
+    unchecked = Package("", "https://example.com/repo.git#:foo/v2", None)
+    assert unchecked.set_version_from_repo(lambda url, pattern: None, "foo/v2.1.0")
+    assert unchecked.revision == "2.1.0"
+
+
+@pytest.mark.parametrize(
+    "package_id, fragment, tags, revision_tag",
+    [
+        ("example.org/pkg/v2", "#v2", ["v1.0.0", "v2.0.0", "v2.1.0", "v3.0.0"], "v2.1.0"),
+        (
+            "example.org/repo.git/foo/v2",
+            "#foo/v2:foo",
+            ["foo/v1.0.0", "foo/v2.1.0", "foo/v3.0.0", "v2.2.0"],
+            "foo/v2.1.0",
+        ),
+    ],
+)
+def test_a_major_version_package_takes_its_own_tags(
+    tmp_path, package_id, fragment, tags, revision_tag
+):
+    """A package id ending in a major version, as package_id_to_url turns
+    into a url, takes only that major version's tags."""
+    url = _tagged_repo(tmp_path / "repo", tags) + fragment
+    package = Package(package_id, url, None)
+    assert package.set_version_from_repo(get_remote_tags)
+    assert package.revision_tag == revision_tag
 
 
 def test_is_semver():
@@ -1226,16 +1277,18 @@ if __name__ == "__main__":
 
 
 @pytest.mark.parametrize(
-    "tag, revision",
+    "tag, revision, path",
     [
-        ("v1.0.0", "1.0.0"),
-        ("v0.3.0", "0.3.0"),
+        ("v1.0.0", "1.0.0", ""),
+        ("v0.3.0", "0.3.0", ""),
         # not a version: the package is left unversioned rather than refused
-        ("vnext", ""),
-        ("", ""),
+        ("vnext", "", ""),
+        ("", "", ""),
+        ("foo/v2.1.0", "2.1.0", "#:foo/v2"),
+        ("foo/v20.0.0", "", "#:foo/v2"),
     ],
 )
-def test_skipped_upstream_check_uses_the_local_tag(tag, revision):
+def test_skipped_upstream_check_uses_the_local_tag(tag, revision, path):
     """With the upstream check skipped, an existing checkout's version tag
     stands in for the remote's."""
     from types import SimpleNamespace
@@ -1249,7 +1302,7 @@ def test_skipped_upstream_check_uses_the_local_tag(tag, revision):
         find_repo=lambda url: checkout,
     )
     resolver = ImportResolver(None, local_env=local_env)
-    repo_view = RepoView(dict(name="", url="https://unfurl.test/org/pkg.git"), None)
+    repo_view = RepoView(dict(name="", url="https://unfurl.test/org/pkg.git" + path), None)
     packages = {}
     package = resolve_package(repo_view, packages, [], resolver.get_remote_tags)
     assert package, "an existing checkout is a package, versioned or not"

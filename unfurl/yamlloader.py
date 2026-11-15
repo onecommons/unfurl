@@ -81,6 +81,7 @@ from .packages import (
     resolve_package,
     is_semver,
     normalize_url,
+    version_from_tag,
 )
 from . import DEFAULT_CLOUD_SERVER
 
@@ -955,12 +956,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     # skip the remote if the repo exists, but go by the version
                     # tag it's at, if find_latest_semver_from_repo would take it
                     tag = repo.current_tag
-                    prefix = pattern.rstrip("*")
-                    if (
-                        tag
-                        and fnmatch.fnmatch(tag, pattern)
-                        and is_semver(tag[len(prefix) :], True)
-                    ):
+                    if tag and version_from_tag(tag, pattern.rstrip("*")):
                         return [tag]
                     return None
         elif os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
