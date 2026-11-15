@@ -2678,6 +2678,42 @@ def test_get_cloudmap_types(mocker):
             }
 
 
+def test_get_cloudmap_types_through_a_proxy_reads_repositories_alone() -> None:
+    """Through a cloudmap server the types are the same, and each blueprint's
+    repository is fetched without the records it leads to."""
+    import yaml
+    from unfurl.cloudmap.proxy import CloudMapProxy
+    from unfurl.server.cache import get_cloudmap_types
+    from unfurl.server.serve import app
+
+    doc = yaml.safe_load(expected_types_cloudmap)
+    follows: List[str] = []
+
+    def get(url: str, params: List[Tuple[str, str]], **kw: object) -> Mock:
+        query = dict(params)
+        section = query["kind"]
+        records = doc.get(section) or {}
+        if "key" in query:
+            follows.append(query["follow"])
+            records = {k: v for k, v in records.items() if k == query["key"]}
+        response = Mock(status_code=200, ok=True, text="")
+        response.json.return_value = {"result": {section: records}}
+        return response
+
+    session = Mock()
+    session.get.side_effect = get
+    proxy = CloudMapProxy("https://server.example.com", session=session)
+    with app.app_context():
+        with patch("unfurl.server.cache.get_cloudmap_proxy", return_value=proxy):
+            _, types = get_cloudmap_types("test_project", Mock())
+        with patch(
+            "unfurl.server.cache.load_yaml_from_cache", return_value=(None, doc)
+        ):
+            _, expected = get_cloudmap_types("test_project", Mock())
+    assert types and types == expected
+    assert follows and set(follows) == {"0"}, follows
+
+
 # ---------------------------------------------------------------------------
 # /cloudmap endpoint tests
 #

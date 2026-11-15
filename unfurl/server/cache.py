@@ -231,11 +231,16 @@ def get_cloudmap_view(
 def get_cloudmap_types(
     project_id: str, root_cache_entry: CacheEntry, validate: bool = False
 ) -> Tuple[CacheError, Dict[str, ResourceType]]:
+    from ..cloudmap.proxy import CloudMapProxy
+
     err, db = get_cloudmap_view(
         project_id, root_entry=root_cache_entry, validate=validate
     )
     if db is None:
         return err, {}
+    if isinstance(db, CloudMapProxy):
+        # only each blueprint's repository record is read, for its clone url
+        db.follow_depth = 0
     return err, _get_cloudmap_types(db)
 
 

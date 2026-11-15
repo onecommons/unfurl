@@ -45,6 +45,7 @@ from ..tosca_plugins.cloudmap_defs import (
     Instantiation,
     Repository,
     Service,
+    get_repository_url,
 )
 from ..util import UnfurlError
 
@@ -426,6 +427,7 @@ class CloudMapProxy(CloudMapStore):
         on a miss it issues
         ``GET /cloudmap?kind=<section>&key=<url>&follow=<N>`` and
         ingests both the primary record and any followed records.
+        ``N`` is :attr:`follow_depth`; ``0`` fetches the record alone.
       - :meth:`find_X` returns an iterator that walks the endpoint's
         pages *on demand*: taking one record costs one request, not the
         whole section, and a consumer that stops early stops paying.
@@ -486,7 +488,7 @@ class CloudMapProxy(CloudMapStore):
         ) + list(params)
         self._username = username
         self._private_token = private_token
-        self._follow_depth = follow_depth
+        self.follow_depth = follow_depth
         self._session = session or requests.Session()
         self._timeout = timeout if timeout is not None else DEFAULT_REQUEST_TIMEOUT
         self._page_size = page_size
@@ -655,6 +657,9 @@ class CloudMapProxy(CloudMapStore):
         # json pointer fragments the same way the local cache does
         # (a key path into the record is dropped, the record itself is fetched)
         cloudmap_url, key, _path = CloudMapDB._normalize_url(key, section)
+        if section == "repositories":
+            # as CloudMapDB.get_repository: a file's url names its repository
+            key = get_repository_url(key)
         if not self._cache._matches_cloudmap_url(cloudmap_url):
             # the record lives in another cloudmap document, not the one this
             # server serves at self._endpoint
@@ -664,7 +669,7 @@ class CloudMapProxy(CloudMapStore):
         params = self._query_params(
             kind=section,
             key=key,
-            follow=self._follow_depth,
+            follow=self.follow_depth,
             exclude=self._exclude_param(),
         )
         body = self._get(params)
