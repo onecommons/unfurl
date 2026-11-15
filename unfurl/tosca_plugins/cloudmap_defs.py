@@ -2050,14 +2050,10 @@ class AnalyzerContext(CloudMapWriter):
         self,
         url: str,
         analyze: Literal["yes", "no", "save-only", "default"] = "default",
-        replace: bool = False,
     ) -> Optional["CloudMapRecord"]:
         """Analyze a URL (git repo, pkg: PURL, or service URL) and add the
         resulting record to the cloudmap. Returns the record that was
         added or already existed.
-
-        ``replace`` also removes records previously discovered from this URL
-        that it no longer produces.
 
         The records the analysis creates are marked ``dependent``, and
         ``unfurl cloudmap --gc`` removes them once no record refers to them:

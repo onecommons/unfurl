@@ -399,7 +399,7 @@ def test_record_discovery_source():
 
     # Skipping the source must not skip the merge: an artifact rebuilt from
     # scratch (create_oci_artifact assigns a fresh Discovery) still has to
-    # keep what other analyzers recorded, or `--replace` could never find it
+    # keep what other analyzers recorded, or a sweep could never find it
     # again.
     readded = Artifact(
         url="pkg:oci/x",

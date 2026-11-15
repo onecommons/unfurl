@@ -2326,14 +2326,9 @@ def serve(
     "--add",
     multiple=True,
     metavar="URL",
-    help="Add a record for the given URL to the cloudmap. Repeatable.",
-)
-@click.option(
-    "--replace",
-    multiple=True,
-    metavar="URL",
-    help="Like --add, but also remove records previously discovered from URL "
-    "that it no longer produces. Repeatable.",
+    help="Add a record for the given URL to the cloudmap. Repeatable. With "
+    "--analyze yes, a URL already there is analyzed again and the records it "
+    "no longer produces are removed.",
 )
 @click.option(
     "--gc",
@@ -2379,7 +2374,6 @@ def cloudmap(
     repository: str = "",
     commit: bool = False,
     add: Tuple[str, ...] = (),
-    replace: Tuple[str, ...] = (),
     analyze: Literal["yes", "no", "save-only", "default", "metadata"] = "default",
     graph: Optional[str] = None,
     graph_format: str = "text",
@@ -2405,7 +2399,6 @@ def cloudmap(
     if gc:
         others = dict(
             add=add,
-            replace=replace,
             sync=sync,
             graph=graph is not None,
             local_cloudmap=local_cloudmap is not None,
@@ -2436,8 +2429,8 @@ def cloudmap(
     host_name = sync or options.get("import", "") or options.get("export", "")
     # `--commit` on its own commits records an earlier run left staged on a
     # cloudmap server (see CloudMap.flush)
-    flushing = commit and not add and not replace and not host_name
-    importing = add or replace or sync or options.get("import")
+    flushing = commit and not add and not host_name
+    importing = add or sync or options.get("import")
     if local_cloudmap:
         # relative to where it's run, not the project
         local_cloudmap = os.path.abspath(os.path.expanduser(local_cloudmap))
@@ -2453,14 +2446,14 @@ def cloudmap(
         click.echo(f"saved local clones to {path}")
         if not flushing and not host_name:  # --export carries on
             return
-    if not add and not replace and not host_name and not flushing:
+    if not add and not host_name and not flushing:
         click.echo(
-            "nothing to do (use one of --export, --import, --add, --replace, --graph,"
+            "nothing to do (use one of --export, --import, --add, --graph,"
             " --gc, --local-cloudmap, --commit, or --sync)"
         )
         return
     # get the host first so we know branch to use in the cloud map repository
-    if add or replace or flushing:
+    if add or flushing:
         host = None
     else:
         host = CloudMap.get_host(
@@ -2480,7 +2473,7 @@ def cloudmap(
         commit,
         # adding records can go straight to a cloudmap server; syncing with a
         # repository host can't, since that merges and commits a local clone
-        use_server=bool(add or replace or flushing),
+        use_server=bool(add or flushing),
     )
     if local_cloudmap:
         # saved where the import compares forks
@@ -2491,15 +2484,11 @@ def cloudmap(
         else:
             click.echo("nothing to commit")
         return
-    if add or replace:
+    if add:
         added = []
         failed = []
-        # a url given to both is replaced, which is a superset of adding it
-        for url, replacing in [
-            *((u, False) for u in add if u not in replace),
-            *((u, True) for u in replace),
-        ]:
-            r = cloud_map.analyze_url(url, analyze, replacing)
+        for url in add:
+            r = cloud_map.analyze_url(url, analyze)
             if r:
                 added.append(r)
             else:
@@ -2507,8 +2496,7 @@ def cloudmap(
         cloud_map.directory.compare_forks()
         if added:
             names = ", ".join(f"{r.__class__.__name__}({r.key})" for r in added)
-            verb = "Updated" if replace else "Added"
-            cloud_map.save(f"{verb} {len(added)} record(s): {names}")
+            cloud_map.save(f"Added {len(added)} record(s): {names}")
         for url in failed:
             click.echo(f"{url} skipped: already added or failed to add record")
         return

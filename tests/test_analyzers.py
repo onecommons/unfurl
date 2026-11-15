@@ -2168,8 +2168,9 @@ class _StubURLAnalyzer(URLAnalyzer):
     """Produces whatever the test set in ``emits`` for the url being analyzed.
 
     Lets a test change what a source produces between runs, which is what
-    ``analyze_url(..., replace=True)`` is meant to notice. ``recurses`` maps a
-    url to the urls its analyzer analyzes in turn, so a test can nest analyses.
+    ``analyze_url(..., "yes")`` is meant to notice. ``recurses`` maps a
+    url to the urls its analyzer analyzes in turn, asking for "yes" as
+    analyzers do, so a test can nest analyses.
     """
 
     url_schemes = ("stub:",)
@@ -2191,7 +2192,7 @@ class _StubURLAnalyzer(URLAnalyzer):
             else:
                 directory.add_record(record)
         for url in self.recurses.get(self.url, ()):
-            directory.analyze_url(url)
+            directory.analyze_url(url, "yes")
         return primary
 
 
@@ -2259,9 +2260,35 @@ def test_analyze_url_attributes_a_nested_analysis_to_its_own_url(tmp_path):
 
     # the outer url no longer leads here; that doesn't touch them
     _StubURLAnalyzer.recurses = {}
-    cm.analyze_url("stub:outer", replace=True)
+    cm.analyze_url("stub:outer", "yes")
     assert _sources(db.artifacts["pkg:generic/inner"]) == ["stub:inner"]
     assert _sources(db.types["inner.Type"]) == ["stub:inner"]
+
+
+def test_only_the_analysis_asked_for_sweeps(tmp_path):
+    """Neither a nested analysis nor "default" on a url already recorded
+    removes what the url no longer produces; analyzing it with "yes" does."""
+    cm = _stub_cloudmap(
+        tmp_path,
+        {
+            "stub:outer": [Artifact(url="pkg:generic/outer")],
+            "stub:inner": [
+                Artifact(url="pkg:generic/inner"),
+                Artifact(url="pkg:generic/dropped"),
+            ],
+        },
+        recurses={"stub:outer": ["stub:inner"]},
+    )
+    cm.analyze_url("stub:outer")
+    db = cm.directory.store
+    _StubURLAnalyzer.emits["stub:inner"] = [Artifact(url="pkg:generic/inner")]
+
+    cm.analyze_url("stub:outer", "yes")
+    assert "pkg:generic/dropped" in db.artifacts, "a nested analysis swept"
+    cm.analyze_url("stub:inner")
+    assert "pkg:generic/dropped" in db.artifacts, '"default" swept'
+    cm.analyze_url("stub:inner", "yes")
+    assert "pkg:generic/dropped" not in db.artifacts
 
 
 def test_analyze_url_replace_collects_orphans(tmp_path):
@@ -2275,7 +2302,7 @@ def test_analyze_url_replace_collects_orphans(tmp_path):
 
     # the source no longer produces the second artifact
     _StubURLAnalyzer.emits = {"stub:one": [Artifact(url="pkg:generic/kept")]}
-    cm.analyze_url("stub:one", replace=True)
+    cm.analyze_url("stub:one", "yes")
 
     assert "pkg:generic/kept" in db.artifacts
     assert "pkg:generic/orphan" not in db.artifacts, "orphan should be collected"
@@ -2298,7 +2325,7 @@ def test_analyze_url_replace_keeps_records_with_other_sources(tmp_path):
 
     # stub:one stops producing the shared type; stub:two still does
     _StubURLAnalyzer.emits["stub:one"] = [Artifact(url="pkg:generic/a")]
-    cm.analyze_url("stub:one", replace=True)
+    cm.analyze_url("stub:one", "yes")
 
     assert "shared.Type" in db.types, "still produced by stub:two"
     assert _sources(db.types["shared.Type"]) == ["stub:two"]
@@ -2341,7 +2368,7 @@ def test_replace_deletes_only_what_analysis_created(tmp_path):
         assert _sources(record) == ["stub:one"], record
 
     _StubURLAnalyzer.emits["stub:one"] = [still]
-    cm.analyze_url("stub:one", replace=True)
+    cm.analyze_url("stub:one", "yes")
 
     assert "pkg:generic/made" not in db.artifacts
     for record in (db.services["stub:asked"], edited, db.services["https://added.example.com"]):
@@ -2528,7 +2555,7 @@ def test_analyze_url_replace_does_not_oscillate(tmp_path):
     cm.register_url_analyzer(_GuardedAnalyzer)
     db = cm.directory.store
     for run in range(3):
-        cm.analyze_url("stub:one", replace=True)
+        cm.analyze_url("stub:one", "yes")
         assert "dep.Type" in db.types, f"deleted on run {run + 1}"
         assert "pkg:generic/a" in db.artifacts, f"deleted on run {run + 1}"
 
@@ -2566,7 +2593,7 @@ def test_analyze_url_replace_skips_sweep_when_analysis_fails(tmp_path):
     assert "pkg:generic/a" in db.artifacts
 
     cm.register_url_analyzer(_Boom)
-    cm.analyze_url("stub:one", replace=True)
+    cm.analyze_url("stub:one", "yes")
     assert "pkg:generic/a" in db.artifacts, "must not sweep after a failed run"
 
 
@@ -2611,7 +2638,7 @@ def test_analyzer_failure_marks_the_run_incomplete(tmp_path):
     """A swallowed analyzer error has to reach the run's error count.
 
     `Directory.analyze` logs and continues when an analyzer raises, so without
-    this the run looks like "produced nothing" and `--replace` would delete
+    this the run looks like "produced nothing" and `--add --analyze yes` would delete
     every record attributed to the url.
     """
 
@@ -2673,7 +2700,7 @@ def test_host_sync_analysis_is_attributed(tmp_path):
 
     Repository host sync (`--sync` / `--import`) reaches the same analyzers and
     produces the same records, so they get the same provenance -- otherwise a
-    record a sync created could never be collected by `--replace`, and the same
+    record a sync created could never be collected by a sweep, and the same
     record would carry different sources depending on which command made it.
     """
     cm = _stub_cloudmap(tmp_path, {})
@@ -2776,7 +2803,7 @@ def test_pipeline_run_analyzer_records_are_attributed(tmp_path):
     (`CloudMap._add_repository_record`), and the Instantiation itself is
     stamped there. What the analyzer adds alongside it has the same
     provenance, and -- just as importantly -- what it *looks up* is marked as
-    still in use, so `--replace` doesn't sweep records it is still using.
+    still in use, so a sweep doesn't delete records it is still using.
     """
     added = Artifact(url="pkg:generic/from-pipeline")
     seen = CloudType(name="looked.Up", kind="component")
@@ -2871,8 +2898,9 @@ def test_flush_commits_a_local_cloudmap_left_uncommitted(tmp_path):
     assert cm.flush("Commit pending cloudmap records") is False
 
 
-def test_analyze_url_replace_forces_reanalysis(tmp_path):
-    """`replace` overrides analyze="no", which would otherwise short-circuit.
+def test_analyze_url_yes_reanalyzes_before_sweeping(tmp_path):
+    """analyze="yes" analyzes a url that's already recorded again, so its
+    sweep sees what the url still produces.
 
     The dedupe check returns early for a url that's already recorded; that
     would produce nothing and make every record attributed to it look orphaned.
@@ -2886,7 +2914,7 @@ def test_analyze_url_replace_forces_reanalysis(tmp_path):
 
     # analyze="no" returns None here because the record already exists
     assert cm.analyze_url(url, "no") is None
-    assert cm.analyze_url(url, "no", replace=True) is not None, "forced re-analysis"
+    assert cm.analyze_url(url, "yes") is not None, "forced re-analysis"
     assert url in db.artifacts, "re-analysis re-emitted it, so it wasn't swept"
 
 
@@ -2908,7 +2936,7 @@ def test_analyze_url_records_a_canonical_source(tmp_path):
     """The same repository spelled two ways is one discovery source.
 
     Records are keyed by the canonical `git://` url, so the source has to be
-    canonicalized too -- otherwise `--replace git://...` wouldn't find records
+    canonicalized too -- otherwise re-analyzing `git://...` wouldn't find records
     added by `--add https://...`, and the sweep would silently collect nothing.
     """
     cm = _stub_cloudmap(tmp_path, {})

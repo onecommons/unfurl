@@ -1176,10 +1176,14 @@ def test_server_cloudmap(server_env):
             assert res.json()["added"] == [] and res.json()["skipped"] == [service_url]
             assert repo.revision == head_before, "nothing added -> no commit"
 
-            # replace re-analyzes it
+            # --analyze yes analyzes it again
             res = requests.post(
                 analyze_url,
-                json={"replace": [service_url], "commit_msg": "re-analyze the service"},
+                json={
+                    "add": [service_url],
+                    "analyze": "yes",
+                    "commit_msg": "re-analyze the service",
+                },
             )
             assert res.status_code == 200, res.text
             assert [r["key"] for r in res.json()["added"]] == [service_url]

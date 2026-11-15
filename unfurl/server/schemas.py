@@ -897,13 +897,6 @@ class CloudMapAnalyzeRequest(BaseModel):
         default_factory=list,
         description="URLs to add a record for: a git URL, a ``pkg:`` PURL, a container image name or a service URL.",
     )
-    replace: List[str] = Field(
-        default_factory=list,
-        description=(
-            "Like ``add``, but also remove records previously discovered from the URL "
-            "that it no longer produces."
-        ),
-    )
     deleted: List[str] = Field(
         default_factory=list,
         description=(
@@ -931,7 +924,9 @@ class CloudMapAnalyzeRequest(BaseModel):
         description=(
             'Whether to analyze repository contents. "save-only" clones the '
             "repository without analyzing it; the default analyzes a file named "
-            'in the URL but not a whole repository. "metadata" refreshes an '
+            'in the URL but not a whole repository. "yes" analyzes a URL '
+            "already in the cloudmap again, removing the records it no longer "
+            'produces. "metadata" refreshes an '
             "existing repository record from its host without cloning, keeping "
             'what earlier analysis found, and otherwise acts like "no"; a URL '
             "whose record didn't change is reported as skipped."

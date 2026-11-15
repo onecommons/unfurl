@@ -55,7 +55,7 @@ pub struct ClearProjectResponseKeptClone {
 pub struct CloudMapAnalyzeRequest {
     /// URLs to add a record for: a git URL, a ``pkg:`` PURL, a container image name or a service URL.
     pub add: Option<Vec<String>>,
-    /// Whether to analyze repository contents. "save-only" clones the repository without analyzing it; the default analyzes a file named in the URL but not a whole repository. "metadata" refreshes an existing repository record from its host without cloning, keeping what earlier analysis found, and otherwise acts like "no"; a URL whose record didn't change is reported as skipped.
+    /// Whether to analyze repository contents. "save-only" clones the repository without analyzing it; the default analyzes a file named in the URL but not a whole repository. "yes" analyzes a URL already in the cloudmap again, removing the records it no longer produces. "metadata" refreshes an existing repository record from its host without cloning, keeping what earlier analysis found, and otherwise acts like "no"; a URL whose record didn't change is reported as skipped.
     #[default(Some(Default::default()))]
     pub analyze: Option<CloudMapAnalyzeRequestAnalyze>,
     /// Branch to write to; defaults to ``main``.
@@ -77,12 +77,10 @@ pub struct CloudMapAnalyzeRequest {
     pub private: Option<Vec<String>>,
     /// Git credential token; can also be sent via the ``X-Git-Credentials`` header.
     pub private_token: Option<String>,
-    /// Like ``add``, but also remove records previously discovered from the URL that it no longer produces.
-    pub replace: Option<Vec<String>>,
     /// Git credential username; can also be sent via the ``X-Git-Credentials`` header.
     pub username: Option<String>,
 }
-/// Whether to analyze repository contents. "save-only" clones the repository without analyzing it; the default analyzes a file named in the URL but not a whole repository. "metadata" refreshes an existing repository record from its host without cloning, keeping what earlier analysis found, and otherwise acts like "no"; a URL whose record didn't change is reported as skipped.
+/// Whether to analyze repository contents. "save-only" clones the repository without analyzing it; the default analyzes a file named in the URL but not a whole repository. "yes" analyzes a URL already in the cloudmap again, removing the records it no longer produces. "metadata" refreshes an existing repository record from its host without cloning, keeping what earlier analysis found, and otherwise acts like "no"; a URL whose record didn't change is reported as skipped.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize, oas3_gen_support::Default)]
 pub enum CloudMapAnalyzeRequestAnalyze {
     #[serde(rename = "default")]
@@ -1990,7 +1988,7 @@ impl IntoResponse for PostClearProjectFileCacheResponse {
         }
     }
 }
-/// Like ``unfurl cloudmap --add`` / ``--replace``: analyze each URL and add the records it produces to ``cloudmap.yaml``. Records are written the same way as ``POST /cloudmap``, through the rust cloudmap server when one is configured. ``file:`` and ``git-local:`` URLs are rejected, and a bare name is always taken to be a container image.
+/// Like ``unfurl cloudmap --add``: analyze each URL and add the records it produces to ``cloudmap.yaml``; with ``analyze: yes``, a URL already there is analyzed again and the records it no longer produces are removed. Records are written the same way as ``POST /cloudmap``, through the rust cloudmap server when one is configured. ``file:`` and ``git-local:`` URLs are rejected, and a bare name is always taken to be a container image.
 ///
 /// ``deleted``, ``private`` and ``moved`` report what happened to repositories already in the cloudmap; their records are updated, never removed.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]

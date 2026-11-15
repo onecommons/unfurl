@@ -39,6 +39,8 @@ If repository host is remote, the import option will also pull the latest upstre
 
 Import updates the cloudmap in a local branch, so you have manually merge those changed upstream if desired or use the `--sync` option described below.
 
+``unfurl cloudmap --add URL`` adds the records analyzing ``URL`` produces: a git repository, a ``pkg:`` package URL, a container image or a service URL. A URL already in the cloud map is skipped, unless ``--analyze yes`` is given: then it's analyzed again, and the records its earlier analysis created that it no longer produces are removed.
+
 ### Update a repository host with a cloud map
 
 You can update a gitlab or unfurl cloud instance with latest in the cloud map using the ``--export`` option of the {cli}`unfurl cloudmap<unfurl-cloudmap>` command.
@@ -83,11 +85,11 @@ In addition to updating those instances, the repository will have branches for e
 
 ### Track local clones
 
-To see which of your local clones have work to push or pull, set `local_cloudmap` in the cloud map's configuration (see Configuration below) to a cloud map file. Each time Unfurl imports repositories (`--import`, `--sync`, `--add` or `--replace`), it records in that file each local clone with uncommitted changes, or with branches or tags out of step with its remotes, ahead or behind. To update the file on its own, run:
+To see which of your local clones have work to push or pull, set `local_cloudmap` in the cloud map's configuration (see Configuration below) to a cloud map file. Each time Unfurl imports repositories (`--import`, `--sync` or `--add`), it records in that file each local clone with uncommitted changes, or with branches or tags out of step with its remotes, ahead or behind. To update the file on its own, run:
 
 `unfurl cloudmap --local-cloudmap [PATH]`
 
-With a `PATH` the file is written there instead of the configured `local_cloudmap`; given with `--import`, `--sync`, `--add` or `--replace` it's used as `local_cloudmap` for that run. The clones are the repositories in `clone_root` and those the project references, and the file's own clones are checked again each time, wherever they are. A clone that's committed and in step with its remotes is removed from the file, as is one whose directory is gone. Nothing is fetched.
+With a `PATH` the file is written there instead of the configured `local_cloudmap`; given with `--import`, `--sync` or `--add` it's used as `local_cloudmap` for that run. The clones are the repositories in `clone_root` and those the project references, and the file's own clones are checked again each time, wherever they are. A clone that's committed and in step with its remotes is removed from the file, as is one whose directory is gone. Nothing is fetched.
 
 Each clone gets a repository record (see the {ref}`schema <CloudMap Schema>`):
 

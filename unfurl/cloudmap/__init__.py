@@ -1506,7 +1506,6 @@ class CloudMap:
         self,
         url: str,
         analyze: Analyze_Options = "default",
-        replace: bool = False,
     ) -> Optional[CloudMapRecord]:
         """Analyze a URL and add the resulting record to the cloudmap.
 
@@ -1518,34 +1517,30 @@ class CloudMap:
 
         Records added are attributed to ``url`` in their
         ``metadata.discovery.sources``, so a later run can tell what this URL
-        contributed.
+        contributed. With ``analyze="yes"``, unless another analysis is in
+        progress, records ``url`` no longer produces are then removed -- see
+        :py:meth:`~unfurl.cloudmap.provenance.ProvenanceTrackingContext.replace_from_source`.
 
         Args:
             url: The URL to add. Can be a git URL, pkg: PURL, or a service URL.
             analyze: Whether to analyze the repository ("yes", "no", "save-only", "default") (default: "default").
                 "metadata" refreshes an existing repository record from its host without
                 cloning it, and otherwise acts like "no".
-            replace: Also remove records that were previously discovered from
-                ``url`` but that it no longer produces -- see
-                :py:meth:`~unfurl.cloudmap.provenance.ProvenanceTrackingContext.replace_from_source`.
-                Implies ``analyze="yes"``.
 
         Returns:
             If analyze != "yes" return None if the URL is already in the database,
             otherwise, return the Repository, Artifact, or Service that was added (or None if there was an error).
         """
         url, is_local_path = self._normalize_analyzed_url(url)
-        if replace:
-            # Several paths below short-circuit when a record already exists
-            # (the dedupe check here, and the one in `_add_repository_record`).
-            # Those returns produce nothing, which would make every previously
-            # discovered record look orphaned, so re-analysis has to be forced.
-            analyze = "yes"
         source = self._canonical_source(url)
         tracked = self.directory.context
+        # Not a nested analysis: analyzers ask for "yes" whenever analysis is
+        # on. Not "default" either: it returns early for a known url, after
+        # its lookup marked the record in use.
+        sweep = analyze == "yes" and not tracked.analyzing
         with tracked._tracking_provenance(source, new_analysis=True) as provenance:
             record = self._analyze_url(tracked, url, analyze, is_local_path)
-        if replace:
+        if sweep:
             tracked.replace_from_source(source, provenance)
         return record
 

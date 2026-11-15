@@ -5,7 +5,7 @@
 Analyzers produce records from a URL or from a file in a repository. Recording
 that URL on each record is what lets a later run tell what a given source
 contributed, and so notice when it stops contributing something -- see
-:py:meth:`~unfurl.cloudmap.CloudMap.analyze_url`'s ``replace`` argument.
+:py:meth:`~unfurl.cloudmap.CloudMap.analyze_url`.
 
 :py:class:`ProvenanceTrackingContext` wraps the :py:class:`AnalyzerContext`
 analyzers are given and does that bookkeeping for them, so no analyzer has to
@@ -685,6 +685,11 @@ class ProvenanceTrackingContext(AnalyzerContext):
             if new_analysis:
                 self._analysis_starts.pop()
 
+    @property
+    def analyzing(self) -> bool:
+        """Whether an analysis is in progress."""
+        return bool(self._sources)
+
     def _mark_seen(self, record: Optional[CloudMapRecord]) -> None:
         """Note that ``record`` is still in use by the analysis in progress."""
         if record is not None:
@@ -815,9 +820,8 @@ class ProvenanceTrackingContext(AnalyzerContext):
         self,
         url: str,
         analyze: Literal["yes", "no", "save-only", "default"] = "default",
-        replace: bool = False,
     ) -> Optional[CloudMapRecord]:
-        return self.__context.analyze_url(url, analyze, replace)
+        return self.__context.analyze_url(url, analyze)
 
     # --- Look up records (marking whatever is found as still in use) ---
 

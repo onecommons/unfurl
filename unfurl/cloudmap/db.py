@@ -142,7 +142,6 @@ class CloudMapStore(CloudMapWriter):
         self,
         url: str,
         analyze: Literal["yes", "no", "save-only", "default"] = "default",
-        replace: bool = False,
     ) -> Optional[CloudMapRecord]:
         """Analysis needs to clone and inspect repositories, so it is the
         owning cloud map's job; a store that isn't attached to one can only
@@ -152,7 +151,7 @@ class CloudMapStore(CloudMapWriter):
                 f"{type(self).__name__} is not attached to a cloudmap, so it "
                 "cannot analyze urls"
             )
-        return self.__cloudmap.analyze_url(url, analyze, replace)
+        return self.__cloudmap.analyze_url(url, analyze)
 
     def records(self) -> Iterator[CloudMapRecord]:
         """Every record in every section. Version variants are left out:
