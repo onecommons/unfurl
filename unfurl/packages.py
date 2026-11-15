@@ -101,14 +101,22 @@ class UnfurlPackageUpdateNeeded(UnfurlError):
 
 
 def is_semver(revision: Optional[str], include_unreleased=False) -> bool:
-    """Return true if ``revision`` looks like a semver (with major version >= 1 unless include_unreleased is True)."""
+    """Return true if ``revision`` is a valid semver, released (major version >= 1
+    and not a pre-release) unless include_unreleased is True."""
     if not revision:
         return False
     revision = str(revision)
-    return bool(
-        (include_unreleased or not revision.lstrip("v").startswith("0"))
-        and TOSCAVersionProperty.VERSION_RE.match(revision) is not None
+    if not TOSCAVersionProperty.is_well_formed(revision):
+        return False
+    return include_unreleased or not (
+        revision.lstrip("v").startswith("0") or is_pre_release(revision)
     )
+
+
+def is_pre_release(revision: str) -> bool:
+    """Whether ``revision`` is a semver pre-release, e.g. ``1.0.0-rc.1``."""
+    match = TOSCAVersionProperty.VERSION_RE.match(revision)
+    return bool(match and match.group("pre_release"))
 
 
 def is_semver_compatible_with(expected: str, test: str) -> bool:
@@ -509,11 +517,9 @@ class Package:
             f"Package {self.package_id} searched for {order} remote tags {prefix}* on {self.safe_url}"
         )
         vtags = [tag[len(prefix) :] for tag in remote_tags]
-        # only include tags look like a semver with major version of 1 or higher
-        # (We exclude unreleased versions because we want to treat the repository
-        # as if it didn't specify a semver at all. Unreleased versions have no backwards compatibility
-        # guarantees so we don't want to treat the repository as pinned to a particular revision.
+        # semver tags, 0.x included; pre-releases only if there are no others
         tags = [vtag for vtag in vtags if is_semver(vtag, True)]
+        tags = [vtag for vtag in tags if not is_pre_release(vtag)] or tags
         if tags:
             if self.missing:
                 # if this is set then there wasn't a version tag when the lock file saved

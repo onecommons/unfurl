@@ -19,6 +19,7 @@ from unfurl.packages import (
     get_package_from_url,
     reverse_rules_for_canonical,
     find_canonical,
+    is_semver,
     package_id_to_url,
     resolve_package,
 )
@@ -218,6 +219,55 @@ def test_remote_refs():
     assert refs.tags, refs
     assert all(tag.startswith("v") for tag in refs.tags), refs.tags
     assert refs.default_branch == "main", refs.default_branch
+
+
+def _tagged_repo(path, tags) -> str:
+    repo = git.Repo.init(path)
+    repo.index.commit("tagged")
+    for tag in tags:
+        repo.create_tag(tag)
+    return str(path)
+
+
+def test_remote_tags_are_newest_first(tmp_path):
+    """A release sorts above its pre-releases, and pre-release numbers
+    compare as numbers."""
+    tags = ["v1.0.0-alpha.1", "v1.0.0", "v1.0.0-alpha.10", "v0.9.0", "v1.0.0-alpha.2", "v1.0.1"]
+    repo = _tagged_repo(tmp_path / "repo", tags)
+    assert get_remote_tags(repo, "v*") == [
+        "v1.0.1",
+        "v1.0.0",
+        "v1.0.0-alpha.10",
+        "v1.0.0-alpha.2",
+        "v1.0.0-alpha.1",
+        "v0.9.0",
+    ]
+
+
+@pytest.mark.parametrize(
+    "tags, latest, earliest",
+    [
+        (["v1.0.0-alpha.1", "v1.0.0", "v1.0.1", "v1.1.0-rc.1"], "1.0.1", "1.0.0"),
+        (["v1.0.0-alpha.1", "v1.0.0-alpha.2"], "1.0.0-alpha.2", "1.0.0-alpha.1"),
+        (["v0.9.0", "v1.0.0-rc.1"], "0.9.0", "0.9.0"),
+        (["v1.0.0-1", "v1.0", "vnext"], "1.0", "1.0"),
+    ],
+)
+def test_latest_semver_prefers_releases(tmp_path, tags, latest, earliest):
+    """Pre-releases count only if there's nothing else; a tag
+    TOSCAVersionProperty would reject doesn't count."""
+    package = Package("", _tagged_repo(tmp_path / "repo", tags), None)
+    assert package.find_latest_semver_from_repo(get_remote_tags) == latest
+    package.missing = True
+    assert package.find_latest_semver_from_repo(get_remote_tags) == earliest
+
+
+def test_is_semver():
+    assert is_semver("1.0.0") and is_semver("v1.2")
+    for unreleased in ["0.9.0", "1.0.0-rc.1"]:
+        assert not is_semver(unreleased) and is_semver(unreleased, True), unreleased
+    for invalid in ["1.0.0-1", "0.0.0-rc.1", "1.0-rc.1", "next"]:
+        assert not is_semver(invalid, True), invalid
 
 
 def test_remote_tags():
