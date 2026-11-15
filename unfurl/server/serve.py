@@ -142,6 +142,7 @@ logger = getLogger("unfurl.server")
 
 
 app = APIFlask(__name__, title="Unfurl Server API", version=__version__())
+app.config["OPENAPI_VERSION"] = "3.1.0"
 
 
 # One processor, not one per concern: APIFlask keeps a single

@@ -85,7 +85,7 @@ _EVENT_STREAM_RESPONSE: Dict[
         "description": (
             "Stream of data frames, one per watched write as it settles, "
             "ending with a terminal frame whose status is done. "
-            "Declared without a schema deliberately: OpenAPI 3.0 has no "
+            "Declared without a schema deliberately: OpenAPI 3.1 has no "
             "way to say a stream of these, since a response schema "
             "describes the whole body, and oas3-gen generates an "
             "EventStream wrapper for a typed text/event-stream that does "
@@ -105,7 +105,7 @@ _EVENT_STREAM_RESPONSE: Dict[
         "One ``data:`` frame per watched write as it settles, ending with "
         "``{\"status\": \"done\"}``. The client must close the stream on "
         "that frame: `EventSource` reopens one that merely ends.\n\n"
-        "The body is a stream of ``QueuedWriteEvent``, which OpenAPI 3.0 "
+        "The body is a stream of ``QueuedWriteEvent``, which OpenAPI 3.1 "
         "cannot express -- the schema below describes one frame, not the "
         "body.\n\n"
         "Served by the rust proxy when a write queue is configured. This "

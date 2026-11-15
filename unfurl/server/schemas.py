@@ -1012,7 +1012,7 @@ class CloudMapResult(BaseModel):
 
 def _open_for_openapi(definition: Dict[str, JsonValue]) -> Dict[str, JsonValue]:
     """Return ``definition`` with ``patternProperties`` replaced by
-    ``additionalProperties: true``, as OpenAPI 3.0 has no ``patternProperties``.
+    ``additionalProperties: true``, as oas3-gen ignores ``patternProperties``.
     Request bodies are still validated against the canonical schema."""
     if "patternProperties" not in definition:
         return definition
@@ -1062,8 +1062,7 @@ def _conflicts_schema(description: str) -> Dict[str, Any]:
                     ),
                 },
                 "commit": {
-                    "type": "string",
-                    "nullable": True,
+                    "type": ["string", "null"],
                     "description": (
                         "Commit carrying this version of the records, or "
                         "null when the file's content is not in git yet. "
@@ -1246,8 +1245,7 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
                     ),
                 },
                 "commit": {
-                    "type": "string",
-                    "nullable": True,
+                    "type": ["string", "null"],
                     "description": (
                         "The head commit the records were read at: the "
                         "``latest_commit`` for a write based on this read. "

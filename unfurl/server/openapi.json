@@ -575,8 +575,10 @@
         "properties": {
           "commit": {
             "description": "The head commit the records were read at: the ``latest_commit`` for a write based on this read. Null for a repository with no commits; absent from a server that doesn't report it.",
-            "nullable": true,
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "conflicts": {
             "description": "Records the response holds more than one version of. Copies -- records sharing a key in two files, or in two branches or repositories a read covers -- come on every read, grouped by the ``origin``, ``branch`` and ``file`` they're in: every copy, the one ``result`` shows included, which is just the first in sort order and carries ``unfurl.server.origin``, ``unfurl.server.branch`` and ``unfurl.server.file`` (a write drops them). The working tree's side of records the database disagrees with, grouped by the ``commit`` that carries them, comes only when the request asked for ``conflicts``; then an empty array means there are none. Grouped rather than merged into ``result`` because a record can be contested from more than one commit, and because the two versions of a record share a key and would otherwise collide. Only records still contested appear: once a write has settled one the decision is made, and it drops out.",
@@ -588,8 +590,10 @@
                 },
                 "commit": {
                   "description": "Commit carrying this version of the records, or null when the file's content is not in git yet. Set on the working tree's side of a conflict.",
-                  "nullable": true,
-                  "type": "string"
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "file": {
                   "description": "The file holding this group's copies.",
@@ -2221,8 +2225,10 @@
                 },
                 "commit": {
                   "description": "Commit carrying this version of the records, or null when the file's content is not in git yet. Set on the working tree's side of a conflict.",
-                  "nullable": true,
-                  "type": "string"
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "file": {
                   "description": "The file holding this group's copies.",
@@ -3619,7 +3625,7 @@
     "title": "Unfurl Server API",
     "version": "1.2.1"
   },
-  "openapi": "3.0.3",
+  "openapi": "3.1.0",
   "paths": {
     "/batch_patch": {
       "post": {
@@ -4871,7 +4877,7 @@
     },
     "/events": {
       "get": {
-        "description": "One ``data:`` frame per watched write as it settles, ending with ``{\"status\": \"done\"}``. The client must close the stream on that frame: `EventSource` reopens one that merely ends.\n\nThe body is a stream of ``QueuedWriteEvent``, which OpenAPI 3.0 cannot express -- the schema below describes one frame, not the body.\n\nServed by the rust proxy when a write queue is configured. This backend has no queue, so nothing is ever pending and it sends ``done`` at once.",
+        "description": "One ``data:`` frame per watched write as it settles, ending with ``{\"status\": \"done\"}``. The client must close the stream on that frame: `EventSource` reopens one that merely ends.\n\nThe body is a stream of ``QueuedWriteEvent``, which OpenAPI 3.1 cannot express -- the schema below describes one frame, not the body.\n\nServed by the rust proxy when a write queue is configured. This backend has no queue, so nothing is ever pending and it sends ``done`` at once.",
         "parameters": [
           {
             "in": "query",
@@ -4910,7 +4916,7 @@
             "content": {
               "text/event-stream": {}
             },
-            "description": "Stream of data frames, one per watched write as it settles, ending with a terminal frame whose status is done. Declared without a schema deliberately: OpenAPI 3.0 has no way to say a stream of these, since a response schema describes the whole body, and oas3-gen generates an EventStream wrapper for a typed text/event-stream that does not compile. The frame shape is QueuedWriteEvent in schemas.py. OpenAPI 3.2 added event streaming and would let this be declared properly."
+            "description": "Stream of data frames, one per watched write as it settles, ending with a terminal frame whose status is done. Declared without a schema deliberately: OpenAPI 3.1 has no way to say a stream of these, since a response schema describes the whole body, and oas3-gen generates an EventStream wrapper for a typed text/event-stream that does not compile. The frame shape is QueuedWriteEvent in schemas.py. OpenAPI 3.2 added event streaming and would let this be declared properly."
           },
           "422": {
             "content": {

@@ -383,7 +383,7 @@ When `unfurl/server/serve.py`, `unfurl/server/schemas.py`, or
 Python side first:
 
 ```bash
-OPENAPI_VERSION=3.0.3 FLASK_APP=unfurl.server.serve UNFURL_HOME="" \
+FLASK_APP=unfurl.server.serve UNFURL_HOME="" \
     .tox/py314/bin/flask spec --output unfurl/server/openapi.json --format json
 ```
 

@@ -1514,7 +1514,7 @@ impl IntoResponse for GetCloudmapResponse {
 }
 /// One ``data:`` frame per watched write as it settles, ending with ``{"status": "done"}``. The client must close the stream on that frame: `EventSource` reopens one that merely ends.
 ///
-/// The body is a stream of ``QueuedWriteEvent``, which OpenAPI 3.0 cannot express -- the schema below describes one frame, not the body.
+/// The body is a stream of ``QueuedWriteEvent``, which OpenAPI 3.1 cannot express -- the schema below describes one frame, not the body.
 ///
 /// Served by the rust proxy when a write queue is configured. This backend has no queue, so nothing is ever pending and it sends ``done`` at once.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
@@ -1532,7 +1532,7 @@ pub struct GetEventsRequestQuery {
 /// Response types for GetEventsResponse
 #[derive(Debug)]
 pub enum GetEventsResponse {
-    ///200: Stream of data frames, one per watched write as it settles, ending with a terminal frame whose status is done. Declared without a schema deliberately: OpenAPI 3.0 has no way to say a stream of these, since a response schema describes the whole body, and oas3-gen generates an EventStream wrapper for a typed text/event-stream that does not compile. The frame shape is QueuedWriteEvent in schemas.py. OpenAPI 3.2 added event streaming and would let this be declared properly.
+    ///200: Stream of data frames, one per watched write as it settles, ending with a terminal frame whose status is done. Declared without a schema deliberately: OpenAPI 3.1 has no way to say a stream of these, since a response schema describes the whole body, and oas3-gen generates an EventStream wrapper for a typed text/event-stream that does not compile. The frame shape is QueuedWriteEvent in schemas.py. OpenAPI 3.2 added event streaming and would let this be declared properly.
     Ok,
     ///422: Validation error
     UnprocessableEntity(ValidationError),
