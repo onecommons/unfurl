@@ -7,6 +7,7 @@ from pprint import pformat
 import re
 from typing import Callable, Dict, Iterator, List, Protocol, Set, Tuple
 import traceback
+import click
 from click.testing import CliRunner
 import pytest
 from unfurl.__main__ import cli
@@ -2145,9 +2146,11 @@ def test_gc_on_the_command_line(tmp_path: Path) -> None:
 
     def gc(*args: str) -> Tuple[int, str]:
         result = runner.invoke(cli, ["--home", "", "cloudmap", "--gc", *args])
+        # rich-click styles its errors when GITHUB_ACTIONS is set
+        output = click.unstyle(result.output)
         if isinstance(result.exception, SystemExit) or not result.exception:
-            return result.exit_code, result.output
-        return result.exit_code, result.output + repr(result.exception)
+            return result.exit_code, output
+        return result.exit_code, output + repr(result.exception)
 
     with change_cwd(str(tmp_path)):
         code, output = gc("--dryrun")

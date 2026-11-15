@@ -7,6 +7,7 @@ import tenacity
 from dataclasses import replace
 
 from unfurl.cloudmap import oci
+from unfurl.cloudmap.provenance import discovery_sources
 from unfurl.tosca_plugins.cloudmap_defs import (
      Artifact,
      ArtifactMappings,
@@ -431,7 +432,7 @@ def test_resolve_image_ref(
         )
 
     # Verify manifest URL is included (will have the manifest digest, not the tag)
-    assert any("/manifests/" in url for url in artifact.metadata.discovery.sources), (
+    assert any("/manifests/" in url for url in discovery_sources(artifact)), (
         f"No manifest URL found in discovery.sources for {image_url}"
     )
 

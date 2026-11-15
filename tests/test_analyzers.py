@@ -2016,15 +2016,22 @@ kind: Project
         # The analyzed url is recorded because it isn't this record's own key:
         # github redirects nginxinc/docker-nginx to nginx/docker-nginx, so the
         # record is keyed under the new name. Recorded in canonical `git://`
-        # form, so the spelling used to request it doesn't matter.
+        # form, so the spelling used to request it doesn't matter, and with
+        # its repository, as an analysis of the repository would record it.
+        # For the same reason the url doesn't name the record, so it gets
+        # created_by.
         metadata=ArtifactMetadata(
             discovery=Discovery(
-                sources={"git://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile": None},
+                sources={
+                    "git://github.com/nginxinc/docker-nginx.git": None,
+                    "git://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile": None,
+                },
                 applied={
                     "git://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile": [
                         "type/cloudmap.artifacts.Containerfile"
                     ]
                 },
+                created_by="git://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile",
             )
         ),
     )
