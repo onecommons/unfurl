@@ -255,7 +255,8 @@ def test_remote_tags_are_newest_first(tmp_path):
         (["v1.0.0-alpha.1", "v1.0.0", "v1.0.1", "v1.1.0-rc.1"], "1.0.1", "1.0.0"),
         (["v1.0.0-alpha.1", "v1.0.0-alpha.2"], "1.0.0-alpha.2", "1.0.0-alpha.1"),
         (["v0.9.0", "v1.0.0-rc.1"], "0.9.0", "0.9.0"),
-        (["v1.0.0-1", "v1.0", "vnext"], "1.0", "1.0"),
+        (["v1.0.0-1", "v1.0.0-2"], "1.0.0-2", "1.0.0-1"),
+        (["v1.0-rc.1", "v0.0.0-rc.1", "vnext"], "", ""),
     ],
 )
 def test_latest_semver_prefers_releases(tmp_path, tags, latest, earliest):
@@ -315,9 +316,9 @@ def test_a_major_version_package_takes_its_own_tags(
 
 def test_is_semver():
     assert is_semver("1.0.0") and is_semver("v1.2")
-    for unreleased in ["0.9.0", "1.0.0-rc.1"]:
+    for unreleased in ["0.9.0", "1.0.0-rc.1", "1.0.0-1"]:
         assert not is_semver(unreleased) and is_semver(unreleased, True), unreleased
-    for invalid in ["1.0.0-1", "0.0.0-rc.1", "1.0-rc.1", "next"]:
+    for invalid in ["0.0.0-rc.1", "1.0-rc.1", "18.0.abc", "next"]:
         assert not is_semver(invalid, True), invalid
 
 
