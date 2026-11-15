@@ -5038,21 +5038,10 @@ def test_extension_pattern_matches_the_schema() -> None:
     from unfurl.tosca_plugins.cloudmap_defs import EXTENSION_PROPERTY_PATTERN
     from unfurl.util import load_cloudmap_schema
 
-    patterns = {
-        name: list(definition["patternProperties"])
-        for name, definition in load_cloudmap_schema()["definitions"].items()
-        if "patternProperties" in definition
-    }
-    assert set(patterns) == {
-        "repository",
-        "artifact",
-        "component",
-        "service",
-        "instantiation",
-        "type",
-    }
-    for name, pattern in patterns.items():
-        assert pattern == [EXTENSION_PROPERTY_PATTERN.pattern], name
+    definitions = load_cloudmap_schema()["definitions"]
+    for name in ("repository", "artifact", "component", "service", "instantiation", "type"):
+        patterns = list(definitions[name]["patternProperties"])
+        assert patterns == [EXTENSION_PROPERTY_PATTERN.pattern], name
 
 
 def test_record_equality_compares_extensions() -> None:

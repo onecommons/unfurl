@@ -3015,6 +3015,7 @@
       },
       "cloudmap_metadata": {
         "$$target": "#/definitions/metadata",
+        "additionalProperties": true,
         "description": "Common metadata fields shared across artifacts, services, instantiations, and repositories.",
         "properties": {
           "created": {

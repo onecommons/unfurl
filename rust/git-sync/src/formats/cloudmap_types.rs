@@ -2039,6 +2039,7 @@ impl ::std::convert::TryFrom<::std::string::String> for LifecycleStatus {
 #[doc = "      ]"]
 #[doc = "    }"]
 #[doc = "  },"]
+#[doc = "  \"additionalProperties\": true,"]
 #[doc = "  \"$$target\": \"#/definitions/metadata\""]
 #[doc = "}"]
 #[doc = r" ```"]

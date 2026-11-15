@@ -534,6 +534,9 @@ pub struct CloudmapMetadata {
     pub vendor: Option<String>,
     /// Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.
     pub version: Option<CloudmapMetadataVersion>,
+    /// Additional properties not defined in the schema.
+    #[serde(flatten)]
+    pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
 /// Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]

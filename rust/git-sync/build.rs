@@ -190,9 +190,8 @@ fn field_order_source(schema_text: &str) -> String {
         // A section is either a map of records -- `additionalProperties`
         // is the `$ref` naming the definition each of its values conforms
         // to -- or one record itself, which is a `$ref` directly.
-        let Some(name) = node
-            .get("additionalProperties")
-            .and_then(|v| v.get("$ref"))
+        let record_ref = node.get("additionalProperties").and_then(|v| v.get("$ref"));
+        let Some(name) = record_ref
             .or_else(|| node.get("$ref"))
             .and_then(|v| v.as_str())
             .and_then(|r| r.rsplit('/').next())
@@ -208,6 +207,10 @@ fn field_order_source(schema_text: &str) -> String {
             .collect::<Vec<_>>()
             .join(", ");
         entries.push_str(&format!("    ({section:?}, &[{fields}]),\n"));
+        // the document's own `metadata` isn't checked here
+        if record_ref.is_none() {
+            continue;
+        }
         if let Some(pattern) = extension_pattern(definition) {
             patterns.push_str(&format!("    ({section:?}, {pattern:?}),\n"));
         }
@@ -246,10 +249,11 @@ fn extension_pattern(definition: &serde_json::Value) -> Option<String> {
     patterns.keys().next().cloned()
 }
 
-/// Rewrites every definition with an [`extension_pattern`] to allow any
-/// additional property. typify ignores `patternProperties`, so it would
-/// otherwise emit `deny_unknown_fields` and reject the extensions;
-/// `validate_record` enforces the pattern instead.
+/// Rewrites every definition that disallows additional properties but
+/// allows `patternProperties` to allow any additional property. typify
+/// ignores `patternProperties`, so it would otherwise emit
+/// `deny_unknown_fields` and reject them; `validate_record` enforces a
+/// record's pattern instead.
 fn open_record_definitions(schema: &mut serde_json::Value) {
     let Some(defs) = schema
         .get_mut("definitions")
@@ -258,7 +262,9 @@ fn open_record_definitions(schema: &mut serde_json::Value) {
         return;
     };
     for definition in defs.values_mut() {
-        if extension_pattern(definition).is_none() {
+        if definition.get("additionalProperties") != Some(&serde_json::Value::Bool(false))
+            || definition.get("patternProperties").is_none()
+        {
             continue;
         }
         if let Some(obj) = definition.as_object_mut() {

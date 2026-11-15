@@ -118,7 +118,12 @@
           "$ref": "#/definitions/discovery",
           "description": "How this metadata was discovered."
         }
-      }
+      },
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z][A-Za-z0-9_-]*){2,}$": {},
+        "^(license_url|issues_url|ci_variables|lastupdate_time|lastupdate_digest|project_status|platforms)$": {}
+      },
+      "additionalProperties": false
     },
     "typeRef": {
       "type": "object",
