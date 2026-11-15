@@ -219,6 +219,23 @@ impl PartialEq for Constraint {
     }
 }
 
+/// A version requirement with the `v` dropped from before each comparator's
+/// version (`^v1.2, < v2` becomes `^1.2, < 2`), which `VersionReq` can't
+/// parse but tosca-parser's `validate_version` accepts.
+fn without_v_prefixes(req: &str) -> String {
+    req.split(',')
+        .map(|comparator| {
+            let comparator = comparator.trim();
+            let at = comparator
+                .find(|c: char| !matches!(c, '=' | '<' | '>' | '~' | '^' | ' '))
+                .unwrap_or(comparator.len());
+            let (op, version) = comparator.split_at(at);
+            format!("{op}{}", version.strip_prefix('v').unwrap_or(version))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 impl Eq for Constraint {}
 
 impl Hash for Constraint {
@@ -347,7 +364,8 @@ impl Constraint {
                     version_str.to_string()
                 };
 
-                match (VersionReq::parse(req_str), Version::parse(&full_version)) {
+                let req = without_v_prefixes(req_str);
+                match (VersionReq::parse(&req), Version::parse(&full_version)) {
                     (Ok(version_req), Ok(version)) => Some(version_req.matches(&version)),
                     _ => Some(req_str == version_str), // non-semver version strings must match exactly
                 }
@@ -1117,6 +1135,31 @@ mod tests {
         assert!(!unsemver_constraint
             .matches(&ToscaValue::from("1.2.9".to_string()))
             .unwrap());
+    }
+
+    /// The cases tosca-parser's `validate_version` is held to as well
+    /// (`tests/test_version_requirements.py`).
+    #[test]
+    fn version_constraints_agree_with_python() {
+        let table = include_str!("../tests/version_requirements.tsv");
+        let mut checked = 0;
+        for line in table.lines() {
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let [requirement, version, expected] = line.split('\t').collect::<Vec<_>>()[..] else {
+                panic!("not 3 tab-separated fields: {line:?}");
+            };
+            let constraint = Constraint::version {
+                v: ToscaValue::from(requirement.to_string()),
+            };
+            let matched = constraint
+                .matches(&ToscaValue::from(version.to_string()))
+                .unwrap();
+            assert_eq!(matched, expected == "yes", "{requirement:?} {version:?}");
+            checked += 1;
+        }
+        assert!(checked > 0);
     }
 
     #[test]
